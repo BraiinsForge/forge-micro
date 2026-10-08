@@ -105,7 +105,9 @@ sha2              = { version = "0.10", default-features = false }
 crc               = { version = "3", default-features = false }
 bitfield-struct   = "0.13"
 zerocopy          = { version = "0.8", default-features = false, features = ["derive"] }
+schemars          = { version = "1.2", default-features = false, features = ["derive"] }
 serde             = { version = "1", default-features = false, features = ["derive"] }
+serde_json        = "1"
 serde-json-core   = "0.6"
 postcard               = { version = "1.1", default-features = false, features = ["heapless"] }
 postcard-schema        = { version = "0.2", default-features = false, features = ["derive", "heapless-v0_9"] }
