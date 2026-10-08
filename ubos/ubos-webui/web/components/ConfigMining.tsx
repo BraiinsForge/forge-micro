@@ -33,7 +33,6 @@ export default function ConfigMining({ miner, bounds, defaults }: ConfigMiningPr
   const fixed = miner?.tuning.Fixed;
   const power = miner?.tuning.Power;
   const tuners = bounds.tuners ?? [];
-  const fixedTuner = tuners.find((tuner) => tuner.Fixed)?.Fixed;
   const powerTuner = tuners.find((tuner) => tuner.Power)?.Power;
   const [mode, setMode] = useState<TunerMode>(() => (power ? 'Power' : 'Fixed'));
   // Each field offers the board's default until the operator stores
@@ -56,14 +55,11 @@ export default function ConfigMining({ miner, bounds, defaults }: ConfigMiningPr
   const inputPower = scaled(bounds.inputPowerMw);
   const isPower = mode === 'Power';
 
-  // The selected tuner's fields are required and range-checked,
-  // because an empty number input posts as zero, which is a target
-  // nobody entered. The other tuner's fields stay on the page dimmed
-  // and disabled, so the layout holds across a mode switch while the
-  // browser keeps a field the save does not carry out of both its
-  // validation and the submit. A field no offered tuner reads is not
-  // shown. The efficiency is posted even then, because the power
-  // target requires one.
+  // Only the selected tuner's fields are on the page. They are required
+  // and range-checked, because an empty number input posts as zero,
+  // which is a target nobody entered. A field the tuner does not read
+  // is not shown, but the efficiency is posted even then, because the
+  // power target requires one.
   const save = (event: JSX.TargetedEvent<HTMLFormElement, SubmitEvent>) => {
     const tuning: Tuning = isPower
       ? {
@@ -103,68 +99,61 @@ export default function ConfigMining({ miner, bounds, defaults }: ConfigMiningPr
             </span>
           </span>
         </div>
-        {fixedTuner ? (
-          <Field
-            label="Frequency"
-            off={isPower}
-            disabled={isPower}
-            desc={fmtRange(freq.start, freq.end)}
-            unit="MHz"
-            value={freqMhz}
-            onInput={(e) => setFreqMhz(e.currentTarget.value)}
-            type="number"
-            step="0.001"
-            min={freq.start}
-            max={freq.end}
-            required
-          />
-        ) : null}
-        {fixedTuner ? (
-          <Field
-            label="Voltage"
-            off={isPower}
-            disabled={isPower}
-            desc={fmtRange(volt.start, volt.end)}
-            unit="V"
-            value={voltV}
-            onInput={(e) => setVoltV(e.currentTarget.value)}
-            type="number"
-            step="0.001"
-            min={volt.start}
-            max={volt.end}
-            required
-          />
-        ) : null}
-        {powerTuner ? (
-          <Field
-            label="Input power"
-            off={!isPower}
-            disabled={!isPower}
-            desc={fmtRange(inputPower.start, inputPower.end)}
-            unit="W"
-            value={inputPowerW}
-            onInput={(e) => setInputPowerW(e.currentTarget.value)}
-            type="number"
-            step="0.001"
-            min={inputPower.start}
-            max={inputPower.end}
-            required
-          />
-        ) : null}
-        {powerTuner?.readsEfficiency ? (
-          <Field
-            label="Efficiency"
-            off={!isPower}
-            disabled={!isPower}
-            unit="J/TH"
-            value={efficiencyJPerTh}
-            onInput={(e) => setEfficiencyJPerTh(e.currentTarget.value)}
-            type="number"
-            step="0.001"
-            min="0.001"
-            required
-          />
-        ) : null}
+        {isPower ? (
+          <>
+            <Field
+              label="Input power"
+              desc={fmtRange(inputPower.start, inputPower.end)}
+              unit="W"
+              value={inputPowerW}
+              onInput={(e) => setInputPowerW(e.currentTarget.value)}
+              type="number"
+              step="0.001"
+              min={inputPower.start}
+              max={inputPower.end}
+              required
+            />
+            {powerTuner?.readsEfficiency ? (
+              <Field
+                label="Efficiency"
+                unit="J/TH"
+                value={efficiencyJPerTh}
+                onInput={(e) => setEfficiencyJPerTh(e.currentTarget.value)}
+                type="number"
+                step="0.001"
+                min="0.001"
+                required
+              />
+            ) : null}
+          </>
+        ) : (
+          <>
+            <Field
+              label="Frequency"
+              desc={fmtRange(freq.start, freq.end)}
+              unit="MHz"
+              value={freqMhz}
+              onInput={(e) => setFreqMhz(e.currentTarget.value)}
+              type="number"
+              step="0.001"
+              min={freq.start}
+              max={freq.end}
+              required
+            />
+            <Field
+              label="Voltage"
+              desc={fmtRange(volt.start, volt.end)}
+              unit="V"
+              value={voltV}
+              onInput={(e) => setVoltV(e.currentTarget.value)}
+              type="number"
+              step="0.001"
+              min={volt.start}
+              max={volt.end}
+              required
+            />
+          </>
+        )}
       </div>
       <button type="submit">Save</button>
     </form>
