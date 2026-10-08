@@ -32,11 +32,14 @@
 
 use crate::Config;
 
-/// Map key for the single config record.
+/// Map key for the config record.
 ///
-/// A `u8` key is sufficient for the one-record keyspace; additional
-/// record types would use distinct constants.
+/// A `u8` key is sufficient for the store's few record types, and each
+/// type has a constant of its own.
 pub const CONFIG_KEY: u8 = 0;
+
+/// Map key for the record of the seed fingerprints the store last took.
+pub const SEED_KEY: u8 = 1;
 
 /// Reason a stored blob could not be decoded back into a [`Config`].
 #[derive(Debug)]
@@ -59,9 +62,9 @@ pub enum LoadError<E> {
 
 /// Async key-value storage backend.
 ///
-/// The key type is `u8` matching [`CONFIG_KEY`]. Values are raw byte
-/// slices; framing (schema hash, serialization) is handled by
-/// [`encode_blob`] and [`decode_blob`] above this layer.
+/// The key type is `u8` matching [`CONFIG_KEY`] and [`SEED_KEY`].
+/// Values are raw byte slices; framing (schema hash, serialization) is
+/// handled by [`encode_blob`] and [`decode_blob`] above this layer.
 pub trait Storage {
     /// Backend-specific error type.
     type Error;
@@ -75,8 +78,8 @@ pub trait Storage {
     /// Callers must size `buffer` to fit the maximum expected blob.
     /// If a stored value is larger than `buffer`, it is silently
     /// truncated; [`decode_blob`] then surfaces the truncation as
-    /// [`LoadError::Corrupt`]. Today's only caller passes
-    /// `LOAD_BUFFER_SIZE`, which fits the maximum [`Config`] blob.
+    /// [`LoadError::Corrupt`]. Today's callers pass `LOAD_BUFFER_SIZE`,
+    /// which fits the maximum [`Config`] blob.
     async fn load<'b>(
         &mut self,
         key: u8,

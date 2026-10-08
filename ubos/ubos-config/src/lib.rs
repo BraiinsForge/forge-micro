@@ -24,8 +24,9 @@
 //! config and wait for changes.
 //!
 //! Firmware spawns [`run`], which publishes one config at boot: the
-//! stored one, or on a first boot the seed the board hands in, and
-//! [`Config::default`] when neither is usable. It then drains
+//! stored one, or on a first boot [`Config::default`], with each field
+//! of the board's [`Seed`] written over it whose source changed since
+//! the store last took it. It then drains
 //! [`COMMAND_CHANNEL`] forever. On each
 //! [`Message::Update`] it persists and publishes the new value on
 //! [`STATE_WATCH`].
@@ -60,8 +61,11 @@ pub mod mining;
 pub mod network;
 pub mod pool;
 pub mod pubkey;
+pub mod seed;
 pub mod thermal;
 
+use seed::Taken;
+use storage::SEED_KEY;
 use ubos_asic::HashboardDescriptor;
 
 pub use api::ApiConfig;
@@ -79,6 +83,7 @@ pub use pool::{
     DEFAULT_POOL_HOST, DEFAULT_POOL_PORT, DEFAULT_POOL_SV2_PUBKEY, DEFAULT_POOL_USER,
     MAX_POOL_WEIGHT, PoolEntry, ProtocolKind,
 };
+pub use seed::{Seed, SeedField};
 pub use thermal::{
     BOUNDS as THERMAL_BOUNDS, INFO as THERMAL_INFO, ThermalBounds, ThermalConfig, ThermalInfo,
 };
@@ -720,13 +725,19 @@ impl Config {
 /// (partial write before power loss), an I/O error, or a failed
 /// validation, falls back to [`Config::for_board`] with
 /// `info.default_tuning` and logs the reason. `Ok(None)` means the key
-/// was never written and is treated as a clean first-boot: the `seed`
-/// when the board supplies one, persisted at once so every later boot
-/// loads the store and drops the seed, otherwise defaults, with no
-/// warning either way. A seed that fails validation is dropped for
-/// defaults with a warning. A stored blob always wins over a seed, so a
-/// board can hand in settings it recovered from elsewhere without ever
-/// overriding what the operator has since changed.
+/// was never written and is treated as a clean first-boot: defaults,
+/// with no warning.
+///
+/// A board can hand in a `seed` of settings it recovered from the
+/// firmware it replaced. Each seed field is written over the config
+/// when its fingerprint differs from the one the store last took, and
+/// every field is new to a store that has taken none. The result is
+/// persisted at once with the new fingerprints. So a setting changed
+/// under the other firmware reaches the config once, and a setting the
+/// operator has since changed here stays as they left it. A factory
+/// reset keeps the fingerprints, so the seed stays out until its
+/// source changes. A seed whose result fails validation is dropped
+/// with a warning.
 ///
 /// Each [`Message::Update`] persists the new value before publishing
 /// it and bumps [`GENERATION_WATCH`] so every stratum session tears
@@ -746,7 +757,7 @@ pub async fn run<S: Storage>(
     mut storage: S,
     board: &'static HashboardDescriptor,
     info: &'static MiningInfo,
-    seed: Option<Config>,
+    seed: Option<Seed>,
 ) -> ! {
     let mut committed = load_initial(&mut storage, board, info, seed).await;
     STATE_WATCH.sender().send(committed.clone());
@@ -833,14 +844,14 @@ pub async fn run<S: Storage>(
 /// Takes the board's storage backend, which bottoms out in its own flash
 /// driver, the hashboard descriptor, and the firmware's [`MiningInfo`],
 /// whose bounds the store validates against and whose default tuning a
-/// new config starts on. The task's `seed` argument is the config a
-/// first boot starts from when the board has one to offer; a board with
-/// none spawns it with `None`.
+/// new config starts on. The task's `seed` argument holds the settings
+/// the board recovered from the firmware it replaced, when it has any to
+/// offer; a board with none spawns it with `None`.
 #[macro_export]
 macro_rules! config_task {
     ($storage:ty, $board:expr, $info:expr) => {
         #[embassy_executor::task]
-        async fn config_task(storage: $storage, seed: Option<ubos_config::Config>) -> ! {
+        async fn config_task(storage: $storage, seed: Option<ubos_config::Seed>) -> ! {
             ubos_config::run(storage, $board, $info, seed).await
         }
     };
@@ -865,48 +876,80 @@ fn clear_pending_status() {
     PENDING_IS_STATIC.store(false, Ordering::Relaxed);
 }
 
-/// Load the persisted [`Config`], or the `seed` on a first boot, or
-/// fall back to [`Config::for_board`].
+/// Load the persisted [`Config`], or on a first boot the defaults, with
+/// the new fields of the `seed` written over it, or fall back to
+/// [`Config::for_board`].
 ///
 /// The buffer is sized to match [`encode_blob`]'s budget so any blob
 /// that could have been stored fits without reallocation. All failure
 /// paths converge on defaults so the firmware always boots with a
-/// valid config. The seed is used only when the store has never been
-/// written, and it is persisted before it is returned so the next
-/// boot loads the store and drops the seed. The board still builds the
-/// seed on every boot, because it is built before the store is read.
+/// valid config. A seed field is new when its fingerprint differs from
+/// the taken one, so a first boot with no taken record takes them all.
 async fn load_initial<S: Storage>(
     storage: &mut S,
     board: &'static HashboardDescriptor,
     info: &'static MiningInfo,
-    seed: Option<Config>,
+    seed: Option<Seed>,
 ) -> Config {
-    let mut buffer = [0u8; LOAD_BUFFER_SIZE];
-    let blob = match storage.load(CONFIG_KEY, &mut buffer).await {
-        Ok(Some(blob)) => blob,
-        Ok(None) => {
-            let Some(seed) = seed else {
+    // The buffer is scoped to the load, so the task does not hold it
+    // across the seed writes.
+    let stored = {
+        let mut buffer = [0u8; LOAD_BUFFER_SIZE];
+        match storage.load(CONFIG_KEY, &mut buffer).await {
+            Ok(Some(blob)) => {
+                let Some(config) = decode_stored::<S::Error>(blob, board, info) else {
+                    return Config::for_board(board, info.default_tuning);
+                };
+                Some(config)
+            }
+            Ok(None) => {
                 info!("config: no stored config, using defaults");
-                return Config::for_board(board, info.default_tuning);
-            };
-            if seed.validate(info.bounds).is_err() {
-                warn!("config: seed failed validation, using defaults");
+                None
+            }
+            Err(_) => {
+                warn!("config: load failed, using defaults");
                 return Config::for_board(board, info.default_tuning);
             }
-            info!("config: no stored config, seeded by the board");
-            persist(&seed, storage).await;
-            return seed;
-        }
-        Err(_) => {
-            warn!("config: load failed, using defaults");
-            return Config::for_board(board, info.default_tuning);
         }
     };
-    let mut config = match decode_blob::<S::Error>(blob) {
+    let Some(seed) = &seed else {
+        return stored.unwrap_or_else(|| Config::for_board(board, info.default_tuning));
+    };
+    // The boot config is scoped to the merge, so the task holds one config
+    // across the writes below rather than two.
+    let (config, taken, changed) = {
+        let base = stored.unwrap_or_else(|| Config::for_board(board, info.default_tuning));
+        let Some(taken) = load_taken(storage).await else {
+            return base;
+        };
+        let Some((config, taken)) = seeded(&base, taken, seed, info.bounds) else {
+            return base;
+        };
+        let changed = config != base;
+        (config, taken, changed)
+    };
+    // The fingerprints are saved only once the config is stored, so a power
+    // cut or a failed write between the two takes the seed again on the
+    // next boot rather than losing it.
+    if changed && !persist(&config, storage).await {
+        return config;
+    }
+    persist_taken(&taken, storage).await;
+    config
+}
+
+/// The config in a stored `blob`, or `None` after a logged reason when
+/// it does not decode or fails validation.
+fn decode_stored<E>(
+    blob: &[u8],
+    board: &'static HashboardDescriptor,
+    info: &'static MiningInfo,
+) -> Option<Config> {
+    let mut config = match decode_blob::<E>(blob) {
         Ok(config) => config,
         Err(error) => {
             log_decode_error(&error);
-            return Config::for_board(board, info.default_tuning);
+            return None;
         }
     };
     // Firmware updates narrow the tuners and ranges a stored tuning
@@ -926,10 +969,71 @@ async fn load_initial<S: Storage>(
     }
     if config.validate(info.bounds).is_err() {
         warn!("config: stored config failed validation, using defaults");
-        return Config::for_board(board, info.default_tuning);
+        return None;
     }
     info!("config: loaded from storage");
-    config
+    Some(config)
+}
+
+/// `base` with each field of the board's `seed` written over it whose
+/// fingerprint differs from the one in `taken`, and the fingerprints
+/// to save with it.
+///
+/// `None` when the seed has no new field, or when its result fails
+/// validation. A rejected seed leaves its fingerprints unsaved, so the
+/// next boot tries it again.
+fn seeded(
+    base: &Config,
+    taken: Taken,
+    seed: &Seed,
+    bounds: &MiningBounds,
+) -> Option<(Config, Taken)> {
+    let mut config = base.clone();
+    let mut now_taken = taken;
+    seed.apply(&mut config, &mut now_taken);
+    if now_taken == taken {
+        return None;
+    }
+    if config.validate(bounds).is_err() {
+        warn!("config: the config with the seed is not valid, seed not used");
+        return None;
+    }
+    Some((config, now_taken))
+}
+
+/// The seed fingerprints the store last took, or `None` when the
+/// record cannot be read, so a flash fault never writes the seed over
+/// the config.
+///
+/// An absent record takes nothing, so every seed field is new. So is
+/// every field of a record that does not decode, because the record is
+/// written again only when a seed is taken.
+async fn load_taken<S: Storage>(storage: &mut S) -> Option<Taken> {
+    let mut buffer = [0u8; LOAD_BUFFER_SIZE];
+    let Ok(record) = storage.load(SEED_KEY, &mut buffer).await else {
+        warn!("config: cannot read the seed record, seed not used");
+        return None;
+    };
+    let Some(record) = record else {
+        return Some(Taken::default());
+    };
+    Some(postcard::from_bytes(record).unwrap_or_else(|_| {
+        warn!("config: seed record is damaged, all seed fields apply again");
+        Taken::default()
+    }))
+}
+
+/// Persist the seed fingerprints the store took. A failure is logged
+/// and swallowed, and the next boot takes the same fields again.
+async fn persist_taken<S: Storage>(taken: &Taken, storage: &mut S) {
+    let mut buffer = [0u8; LOAD_BUFFER_SIZE];
+    let Ok(record) = postcard::to_slice(taken, &mut buffer) else {
+        warn!("config: cannot encode the seed record");
+        return;
+    };
+    if storage.store(SEED_KEY, record).await.is_err() {
+        warn!("config: cannot store the seed record");
+    }
 }
 
 /// Log the variant-specific reason a stored blob could not be decoded.
@@ -1007,15 +1111,18 @@ async fn factory_reset<S: Storage>(
     config
 }
 
-/// Persist `config` to `storage`. A failure is logged and swallowed:
-/// an in-memory-only update is preferable to leaving mining paused.
-async fn persist<S: Storage>(config: &Config, storage: &mut S) {
+/// Persist `config` to `storage`, and say whether it reached the store.
+/// A failure is logged and otherwise swallowed: an in-memory-only update
+/// is preferable to leaving mining paused.
+async fn persist<S: Storage>(config: &Config, storage: &mut S) -> bool {
     let mut buffer = [0u8; LOAD_BUFFER_SIZE];
     let Ok(length) = encode_blob(config, &mut buffer) else {
         warn!("config: encode failed, publishing in-memory only");
-        return;
+        return false;
     };
     if storage.store(CONFIG_KEY, &buffer[..length]).await.is_err() {
         warn!("config: store failed, publishing in-memory only");
+        return false;
     }
+    true
 }

@@ -17,13 +17,15 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Tests for the first-boot seed path in [`crate::load_initial`].
+//! Tests for the seed path in [`crate::load_initial`].
 //!
 //! These drive [`crate::load_initial`] directly, the same function
 //! [`crate::run`] opens with, against a `FileStorage` in a fresh
-//! directory. `FileStorage`'s async methods have no suspend points, so
-//! `embassy_futures::block_on` resolves each future on the first poll.
-//! Pattern mirrors the factory-reset tests.
+//! directory. Most tests boot the store more than once with the seed a
+//! board would build on each boot, as the operator changes the config
+//! between boots. `FileStorage`'s async methods have no suspend points,
+//! so `embassy_futures::block_on` resolves each future on the first
+//! poll. Pattern mirrors the factory-reset tests.
 
 extern crate std;
 
@@ -33,13 +35,16 @@ use std::path::PathBuf;
 use embassy_futures::block_on;
 
 use crate::{
-    Config, DefaultTuning, LOAD_BUFFER_SIZE, MiningInfo, decode_blob, file_storage::FileStorage,
-    load_initial, storage::Storage,
+    ApiConfig, CONFIG_KEY, Config, DefaultTuning, LOAD_BUFFER_SIZE, MiningInfo, NetworkMode, Seed,
+    SeedField, decode_blob, encode_blob, file_storage::FileStorage, load_initial, storage::Storage,
 };
 
 const BOARD: &ubos_asic::HashboardDescriptor = &ubos_asic::BMM101_HASHBOARD;
 
 static INFO: MiningInfo = crate::mining_info(BOARD, &crate::MINING_BOUNDS, DefaultTuning::Fixed);
+
+/// The fingerprint of a field's source on the first boot.
+const SOURCE: u32 = 0x1111_1111;
 
 /// A fresh temporary directory for one test's store.
 fn fresh_dir(name: &str) -> PathBuf {
@@ -51,63 +56,103 @@ fn fresh_dir(name: &str) -> PathBuf {
     ))
 }
 
-/// A config that differs from the board defaults in one field.
-fn seed() -> Config {
-    let mut seed = Config::for_board(BOARD, INFO.default_tuning);
-    seed.thermal.dangerous_estimated_temp_c = 85.0;
-    seed
+/// An API login for `username` that differs from the board default.
+fn login(username: &str) -> ApiConfig {
+    ApiConfig {
+        username: username.try_into().expect("BUG: test username too long"),
+        password: "recovered".try_into().expect("BUG: test password too long"),
+    }
+}
+
+/// A static network mode on `address`.
+fn static_mode(address: [u8; 4]) -> NetworkMode {
+    NetworkMode::Static {
+        address,
+        prefix_len: 24,
+        gateway: [192, 168, 1, 1],
+        dns: heapless::Vec::new(),
+    }
+}
+
+/// A seed field of `value` read from the source with `fingerprint`.
+fn field<T>(value: T, fingerprint: u32) -> SeedField<T> {
+    SeedField { value, fingerprint }
+}
+
+/// A seed that fills the API login and the network mode, both from
+/// their first-boot source.
+fn seed() -> Seed {
+    Seed {
+        api: Some(field(login("operator"), SOURCE)),
+        network_mode: Some(field(static_mode([192, 168, 1, 10]), SOURCE)),
+        ..Seed::default()
+    }
+}
+
+/// The board defaults with the fields of [`seed`] written over them.
+fn seeded() -> Config {
+    let mut config = Config::for_board(BOARD, INFO.default_tuning);
+    config.api = login("operator");
+    config.network.mode = static_mode([192, 168, 1, 10]);
+    config
 }
 
 /// What the store holds under the config key, decoded.
 fn stored(storage: &mut FileStorage) -> Option<Config> {
     let mut buffer = [0u8; LOAD_BUFFER_SIZE];
-    let blob = block_on(storage.load(crate::storage::CONFIG_KEY, &mut buffer))
+    let blob = block_on(storage.load(CONFIG_KEY, &mut buffer))
         .expect("BUG: FileStorage::load returned Err in test")?;
     Some(
         decode_blob::<std::io::Error>(blob).expect("BUG: decode of the stored blob failed in test"),
     )
 }
 
-/// An empty store takes the seed, and the seed is persisted so the next
-/// load finds it in the store.
+/// Store `config` as an operator's save over the API would.
+fn save(storage: &mut FileStorage, config: &Config) {
+    let mut buffer = [0u8; LOAD_BUFFER_SIZE];
+    let length = encode_blob(config, &mut buffer).expect("BUG: encode_blob failed in test");
+    block_on(storage.store(CONFIG_KEY, &buffer[..length]))
+        .expect("BUG: FileStorage::store failed in test");
+}
+
+/// An empty store takes the defaults with the seed written over them,
+/// and the result is persisted so the next load finds it in the store.
 #[test]
 fn empty_store_takes_and_persists_the_seed() {
     let dir = fresh_dir("empty");
     let mut storage = FileStorage::new(&dir);
 
     let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(seed())));
-    assert_eq!(loaded, seed(), "an empty store must start from the seed");
+    assert_eq!(
+        loaded,
+        seeded(),
+        "an empty store must start from the defaults with the seed over them"
+    );
     assert_eq!(
         stored(&mut storage),
-        Some(seed()),
-        "the seed must be persisted on the boot that takes it"
+        Some(seeded()),
+        "the seeded config must be persisted on the boot that takes it"
     );
 
     let _ = fs::remove_dir_all(&dir);
 }
 
-/// A stored config wins over a seed, so a seed offered on every boot
-/// never overrides what the operator has since changed.
+/// A stored config with no seed record, from a firmware without one,
+/// takes every seed field once and keeps its other settings.
 #[test]
-fn stored_config_wins_over_the_seed() {
-    let dir = fresh_dir("stored");
+fn stored_config_without_a_record_takes_the_seed() {
+    let dir = fresh_dir("upgrade");
     let mut storage = FileStorage::new(&dir);
 
     let mut existing = Config::for_board(BOARD, INFO.default_tuning);
     existing.thermal.dangerous_estimated_temp_c = 80.0;
-    let mut buffer = [0u8; LOAD_BUFFER_SIZE];
-    let length =
-        crate::encode_blob(&existing, &mut buffer).expect("BUG: encode_blob failed in test");
-    block_on(storage.store(crate::storage::CONFIG_KEY, &buffer[..length]))
-        .expect("BUG: FileStorage::store failed in test");
+    save(&mut storage, &existing);
 
+    let mut expected = seeded();
+    expected.thermal.dangerous_estimated_temp_c = 80.0;
     let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(seed())));
-    assert_eq!(loaded, existing, "a stored config must win over the seed");
-    assert_eq!(
-        stored(&mut storage),
-        Some(existing),
-        "the seed must not touch a store that already holds a config"
-    );
+    assert_eq!(loaded, expected);
+    assert_eq!(stored(&mut storage), Some(expected));
 
     let _ = fs::remove_dir_all(&dir);
 }
@@ -126,22 +171,49 @@ fn empty_store_without_a_seed_stays_empty() {
     let _ = fs::remove_dir_all(&dir);
 }
 
-/// A seed that fails validation is dropped for the defaults and nothing
-/// is persisted.
+/// A seed whose fields equal the defaults leaves the store empty, so
+/// the defaults stay unstored as on a board with no seed.
 #[test]
-fn invalid_seed_falls_back_to_defaults() {
+fn seed_that_changes_nothing_stays_unstored() {
+    let dir = fresh_dir("unchanged");
+    let mut storage = FileStorage::new(&dir);
+
+    let unchanged = Seed {
+        api: Some(field(Config::for_board(BOARD, INFO.default_tuning).api, SOURCE)),
+        ..Seed::default()
+    };
+    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(unchanged)));
+    assert_eq!(loaded, Config::for_board(BOARD, INFO.default_tuning));
+    assert_eq!(stored(&mut storage), None, "defaults are not persisted");
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// A seed whose result fails validation is dropped for the config the
+/// boot started from, and nothing is persisted.
+#[test]
+fn invalid_seed_keeps_the_config() {
     let dir = fresh_dir("invalid");
     let mut storage = FileStorage::new(&dir);
 
-    let mut bad = seed();
-    bad.cooling.target_temp_c = bad.thermal.dangerous_estimated_temp_c;
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(bad)));
+    let bad = Seed {
+        api: Some(field(login(""), SOURCE)),
+        ..Seed::default()
+    };
+    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(bad.clone())));
     assert_eq!(loaded, Config::for_board(BOARD, INFO.default_tuning));
     assert_eq!(
         stored(&mut storage),
         None,
         "a rejected seed is not persisted"
     );
+
+    let mut existing = Config::for_board(BOARD, INFO.default_tuning);
+    existing.thermal.dangerous_estimated_temp_c = 80.0;
+    save(&mut storage, &existing);
+    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(bad)));
+    assert_eq!(loaded, existing);
+    assert_eq!(stored(&mut storage), Some(existing));
 
     let _ = fs::remove_dir_all(&dir);
 }
