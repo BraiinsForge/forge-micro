@@ -9,7 +9,7 @@ UBOS_BRAND = { value = "../../brand/ubos", relative = true }
 DEVFEE = "0"
 # The shared probe-rs-board-run cargo runner reads the chip from here.
 PROBE_RS_CHIP = "RP235x"
-DEFMT_LOG = "debug,embassy_net=info,smoltcp=info"
+DEFMT_LOG = "debug,embassy_net=info,smoltcp=info,edge_http=info"
 
 [build]
 target = "thumbv8m.main-none-eabihf"

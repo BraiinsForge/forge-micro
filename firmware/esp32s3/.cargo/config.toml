@@ -14,7 +14,7 @@ DEVFEE = "0"
 # why). The common default all boards share, plus silencers for the
 # board-only esp-hal/esp-rtos crates, which chatter at debug. POOL_*
 # defaults inherit from the workspace config.
-DEFMT_LOG = "debug,embassy_net=info,smoltcp=info,esp_hal=info,esp_rtos=info"
+DEFMT_LOG = "debug,embassy_net=info,smoltcp=info,esp_hal=info,esp_rtos=info,edge_http=info"
 # esp-rtos 0.3.0 adds per-CPU scheduler state that pushed the binary
 # over dram_seg. Moving interrupt switch tables back to flash recovers
 # enough room without affecting mining throughput.

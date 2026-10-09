@@ -9,7 +9,7 @@ UBOS_BRAND = { value = "../../brand/forge", relative = true }
 DEVFEE = "0"
 # The shared probe-rs-board-run cargo runner reads the chip from here.
 PROBE_RS_CHIP = "RP2040"
-DEFMT_LOG = "debug,embassy_net=info,smoltcp=info"
+DEFMT_LOG = "debug,embassy_net=info,smoltcp=info,edge_http=info"
 
 [build]
 target = "thumbv6m-none-eabi"

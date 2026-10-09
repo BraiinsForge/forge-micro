@@ -13,7 +13,7 @@ runner = [
 UBOS_BRAND = { value = "../../brand/forge", relative = true }
 # This board ships no fee slot; docs/DEVFEE.md says how the line is read.
 DEVFEE = "0"
-DEFMT_LOG = "debug,embassy_net=info,smoltcp=info"
+DEFMT_LOG = "debug,embassy_net=info,smoltcp=info,edge_http=info"
 
 [build]
 target = "thumbv8m.main-none-eabihf"
