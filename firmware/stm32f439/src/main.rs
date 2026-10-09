@@ -39,7 +39,7 @@ use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::i2c::{Config as I2cConfig, I2c};
 #[cfg(feature = "display")]
 use embassy_stm32::peripherals::DMA2_CH3;
-use embassy_stm32::peripherals::{DMA1_CH0, DMA1_CH1, DMA1_CH3, DMA1_CH6, DMA2_CH0};
+use embassy_stm32::peripherals::{DMA1_CH0, DMA1_CH1, DMA1_CH3, DMA1_CH6};
 use embassy_stm32::rng::Rng;
 #[cfg(feature = "display")]
 use embassy_stm32::spi::{self, Spi};
@@ -76,7 +76,6 @@ defmt::timestamp!("{=u64:iso8601s}", ubos_net::wall_clock_secs());
 bind_interrupts!(struct Irqs {
     ETH => eth::InterruptHandler;
     HASH_RNG => rng::InterruptHandler<peripherals::RNG>;
-    DMA2_STREAM0 => dma::InterruptHandler<DMA2_CH0>;
     USART3 => UsartInterruptHandler<peripherals::USART3>;
     DMA1_STREAM1 => dma::InterruptHandler<DMA1_CH1>;
     DMA1_STREAM3 => dma::InterruptHandler<DMA1_CH3>;
@@ -335,14 +334,7 @@ async fn boot(spawner: Spawner) {
     spawner.spawn(unwrap!(cpu_load_task()));
     spawner.spawn(unwrap!(pool_weights_task()));
 
-    static TEMP_RING_BUF: StaticCell<[u16; 2]> = StaticCell::new();
-    let mcu_temp_sensor = ubos_stm32::mcu_temp::McuTempSensor::new(
-        hw.adc,
-        hw.adc_dma,
-        hw.temp_trigger_timer,
-        TEMP_RING_BUF.init([0u16; 2]),
-        Irqs,
-    );
+    let mcu_temp_sensor = ubos_stm32::mcu_temp::McuTempSensor::new(hw.adc);
     spawner.spawn(unwrap!(mcu_temperature_task(mcu_temp_sensor)));
 
     // Hashboard plug-detect input on PE1, pulled up. `boot` returns once the

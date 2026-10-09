@@ -23,7 +23,7 @@
 //! temperature code that both STM32 boards carried one copy of: the
 //! timer-based fan PWM and the tachometer that counts capture edges in the
 //! TIM4 handler, the `MinerUart` newtype, the `BoardWatchdog` wrapper, the
-//! `Device` type alias with its `ethernet_device!` macro, and the ADC1/TIM3
+//! `Device` type alias with its `ethernet_device!` macro, and the ADC1
 //! wiring for the die thermometer. A board depends on this crate and
 //! deletes its own copies.
 //!

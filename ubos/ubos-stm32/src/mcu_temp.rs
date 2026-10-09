@@ -17,21 +17,14 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! The MCU internal temperature sensor, read through ADC1. TIM3 runs free
-//! as a TRGO source for that ADC, and the timer peripheral is moved into
-//! the sensor to keep its RCC clock alive for as long as the sensor lives.
+//! The MCU internal temperature sensor, read through ADC1.
 //!
-//! Both STM32 control boards wire ADC1 to the die thermometer through
-//! TIM3 and a DMA ring buffer, so this module holds the wiring and the
-//! reading for both.
+//! Both STM32 control boards wire ADC1 to the die thermometer and nothing
+//! else, so this module holds the wiring and the reading for both.
 
-use embassy_stm32::adc::{Adc, AdcChannel, Exten, RingBufferedAdc, RxDma, SampleTime};
-use embassy_stm32::interrupt::typelevel::Binding;
-use embassy_stm32::peripherals::{ADC1, TIM3};
-use embassy_stm32::time::Hertz;
-use embassy_stm32::timer::low_level::{MasterMode, RoundTo, Timer as LowLevelTimer};
-use embassy_stm32::triggers::TIM3_TRGO;
-use embassy_stm32::{Peri, dma};
+use embassy_stm32::Peri;
+use embassy_stm32::adc::{Adc, SampleTime, Temperature};
+use embassy_stm32::peripherals::ADC1;
 use ubos_metrics::mcu_temperature::McuTemperatureSensor;
 
 /// The die thermometer reads about 0.76 V at 25 °C and moves 2.5 mV per
@@ -45,21 +38,25 @@ const V25_UV: i64 = 760_000;
 const SLOPE_UV_PER_C: i64 = 2_500;
 const CALIBRATION_MC: i64 = 25_000;
 
-/// TIM3 TRGO period: one temperature sample per second.
-const TRIGGER_HZ: Hertz = Hertz(1);
+/// Sample time for the die thermometer. The sensor needs about 10 µs to
+/// settle on the sample-and-hold capacitor, and 480 ADC cycles is the
+/// longest the peripheral offers, so it clears that on every ADC clock
+/// this board runs.
+const TEMP_SAMPLE_TIME: SampleTime = SampleTime::CYCLES480;
 
-/// The MCU internal thermometer. The `_timer` field is never read; it
-/// exists to keep TIM3's RCC clock alive for as long as the sensor lives.
+/// The MCU internal thermometer.
 pub struct McuTempSensor {
-    ring: RingBufferedAdc<'static, ADC1>,
-    _timer: LowLevelTimer<'static, TIM3>,
+    adc: Adc<'static, ADC1>,
+    channel: Temperature,
 }
 
+/// The read converts once and returns, so the caller keeps its own
+/// period. The conversion takes tens of microseconds and leaves
+/// interrupts enabled.
 impl McuTemperatureSensor for McuTempSensor {
     async fn read(&mut self) -> Option<ubos_core::units::Temperature> {
-        let mut samples = [0u16; 1];
-        self.ring.read(&mut samples).await.ok()?;
-        let vsense_uv = i64::from(samples[0]) * VREF_UV / ADC_FULL_SCALE;
+        let raw = self.adc.blocking_read(&mut self.channel, TEMP_SAMPLE_TIME);
+        let vsense_uv = i64::from(raw) * VREF_UV / ADC_FULL_SCALE;
         let millicelsius = CALIBRATION_MC + (vsense_uv - V25_UV) * 1000 / SLOPE_UV_PER_C;
         i32::try_from(millicelsius)
             .ok()
@@ -68,39 +65,13 @@ impl McuTemperatureSensor for McuTempSensor {
 }
 
 impl McuTempSensor {
-    /// Build the MCU temperature sensor: start TIM3 as a one-shot-per-second
-    /// TRGO source, then set ADC1 up as a DMA ring buffer that samples the
-    /// die thermometer on each rising edge. `dma_buf` backs the ring and
-    /// must outlive the sensor.
-    pub fn new<D: RxDma<ADC1>>(
-        adc: Peri<'static, ADC1>,
-        adc_dma: Peri<'static, D>,
-        temp_trigger_timer: Peri<'static, TIM3>,
-        dma_buf: &'static mut [u16],
-        irqs: impl Binding<D::Interrupt, dma::InterruptHandler<D>> + 'static,
-    ) -> Self {
-        // TIM3 emits TRGO once per second via master-mode UPDATE; the ADC runs
-        // single-shot conversions on each rising edge, so the DMA ring buffer
-        // receives exactly one temperature sample per trigger.
-        let temp_timer = LowLevelTimer::new(temp_trigger_timer);
-        temp_timer.set_frequency(TRIGGER_HZ, RoundTo::Slower);
-        temp_timer.set_master_mode(MasterMode::UPDATE);
-        temp_timer.start();
-
+    /// Build the MCU temperature sensor by taking ADC1 and switching the
+    /// die thermometer onto it. The channel stays enabled for as long as
+    /// the sensor lives, so each read is one conversion.
+    #[must_use]
+    pub fn new(adc: Peri<'static, ADC1>) -> Self {
         let adc = Adc::new(adc);
-        let temp_channel = adc.enable_temperature();
-        let temp_ring = adc.into_ring_buffered(
-            adc_dma,
-            dma_buf,
-            irqs,
-            [(temp_channel.degrade_adc(), SampleTime::CYCLES480)].into_iter(),
-            TIM3_TRGO,
-            Exten::RISING_EDGE,
-        );
-
-        McuTempSensor {
-            ring: temp_ring,
-            _timer: temp_timer,
-        }
+        let channel = adc.enable_temperature();
+        McuTempSensor { adc, channel }
     }
 }

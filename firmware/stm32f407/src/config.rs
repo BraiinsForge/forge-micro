@@ -32,9 +32,9 @@ pub const CHAINS: usize = MACHINE.chains;
 
 use embassy_stm32::Peri;
 use embassy_stm32::peripherals::{
-    ADC1, DMA1_CH0, DMA1_CH1, DMA1_CH3, DMA1_CH6, DMA2_CH0, ETH, ETH_SMA, FLASH, I2C1, IWDG, PA1,
-    PA2, PA6, PA7, PB6, PB7, PB8, PB9, PB11, PB12, PB13, PC1, PC4, PC5, PD8, PD9, PE0, PE1, PE14,
-    RNG, TIM3, TIM4, USART3,
+    ADC1, DMA1_CH0, DMA1_CH1, DMA1_CH3, DMA1_CH6, ETH, ETH_SMA, FLASH, I2C1, IWDG, PA1, PA2, PA6,
+    PA7, PB6, PB7, PB8, PB9, PB11, PB12, PB13, PC1, PC4, PC5, PD8, PD9, PE0, PE1, PE14, RNG, TIM4,
+    USART3,
 };
 #[cfg(feature = "display")]
 use embassy_stm32::peripherals::{DMA1_CH5, PC10, PC12, PD1, PD3, PD5, SPI3};
@@ -77,8 +77,6 @@ pub struct Board {
     pub eth: Peri<'static, ETH>,
     pub eth_sma: Peri<'static, ETH_SMA>,
     pub adc: Peri<'static, ADC1>,
-    pub adc_dma: Peri<'static, DMA2_CH0>,
-    pub temp_trigger_timer: Peri<'static, TIM3>,
     pub led: Peri<'static, PA6>,
     pub osc_enable: Peri<'static, PE14>,
     pub ref_clk: Peri<'static, PA1>,
@@ -204,8 +202,6 @@ impl Board {
             eth: peripherals.ETH,
             eth_sma: peripherals.ETH_SMA,
             adc: peripherals.ADC1,
-            adc_dma: peripherals.DMA2_CH0,
-            temp_trigger_timer: peripherals.TIM3,
             led: peripherals.PA6,
             osc_enable: peripherals.PE14,
             ref_clk: peripherals.PA1,
