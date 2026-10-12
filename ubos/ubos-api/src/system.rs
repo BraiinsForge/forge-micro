@@ -99,7 +99,9 @@ mod tests;
 /// hold up to `HW_STRING_LEN` characters, and the build id.
 /// The build id is written through a JSON string escaper, so its worst
 /// case is twice `crate::ota::MAX_BUILD_ID_LEN` rather than that bound
-/// itself, for the reason `rest::write_json_str` gives. 2048
+/// itself, for the reason `rest::write_json_str` gives. The product name
+/// comes from a board's stored identity and can be all control
+/// characters, each escaped to six bytes. 2048
 /// bytes covers all of it and leaves headroom for fields added in later
 /// phases without revisiting this constant.
 ///
@@ -327,6 +329,7 @@ where
         .map(ubos_manager::PauseReason::as_api_str);
 
     let hw_info = HwInfo {
+        product_name: crate::hw_info::product_name(),
         bootloader_version: crate::hw_info::bootloader_version(),
         fan_controller_version: crate::hw_info::fan_controller_version(),
         psu_model: psu.model(),

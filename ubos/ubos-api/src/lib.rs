@@ -59,6 +59,7 @@ ubos_events::events! {
 pub use hw_info::{
     HW_STRING_LEN, HashboardIds, HwString, publish_bootloader_version,
     publish_fan_controller_version, publish_hashboard_id, publish_hashboard_ids,
+    publish_product_name,
 };
 pub use ota::{
     OtaError, OtaTarget, OtaWritePhase, ResetReason, publish_reset_diag, register_ota_target,

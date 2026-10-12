@@ -62,10 +62,15 @@ pub struct OtaInfo {
 /// the publish/read cells in `crate::hw_info`; they are `null` before
 /// publication and on every board that publishes neither.
 /// `hashboard_ids` is published by every board's boot-time hashboard
-/// EEPROM read the same way.
+/// EEPROM read the same way, and `product_name` by a board whose stored
+/// identity names the machine.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HwInfo {
+    /// The machine's product name as its maker names the model, or
+    /// `null` before the boot-time read publishes it and on boards that
+    /// publish none.
+    pub product_name: Option<HwString>,
     /// Bootloader CRC-32 fingerprint as 8-char lowercase hex, or `null`
     /// before the boot-time capture runs or on boards that do not
     /// publish one.

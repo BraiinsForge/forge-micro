@@ -681,10 +681,11 @@ fn ota_chunk_non_final_short_returns_400() {
 // ---------------------------------------------------------------------------
 
 /// Build a default `HwInfo` for tests that do not exercise hardware
-/// version fields: no PSU model and no published versions or
-/// hashboard serials.
+/// version fields: no PSU model and no published product name,
+/// versions or hashboard serials.
 fn default_hw_info() -> crate::schema::system_info::HwInfo {
     crate::schema::system_info::HwInfo {
+        product_name: None,
         bootloader_version: None,
         fan_controller_version: None,
         psu_model: None,
@@ -779,9 +780,9 @@ fn system_info_user_request_serializes_paused_true_and_reason() {
 // SystemInfo hwInfo serialization
 // ---------------------------------------------------------------------------
 
-/// When both boot-captured version strings and the hashboard serials have been
-/// published, `hwInfo` carries all four fields with the published values
-/// present. The fan version exceeds 8 characters to cover more than the
+/// When the product name, both boot-captured version strings and the
+/// hashboard serials have been published, `hwInfo` carries every field
+/// with the published values present. The fan version exceeds 8 characters to cover more than the
 /// common `"XX.XX.XX"` prefix. The hashboard array carries a `None`
 /// middle slot alongside two published serials, covering an unreadable
 /// chain sitting between two good ones.
@@ -797,6 +798,7 @@ fn system_info_hw_info_serializes_published_versions() {
         .expect("BUG: fits in HashboardIds");
 
     let hw_info = crate::schema::system_info::HwInfo {
+        product_name: Some("Example Miner 1".parse().expect("BUG: fits in HwString")),
         bootloader_version: Some("deadbeef".parse().expect("BUG: fits in HwString")),
         fan_controller_version: Some("12.34.56 build 777".parse().expect("BUG: fits in HwString")),
         psu_model: Some("PSU3300 rev a".parse().expect("BUG: fits in HwString")),
@@ -806,7 +808,7 @@ fn system_info_hw_info_serializes_published_versions() {
     let json = serialize_system_info(false, None, hw_info);
     assert!(
         json.contains(
-            "\"hwInfo\":{\"bootloaderVersion\":\"deadbeef\",\
+            "\"hwInfo\":{\"productName\":\"Example Miner 1\",\"bootloaderVersion\":\"deadbeef\",\
              \"fanControllerVersion\":\"12.34.56 build 777\",\"psuModel\":\"PSU3300 rev a\",\
              \"hashboardIds\":[\"SERIAL0\",null,\"SERIAL2\"],\"chainsPresent\":2}"
         ),
@@ -821,7 +823,7 @@ fn system_info_hw_info_serializes_published_versions() {
 /// fails here, and updating this constant is the prompt to check the
 /// comment on `SCRATCH_SIZE`. The `const` block holds the claim that
 /// comment makes, so the pinned length cannot be moved past the buffer.
-const WORST_CASE_SYSTEM_INFO_LEN: usize = 1078;
+const WORST_CASE_SYSTEM_INFO_LEN: usize = 1335;
 const _: () = assert!(WORST_CASE_SYSTEM_INFO_LEN <= super::SCRATCH_SIZE);
 
 /// The scratch buffer `system.rs` serializes into must hold the largest
@@ -831,7 +833,9 @@ const _: () = assert!(WORST_CASE_SYSTEM_INFO_LEN <= super::SCRATCH_SIZE);
 ///
 /// Every string field stands at its maximum, and the build id is
 /// `MAX_BUILD_ID_LEN` double quotes, the widest character a build id
-/// can carry, for the reason `rest::write_json_str` gives.
+/// can carry, for the reason `rest::write_json_str` gives. The product
+/// name is `HW_STRING_LEN` control characters, which serialize to six
+/// bytes each.
 ///
 /// Without this, nothing measures the body and the comment on
 /// `SCRATCH_SIZE` is the only thing holding its size.
@@ -855,6 +859,11 @@ fn worst_case_system_info_fits_the_scratch_buffer() {
     while hashboard_ids.push(Some(max_string.clone())).is_ok() {}
 
     let hw_info = crate::schema::system_info::HwInfo {
+        product_name: Some(
+            leaked(0x01, HW_STRING_LEN)
+                .parse()
+                .expect("BUG: fills HwString exactly"),
+        ),
         bootloader_version: Some(max_string.clone()),
         fan_controller_version: Some(max_string.clone()),
         psu_model: Some(max_string),
@@ -884,20 +893,22 @@ fn worst_case_system_info_fits_the_scratch_buffer() {
     );
 }
 
-/// Before either boot-captured version string or the hashboard serials are
-/// published, `bootloaderVersion`, `fanControllerVersion`, and
-/// `hashboardIds` are all `null` inside `hwInfo`, and `psuModel` is
-/// `null` on a target without a modeled PSU; this is also the permanent
-/// state on boards that never publish any of them.
+/// Before the product name, either boot-captured version string or the
+/// hashboard serials are published, `productName`, `bootloaderVersion`,
+/// `fanControllerVersion`, and `hashboardIds` are all `null` inside
+/// `hwInfo`, and `psuModel` is `null` on a target without a modeled PSU;
+/// this is also the permanent state on boards that never publish any of
+/// them.
 #[test]
 fn system_info_hw_info_serializes_unpublished_versions_as_null() {
     let json = serialize_system_info(false, None, default_hw_info());
     assert!(
         json.contains(
-            "\"bootloaderVersion\":null,\"fanControllerVersion\":null,\"psuModel\":null,\
-             \"hashboardIds\":null,\"chainsPresent\":0"
+            "\"productName\":null,\"bootloaderVersion\":null,\"fanControllerVersion\":null,\
+             \"psuModel\":null,\"hashboardIds\":null,\"chainsPresent\":0"
         ),
-        "expected null bootloaderVersion, fanControllerVersion, and hashboardIds in {json}"
+        "expected null productName, bootloaderVersion, fanControllerVersion, and hashboardIds \
+         in {json}"
     );
 }
 

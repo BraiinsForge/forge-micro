@@ -49,7 +49,8 @@ mod tests;
 /// `ControlBoardDescriptor::name` + numeric fields + 16-byte IPv4 +
 /// 17-byte MAC string + 16-byte time string + OTA static fields +
 /// OTA diagnostic fields including the `resetWritePhase` string +
-/// `running` bool + `paused` bool + `pause_reason` string up to
+/// `product_name` string + `running` bool + `paused` bool +
+/// `pause_reason` string up to
 /// `"temperatureUnreadable"` + `chip_reading_stale` bool + a `chains`
 /// array with one entry per chain the board actually owns, up to
 /// `ubos_metrics::chain::MAX_CHAINS` + JSON framing). The
@@ -60,10 +61,11 @@ mod tests;
 /// `WORST_CASE_INFO_BODY_LEN`. 512 bytes overflowed
 /// once the OTA diagnostic fields were added, silently truncating the
 /// tail, 1280 stopped covering the worst case once the OTA block
-/// carried a build id, and 1408 once each chain reported its pool;
-/// 1536 bytes covers the synthetic worst case and leaves room for
-/// future fields while staying on the stack.
-const API_INFO_BODY_BUFFER_SIZE: usize = 1536;
+/// carried a build id, 1408 once each chain reported its pool, and 1536
+/// once the body carried a product name, whose every control character
+/// escapes to six bytes; 1792 bytes covers the synthetic worst case
+/// while staying on the stack.
+const API_INFO_BODY_BUFFER_SIZE: usize = 1792;
 
 /// Body buffer for the POST /api/config acknowledgement.
 const CONFIG_ACK_BODY: &[u8] = b"{\"ok\":true}";
@@ -182,7 +184,9 @@ impl RestApiService {
 
 /// Write `text` as a JSON string. Every other string in the info body
 /// is a literal this crate spells, but the build id comes from the build
-/// environment, which can hand it whole with a quote or a backslash in it.
+/// environment, which can hand it whole with a quote or a backslash in it,
+/// and the product name comes from a board's stored identity, which can
+/// hold a control character too.
 fn write_json_str(writer: &mut ubos_http::BufferWriter<'_>, text: &str) -> core::fmt::Result {
     writer.write_str("\"")?;
     for c in text.chars() {
@@ -588,6 +592,15 @@ impl Service for RestApiService {
                 }
                 let _ = writer.write_str("\",\"build\":");
                 let _ = write_json_str(&mut writer, self.build);
+                let _ = writer.write_str(",\"product_name\":");
+                match crate::hw_info::product_name() {
+                    Some(name) => {
+                        let _ = write_json_str(&mut writer, &name);
+                    }
+                    None => {
+                        let _ = writer.write_str("null");
+                    }
+                }
 
                 // OTA block: the dashboard polls /api/info and only renders
                 // the firmware card when this field is present. Read from

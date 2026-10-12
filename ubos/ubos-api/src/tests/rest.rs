@@ -62,7 +62,7 @@ fn validate_board_name_rejects_backslash() {
 /// Pinned exactly, as [`WORST_CASE_BODY_LEN`] is and for the same reason:
 /// a field addition that still fits the buffer fails here, and updating
 /// this constant is the prompt to check the buffer's comment.
-const WORST_CASE_INFO_BODY_LEN: usize = 1418;
+const WORST_CASE_INFO_BODY_LEN: usize = 1676;
 
 /// The `/api/info` body assembler in `rest.rs` writes into a fixed
 /// `[u8; API_INFO_BODY_BUFFER_SIZE]` buffer via `BufferWriter`, which
@@ -95,6 +95,9 @@ const WORST_CASE_INFO_BODY_LEN: usize = 1418;
 ///   character escaped by `write_json_str` to two bytes. The quote is
 ///   the widest character a build id can carry, for the reason
 ///   `write_json_str` gives.
+/// - `product_name`: `crate::HW_STRING_LEN` one-byte control characters,
+///   each of which `write_json_str` escapes to the six bytes of a
+///   `\u00XX` sequence, the widest escape it writes per input byte.
 /// - `running`: `true` (4 chars).
 /// - `paused`: `true` (4 chars).
 /// - `pause_reason`: `"temperatureUnreadable"` (21 chars, longest variant).
@@ -133,6 +136,9 @@ fn api_info_body_fits_in_buffer() {
     // The escaped form the handler's `write_json_str` emits for a build
     // id of MAX_BUILD_ID_LEN double quotes; see the worst-case list above.
     let build = "\\\"".repeat(crate::ota::MAX_BUILD_ID_LEN);
+    // The escaped form `write_json_str` emits for a product name of
+    // HW_STRING_LEN control characters; see the worst-case list above.
+    let product_name = "\\u0001".repeat(crate::HW_STRING_LEN);
 
     let mut body = std::format!(
         "{{\"name\":\"{board_name}\",\
@@ -157,7 +163,8 @@ fn api_info_body_fits_in_buffer() {
          \"ip\":\"255.255.255.255\",\
          \"mac\":\"ff:ff:ff:ff:ff:ff\",\
          \"time\":\"23:59:59 UTC\",\
-         \"build\":\"{build}\""
+         \"build\":\"{build}\",\
+         \"product_name\":\"{product_name}\""
     );
 
     // Chains array: the handler emits one entry per
