@@ -60,6 +60,8 @@ export interface Info {
   time?: string;
   /** The build id the board stamped: the tip it was built from and the build time. */
   build?: string;
+  /** The machine's name as its maker gives it. `null` on a board that does not report one. */
+  product_name?: string | null;
   ota?: Ota;
   chains: ChainInfo[];
 }

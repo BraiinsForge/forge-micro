@@ -97,8 +97,11 @@ export default function App() {
 
       {view === 'events' && <Events />}
 
+      {/* The product name leads, so an operator can match the page to
+          the sticker on the machine. */}
       <footer class="bar ft">
         <span class="bi">
+          {dash.info?.product_name ? dash.info.product_name + ' · ' : ''}
           IP: {dash.info?.ip || '–'} · MAC: {dash.info?.mac || '–'} · {dash.info?.build || '–'}
         </span>
       </footer>
