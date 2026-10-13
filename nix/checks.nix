@@ -114,6 +114,7 @@ let
   # gates the other state. A board gate takes the state its image
   # ships, read from the board's own cargo config.
   fee = import ./fee.nix;
+  feeEnv = name: fee.envFor (root + "/firmware/${name}");
 
   # A firmware crate is gated only when it is a workspace member. In this
   # repo every board is a member, so this is always true; it is what lets
@@ -454,8 +455,8 @@ let
   # board check points it at arm-none-eabi-gcc. The hermetic webui
   # dist covers ubos-webui's build.rs in each board's dependency
   # closure.
-  mkBoardClippy =
-    name: board:
+  mkBoardClippyIn =
+    env: name: board:
     craneLib.cargoClippy (
       {
         src = srcFor [ name ];
@@ -469,7 +470,11 @@ let
       }
       // armCc board.target
       // webuiEnv name
+      // env
     );
+
+  # Clippy in the fee state the board's image ships.
+  mkBoardClippy = name: board: mkBoardClippyIn (feeEnv name) name board;
 
   # Release build of each firmware binary. cargo check and cargo
   # clippy stop short of linking the final ELF for binary crates, so
@@ -478,8 +483,8 @@ let
   # same gate as a missing trait bound. The Footprint section of
   # docs/STRUCTURE.md records the per-board RAM snapshot this gate
   # protects.
-  mkBoardBuild =
-    name: board:
+  mkBoardBuildIn =
+    env: name: board:
     craneLib.cargoBuild (
       {
         src = srcFor [ name ];
@@ -493,6 +498,7 @@ let
       }
       // armCc board.target
       // webuiEnv name
+      // env
       // lib.optionalAttrs (board.guard == "slot") {
         postBuild = slotGuard name board.target;
       }
@@ -501,10 +507,28 @@ let
       }
     );
 
+  # The release build in the fee state the board's image ships.
+  mkBoardBuild = name: board: mkBoardBuildIn (feeEnv name) name board;
+
   boardChecks = lib.concatMapAttrs (name: board: {
     "clippy-${name}" = mkBoardClippy name board;
     "build-${name}" = mkBoardBuild name board;
   }) boards;
+
+  # The other state of the fee switch, one board per ARM target that
+  # can carry the fee, so the on path of the board crates cannot rot
+  # unseen in a tree whose images ship it off. The build row is what
+  # measures the RAM a fourth session task costs. stm32f407 runs one
+  # session and cannot carry it, so thumbv7em is gated off alone; the
+  # Xtensa rows are in `espChecks`.
+  feeOnBoards = [
+    "rp2040"
+    "rp2350"
+  ];
+  feeOnChecks = lib.concatMapAttrs (name: board: {
+    "clippy-${name}-on" = mkBoardClippyIn fee.on name board;
+    "build-${name}-on" = mkBoardBuildIn fee.on name board;
+  }) (lib.filterAttrs (name: _: lib.elem name feeOnBoards) boards);
 
   # Bootloader crates: same clippy/build pair as the boards, but no
   # webui env or dist, since ubos-webui is not in the closure, and
@@ -561,25 +585,14 @@ let
   # esp32s3 source scaffolding, so the esp backend of ubos-ota and the
   # esp32s3-tsens lib are gated here too: a tree without the board pulls
   # in no Xtensa toolchain at all.
-  espChecks = {
-    # Our firmware crate name collides with the esp32s3 PAC crate pulled
-    # in transitively; disambiguate by pinning to @0.1.0.
-    clippy-esp32s3 = espCraneLib.cargoClippy (
-      espCommon
-      // {
-        cargoArtifacts = deps.espArtifacts;
-        cargoExtraArgs = "-p esp32s3@0.1.0 --target xtensa-esp32s3-none-elf -Z build-std=core";
-        cargoClippyExtraArgs = "-- -D warnings";
-      }
-      // (webuiEnv "esp32s3")
-    );
-
-    # No codegen bag to reuse; see the esp bag rationale in nix/deps.nix.
-    # The size guard must live here, not only in packages.esp32s3-image:
-    # `nix flake check` builds checks.* but merely evaluates packages.*,
-    # so a guard in the image package alone would never gate an oversized
-    # image in CI.
-    build-esp32s3 = espCraneLib.cargoBuild (
+  # No codegen bag to reuse; see the esp bag rationale in nix/deps.nix.
+  # The size guard must live here, not only in packages.esp32s3-image:
+  # `nix flake check` builds checks.* but merely evaluates packages.*,
+  # so a guard in the image package alone would never gate an oversized
+  # image in CI.
+  espBuildIn =
+    env:
+    espCraneLib.cargoBuild (
       espCommon
       // {
         cargoArtifacts = null;
@@ -606,7 +619,40 @@ let
       }
       // espRustflags
       // (webuiEnv "esp32s3")
+      // env
     );
+
+  espChecks = {
+    # Our firmware crate name collides with the esp32s3 PAC crate pulled
+    # in transitively; disambiguate by pinning to @0.1.0.
+    clippy-esp32s3 = espCraneLib.cargoClippy (
+      espCommon
+      // {
+        cargoArtifacts = deps.espArtifacts;
+        cargoExtraArgs = "-p esp32s3@0.1.0 --target xtensa-esp32s3-none-elf -Z build-std=core";
+        cargoClippyExtraArgs = "-- -D warnings";
+      }
+      // (webuiEnv "esp32s3")
+      // feeEnv "esp32s3"
+    );
+
+    # The other fee state on Xtensa; see `feeOnChecks`.
+    clippy-esp32s3-on = espCraneLib.cargoClippy (
+      espCommon
+      // {
+        cargoArtifacts = deps.espArtifacts;
+        cargoExtraArgs = "-p esp32s3@0.1.0 --target xtensa-esp32s3-none-elf -Z build-std=core";
+        cargoClippyExtraArgs = "-- -D warnings";
+      }
+      // (webuiEnv "esp32s3")
+      // fee.on
+    );
+
+    # The release build in the fee state the image ships.
+    build-esp32s3 = espBuildIn (feeEnv "esp32s3");
+
+    # The other fee state on Xtensa, built; see `feeOnChecks`.
+    build-esp32s3-on = espBuildIn fee.on;
 
     # Gate the OTA bootloader so a broken sdkconfig fails CI. This
     # pulls the esp-idf closure on first build; it is cached until the
@@ -656,6 +702,7 @@ in
 hostClippyChecks
 // hostTestChecks
 // boardChecks
+// feeOnChecks
 // lib.optionalAttrs (hasCrate "rp2350-bootloader") rp2350BootloaderChecks
 // lib.optionalAttrs (hasCrate "rp2040-bootloader") rp2040BootloaderChecks
 // lib.optionalAttrs (hasCrate "esp32s3") espChecks

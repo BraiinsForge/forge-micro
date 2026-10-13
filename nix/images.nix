@@ -57,6 +57,11 @@
 let
   inherit (pkgs) lib;
   hasCrate = name: builtins.elem name members;
+
+  # The fee state each image ships, read from the board's own cargo
+  # config; see nix/fee.nix.
+  fee = import ./fee.nix;
+  feeEnv = name: fee.envFor (../firmware + "/${name}");
   inherit (helpers)
     armCc
     buildIdEnv
@@ -118,6 +123,7 @@ let
       // armCc target
       // buildIdEnv
       // brands.envFor name
+      // feeEnv name
       // webuiDistEnv
     );
 
@@ -269,6 +275,7 @@ let
     }
     // buildIdEnv
     // brands.envFor "esp32s3"
+    // feeEnv "esp32s3"
     // webuiDistEnv
   );
 
