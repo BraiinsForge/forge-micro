@@ -274,6 +274,13 @@ impl TempControl {
         self.target_temp_c = target_temp_c;
     }
 
+    /// Drop the smoothed temperature, so the next sample is taken as it
+    /// is. A caller that skipped samples uses it, because the board may
+    /// have moved far from the smoothed value in the gap.
+    pub fn forget_input(&mut self) {
+        self.smoothed_temp_c = None;
+    }
+
     /// Compute the next fan PWM percent (`min_fan_pwm..=100`) from the
     /// latest temperature sample. Per-tick scaling is implicit: callers
     /// must invoke `update` once per sample tick for the PID gains to

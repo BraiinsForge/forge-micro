@@ -389,7 +389,10 @@ impl Cooling {
     /// sample across that run. The derivative term on the first reading
     /// that carries one is then computed against a pre-run value;
     /// acceptable because the fan parks at full on every reading of the
-    /// run, so that stale derivative never drives the fan. This covers
+    /// run, so that stale derivative never drives the fan. The input
+    /// smoother is the exception: the first measurement after any hold
+    /// restarts it, because a stale input would drive the fan on every
+    /// tick until the smoother caught up. This covers
     /// that run only; a thermal silence shorter than the stale window
     /// triggers no graduated response: the control tick merely resamples
     /// the tach and republishes telemetry until the window elapses.
@@ -402,6 +405,9 @@ impl Cooling {
                 FanPwm::FULL
             }
             Some(pid_temp) => {
+                if self.hold != Hold::None {
+                    self.control.forget_input();
+                }
                 self.hold = Hold::None;
                 match self.config.mode {
                     // Fixed ignores the reading and never advances the

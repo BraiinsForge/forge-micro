@@ -87,6 +87,31 @@ fn a_reading_with_no_measurement_parks_the_fan_until_one_arrives() {
 }
 
 #[test]
+fn a_measurement_after_a_hold_reaches_the_pid_unsmoothed() {
+    // A proportional-only PID whose duty reads back the temperature it
+    // saw, behind a smoother that would otherwise blend 80 into 40.
+    let mut config = Config::default();
+    config.cooling.target_temp_c = 0.0;
+    config.cooling.pid.p_gain = -1.0;
+    config.cooling.pid.i_gain = 0.0;
+    config.cooling.pid.d_gain = 0.0;
+    config.cooling.pid.min_fan_pwm = 0;
+    config.cooling.pid.input_smoother_half_decay_secs = 10.0;
+    let mut cooling = Cooling::new(&config, START);
+
+    let celsius = |c: i32| Some(Temperature::from_millicelsius(c * 1000));
+    assert_eq!(
+        cooling.on_reading(celsius(40), START),
+        quiet(FanPwm::from_percent(40))
+    );
+    assert_eq!(cooling.on_reading(None, START), quiet(FanPwm::FULL));
+    assert_eq!(
+        cooling.on_reading(celsius(80), START),
+        quiet(FanPwm::from_percent(80))
+    );
+}
+
+#[test]
 fn a_stall_forces_full_once_and_a_reading_recovers_it_once() {
     let config = Config::default();
     let stale = stale_timeout(config.thermal.sample_interval_ms);

@@ -178,3 +178,11 @@ fn input_smoother_moves_half_way_in_its_half_decay_time() {
     }
     assert_eq!(control.update(80.0), 60);
 }
+
+#[test]
+fn forget_input_takes_the_next_sample_as_it_is() {
+    let mut control = reads_back_input(10.0);
+    assert_eq!(control.update(40.0), 40);
+    control.forget_input();
+    assert_eq!(control.update(80.0), 80);
+}
