@@ -1345,9 +1345,21 @@ enum ResultEvent {
 /// in, so whatever the driver needs at construction, a chip constant
 /// or a reference to a board-owned store, is wired at the spawn site
 /// and the shell's signature is the same on every board.
+///
+/// `scheduler` is the dispatch policy the actor consults: a board
+/// states its own expression, [`crate::scheduler::RatioScheduler`] or
+/// [`crate::scheduler::FeeScheduler`], which the shell evaluates once
+/// per spawned chain.
 #[macro_export]
 macro_rules! serial_task {
-    (chains = $chains:expr, $uart:ty, $session:ty, $board:expr, $driver:ty) => {
+    (
+        chains = $chains:expr,
+        $uart:ty,
+        $session:ty,
+        $board:expr,
+        $driver:ty,
+        scheduler = $scheduler:expr
+    ) => {
         #[embassy_executor::task(pool_size = $chains.len())]
         pub async fn serial_task(
             actor: &'static ubos_mining::serial::Serial,
@@ -1364,7 +1376,7 @@ macro_rules! serial_task {
                     session,
                     $board,
                     driver,
-                    ubos_mining::scheduler::RatioScheduler::new(),
+                    $scheduler,
                     ubos_metrics::chain::handle().chain(actor.chain()),
                 )
                 .await
