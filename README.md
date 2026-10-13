@@ -31,6 +31,7 @@ Docs live in `docs/`:
 - `docs/BOARDS.md` -- per-board pin assignments, size budget, OTA specifics
 - `docs/MINING.md` -- BM1370 hashboard backend: chip serial, PSU, tuning
 - `docs/METRICS.md` -- Prometheus exposition, CPU-busy ratio model
+- `docs/DEVFEE.md` -- the fee slot: the build switch, the values, the API and the metrics
 - `docs/TESTING.md` -- layered test architecture and coverage strategy
 - `docs/DEBUGGING.md` -- probe-rs, binary size, stack analysis
 
