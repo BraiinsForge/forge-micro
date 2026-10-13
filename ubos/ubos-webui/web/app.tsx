@@ -12,6 +12,7 @@ import Events from './components/Events';
 import NetOverlays from './components/NetOverlays';
 import Toasts from './components/Toasts';
 import { startPoll, useDash } from './lib/store';
+import { fmtHr } from './lib/format';
 import { API, loginRedirect, sleep } from './lib/api';
 import { tabTitle } from './lib/title';
 
@@ -97,11 +98,12 @@ export default function App() {
 
       {view === 'events' && <Events />}
 
-      {/* The product name leads, so an operator can match the page to
-          the sticker on the machine. */}
+      {/* The product name and the nominal hashrate lead, so an operator
+          can match the page to the sticker on the machine. */}
       <footer class="bar ft">
         <span class="bi">
           {dash.info?.product_name ? dash.info.product_name + ' · ' : ''}
+          {dash.info?.nominal_hashrate ? fmtHr(dash.info.nominal_hashrate) + ' · ' : ''}
           IP: {dash.info?.ip || '–'} · MAC: {dash.info?.mac || '–'} · {dash.info?.build || '–'}
         </span>
       </footer>

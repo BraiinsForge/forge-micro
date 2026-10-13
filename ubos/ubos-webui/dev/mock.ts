@@ -64,6 +64,7 @@ function info() {
     time: new Date().toISOString().slice(0, 19).replace('T', ' '),
     build: 'abc1234def56-260922120000',
     product_name: 'Example Miner 1',
+    nominal_hashrate: 2.4e12,
     ota: { runningSlot: 'A', runningVersion: 42, maxImageBytes: 952 * 1024 },
     chains: CHAINS,
   };

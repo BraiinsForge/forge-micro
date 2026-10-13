@@ -64,6 +64,8 @@ export interface Info {
   build?: string;
   /** The machine's name as its maker gives it. `null` on a board that does not report one. */
   product_name?: string | null;
+  /** The hashrate in H/s its maker rates the machine at. `null` on a board that does not report one. */
+  nominal_hashrate?: number | null;
   ota?: Ota;
   chains: ChainInfo[];
 }
