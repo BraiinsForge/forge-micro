@@ -20,7 +20,8 @@
 //! Pool endpoint configuration and validation.
 //!
 //! Defines [`PoolEntry`], [`ProtocolKind`], the factory-default pool
-//! constants, and per-entry validation.
+//! constants, the fee switch and the fee slot's place, and per-entry
+//! validation. The fee pool itself is [`crate::fee`].
 
 /// Factory-default pool host for [`crate::Config::default`]. Overridable at
 /// compile time by setting the `POOL_HOST` env var; a stored config
@@ -169,6 +170,38 @@ pub const NAME_CAPACITY: usize = 128;
 /// a single-const change that fails to compile until every table is
 /// extended in step.
 pub const MAX_POOLS: usize = 3;
+
+/// Build error for a `DEVFEE` that is none of unset, `0` and `1`.
+const DEVFEE_BAD: &str = "DEVFEE must be 0, 1 or unset";
+
+/// Whether this build ships the fee slot. `DEVFEE=1` at build time
+/// turns it on, and `DEVFEE=0` or unset leaves it off. Any other
+/// value stops the build, so a misspelt value cannot pass for off. A
+/// build-time const rather than a cargo feature, because a feature
+/// unifies across every crate of one cargo invocation and this value
+/// is one board's. A crate that ships the fee states `1` in its own
+/// cargo config, and `0` on the command is what turns one build of it
+/// off, because a value on the command beats the config and nothing
+/// can unset what the config adds.
+pub const DEVFEE: bool = match option_env!("DEVFEE") {
+    None => false,
+    Some(value) => {
+        // Bytes, because a const cannot compare a `str`.
+        match value.as_bytes() {
+            b"0" => false,
+            b"1" => true,
+            _ => panic!("{}", DEVFEE_BAD),
+        }
+    }
+};
+
+/// Session slots the fee adds: one when [`DEVFEE`] is on.
+pub const FEE_SLOTS: usize = if DEVFEE { 1 } else { 0 };
+
+/// Session slots a board can run: the operator's list plus the fee
+/// slot the build ships. Sizes the receiver budget every session slot
+/// draws on.
+pub const POOL_SLOTS: usize = MAX_POOLS + FEE_SLOTS;
 
 /// Upper bound on [`PoolEntry::weight`]. Keeps
 /// `weight_sum * (CLAMP_SHARES + 1)` inside `i32` for any slot count up

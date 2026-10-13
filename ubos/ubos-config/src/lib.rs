@@ -80,8 +80,8 @@ pub use mining::{
 };
 pub use network::{NetworkConfig, NetworkMode};
 pub use pool::{
-    DEFAULT_POOL_HOST, DEFAULT_POOL_PORT, DEFAULT_POOL_SV2_PUBKEY, DEFAULT_POOL_USER,
-    MAX_POOL_WEIGHT, NAME_CAPACITY, PoolEntry, ProtocolKind,
+    DEFAULT_POOL_HOST, DEFAULT_POOL_PORT, DEFAULT_POOL_SV2_PUBKEY, DEFAULT_POOL_USER, DEVFEE,
+    MAX_POOL_WEIGHT, NAME_CAPACITY, POOL_SLOTS, PoolEntry, ProtocolKind,
 };
 pub use seed::{Seed, SeedField};
 pub use thermal::{
@@ -175,10 +175,10 @@ pub type ConfigCommandChannel = Channel<CSMutex, Message, COMMAND_CHANNEL_DEPTH>
 /// The commands that the board's one config task drains.
 pub(crate) static COMMAND_CHANNEL: ConfigCommandChannel = Channel::new();
 
-/// Receiver capacity for the update-generation watch: one per pool
-/// session task ([`pool::MAX_POOLS`]), one for the pool-weights
-/// watcher, plus one spare.
-const GENERATION_WATCH_CAPACITY: usize = pool::MAX_POOLS + 2;
+/// Receiver capacity for the update-generation watch: one per session
+/// slot ([`pool::POOL_SLOTS`]), one for the pool-weights watcher, plus
+/// one spare.
+const GENERATION_WATCH_CAPACITY: usize = pool::POOL_SLOTS + 2;
 
 /// Update-generation watch. The counter is bumped and published once
 /// each time a successful [`Message::Update`] has been persisted and
