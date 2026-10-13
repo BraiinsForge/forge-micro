@@ -37,7 +37,7 @@ use crate::schema::info::{ApiInfo, ApiInfoChain, ApiInfoOta};
 /// Pinned exactly, as [`WORST_CASE_BODY_LEN`] is and for the same reason:
 /// a field addition that still fits the buffer fails here, and updating
 /// this constant is the prompt to check the buffer's comment.
-const WORST_CASE_INFO_BODY_LEN: usize = 1747;
+const WORST_CASE_INFO_BODY_LEN: usize = 1787;
 
 /// A `&'static str` of `len` copies of `text`. [`ApiInfo`] takes
 /// `&'static str`, and a leak in a test costs nothing.
@@ -77,6 +77,8 @@ fn leaked(text: &str, len: usize) -> &'static str {
 /// - `product_name`: `crate::HW_STRING_LEN` one-byte control characters,
 ///   each escaped to the six bytes of a `\u00XX` sequence, the widest
 ///   escape per input byte.
+/// - `nominal_hashrate` (`Option<u64>`): `Some(u64::MAX)` (20 digits),
+///   wider than `null`.
 /// - `running`: `true` (4 chars).
 /// - `mining_state`: `"waitingForPool"` (14 chars, longest variant).
 /// - `paused`: `true` (4 chars).
@@ -136,6 +138,7 @@ fn api_info_body_fits_in_buffer() {
                 .parse()
                 .expect("BUG: fills HwString exactly"),
         ),
+        nominal_hashrate: Some(u64::MAX),
         ota: Some(ApiInfoOta {
             running_slot: "INACTIVE",
             running_version: u32::MAX,
@@ -208,6 +211,7 @@ fn api_info_body_fits_in_buffer() {
          \"time\":\"23:59:59 UTC\",\
          \"build\":\"{build}\",\
          \"product_name\":\"{product_name}\",\
+         \"nominal_hashrate\":{max_u64},\
          \"ota\":{{\"runningSlot\":\"INACTIVE\",\
          \"runningVersion\":{max_u32},\
          \"hasPreviousImage\":true,\
@@ -274,14 +278,15 @@ fn api_info_without_ota_leaves_the_key_out() {
         time: heapless::String::new(),
         build: "",
         product_name: None,
+        nominal_hashrate: None,
         ota: None,
     };
     let mut buffer = [0u8; API_INFO_BODY_BUFFER_SIZE];
     let len = serde_json_core::to_slice(&info, &mut buffer).expect("an empty body fits");
     let body = std::str::from_utf8(&buffer[..len]).expect("serde_json_core emits UTF-8");
     assert!(
-        body.ends_with(",\"build\":\"\",\"product_name\":null}"),
-        "expected the body to end at product_name with no ota key: {body}"
+        body.ends_with(",\"build\":\"\",\"product_name\":null,\"nominal_hashrate\":null}"),
+        "expected the body to end at nominal_hashrate with no ota key: {body}"
     );
 }
 

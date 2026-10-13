@@ -25,8 +25,9 @@
 //! read the latest snapshot lock-free. Every board's boot-time
 //! hashboard EEPROM read publishes its parsed serials the same way, and
 //! a board whose stored identity names the machine publishes that
-//! product name. Boards that never publish a given cell leave its
-//! reader returning `None`.
+//! product name. A board that knows the hashrate its maker rates the
+//! machine at publishes that nominal hashrate. Boards that never publish
+//! a given cell leave its reader returning `None`.
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::Watch;
@@ -45,6 +46,7 @@ pub type HwString = String<HW_STRING_LEN>;
 static BOOTLOADER_VERSION: Watch<CriticalSectionRawMutex, HwString, 1> = Watch::new();
 static FAN_CONTROLLER_VERSION: Watch<CriticalSectionRawMutex, HwString, 1> = Watch::new();
 static PRODUCT_NAME: Watch<CriticalSectionRawMutex, HwString, 1> = Watch::new();
+static NOMINAL_HASHRATE: Watch<CriticalSectionRawMutex, u64, 1> = Watch::new();
 
 /// Per-slot hashboard serials; the index is the physical chain number.
 /// One slot for every chain a machine can drive, the same
@@ -87,6 +89,19 @@ pub fn publish_product_name(name: HwString) {
 /// and on boards that never publish one.
 pub(crate) fn product_name() -> Option<HwString> {
     PRODUCT_NAME.try_get()
+}
+
+/// Publishes the hashrate the machine's maker rates it at, in hashes per
+/// second, so that an operator can hold what the machine mines against
+/// its sticker. Call once at boot.
+pub fn publish_nominal_hashrate(hashes_per_second: u64) {
+    NOMINAL_HASHRATE.sender().send(hashes_per_second);
+}
+
+/// Returns the published nominal hashrate in hashes per second, or
+/// `None` before publication and on boards that never publish one.
+pub(crate) fn nominal_hashrate() -> Option<u64> {
+    NOMINAL_HASHRATE.try_get()
 }
 
 /// Publishes the per-chain hashboard serials. Call once at boot, after

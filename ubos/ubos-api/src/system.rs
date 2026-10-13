@@ -358,6 +358,7 @@ where
 
     let hw_info = HwInfo {
         product_name: crate::hw_info::product_name(),
+        nominal_hashrate: crate::hw_info::nominal_hashrate(),
         bootloader_version: crate::hw_info::bootloader_version(),
         fan_controller_version: crate::hw_info::fan_controller_version(),
         psu_model: psu.model(),

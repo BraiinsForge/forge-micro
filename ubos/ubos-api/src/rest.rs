@@ -51,7 +51,7 @@ mod tests;
 /// `ControlBoardDescriptor::name` + numeric fields + 16-byte IPv4 +
 /// 17-byte MAC string + 16-byte time string + OTA static fields +
 /// OTA diagnostic fields including the `resetWritePhase` string +
-/// `product_name` string + `running` bool + `paused` bool +
+/// `product_name` string + `nominal_hashrate` number + `running` bool + `paused` bool +
 /// `pause_reason` string up to
 /// `"temperatureUnreadable"` + `chip_reading_stale` bool + a `chains`
 /// array with one entry per chain the board actually owns, up to
@@ -231,6 +231,7 @@ impl RestApiService {
             time: crate::system::build_time_string(),
             build: self.build,
             product_name: crate::hw_info::product_name(),
+            nominal_hashrate: crate::hw_info::nominal_hashrate(),
             ota,
         }
     }
