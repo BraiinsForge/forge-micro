@@ -62,6 +62,9 @@ both injected at spawn:
 - `ubos_mining::scheduler::RatioScheduler` distributes generated work
   across the configured pool slots by a clamped deficit counter;
   `run_pool_weights_watcher` keeps its weights in sync with config.
+  A board with a fee slot names `FeeScheduler` instead, which wraps
+  it and holds the board's last slot at the fee's share
+  (`docs/DEVFEE.md`).
 - `config::BOARD` (`&HashboardDescriptor`) carries the chip-neutral
   hashboard facts the actor and tuner need.
 

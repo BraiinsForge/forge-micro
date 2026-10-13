@@ -226,6 +226,8 @@ task on core 1.
 Multipool multiplies the seam, not the loop: `AsicSession<N>` holds
 one work/solution pair per pool slot, every configured pool runs its
 own unchanged `run_stratum_client` session against its `PoolHandle`,
+and so does the fee pool a board runs, at its last slot after the
+operator's (the fee slot section of `docs/MULTIPOOL_DESIGN.md`),
 and the runtime pool switch lives entirely on the consumer side — each
 chain's own serial actor asks its `Scheduler` at each work tick which
 slot to serve and pulls from that slot's cell. The `RatioScheduler`

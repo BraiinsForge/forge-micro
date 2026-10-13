@@ -18,9 +18,6 @@ below) decides per tick which slot's job to dispatch.
 
 ## Non-goals
 
-- A hidden built-in dev-fee pool entry. Sessions map 1:1 to the
-  user-visible `Config::pool` list. A hidden slot can be added later
-  by instantiating the session type with a larger `N`.
 - Per-chip work splitting (some chips on pool A, others on pool B).
   That requires per-chip work routing inside `ubos-mining` dispatch
   and is a separate, deeper change. Time-slice switching achieves a
@@ -74,7 +71,7 @@ Each board picks its own session-slot count as a compile-time const
 in its `main.rs`, carried upstream by the generics:
 
 ```
-pub(crate) const POOL_SLOTS: usize = ubos_firmware::MAX_POOLS;  // f407: = 1
+pub(crate) const POOL_SLOTS: usize = ubos_config::POOL_SLOTS;  // rp2040: MAX_POOLS, f407: 1
 static ASIC_SESSION: AsicSession<POOL_SLOTS> = AsicSession::new();
 ```
 
@@ -153,7 +150,8 @@ switching added nothing to it:
 counter `Watch<CSMutex, u32, N>` bumped after each successful config
 update. Each pool task holds a receiver and treats a generation
 change as "tear down the session and re-snapshot". Capacity covers
-`MAX_POOLS` receivers plus one spare. The public API is
+`POOL_SLOTS` receivers plus the weights watcher and one spare. The
+public API is
 `Handle::subscribe_generation() -> GenerationSubscription`.
 
 ### `ubos-firmware`: per-slot session loop
@@ -163,9 +161,11 @@ change as "tear down the session and re-snapshot". Capacity covers
 `shared: StratumShared` is the `Copy` fan-out of the boot singletons
 returned by `init_stratum(seed)`. Per-slot loop:
 
-1. Snapshot config; `snapshot.pool.get(slot)`. `None` → await the
-   next config generation, retry. Permanent for
-   `slot >= MAX_POOLS`, so boards keep `POOL_SLOTS <= MAX_POOLS`.
+1. Resolve the slot through the handle, `config.pool_slot(slot)`,
+   which reads the current config. `None` → await the
+   next config generation, retry. Permanent for a slot past
+   `ubos_config::POOL_SLOTS`, so boards keep `N` at or below it (see
+   the fee slot section).
 2. Build the `TcpConnector` from task-local buffers (`let mut
    rx_buffer = [0u8; STRATUM_TCP_BUFFER_SIZE]`): locals held across
    `.await` live in the statically allocated task future, so each
@@ -188,7 +188,7 @@ alloc — but no library crate exports a global.
 ### Boards and host-runner
 
 Each board's one-line stratum task shell gains
-`#[embassy_executor::task(pool_size = MAX_POOLS)]` and `slot` +
+`#[embassy_executor::task(pool_size = POOL_SLOTS)]` and `slot` +
 `session` parameters; `main` spawns it once per slot in a loop.
 `serial_task` gains the session parameter. `host-runner` keeps its
 local static (now `AsicSession<1>` or the board alias) and uses
@@ -200,8 +200,10 @@ submits with slot 0.
 The multipool mechanism above first shipped policy-free: the
 dispatcher read a manually set active slot that nothing ever set.
 The scheduler replaces that with a policy splitting delivered work
-between the configured slots at a fixed ratio — the dev-fee use case
-— while routing around unavailable pools.
+between the configured slots at a fixed ratio while routing around
+unavailable pools. The dev fee it first targeted has its own
+scheduler, `FeeScheduler`, wrapped around this one, because these
+weights cannot hold a small fixed fraction (see the fee slot section).
 
 ### Accounting unit: difficulty-1 shares
 
@@ -325,8 +327,12 @@ session state.
 
 ### Wiring
 
-Each board's `mining.rs` builds `RatioScheduler::new()` and hands it
-to `SERIAL.run`; the scheduler starts from the fallback default and
+Each board's `mining.rs` expands `serial_task!` and names its
+scheduler with the macro's `scheduler = ...` argument, which the
+shell hands to `SERIAL.run`: `RatioScheduler::new()` for the
+operator split alone, or the fee scheduler (see the fee slot
+section). The scheduler starts from the
+fallback default and
 the config-weights watcher pushes the configured weights at boot
 (see the config-driven weights section). `host-runner`'s CPU mock
 reads `work_receiver(0)` directly, but its miner-serial path also
@@ -465,7 +471,7 @@ pub async fn run_pool_weights_watcher() -> ! {
   one-line task-shell pattern as the metrics publishers.
 - The watcher consumes the `GENERATION_WATCH` spare receiver, so
   the capacity bumps from `MAX_POOLS + 1` to `MAX_POOLS + 2` to
-  keep one spare.
+  keep one spare. The fee slot later made it `POOL_SLOTS + 2`.
 
 ### `set_weights`: clean slate on reconfiguration
 
@@ -502,6 +508,14 @@ backups, tried in order. On Save the form sends each entry as
 replaces any ratio configured over the API; a ratio split is set
 through `POST /api/config` only.
 
+The form shows the fee row a board serves after the operator's rows,
+read-only, with the share the board serves beside it, and never sends
+either back. The dashboard's three pool cards
+read the operator's three entries by index and the session state by
+slot, so on a board with four sessions the fee slot has no card, and
+on a board with three sessions the third card shows the fee's session
+state over the operator's third entry.
+
 ### Rejected alternatives
 
 - **Pull-based polling inside `Serial::run`** (the actor holds its
@@ -533,6 +547,74 @@ through `POST /api/config` only.
   primitives; the end-to-end path is exercised on hardware
   (reweight via `pool_conf.sh`, watch the split move in the Pool
   work split panel).
+
+## The fee slot
+
+A board can run one pool the operator cannot edit: a fee pool at a
+fixed share of the work. The server, its key, the device code and the
+share are data a board states, and the firmware that runs them is the
+one that holds them; the boards of this tree share the Braiins pool
+and state a code each. How to build with it and how to read it is
+`docs/DEVFEE.md`.
+
+- `ubos_config::DEVFEE` is the switch, read once from the build
+  environment: `DEVFEE=1` is on, `0` or unset is off, any other value
+  stops the build. `FEE_SLOTS` is 1 or 0 from it, and `POOL_SLOTS` is
+  `MAX_POOLS + FEE_SLOTS`, the session count of a board with room for
+  the operator's three and the fee. `FeeSlot::last_of` is `None` on
+  an off build, so no reader finds a fee slot there and `GET` has no
+  `fee` key. No board source differs between the two states.
+- The board states a `ubos_config::FeePool`, applies the `DEVFEE_*`
+  variables of the build with `with_overrides`, places it at its last
+  session slot with `FeeSlot::last_of(FEE_POOL, POOL_SLOTS)`, and
+  hands that to `ubos_config::run` through `config_task!`, beside the
+  seed. The fee needs an operator slot beside it, so `last_of` stops
+  a build that places it on a one-slot board. A board with three
+  sessions runs two operator slots and the fee; one with four runs
+  the operator's three and the fee.
+- The config module owns the slot, and the handle is the one door to
+  its entry: `Handle::pool_slot(slot)` reads the operator's list below
+  the fee slot and builds the fee entry at it, `Handle::view()` is the
+  `GET` body with the entry and its share beside the list. The metrics publishers
+  take the slot index from the board's const at spawn, as they take
+  the slot count. `Config` is a snapshot and answers for its fields
+  alone.
+- `run_stratum_session` resolves its slot through
+  `Handle::pool_slot`, so the fee slot is a normal session. The
+  generation watch budget counts `POOL_SLOTS` sessions.
+- `ConfigUpdate::fee` is the fee entry and `ConfigUpdate::fee_permille`
+  its share, beside the `MAX_POOLS`-wide `pool` list. `GET` serves
+  both and leaves them out on a board that runs no fee slot. `apply`
+  reads neither, so an echo of the `GET` body is an identity. The
+  stored `Config` is unchanged, so the schema hash is too.
+- The metrics label the fee slot `pool="fee"` and an operator slot by
+  its number, so the fee series reads the same on every board.
+- `ubos_mining::scheduler::FeeScheduler::new(permille)` wraps the
+  ratio scheduler and holds the fee slot at the share, in a debt
+  counter of its own: an operator share adds the numerator, a fee
+  share subtracts the rest, and a fee share is due when the debt
+  reaches that rest. A debt from an outage is repaid one fee share
+  for every `REPAY_SPACING` operator shares, one by default, so a
+  repayment never takes the whole of the work. The operator pick
+  gates the fee pick, so the fee slot is never a backup. The debt survives a reweight, which is
+  the one exception to the clean slate `set_weights` gives the
+  operator credits: an operator who edits the list in a loop must not
+  erase the fee. The fee slot is the scheduler's last, `N - 1`, the
+  same rule `FeeSlot::last_of` states, and the fee pass runs only with
+  the switch on and `N` of at least `MIN_FEE_SLOTS`, so an off build
+  and a one-slot board run the operator split alone.
+- `serial_task!` takes `scheduler = <expr>`, and every board names
+  one: `RatioScheduler::new()` runs the operator split alone, and a
+  fee board names `FeeScheduler::new(config::FEE_POOL.permille)`.
+
+`run` records the slot before its first publish, and every reader of
+the slot waits for that publish: the network comes up on the first
+config, and the sessions and the API start
+after the network. So no session reads an empty fee slot and parks,
+which it would do until the operator's first edit, because nothing
+bumps the config generation at boot. The readers all run on core 0;
+the serial actor on core 1 asks its scheduler, which knows the slot
+from `N`.
 
 ## SV2 pubkey encoding (base58check in the pool URL, UBOS-78)
 

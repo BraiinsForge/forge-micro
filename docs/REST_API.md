@@ -212,6 +212,14 @@ effect at runtime on the same config-watch publish that restarts the
 pool sessions; the delivered split is observable via the
 `board_pool_work_shares_total{pool=...}` metric.
 
+A board that runs a fee slot serves its entry as `fee`, one entry of
+the same shape as a `pool` entry, beside the operator's list, and the
+share of the work the slot takes as `fee_permille`, in thousandths.
+The board states both and the operator cannot edit them. A `GET` on a
+board that runs no fee slot has neither key. A `POST` that carries
+`fee` or `fee_permille` back is accepted and the fields are ignored,
+so a `POST` of the `GET` body leaves the list as it was.
+
 The `cooling` section carries `mode`, either `"auto"` or `"fixed"`,
 alongside `fixed_fan_pwm` and `min_fan_pwm`, both 0-100. Each duty is
 validated on its own, independently of the mode, so one can be edited

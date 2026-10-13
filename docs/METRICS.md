@@ -195,7 +195,9 @@ Code: `ubos/stratum-client/src/publishers.rs`,
 
 Boards run one stratum session per configured pool slot, and the
 share counters are per-slot. The publishers emit one series per
-board pool slot, labelled `pool="0"`, `pool="1"`, ...:
+board pool slot, labelled `pool="0"`, `pool="1"`, ... for the
+operator's slots and `pool="fee"` for the fee slot, whichever slot
+runs it (`docs/DEVFEE.md`):
 
 - `board_shares_accepted_total{pool=...}` — pool-accepted shares.
 - `board_shares_rejected_total{pool=...}` — pool-rejected shares.
