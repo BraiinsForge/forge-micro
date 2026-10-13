@@ -56,6 +56,7 @@ mod tests_seed;
 
 pub mod api;
 pub mod cooling;
+pub mod fee;
 pub mod miner;
 pub mod mining;
 pub mod network;
@@ -73,6 +74,7 @@ pub use cooling::{
     BOUNDS as COOLING_BOUNDS, CoolingBounds, CoolingConfig, CoolingInfo, FanMode,
     INFO as COOLING_INFO, PidConfig,
 };
+pub use fee::{FEE_DEN, FeePool, FeeSlot, MAX_FEE_PERMILLE, MIN_FEE_SLOTS, REPAY_SPACING};
 pub use miner::{MinerConfig, Tuning};
 pub use mining::{
     BOUNDS as MINING_BOUNDS, DefaultTuning, FrequencyVoltageTarget, MiningBounds, MiningInfo,
