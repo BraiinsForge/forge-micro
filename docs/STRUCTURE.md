@@ -233,7 +233,11 @@ Numbers reflect a release build at the point this snapshot was
 taken; Main RAM sums the `.data`/`.bss`/`.uninit` sections,
 reproduce with the `cargo size` recipe below. A row marked "est." is
 not measured. It is the last measurement plus the larger metrics render
-buffer.
+buffer. Every row was measured with the fee switch off, three session
+slots; a build that ships the fee slot adds one session task future
+to Main RAM, so read the headroom against that. Each board states
+the switch in its own `.cargo/config.toml`, and every board here
+states `0`.
 
 | Board     | Flash     | Main RAM   | CCM RAM      | Headroom note                                  |
 |-----------|-----------|------------|--------------|------------------------------------------------|

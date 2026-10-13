@@ -164,7 +164,12 @@ OTA image build.
 Rows for the boards in this repository, split out of the footprint
 table in [STRUCTURE.md](STRUCTURE.md); the snapshot caveats and the
 measurement recipe are there. A row marked "est." is not measured. It
-is the last measurement plus the larger metrics render buffer.
+is the last measurement plus the larger metrics render buffer. Every
+row was measured with the fee switch off. On a board with four
+sessions, a build that ships the fee slot adds one session task
+future to Main RAM. `rp2040` and `esp32s3` run three sessions in both
+states and `stm32f407` runs one and no fee, so their rows hold in
+both states.
 
 | Board     | Flash     | Main RAM   | CCM RAM      | Headroom note                                  |
 |-----------|-----------|------------|--------------|------------------------------------------------|
