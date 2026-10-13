@@ -11,13 +11,15 @@ an interval.
 
 Code: `ubos/ubos-metrics/src/metrics.rs`.
 
-Any async context pushes a `Metric` value into a static `Channel` via
-`push`. Each board declares one `MetricsStatics` with `metrics_statics!`,
-which holds the series map and the response buffer. `serve_all!` sizes
-it from the `MAX_METRICS` and `METRICS_RESPONSE_BYTES` constants in the
-board's `config.rs`. The `run_ingest` task is the only writer of the
-map. It drains the channel and upserts by name and label
-set. On each TCP connection, the exposition service reads the map. It
+Any async context pushes a `Metric` value into a static `Channel` with
+`Metric::push`, which waits while the channel is full, or
+`Metric::try_push`, which drops the sample instead. Each board declares
+one `MetricsStatics` with `metrics_statics!`, which holds the series
+map and the response buffer. `serve_all!` sizes it from the
+`MAX_METRICS` and `METRICS_RESPONSE_BYTES` constants in the board's
+`config.rs`. The `run_ingest` task is the only writer of the map. It
+drains the channel and upserts by name and label set. On each TCP
+connection, the exposition service reads the map. It
 renders the full map and a fixed set of derived metrics (uptime,
 request count, NTP sync state) in Prometheus exposition format 0.0.4.
 

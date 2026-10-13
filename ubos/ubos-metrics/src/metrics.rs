@@ -89,7 +89,7 @@ pub type Labels = heapless::Vec<Label, { Metrics::MAX_LABELS }>;
 /// Fields are private; construct through [`Metric::with_no_labels`],
 /// [`Metric::with_labels`] or [`Metric::indexed`], each of which stamps
 /// the metric with the current monotonic time, and push it with
-/// [`Metric::push`].
+/// [`Metric::push`] or [`Metric::try_push`].
 ///
 /// The stored timestamp is **monotonic milliseconds since boot**
 /// (`embassy_time::Instant::now().as_millis()`). The exposition path
@@ -154,6 +154,18 @@ impl Metric {
     /// channel is full.
     pub async fn push(self) {
         METRICS.send(self).await;
+    }
+
+    /// Push the metric into the exposition channel, or drop it when the
+    /// channel is full.
+    ///
+    /// The path for a caller that must stay able to make progress while
+    /// the channel stands still. [`run_ingest`] is the only reader, so a
+    /// caller on a core that cannot run it has no way to tell how long a
+    /// [`Metric::push`] would wait. Every series pushed this way is pushed
+    /// on a ticker, so a dropped sample is replaced by the next one.
+    pub fn try_push(self) {
+        let _ = METRICS.try_send(self);
     }
 
     /// The metric's identifier as emitted in the Prometheus body.
