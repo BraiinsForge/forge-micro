@@ -67,10 +67,11 @@
 /// boards.
 #[macro_export]
 macro_rules! stratum_metrics_task {
-    ($pool_slots:expr) => {
+    ($pool_slots:expr, $fee:expr) => {
         #[embassy_executor::task]
         async fn stratum_metrics_task() -> ! {
-            $crate::run_stratum_metrics_publisher($pool_slots).await
+            $crate::run_stratum_metrics_publisher($pool_slots, ubos_config::FeeSlot::index(&$fee))
+                .await
         }
     };
 }

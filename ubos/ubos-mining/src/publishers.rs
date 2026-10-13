@@ -31,9 +31,14 @@ use crate::{Handle as MiningHandle, MiningState};
 use ubos_metrics::chain as stats;
 
 /// Publish lifecycle status and each chain's confirmed accounting every two seconds.
-/// Chain metrics carry `chain="i"`; pool shares also carry `pool="i"`.
+/// Chain metrics carry `chain="i"`; pool shares also carry `pool="i"`,
+/// or `pool="fee"` for the board's fee slot.
 /// The PSU publishes its own commanded and measured rail voltages.
-pub async fn run_miner_metrics_publisher(mining: MiningHandle, pool_slots: usize) -> ! {
+pub async fn run_miner_metrics_publisher(
+    mining: MiningHandle,
+    pool_slots: usize,
+    fee_slot: Option<usize>,
+) -> ! {
     let mut ticker = Ticker::every(Duration::from_secs(2));
     loop {
         ticker.next().await;
@@ -72,10 +77,11 @@ pub async fn run_miner_metrics_publisher(mining: MiningHandle, pool_slots: usize
             .await;
             let limit = pool_slots.min(crate::consts::MAX_POOL_SLOTS);
             for slot in 0..limit {
-                push_chain_pool_metric(
+                ubos_metrics::metrics::push_chain_pool_metric(
                     "board_pool_work_shares_total",
                     chain,
                     slot,
+                    fee_slot,
                     Value::Uint(stats.pool_shares(slot)),
                 )
                 .await;
@@ -112,20 +118,19 @@ async fn push_chain_metric(name: &'static str, chain: usize, value: Value) {
     ubos_metrics::metrics::push_indexed_metric(name, "chain", chain, value).await;
 }
 
-/// Push one metric labeled `chain="<chain>"` and `pool="<slot>"`.
-async fn push_chain_pool_metric(name: &'static str, chain: usize, slot: usize, value: Value) {
-    ubos_metrics::metrics::push_indexed_metrics(name, &[("chain", chain), ("pool", slot)], value)
-        .await;
-}
-
 /// Task shell around [`run_miner_metrics_publisher`]. Takes the board's
 /// pool slot count, which is a per-board const.
 #[macro_export]
 macro_rules! miner_metrics_task {
-    ($pool_slots:expr) => {
+    ($pool_slots:expr, $fee:expr) => {
         #[embassy_executor::task]
         async fn miner_metrics_task(mining: ubos_mining::Handle) -> ! {
-            ubos_mining::publishers::run_miner_metrics_publisher(mining, $pool_slots).await
+            ubos_mining::publishers::run_miner_metrics_publisher(
+                mining,
+                $pool_slots,
+                ubos_config::FeeSlot::index(&$fee),
+            )
+            .await
         }
     };
 }
