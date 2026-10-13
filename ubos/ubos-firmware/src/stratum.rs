@@ -46,9 +46,10 @@ use ubos_logging::{Debug2Format, info, warn};
 
 /// Config pool-list capacity, re-exported as the default value for
 /// each board's `POOL_SLOTS` const. A board may choose fewer session
-/// slots than the config persists (RAM-constrained boards); it should
-/// never choose more — a session task for a slot at or beyond the
-/// config capacity parks forever.
+/// slots than the config persists (RAM-constrained boards). A board
+/// that installs a fee pool chooses `ubos_config::POOL_SLOTS`, one
+/// more, and no board chooses beyond that: a session task for a slot
+/// past it parks forever.
 pub use ubos_config::pool::MAX_POOLS;
 
 // Preallocated buffer for the SV2 `secp256k1::AllPreallocated` context.
@@ -181,11 +182,11 @@ fn log_session_error(slot: usize, error: &SessionError<ubos_net::net::StratumCon
     }
 }
 
-/// Maintains one connection to the pool configured in `slot`,
-/// reconnecting on error and restarting on pool-config changes. A slot
-/// with no config entry parks until the next config update — which is
-/// permanent for `slot >= MAX_POOLS`, so boards should size `N` at or
-/// below the config capacity.
+/// Maintains one connection to the pool that `slot` resolves to
+/// through [`ubos_config::Handle::pool_slot`], reconnecting on error
+/// and restarting on pool-config changes. A slot with no entry parks
+/// until the next config update — which is permanent for a slot past
+/// `ubos_config::POOL_SLOTS`, so boards size `N` at or below it.
 ///
 /// `N` is the board's session-slot count, chosen by a `POOL_SLOTS`
 /// const in each board's `main.rs` and carried here by the generic:
@@ -239,8 +240,7 @@ pub async fn run_stratum_session<const N: usize>(
         // removed entry would otherwise stay "Alive" forever.
         handle.set_alive(false);
 
-        let snapshot = config_handle.current();
-        let Some(entry) = snapshot.pool.get(slot) else {
+        let Some(entry) = config_handle.pool_slot(slot) else {
             // An empty primary slot means no mining at all — worth a
             // warning. Higher slots are backup entries; absent ones
             // are the normal single-pool configuration.
