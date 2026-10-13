@@ -39,7 +39,7 @@
 #![no_std]
 #![no_main]
 
-use defmt::{info, unwrap};
+use defmt::{error, info, unwrap};
 use embassy_executor::Spawner;
 use embassy_net::StackResources;
 use embassy_net_wiznet::chip::W5100S;
@@ -200,6 +200,10 @@ pub(crate) const POOL_SLOTS: usize = ubos_firmware::MAX_POOLS;
 /// 4-wire fan specification.
 const TACH_PULSES_PER_REV: u64 = 2;
 
+/// How long the board waits before it resets after a failed `WIZnet` init,
+/// so the log line reaches the probe first.
+const WIZNET_RETRY_DELAY: Duration = Duration::from_millis(500);
+
 /// Shared ASIC session: the bridge between the per-slot stratum sessions and
 /// the BM1362 serial worker. One instance per binary; referenced by every
 /// stratum client task and the mining serial task.
@@ -357,7 +361,13 @@ async fn boot(spawner: Spawner) {
         esp_hal::efuse::base_mac_address().as_bytes(),
     );
     let state = STATE.init(State::<8, 8>::new());
-    let (device, runner) = embassy_net_wiznet::new(
+    // A failed init resets the board to try again. A failed SPI read is
+    // almost always transient, a brownout garbling the bus rather than a
+    // wiring fault. `new` consumes the SPI, both pins and the init-once
+    // `State`, so it cannot be retried in place. A panic spins until the
+    // watchdog fires, and the next boot then reports a watchdog stall for a
+    // fault outside the firmware.
+    let Ok((device, runner)) = embassy_net_wiznet::new(
         mac_addr,
         state,
         ExclusiveDevice::new(spi, chip_select, Delay),
@@ -365,8 +375,11 @@ async fn boot(spawner: Spawner) {
         phy_reset,
     )
     .await
-    // Initialization succeeds when the chip is wired correctly and responds on SPI.
-    .expect("BUG: W5100S initialization failed");
+    else {
+        error!("WIZnet init failed; resetting to retry");
+        Timer::after(WIZNET_RETRY_DELAY).await;
+        esp_hal::system::software_reset();
+    };
     spawner.spawn(unwrap!(ethernet_task(runner)));
 
     let manager_handle = ubos_manager::handle();
