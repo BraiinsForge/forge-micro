@@ -17,7 +17,7 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Schema types for the `/api/system/*` REST surface.
+//! Schema types for the `/api/info` and `/api/system/*` REST surface.
 //!
 //! Each sub-module defines exactly one response struct. All structs
 //! derive `serde::Serialize` and are serialized with
@@ -25,12 +25,14 @@
 //! heap allocation.
 
 pub mod generic_response;
+pub mod info;
 pub mod system_info;
 pub mod system_network;
 pub mod system_scoreboard;
 pub mod system_statistics;
 
 pub use generic_response::GenericResponse;
+pub use info::ApiInfo;
 pub use system_info::SystemInfo;
 pub use system_network::SystemNetwork;
 pub use system_scoreboard::SystemScoreboardEntry;

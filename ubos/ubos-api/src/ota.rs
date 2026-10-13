@@ -46,6 +46,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::watch::Watch;
 use portable_atomic::{AtomicU8, AtomicU32, Ordering};
+use serde::Serialize;
 
 use crate::schema::system_info::OtaInfo;
 
@@ -57,8 +58,10 @@ use crate::schema::system_info::OtaInfo;
 ///
 /// Stored as a `u8` in an `AtomicU8`. The `#[repr(u8)]` guarantee means
 /// any valid discriminant can be loaded atomically and cast back without
-/// risk of reading an indeterminate intermediate value.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+/// risk of reading an indeterminate intermediate value. It serializes as
+/// its variant name in camel case, the string `/api/info` reports.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 #[repr(u8)]
 pub enum OtaPhase {
     /// No upload is in progress. The board is running normally.
@@ -264,7 +267,11 @@ impl OtaSession {
 /// either a power-on reset or a deliberate `SCB::sys_reset()` (which
 /// does not set the watchdog reason bits on RP2350). Only a hardware
 /// watchdog timeout sets the `TimedOut` bit.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+///
+/// It serializes as its variant name in camel case, the string
+/// `/api/info` reports.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 #[repr(u8)]
 pub enum ResetReason {
     /// Watchdog reason register was not checked (pre-publication state).
@@ -285,9 +292,11 @@ pub enum ResetReason {
 /// from a panic (the panic handler ran before the reset fired).
 ///
 /// Discriminant values must match the `WRITE_PHASE_*` constants in
-/// `ubos/ubos-ota/src/rp.rs`.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+/// `ubos/ubos-ota/src/rp.rs`. It serializes as its variant name in camel
+/// case, the string `/api/info` reports.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[serde(rename_all = "camelCase")]
 #[repr(u8)]
 pub enum OtaWritePhase {
     /// No OTA write was in progress at the time of reset.
