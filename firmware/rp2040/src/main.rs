@@ -153,7 +153,12 @@ ubos_manager::manager_task!();
 type BoardConfigStorage =
     FlashStorage<SyncFlash<ubos_ota::SharedBlockingFlash<{ config::Flash::SIZE }>>>;
 
-ubos_config::config_task!(BoardConfigStorage, config::BOARD, &config::MINING_INFO);
+ubos_config::config_task!(
+    BoardConfigStorage,
+    config::BOARD,
+    &config::MINING_INFO,
+    FEE_SLOT
+);
 
 ubos_cooling::cooling_task!(ubos_rp::fan::BoardFan, ubos_rp::fan::BoardTach);
 
@@ -162,11 +167,11 @@ async fn cpu_load_task() -> ! {
     ubos_metrics::cpu_load::run_cpu_load::<2>().await
 }
 
-ubos_firmware::stratum_metrics_task!(POOL_SLOTS);
+ubos_firmware::stratum_metrics_task!(POOL_SLOTS, FEE_SLOT);
 
 ubos_mining::pool_weights_task!(&mining::CHAINS);
 
-ubos_mining::miner_metrics_task!(POOL_SLOTS);
+ubos_mining::miner_metrics_task!(POOL_SLOTS, FEE_SLOT);
 
 #[cfg(feature = "display")]
 type OledDisplay = Sh1106<
@@ -191,10 +196,16 @@ ubos_firmware::serve_all!(
 
 ubos_net::network_control_task!();
 
-/// Parallel stratum session slots this board runs — the full config
-/// capacity; this board has the RAM for a session task per pool slot.
-/// RAM-constrained boards may choose fewer (see stm32f407).
+/// Parallel stratum session slots this board runs: three, because a
+/// fourth session task future overflows the 256 KiB RAM by about
+/// 12 KiB. A build with the fee switch on gives the fee the last of
+/// them and the operator the other two.
 pub(crate) const POOL_SLOTS: usize = ubos_firmware::MAX_POOLS;
+
+/// The fee pool this board runs, at its last session slot. `None` on
+/// an off build, so the source reads the same in both states.
+pub(crate) const FEE_SLOT: Option<ubos_config::FeeSlot> =
+    ubos_config::FeeSlot::last_of(config::FEE_POOL, POOL_SLOTS);
 
 /// Shared ASIC session: the bridge between the per-slot stratum sessions and
 /// the BM1362 serial worker. One instance per binary; referenced by every

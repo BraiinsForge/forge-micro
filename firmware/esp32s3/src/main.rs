@@ -125,11 +125,11 @@ async fn cpu_load_task() -> ! {
     ubos_metrics::cpu_load::run_cpu_load::<2>().await
 }
 
-ubos_firmware::stratum_metrics_task!(POOL_SLOTS);
+ubos_firmware::stratum_metrics_task!(POOL_SLOTS, FEE_SLOT);
 
 ubos_mining::pool_weights_task!(&mining::CHAINS);
 
-ubos_mining::miner_metrics_task!(POOL_SLOTS);
+ubos_mining::miner_metrics_task!(POOL_SLOTS, FEE_SLOT);
 
 /// Adapts the MCU internal thermometer, `esp32s3_tsens::Tsens`, to the
 /// `McuTemperatureSensor` trait.
@@ -158,7 +158,12 @@ ubos_manager::manager_task!();
 /// `esp-storage FlashStorage → SyncFlash → ubos-config FlashStorage`.
 type BoardConfigStorage = FlashStorage<SyncFlash<ubos_ota::EspSharedFlash>>;
 
-ubos_config::config_task!(BoardConfigStorage, config::BOARD, &config::MINING_INFO);
+ubos_config::config_task!(
+    BoardConfigStorage,
+    config::BOARD,
+    &config::MINING_INFO,
+    FEE_SLOT
+);
 
 ubos_cooling::cooling_task!(ubos_esp32::fan::BoardFan, ubos_esp32::fan::BoardTach);
 
@@ -191,10 +196,16 @@ ubos_net::network_control_task!();
 
 ubos_api::ota_watchdog_task!();
 
-/// Parallel stratum session slots this board runs — the full config
-/// capacity; this board has the RAM for a session task per pool slot.
-/// RAM-constrained boards may choose fewer (see stm32f407).
+/// Parallel stratum session slots this board runs: three, because a
+/// fourth session task future pushes DRAM below the 24 KiB boot stack
+/// floor the linker holds. A build with the fee switch on gives the
+/// fee the last of them and the operator the other two.
 pub(crate) const POOL_SLOTS: usize = ubos_firmware::MAX_POOLS;
+
+/// The fee pool this board runs, at its last session slot. `None` on
+/// an off build, so the source reads the same in both states.
+pub(crate) const FEE_SLOT: Option<ubos_config::FeeSlot> =
+    ubos_config::FeeSlot::last_of(config::FEE_POOL, POOL_SLOTS);
 
 /// Rising edges the fan tach pin emits per revolution, per the Intel
 /// 4-wire fan specification.

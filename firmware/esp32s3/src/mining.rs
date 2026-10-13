@@ -45,7 +45,8 @@ ubos_mining::serial_task!(
     ubos_esp32::uart::MinerUart,
     ubos_firmware::AsicSession<{ crate::POOL_SLOTS }>,
     crate::config::BOARD,
-    ubos_asic::Bm13xxDriver
+    ubos_asic::Bm13xxDriver,
+    scheduler = ubos_mining::scheduler::FeeScheduler::new(crate::config::FEE_POOL.permille)
 );
 
 ubos_mining::miner_task!(
