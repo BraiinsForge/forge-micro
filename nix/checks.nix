@@ -108,6 +108,13 @@ let
   # so a name no board table matches cannot pass for one of these.
   webuiHostEnv = webuiDistEnv // brands.defaultEnv;
 
+  # The fee switch, from nix/fee.nix. The host gates run with it on:
+  # that is the wider state, the one the fee-slot tests and the config
+  # body pin in ubos-api measure. A row that states `env = fee.off`
+  # gates the other state. A board gate takes the state its image
+  # ships, read from the board's own cargo config.
+  fee = import ./fee.nix;
+
   # A firmware crate is gated only when it is a workspace member. In this
   # repo every board is a member, so this is always true; it is what lets
   # the module evaluate against a tree that carries fewer. See the
@@ -117,7 +124,8 @@ let
   # Host-side clippy: one row per check. `crate` is the cargo package;
   # `artifacts` defaults to the shared host bag; `allTargets` is off for
   # crates whose tests or examples do not build on the host feature set;
-  # `args` appends feature flags; `webuiDist` points ubos-webui's
+  # `args` appends feature flags; `env` is the fee state, on unless the
+  # row says `fee.off`; `webuiDist` points ubos-webui's
   # build.rs at the hermetic dist. No gate takes the build id: it changes
   # with every commit, and a gate stamped with it would rebuild on every
   # commit for an id nothing reads. Only the images in nix/images.nix
@@ -134,6 +142,7 @@ let
         }-- -D warnings";
         doInstallCargoArtifacts = false;
       }
+      // (spec.env or fee.on)
       // lib.optionalAttrs (spec.webuiDist or false) webuiHostEnv
     );
 
@@ -149,6 +158,7 @@ let
         cargoExtraArgs = "-p ${spec.crate}${spec.args or ""}";
         doInstallCargoArtifacts = false;
       }
+      // (spec.env or fee.on)
       // lib.optionalAttrs (spec.webuiDist or false) webuiHostEnv
     );
 
@@ -322,6 +332,13 @@ let
     };
     test-ubos-config = {
       crate = "ubos-config";
+      artifacts = deps.ubosConfigArtifactsDev;
+    };
+    # The one host gate with the fee switch off, so an off image's
+    # pool stack is tested too; see `fee` above.
+    test-ubos-config-off = {
+      crate = "ubos-config";
+      env = fee.off;
       artifacts = deps.ubosConfigArtifactsDev;
     };
     test-ubos-config-std = {
