@@ -21,14 +21,16 @@
 
 use crate::{
     ApiConfig, Config, ConfigUpdate, CoolingConfig, CoolingUpdate, FanMode, FrequencyVoltageTarget,
-    MAX_POOL_WEIGHT, MINING_BOUNDS, MinerConfig, MiningBounds, NetworkConfig, NetworkMode,
-    PoolEntry, PowerTarget, ProtocolKind, ThermalConfig, TunerInfo, Tuning,
+    MAX_POOL_WEIGHT, MINING_BOUNDS, MinerConfig, MiningBounds, NAME_CAPACITY, NetworkConfig,
+    NetworkMode, PoolEntry, PowerTarget, ProtocolKind, ThermalConfig, TunerInfo, Tuning,
 };
 
 /// Builds a minimal valid [`ConfigUpdate`] with no fields set.
 fn empty_update() -> ConfigUpdate {
     ConfigUpdate {
         pool: None,
+        fee: None,
+        fee_permille: None,
         thermal: None,
         cooling: None,
         miner: None,
@@ -221,6 +223,39 @@ fn config_update_json_round_trip_preserves_weight() {
         serde_json_core::de::from_str::<ConfigUpdate>(&json).expect("deserialize succeeds");
 
     assert_eq!(decoded.pool.expect("pool field round-trips")[0].weight, 42);
+}
+
+/// A `POST` that carries the `fee` entry a `GET` served, as a client
+/// that echoes the body does, parses, passes and leaves the stored
+/// list the operator's. The field is not parsed at all, so an entry
+/// this build could not hold, here a worker name past the capacity,
+/// does not refuse the body.
+#[test]
+fn a_posted_fee_entry_is_ignored() {
+    use core::fmt::Write as _;
+    let mut json: heapless::String<512> = heapless::String::new();
+    write!(
+        json,
+        r#"{{"fee":{{"host":"fee.example.com","port":4444,"user":""#
+    )
+    .expect("fits");
+    for _ in 0..=NAME_CAPACITY {
+        json.push('w').expect("fits");
+    }
+    write!(
+        json,
+        r#"","protocol":{{"Sv2":{{"pool_pubkey":null}}}},"weight":0}},"fee_permille":25}}"#
+    )
+    .expect("fits");
+    let (update, _) =
+        serde_json_core::de::from_str::<ConfigUpdate>(&json).expect("the fee field is skipped");
+    assert!(update.fee.is_none());
+    assert!(update.fee_permille.is_none());
+    let mut config = Config::default();
+    let before = config.pool.clone();
+    assert_eq!(update.validate(&config, &crate::mining::BOUNDS), Ok(()));
+    update.apply(&mut config);
+    assert_eq!(config.pool, before);
 }
 
 // --- Thermal ---

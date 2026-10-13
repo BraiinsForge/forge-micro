@@ -415,6 +415,8 @@ mod fee_slot_tests {
         assert_eq!(FeeSlot::last_of(FEE, FOUR_SESSIONS), None);
         let handle = handle_over(&CELL);
         assert_eq!(handle.pool_slot(MAX_POOLS), None);
+        assert_eq!(handle.view().fee, None);
+        assert_eq!(handle.view().fee_permille, None);
     }
 
     #[test]
@@ -444,6 +446,13 @@ mod fee_slot_tests {
         assert_eq!(handle.pool_slot(MAX_POOLS - 1), None);
         assert_eq!(handle.pool_slot(FOUR_SESSIONS - 1), Some(FEE.entry()));
         assert_eq!(handle.pool_slot(FOUR_SESSIONS), None);
+        // The GET view serves the fee entry as its own field, beside
+        // the operator list, and a POST that echoes it back validates.
+        let view = handle.view();
+        assert_eq!(view.pool.as_ref(), Some(&config.pool));
+        assert_eq!(view.fee, Some(FEE.entry()));
+        assert_eq!(view.fee_permille, Some(FEE.permille));
+        assert_eq!(view.validate(&config, &crate::mining::BOUNDS), Ok(()));
     }
 
     #[test]

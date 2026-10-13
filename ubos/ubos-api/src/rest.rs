@@ -77,10 +77,12 @@ const CONFIG_ACK_BODY: &[u8] = b"{\"ok\":true}";
 /// Body buffer size for `GET /api/config` responses.
 ///
 /// The widest [`ubos_config::ConfigUpdate`] snapshot the buffer has to
-/// hold — three pool slots carrying 128-byte host and user strings and
-/// an SV1 password, a static `network` mode with three resolvers and a
+/// hold — the operator's three pool slots plus the fee entry and its
+/// share the view carries beside them, each entry with 128-byte host
+/// and user strings and an
+/// SV1 password, a static `network` mode with three resolvers and a
 /// 32-byte hostname, a 32-byte `api` username and password, and every
-/// numeric field at its longest decimal form — serializes to 2102
+/// numeric field at its longest decimal form — serializes to 2601
 /// bytes. The SV1 password is what makes a pool slot
 /// widest: 128 bytes of string outruns the SV2 key, which travels as a
 /// base58check string rather than as a JSON number array. That total
@@ -476,8 +478,7 @@ impl Service for RestApiService {
                 // await so neither lives on the rest_api future stack
                 // across write_json_response.
                 let serialize_result = {
-                    let snapshot = ubos_config::handle().current();
-                    let response = ubos_config::ConfigUpdate::from_config(&snapshot);
+                    let response = ubos_config::handle().view();
                     serde_json_core::ser::to_slice(&response, &mut body_buf)
                 };
                 let Ok(length) = serialize_result else {

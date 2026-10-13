@@ -319,8 +319,9 @@ const WIDEST_F32: f32 = -0.000_001_000_000_1;
 /// Pinned exactly rather than merely bounded by `CONFIG_RESPONSE_BUFFER_SIZE`,
 /// so the figure quoted in that constant's comment cannot drift: a field
 /// addition that still fits the buffer fails here, and updating this constant
-/// is the prompt to update that comment.
-const WORST_CASE_BODY_LEN: usize = 2102;
+/// is the prompt to update that comment. The probe carries the `fee` entry
+/// whatever the build's switch, so the pin is the same in both states.
+const WORST_CASE_BODY_LEN: usize = 2601;
 
 /// The `GET /api/config` handler serializes a `ConfigUpdate` into a fixed
 /// `[u8; CONFIG_RESPONSE_BUFFER_SIZE]`. `serde_json_core::to_slice` returns
@@ -336,7 +337,9 @@ const WORST_CASE_BODY_LEN: usize = 2102;
 /// instead of leaving the test measuring the narrower old one.
 ///
 /// Worst-case assumptions:
-/// - the pool list full, each slot with host and user at capacity, `u16::MAX`
+/// - the `fee_permille` share at the bound the config crate states;
+/// - the pool list full and the `fee` entry present, each entry with host and
+///   user at capacity, `u16::MAX`
 ///   port, `u32::MAX` weight and the wider of the two `ProtocolKind` variants,
 ///   which is SV2 carrying a key rather than SV1 carrying a password: a
 ///   `[u8; 32]` serializes as a JSON number array costing up to four bytes an
@@ -408,6 +411,8 @@ fn config_response_body_fits_in_buffer() {
 
     let update = ubos_config::ConfigUpdate {
         pool: Some(pool),
+        fee: Some(pool_entry),
+        fee_permille: Some(ubos_config::MAX_FEE_PERMILLE),
         thermal: Some(ubos_config::ThermalConfig {
             sample_interval_ms: u32::MAX,
             dangerous_hashboard_temp_c: WIDEST_F32,

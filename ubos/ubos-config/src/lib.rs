@@ -324,6 +324,18 @@ impl Handle {
         self.current().pool.get(slot).cloned()
     }
 
+    /// The config as `GET /api/config` serves it: the current config
+    /// with the fee entry and its share beside the operator's list.
+    #[must_use]
+    pub fn view(&self) -> ConfigUpdate {
+        let mut view = ConfigUpdate::from_config(&self.current());
+        if let Some(fee) = self.fee.try_get() {
+            view.fee = Some(fee.pool.entry());
+            view.fee_permille = Some(fee.pool.permille);
+        }
+        view
+    }
+
     /// Per-task subscription. Call once per consumer task before
     /// entering its loop.
     ///
@@ -432,6 +444,20 @@ pub struct ConfigUpdate {
     /// produces this when every URL input is blank.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pool: Option<heapless::Vec<PoolEntry, { pool::MAX_POOLS }>>,
+    /// The entry the fee slot runs, which the board states and the
+    /// operator cannot edit. `GET` carries it beside the operator's
+    /// list, and leaves it out on a board with no fee slot. A `POST`
+    /// carries it back as served and the field is not even parsed, so
+    /// a `POST` of the `GET` body is an identity whatever the entry
+    /// holds.
+    #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
+    pub fee: Option<PoolEntry>,
+    /// The share of the work the fee slot takes, in thousandths, which
+    /// the board states with the entry. `GET` carries it beside `fee`
+    /// and leaves it out with it, and a `POST` carries it back as
+    /// served and the field is not parsed, as `fee` is not.
+    #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
+    pub fee_permille: Option<i64>,
     /// Replacement value for [`Config::thermal`]; `None` means leave unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thermal: Option<ThermalConfig>,
@@ -495,14 +521,19 @@ impl ConfigUpdate {
 
     /// Produce a fully-populated `ConfigUpdate` from a live [`Config`].
     ///
-    /// Used by `GET /api/config`. The `api.password` field is set to an empty
-    /// string so the stored credential is never transmitted to the client.
+    /// The base of the `GET /api/config` body. The `api.password` field is
+    /// set to an empty string so the stored credential is never transmitted
+    /// to the client. `fee` and `fee_permille` are `None`, because a
+    /// `Config` holds no fee slot; [`Handle::view`] fills them from the
+    /// slot the board installed.
     #[must_use]
     pub fn from_config(config: &Config) -> Self {
         let mut api = config.api.clone();
         api.password = heapless::String::new();
         Self {
             pool: Some(config.pool.clone()),
+            fee: None,
+            fee_permille: None,
             thermal: Some(config.thermal.clone()),
             cooling: Some(CoolingUpdate {
                 mode: Some(config.cooling.mode),
