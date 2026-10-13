@@ -23,16 +23,25 @@
 //! to pick which pool slot to dispatch work from next.
 //! [`RatioScheduler`] is its clamped deficit-counter implementation: it
 //! splits delivered work between the configured slots at a fixed
-//! ratio and routes around unavailable pools.
+//! ratio and routes around unavailable pools. [`FeeScheduler`] wraps
+//! it and holds the fee slot at a fixed share of the delivered work.
 
 #[cfg(test)]
 #[path = "tests/scheduler.rs"]
 mod tests;
 
+use ubos_config::{DEVFEE, FEE_DEN, MIN_FEE_SLOTS, REPAY_SPACING};
+
 /// Number of shares a clamped credit may lag or lead its zero point
 /// by, expressed as a multiple of the weight sum. Bounds how long a
 /// pool returning from an outage gets repaid before parity resumes.
 const CLAMP_SHARES: i32 = 1000;
+
+/// Fee shares the debt of a [`FeeScheduler`] can lag or lead by.
+/// Bounds how long a fee pool returning from an outage is repaid
+/// before the share resumes, the same trade [`CLAMP_SHARES`] makes
+/// for an operator pool.
+const CAP_FEE_SHARES: i64 = 1000;
 
 /// Policy that decides which configured pool slot receives the next
 /// unit of dispatched work.
@@ -165,6 +174,146 @@ impl<const N: usize> Scheduler<N> for RatioScheduler<N> {
         // A reweight is a clean slate by design: it coincides with the
         // stratum sessions restarting on the same config generation.
         self.credit = [0; N];
+    }
+}
+
+/// A [`RatioScheduler`] with the board's last slot, the fee slot, held
+/// at a fixed share of the delivered shares.
+///
+/// Each operator share adds the fee's numerator to a debt and each fee
+/// share subtracts the rest of the denominator, so the update is
+/// zero-sum at the configured share and the split is exact in the long
+/// run: one fee share for every `due / permille` operator shares. The
+/// debt is clamped at [`CAP_FEE_SHARES`] fee shares either way, so a
+/// fee pool back from an outage is repaid that much and no more, and
+/// at [`REPAY_SPACING`] operator shares between two fee shares, so a
+/// repayment never takes the whole of the work. The
+/// inner scheduler splits the operator shares between the operator
+/// slots as it does on any board, and the fee slot stays outside its
+/// view, so a chain with no operator pool available idles.
+///
+/// A separate counter rather than a weight, because the inner
+/// scheduler's weights cannot hold a small fixed fraction: its clamp
+/// bends the ratio when the operator weights are large, and the
+/// integer division that would derive a fee weight rounds to zero when
+/// they are small, and zero means backup only. The operator weights
+/// stay as the operator wrote them.
+///
+/// The fee pass runs only on a build with [`DEVFEE`] on and at least
+/// [`MIN_FEE_SLOTS`] slots, so an operator slot stands beside the fee.
+/// An off build runs the operator split alone, so a fee board names
+/// this scheduler in both states and the switch decides.
+pub struct FeeScheduler<const N: usize> {
+    inner: RatioScheduler<N>,
+    /// Thousandths of a share the fee slot is owed, within the cap.
+    /// Grows while the fee pool is down, so a returning fee pool is
+    /// repaid for the outage, up to the cap.
+    debt: i64,
+    /// Thousandths each operator share adds to the debt.
+    permille: i64,
+    /// Operator shares since the last fee share, which paces a
+    /// repayment: a fee share is picked only after [`REPAY_SPACING`]
+    /// of them.
+    since_fee: i64,
+}
+
+impl<const N: usize> FeeScheduler<N> {
+    /// Whether this scheduler runs the fee pass at all.
+    const FEE_SLOT_RUNS: bool = DEVFEE && N >= MIN_FEE_SLOTS;
+
+    /// The slot the fee runs in: the board's last, after its operator
+    /// slots, the same rule `ubos_config::FeeSlot::last_of` states.
+    const FEE_SLOT: usize = N - 1;
+
+    /// Builds the scheduler with the inner one at its default, no debt
+    /// and the fee slot at `permille` thousandths of the delivered
+    /// work, so the first fee share follows the operator's first run.
+    ///
+    /// # Panics
+    ///
+    /// Panics on a share outside 0 to [`FEE_DEN`] exclusive, and on
+    /// one past [`ubos_config::MAX_FEE_PERMILLE`], where a repayment
+    /// at [`REPAY_SPACING`] would not outpace the steady state. The
+    /// share is a build-time fact `ubos_config::FeePool` already
+    /// bounds by the same constants, so either is a wiring bug.
+    #[must_use]
+    pub fn new(permille: i64) -> Self {
+        assert!(
+            (0..FEE_DEN).contains(&permille),
+            "BUG: a fee share is a number from 0 to {}",
+            FEE_DEN - 1
+        );
+        assert!(
+            permille * (REPAY_SPACING + 1) < FEE_DEN,
+            "BUG: a fee share of {} per mille or more cannot repay a debt",
+            FEE_DEN / (REPAY_SPACING + 1)
+        );
+        Self {
+            inner: RatioScheduler::new(),
+            debt: 0,
+            permille,
+            since_fee: 0,
+        }
+    }
+
+    /// Debt at which one fee share is due: the share of a whole share
+    /// the fee slot is owed once the operator slots have had their
+    /// part.
+    fn due(&self) -> i64 {
+        FEE_DEN - self.permille
+    }
+
+    /// The debt's bound in thousandths of a share, both ways.
+    fn cap(&self) -> i64 {
+        self.due() * CAP_FEE_SHARES
+    }
+}
+
+impl<const N: usize> Scheduler<N> for FeeScheduler<N> {
+    fn accumulate_share(&mut self, slot: usize) {
+        if !Self::FEE_SLOT_RUNS {
+            self.inner.accumulate_share(slot);
+            return;
+        }
+        if slot == Self::FEE_SLOT {
+            self.debt = (self.debt - self.due()).max(-self.cap());
+            self.since_fee = 0;
+            return;
+        }
+        self.debt = (self.debt + self.permille).min(self.cap());
+        self.since_fee = self.since_fee.saturating_add(1);
+        self.inner.accumulate_share(slot);
+    }
+
+    fn evaluate(&mut self, available: &[bool; N]) -> Option<usize> {
+        if !Self::FEE_SLOT_RUNS {
+            return self.inner.evaluate(available);
+        }
+        let mut operator = *available;
+        operator[Self::FEE_SLOT] = false;
+        // The fee is a share of the operator's work, so no operator
+        // pool means no mining.
+        let pick = self.inner.evaluate(&operator)?;
+        let due = self.debt >= self.due();
+        let paced = self.since_fee >= REPAY_SPACING;
+        if due && paced && available[Self::FEE_SLOT] {
+            return Some(Self::FEE_SLOT);
+        }
+        Some(pick)
+    }
+
+    fn set_weights(&mut self, weights: &[u32]) {
+        // The debt survives a reweight: an operator who edits the pool
+        // list in a loop must not erase the fee.
+        if !Self::FEE_SLOT_RUNS {
+            self.inner.set_weights(weights);
+            return;
+        }
+        // The operator's list reaches the fee slot on a board with as
+        // many sessions as entries, and a weight there would count in
+        // the split of a slot the inner scheduler never picks.
+        let operator = weights.len().min(Self::FEE_SLOT);
+        self.inner.set_weights(&weights[..operator]);
     }
 }
 
