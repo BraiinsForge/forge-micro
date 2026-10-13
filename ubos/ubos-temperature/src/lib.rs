@@ -19,8 +19,8 @@
 
 //! Board-temperature hardware drivers and the descriptor types a board
 //! uses to declare its sensor topology. The LM75A, TMP102 and TMP461
-//! drivers live in sibling modules, and [`read_sensor`] takes one
-//! reading from whichever of them a descriptor names. `ubos-thermal`
+//! drivers live in sibling modules, and [`read_sensor`] takes the
+//! [`Readings`] of whichever of them a descriptor names. `ubos-thermal`
 //! folds those readings, owns the sensor trait and the sample loop, and
 //! writes every metric; nothing here decides or publishes anything.
 
@@ -33,6 +33,8 @@ pub mod tmp102;
 pub mod tmp461;
 
 use embedded_hal_async::i2c::I2c;
+use heapless::Vec;
+use ubos_core::units::Temperature;
 use ubos_logging::error;
 
 use crate::lm75a::Lm75a;
@@ -52,24 +54,57 @@ pub enum SensorKind {
 pub struct SensorDescriptor {
     pub kind: SensorKind,
     pub address: u8,
-    /// Chip index whose remote diode this sensor reads, if any. `Some`
-    /// marks the sensor's remote reading as a trustworthy die temperature;
-    /// `None` means a PCB-surface sensor. A plain index for now — nothing
-    /// consumes the value yet.
-    pub attached_chip: Option<u8>,
+    /// The chip whose die this sensor's remote diode reads, if any. `Some`
+    /// makes the remote reading a [`TempSource::Chip`] one; `None` means a
+    /// PCB-surface sensor, read through its local channel alone.
+    pub attached_chip: Option<ChipId>,
 }
 
-/// A sensor's local (own body/PCB) and optional remote (die diode)
-/// readings in millicelsius.
-pub struct DualReading {
-    pub local: Option<i32>,
-    pub remote: Option<i32>,
+/// Index of a chip on its chain. The chain itself is the reader's to
+/// know: a worker reads one chain and names its chips within it.
+pub type ChipId = u8;
+
+/// What a [`Reading`] measures.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TempSource {
+    /// The hashboard under the sensor.
+    Hashboard,
+    /// The die of one chip.
+    Chip(ChipId),
+    /// The air around the board.
+    Ambient,
+    /// The control board.
+    ControlBoard,
+    /// The power supply.
+    Psu,
 }
 
-/// A sensor fault normalized across every driver's `Error` enum, so all
-/// fault logging lives in one place. Each driver's error maps in via
-/// `From`; the drivers themselves stay pure `Result`-returning wrappers.
-enum SensorFault<E> {
+/// One temperature a sensor measured, and what it measured. Every sensor
+/// yields the same shape, whichever driver and channel it came from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Reading {
+    pub source: TempSource,
+    pub value: Temperature,
+}
+
+/// The reading of `source` that `result` holds, or the fault that kept
+/// `source` from one.
+pub(crate) fn add_source<E, F: Into<SensorFault<E>>>(
+    source: TempSource,
+    result: Result<Temperature, F>,
+) -> Result<Reading, ReadingError<E>> {
+    result
+        .map(|value| Reading { source, value })
+        .map_err(|fault| ReadingError {
+            source,
+            fault: fault.into(),
+        })
+}
+
+/// Why a channel gave no reading, normalised across every driver's
+/// `Error` enum, which each map in via `From`.
+#[derive(Debug, PartialEq, Eq)]
+pub enum SensorFault<E> {
     I2c(E),
     OutOfRange(i32),
     OpenCircuit,
@@ -107,6 +142,13 @@ impl<E> From<tmp461::Error<E>> for SensorFault<E> {
     }
 }
 
+/// A channel that gave no reading: what the channel measures, and why.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ReadingError<E> {
+    pub source: TempSource,
+    pub fault: SensorFault<E>,
+}
+
 /// Log a fault. `channel` qualifies the out-of-range message for
 /// multi-channel sensors and is empty for single-channel ones.
 fn log_fault<E: core::fmt::Debug>(chip: &str, address: u8, channel: &str, fault: SensorFault<E>) {
@@ -139,74 +181,54 @@ fn log_fault<E: core::fmt::Debug>(chip: &str, address: u8, channel: &str, fault:
     );
 }
 
-/// Take one channel reading: pass the value through, or log the fault and
-/// yield `None`.
-fn take<E: core::fmt::Debug>(
-    chip: &str,
-    address: u8,
-    channel: &str,
-    reading: Result<i32, SensorFault<E>>,
-) -> Option<i32> {
-    match reading {
-        Ok(mc) => Some(mc),
-        Err(fault) => {
-            log_fault(chip, address, channel, fault);
-            None
-        }
-    }
-}
+/// The most readings one sensor yields: a TMP461's local and remote
+/// channel.
+pub const MAX_READINGS: usize = 2;
 
-/// Read one sensor, dispatching on kind to name its concrete driver type
-/// and channels. All fault logging is funneled through `take`.
-pub async fn read_sensor<Bus: I2c>(desc: &SensorDescriptor, bus: &mut Bus) -> DualReading {
-    let addr = desc.address;
+/// The readings one sensor yielded. A channel that failed is absent.
+pub type Readings = Vec<Reading, MAX_READINGS>;
+
+/// Read one sensor through the driver its kind names, and tag each
+/// channel's reading with what it measures: the local channel the
+/// hashboard, the remote one the attached chip. A channel that fails is
+/// logged and left out.
+pub async fn read_sensor<Bus: I2c>(desc: &SensorDescriptor, bus: &mut Bus) -> Readings {
+    let address = desc.address;
     match desc.kind {
-        SensorKind::Lm75a => DualReading {
-            local: take(
-                "LM75A",
-                addr,
-                "",
-                Lm75a::new(addr)
-                    .read_millicelsius(bus)
-                    .await
-                    .map_err(SensorFault::from),
-            ),
-            remote: None,
-        },
-        SensorKind::Tmp102 => DualReading {
-            local: take(
-                "TMP102",
-                addr,
-                "",
-                Tmp102::new(addr)
-                    .read_millicelsius(bus)
-                    .await
-                    .map_err(SensorFault::from),
-            ),
-            remote: None,
-        },
+        SensorKind::Lm75a => add_source(
+            TempSource::Hashboard,
+            Lm75a::new(address).read_temperature(bus).await,
+        )
+        .map_err(|error| log_fault("LM75A", address, "", error.fault))
+        .ok()
+        .into_iter()
+        .collect(),
+        SensorKind::Tmp102 => add_source(
+            TempSource::Hashboard,
+            Tmp102::new(address).read_temperature(bus).await,
+        )
+        .map_err(|error| log_fault("TMP102", address, "", error.fault))
+        .ok()
+        .into_iter()
+        .collect(),
         SensorKind::Tmp461 => {
-            let sensor = Tmp461::new(addr);
-            DualReading {
-                remote: take(
-                    "TMP461",
-                    addr,
-                    " remote",
-                    sensor
-                        .read_remote_millicelsius(bus)
-                        .await
-                        .map_err(SensorFault::from),
-                ),
-                local: take(
-                    "TMP461",
-                    addr,
-                    " local",
-                    sensor
-                        .read_local_millicelsius(bus)
-                        .await
-                        .map_err(SensorFault::from),
-                ),
-            }
+            let sensor = Tmp461::new(address);
+            let hashboard = add_source(
+                TempSource::Hashboard,
+                sensor.read_local_temperature(bus).await,
+            )
+            .map_err(|error| log_fault("TMP461", address, " local", error.fault))
+            .ok();
+            let chip = match desc.attached_chip {
+                Some(chip) => add_source(
+                    TempSource::Chip(chip),
+                    sensor.read_remote_temperature(bus).await,
+                )
+                .map_err(|error| log_fault("TMP461", address, " remote", error.fault))
+                .ok(),
+                None => None,
+            };
+            [hashboard, chip].into_iter().flatten().collect()
         }
     }
 }

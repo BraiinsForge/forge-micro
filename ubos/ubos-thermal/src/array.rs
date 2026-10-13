@@ -32,7 +32,7 @@ use core::fmt::Write as _;
 use embedded_hal_async::i2c::I2c;
 use ubos_core::units::Temperature;
 use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value, push};
-use ubos_temperature::{SensorDescriptor, SensorKind, read_sensor};
+use ubos_temperature::{SensorDescriptor, SensorKind, TempSource, read_sensor};
 
 use crate::{Reading, Sample, Source, TemperatureSensor};
 
@@ -85,17 +85,17 @@ where
         let mut hashboard: Option<Temperature> = None;
 
         for desc in self.sensors {
-            let reading = read_sensor(desc, &mut self.bus).await;
-            if desc.attached_chip.is_some() {
-                // Die-wired sensor: its remote diode reads the die.
-                if let Some(mc) = reading.remote {
-                    chip = chip.max(Some(Temperature::from_millicelsius(mc)));
-                }
-            }
-            if let Some(local) = reading.local {
-                hashboard = hashboard.max(Some(Temperature::from_millicelsius(local)));
-                if let Some(name) = sensor_metric_name(desc.kind) {
-                    publish_sensor(name, desc.address, local).await;
+            for reading in read_sensor(desc, &mut self.bus).await {
+                match reading.source {
+                    TempSource::Chip(_) => chip = chip.max(Some(reading.value)),
+                    TempSource::Hashboard => {
+                        hashboard = hashboard.max(Some(reading.value));
+                        if let Some(name) = sensor_metric_name(desc.kind) {
+                            publish_sensor(name, desc.address, reading.value.millicelsius()).await;
+                        }
+                    }
+                    // Published only: these gate no halt and drive no fan.
+                    TempSource::Ambient | TempSource::ControlBoard | TempSource::Psu => {}
                 }
             }
         }

@@ -30,19 +30,18 @@ use embedded_i2c_unix::I2c as HostI2c;
 use log::{error, info};
 use ubos_core::units::Temperature;
 use ubos_machine::BMM101_SENSORS;
-use ubos_temperature::lm75a::{Error as Lm75aError, Lm75a};
+use ubos_temperature::read_sensor;
 use ubos_thermal::{Reading, Sample, Source, TemperatureSensor};
 
 use crate::psu::I2C_BUS_ENV;
 
 pub struct HashboardTemperature {
     bus: HostI2c,
-    sensors: [Lm75a; BMM101_SENSORS.len()],
 }
 
 impl HashboardTemperature {
-    /// Open a second handle to the PSU I2C bus and instantiate the four
-    /// LM75A sensors. Bus path comes from `UBOS_I2C_BUS`, defaulting to
+    /// Open a second handle to the PSU I2C bus for the four LM75A
+    /// sensors. Bus path comes from `UBOS_I2C_BUS`, defaulting to
     /// `/dev/i2c-0`. Returns `None` if the env var is set but empty
     /// or the bus cannot be opened.
     pub fn open() -> Option<Self> {
@@ -62,28 +61,16 @@ impl HashboardTemperature {
             "temperature: opened {path} for {} LM75A sensor(s)",
             BMM101_SENSORS.len()
         );
-        Some(Self {
-            bus,
-            sensors: BMM101_SENSORS.map(|desc| Lm75a::new(desc.address)),
-        })
+        Some(Self { bus })
     }
 }
 
 impl TemperatureSensor for HashboardTemperature {
     async fn sample(&mut self) -> Reading {
-        let mut hottest: Option<i32> = None;
-        for (desc, sensor) in BMM101_SENSORS.iter().zip(self.sensors.iter()) {
-            let address = desc.address;
-            match sensor.read_millicelsius(&mut self.bus).await {
-                Ok(reading) => {
-                    hottest = Some(hottest.map_or(reading, |current| current.max(reading)));
-                }
-                Err(Lm75aError::I2c(error)) => {
-                    error!("temperature: LM75A {address:#x} I2C error: {error:?}");
-                }
-                Err(Lm75aError::OutOfRange(raw)) => {
-                    error!("temperature: LM75A {address:#x} reading {raw} mC out of range");
-                }
+        let mut hottest: Option<Temperature> = None;
+        for desc in &BMM101_SENSORS {
+            for reading in read_sensor(desc, &mut self.bus).await {
+                hottest = hottest.max(Some(reading.value));
             }
         }
         // Every sensor here is an LM75A on the hashboard, and the board
@@ -97,7 +84,7 @@ impl TemperatureSensor for HashboardTemperature {
             return Reading::Unreadable;
         };
         Reading::Measured(Sample {
-            safety: Temperature::from_millicelsius(hottest),
+            safety: hottest,
             safety_source: Source::Hashboard,
             pid: None,
         })

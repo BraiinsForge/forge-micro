@@ -25,6 +25,7 @@
 //! for a simple read-only use.
 
 use embedded_hal_async::i2c::I2c;
+use ubos_core::units::Temperature;
 
 /// Temperature register pointer. POR value selects this register, so a
 /// plain two-byte read without a preceding pointer write also works if the
@@ -62,11 +63,11 @@ impl Tmp102 {
         self.address
     }
 
-    /// Read the temperature register and return millicelsius.
+    /// Read the temperature register.
     ///
     /// Returns `Err` on a bus error or when the decoded value is outside
     /// the datasheet operating range.
-    pub async fn read_millicelsius<I, E>(&self, i2c: &mut I) -> Result<i32, Error<E>>
+    pub async fn read_temperature<I, E>(&self, i2c: &mut I) -> Result<Temperature, Error<E>>
     where
         I: I2c<Error = E>,
     {
@@ -78,11 +79,11 @@ impl Tmp102 {
         if !(MIN_MILLICELSIUS..=MAX_MILLICELSIUS).contains(&millicelsius) {
             return Err(Error::OutOfRange(millicelsius));
         }
-        Ok(millicelsius)
+        Ok(Temperature::from_millicelsius(millicelsius))
     }
 }
 
-/// Error returned by [`Tmp102::read_millicelsius`].
+/// Error returned by [`Tmp102::read_temperature`].
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error<E> {
     /// I2C bus error.

@@ -31,6 +31,7 @@
 //! Ideality correction and offset calibration are not applied.
 
 use embedded_hal_async::i2c::I2c;
+use ubos_core::units::Temperature;
 
 /// Status register (read-only). Reports ADC state and the remote-diode
 /// connection fault.
@@ -103,14 +104,14 @@ impl Tmp461 {
         self.address
     }
 
-    /// Read the remote-diode channel and return millicelsius.
+    /// Read the remote-diode channel.
     ///
     /// The remote diode is intended to be the ASIC die; this is the
     /// authoritative thermal reading for die-temperature protection.
     ///
     /// Returns `Err` on a bus error or when the decoded value is outside
     /// the standard operating range.
-    pub async fn read_remote_millicelsius<I, E>(&self, i2c: &mut I) -> Result<i32, Error<E>>
+    pub async fn read_remote_temperature<I, E>(&self, i2c: &mut I) -> Result<Temperature, Error<E>>
     where
         I: I2c<Error = E>,
     {
@@ -153,7 +154,7 @@ impl Tmp461 {
         if !(REMOTE_MIN_MILLICELSIUS..=REMOTE_MAX_MILLICELSIUS).contains(&millicelsius) {
             return Err(Error::OutOfRange(millicelsius));
         }
-        Ok(millicelsius)
+        Ok(Temperature::from_millicelsius(millicelsius))
     }
 
     /// Read the Configuration register and return whether extended range is
@@ -166,13 +167,13 @@ impl Tmp461 {
         Ok(config & CONFIG_EXTENDED_RANGE != 0)
     }
 
-    /// Read the local (on-package) channel and return millicelsius.
+    /// Read the local (on-package) channel.
     ///
     /// Useful for ambient context alongside the remote die reading.
     ///
     /// Returns `Err` on a bus error or when the decoded value is outside
     /// the standard operating range.
-    pub async fn read_local_millicelsius<I, E>(&self, i2c: &mut I) -> Result<i32, Error<E>>
+    pub async fn read_local_temperature<I, E>(&self, i2c: &mut I) -> Result<Temperature, Error<E>>
     where
         I: I2c<Error = E>,
     {
@@ -207,7 +208,7 @@ impl Tmp461 {
         if !(LOCAL_MIN_MILLICELSIUS..=LOCAL_MAX_MILLICELSIUS).contains(&millicelsius) {
             return Err(Error::OutOfRange(millicelsius));
         }
-        Ok(millicelsius)
+        Ok(Temperature::from_millicelsius(millicelsius))
     }
 }
 

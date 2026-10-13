@@ -20,11 +20,12 @@
 //! LM75A / LM75B I2C temperature sensor driver.
 //!
 //! Reads the 11-bit two's-complement temperature register at 0x00 and
-//! converts to millicelsius. Resolution is 0.125°C on the LM75B and
+//! converts it to a [`Temperature`]. Resolution is 0.125°C on the LM75B and
 //! 0.5°C on the LM75A. Both produce the same register layout, so the
 //! driver handles either.
 
 use embedded_hal_async::i2c::I2c;
+use ubos_core::units::Temperature;
 
 #[cfg(test)]
 #[path = "tests/lm75a.rs"]
@@ -55,9 +56,9 @@ impl Lm75a {
         self.address
     }
 
-    /// Read the temperature register and convert to millicelsius.
+    /// Read the temperature register.
     /// Returns `Err` on bus error or out-of-range reading.
-    pub async fn read_millicelsius<I, E>(&self, i2c: &mut I) -> Result<i32, Error<E>>
+    pub async fn read_temperature<I, E>(&self, i2c: &mut I) -> Result<Temperature, Error<E>>
     where
         I: I2c<Error = E>,
     {
@@ -69,7 +70,7 @@ impl Lm75a {
         if !(MIN_MILLICELSIUS..=MAX_MILLICELSIUS).contains(&millicelsius) {
             return Err(Error::OutOfRange(millicelsius));
         }
-        Ok(millicelsius)
+        Ok(Temperature::from_millicelsius(millicelsius))
     }
 }
 
