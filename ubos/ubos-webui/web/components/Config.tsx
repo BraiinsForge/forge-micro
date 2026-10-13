@@ -25,7 +25,7 @@ interface Tab {
 }
 
 const TABS: Tab[] = [
-  { key: 'pools', label: 'Pools', render: (p) => <ConfigPools pools={p.config?.pool || []} /> },
+  { key: 'pools', label: 'Pools', render: (p) => <ConfigPools pools={p.config?.pool || []} fee={p.config?.fee} feePermille={p.config?.fee_permille} /> },
   {
     key: 'temperature',
     label: 'Temperature',

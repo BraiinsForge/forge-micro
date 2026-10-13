@@ -195,6 +195,10 @@ export interface NetworkConfig {
 /** `GET /api/config`. */
 export interface Config {
   pool: (PoolConfig | null)[];
+  /** The entry the fee slot runs, stated by the board and ignored on POST. Absent on a board with no fee pool. */
+  fee?: PoolConfig | null;
+  /** The share of the work the fee slot takes, in thousandths, served with `fee` and ignored on POST. */
+  fee_permille?: number;
   thermal: ThermalConfig;
   cooling: CoolingConfig;
   miner: MinerConfig;

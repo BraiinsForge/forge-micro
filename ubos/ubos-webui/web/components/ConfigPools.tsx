@@ -51,6 +51,10 @@ function initSlot(pool: PoolConfig | null | undefined): Slot {
 
 export interface ConfigPoolsProps {
   pools: (PoolConfig | null)[];
+  /** The board's fee pool, shown read-only after the operator's rows. */
+  fee?: PoolConfig | null;
+  /** The share the fee slot takes, in thousandths, shown on its row. */
+  feePermille?: number;
 }
 
 interface PoolPatch {
@@ -60,7 +64,7 @@ interface PoolPatch {
   protocol: PoolProtocol;
 }
 
-export default function ConfigPools({ pools }: ConfigPoolsProps) {
+export default function ConfigPools({ pools, fee, feePermille }: ConfigPoolsProps) {
   const [slots, setSlots] = useState(() => [0, 1, 2].map((i) => initSlot(pools[i])));
 
   function patch(i: number, field: keyof Slot, value: string): void {
@@ -148,6 +152,17 @@ export default function ConfigPools({ pools }: ConfigPoolsProps) {
               </div>
             );
           })}
+          {fee && (
+            <div class="poolRow">
+              <input class="poolInp" value={initSlot(fee).url} disabled />
+              <input class="poolInp" value={fee.user} disabled />
+              <span class="poolTrust">
+                Dev fee{feePermille != null && ` ${feePermille / 10} %`}
+                <br />
+                (fixed share, not editable)
+              </span>
+            </div>
+          )}
         </div>
         <button type="submit">Save</button>
       </form>

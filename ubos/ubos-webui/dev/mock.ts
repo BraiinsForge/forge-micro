@@ -99,6 +99,15 @@ const CONFIG = {
     },
     null,
   ],
+  // The fee pool the board installs, served beside the operator's list.
+  fee: {
+    host: 'fee.example.com',
+    port: 4444,
+    user: 'fee.worker',
+    protocol: { Sv2: { pool_pubkey: null } },
+    weight: 0,
+  },
+  fee_permille: 25,
   thermal: {
     sample_interval_ms: 1000,
     dangerous_hashboard_temp_c: 85,
