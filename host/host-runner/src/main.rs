@@ -265,7 +265,7 @@ async fn manager_task(mining: MiningHandle) -> ! {
 
 #[embassy_executor::task]
 async fn config_task(storage: FileStorage) -> ! {
-    ubos_config::run(storage, BOARD, &MINING_INFO, None).await
+    ubos_config::run(storage, BOARD, &MINING_INFO, None, None).await
 }
 
 /// CPU-side ASIC mock; spawned when no BM1362 hashboard is wired.

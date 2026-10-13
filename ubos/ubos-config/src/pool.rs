@@ -368,3 +368,94 @@ mod pubkey_serde_tests {
         out
     }
 }
+
+#[cfg(test)]
+mod fee_slot_tests {
+    use super::*;
+    use crate::fee::{FeePool, FeeSlot};
+    use crate::{
+        ConfigCommandChannel, ConfigWatch, FeeSlotCell, GenerationWatch, Handle, NetworkWatch,
+    };
+    use embassy_sync::channel::Channel;
+    use embassy_sync::once_lock::OnceLock;
+    use embassy_sync::watch::Watch;
+
+    /// The pool a fee board states: here one with a fixed worker, so
+    /// the entry reads nothing from the build.
+    const FEE: FeePool = FeePool {
+        host: "fee.example.com",
+        port: 4444,
+        pubkey: None,
+        user: Some("fee.worker"),
+        build: "",
+        variant: 0,
+        permille: 20,
+    };
+
+    /// A board with the operator's three slots and the fee.
+    const FOUR_SESSIONS: usize = MAX_POOLS + 1;
+
+    /// A handle over channels nothing publishes on, with `fee` as its
+    /// fee cell, so a test reads the default config and its own slot.
+    fn handle_over(fee: &'static FeeSlotCell) -> Handle {
+        static STATE: ConfigWatch = Watch::new();
+        static NETWORK: NetworkWatch = Watch::new();
+        static COMMANDS: ConfigCommandChannel = Channel::new();
+        static GENERATION: GenerationWatch = Watch::new();
+        Handle::new(&STATE, &NETWORK, &COMMANDS, &GENERATION, fee)
+    }
+
+    #[test]
+    fn an_off_build_places_no_fee_and_runs_the_operator_slots_alone() {
+        static CELL: FeeSlotCell = OnceLock::new();
+        if DEVFEE {
+            return;
+        }
+        assert_eq!(POOL_SLOTS, MAX_POOLS);
+        assert_eq!(FeeSlot::last_of(FEE, FOUR_SESSIONS), None);
+        let handle = handle_over(&CELL);
+        assert_eq!(handle.pool_slot(MAX_POOLS), None);
+    }
+
+    #[test]
+    fn the_fee_is_the_last_slot_of_the_board() {
+        if !DEVFEE {
+            return;
+        }
+        let four = FeeSlot::last_of(FEE, FOUR_SESSIONS).expect("the switch is on");
+        assert_eq!(four.slot, FOUR_SESSIONS - 1);
+        let three = FeeSlot::last_of(FEE, MAX_POOLS).expect("the switch is on");
+        assert_eq!(three.slot, MAX_POOLS - 1);
+        assert_eq!(FeeSlot::index(&Some(three)), Some(MAX_POOLS - 1));
+        assert_eq!(FeeSlot::index(&None), None);
+    }
+
+    #[test]
+    fn the_handle_reads_the_operator_list_below_the_fee_and_the_fee_at_its_slot() {
+        static CELL: FeeSlotCell = OnceLock::new();
+        if !DEVFEE {
+            return;
+        }
+        let fee = FeeSlot::last_of(FEE, FOUR_SESSIONS).expect("the switch is on");
+        CELL.init(fee).expect("BUG: the cell is this test's own");
+        let handle = handle_over(&CELL);
+        let config = handle.current();
+        assert_eq!(handle.pool_slot(0), config.pool.first().cloned());
+        assert_eq!(handle.pool_slot(MAX_POOLS - 1), None);
+        assert_eq!(handle.pool_slot(FOUR_SESSIONS - 1), Some(FEE.entry()));
+        assert_eq!(handle.pool_slot(FOUR_SESSIONS), None);
+    }
+
+    #[test]
+    fn a_three_session_board_runs_the_fee_at_its_third_slot() {
+        static CELL: FeeSlotCell = OnceLock::new();
+        if !DEVFEE {
+            return;
+        }
+        let fee = FeeSlot::last_of(FEE, MAX_POOLS).expect("the switch is on");
+        CELL.init(fee).expect("BUG: the cell is this test's own");
+        let handle = handle_over(&CELL);
+        assert_eq!(handle.pool_slot(MAX_POOLS - 1), Some(FEE.entry()));
+        assert_eq!(handle.pool_slot(MAX_POOLS), None);
+    }
+}

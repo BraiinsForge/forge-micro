@@ -33,6 +33,7 @@ mod tests;
 
 use crate::pool::{DEVFEE, NAME_CAPACITY, PoolEntry, ProtocolKind};
 use crate::pubkey;
+use embassy_sync::once_lock::OnceLock;
 
 /// Denominator of [`FeePool::permille`]: a share is counted in
 /// thousandths.
@@ -433,4 +434,21 @@ const fn is_key_shaped(key: &str) -> bool {
         i += 1;
     }
     true
+}
+
+/// The fee slot the board handed to [`crate::run`].
+///
+/// Read with `try_get`, from core 0 only: the sessions and the API run
+/// there, and `run` sets it before the first config publish that each
+/// of them waits for.
+pub(crate) static FEE_SLOT: OnceLock<FeeSlot> = OnceLock::new();
+
+/// Records the fee slot [`crate::run`] was handed.
+///
+/// # Panics
+///
+/// Panics on a second call. One slot is a boot-time fact, and a second
+/// `run` is a wiring bug.
+pub(crate) fn install(fee: FeeSlot) {
+    assert!(FEE_SLOT.init(fee).is_ok(), "BUG: fee slot installed twice");
 }

@@ -36,7 +36,8 @@ use core::pin::Pin;
 use core::task::{Context, Waker};
 
 use ubos_config::{
-    ConfigCommandChannel, ConfigWatch, GenerationWatch, Handle as ConfigHandle, NetworkWatch,
+    ConfigCommandChannel, ConfigWatch, FeeSlotCell, GenerationWatch, Handle as ConfigHandle,
+    NetworkWatch,
 };
 use ubos_core::units::{FanPwm, FanRpm, Temperature};
 use ubos_thermal::{Handle as ThermalHandle, ThermalReading, ThermalWatch};
@@ -55,6 +56,7 @@ pub(crate) struct Upstream {
     network: NetworkWatch,
     commands: ConfigCommandChannel,
     generation: GenerationWatch,
+    fee: FeeSlotCell,
 }
 
 impl Upstream {
@@ -65,6 +67,7 @@ impl Upstream {
             network: NetworkWatch::new(),
             commands: ConfigCommandChannel::new(),
             generation: GenerationWatch::new(),
+            fee: FeeSlotCell::new(),
         }
     }
 
@@ -80,6 +83,7 @@ impl Upstream {
             &self.network,
             &self.commands,
             &self.generation,
+            &self.fee,
         )
     }
 

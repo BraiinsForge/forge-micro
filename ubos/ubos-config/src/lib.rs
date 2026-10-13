@@ -109,6 +109,7 @@ pub use message::Message;
 use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
+use embassy_sync::once_lock::OnceLock;
 use embassy_sync::watch::{Receiver, Watch};
 use embassy_time::{Duration, Instant, Timer};
 use portable_atomic::{AtomicBool, AtomicU64, Ordering};
@@ -194,6 +195,10 @@ pub type GenerationWatch = Watch<CSMutex, u32, GENERATION_WATCH_CAPACITY>;
 /// The update generation that the board's one config task bumps.
 pub(crate) static GENERATION_WATCH: GenerationWatch = Watch::new();
 
+/// The cell that holds the fee slot a board hands to [`run`]. Named so
+/// a host test can declare one of its own for a [`Handle`].
+pub type FeeSlotCell = OnceLock<FeeSlot>;
+
 /// How long an unconfirmed network preview stays applied before it
 /// reverts to the committed config. A wrong static address strands the
 /// board, so the change holds only until the operator proves
@@ -253,6 +258,7 @@ pub fn handle() -> Handle {
         &NETWORK_WATCH,
         &COMMAND_CHANNEL,
         &GENERATION_WATCH,
+        &fee::FEE_SLOT,
     )
 }
 
@@ -269,6 +275,7 @@ pub struct Handle {
     network: &'static NetworkWatch,
     commands: &'static ConfigCommandChannel,
     generation: &'static GenerationWatch,
+    fee: &'static FeeSlotCell,
 }
 
 impl Handle {
@@ -283,12 +290,14 @@ impl Handle {
         network: &'static NetworkWatch,
         commands: &'static ConfigCommandChannel,
         generation: &'static GenerationWatch,
+        fee: &'static FeeSlotCell,
     ) -> Self {
         Self {
             state,
             network,
             commands,
             generation,
+            fee,
         }
     }
 
@@ -299,6 +308,20 @@ impl Handle {
         // Fall back to Default before the first publish; the window is
         // tiny but must not return garbage.
         self.state.try_get().unwrap_or_default()
+    }
+
+    /// The entry a session slot runs: the operator's entry below the
+    /// fee slot, the fee pool's entry at it, and `None` for a slot the
+    /// list does not fill and past the board's slots. Owned, because
+    /// the fee entry is built on each read over the current config.
+    #[must_use]
+    pub fn pool_slot(&self, slot: usize) -> Option<PoolEntry> {
+        if let Some(fee) = self.fee.try_get()
+            && fee.slot == slot
+        {
+            return Some(fee.pool.entry());
+        }
+        self.current().pool.get(slot).cloned()
     }
 
     /// Per-task subscription. Call once per consumer task before
@@ -745,6 +768,11 @@ impl Config {
 /// source changes. A seed whose result fails validation is dropped
 /// with a warning.
 ///
+/// A board hands in the `fee` slot it runs, from [`FeeSlot::last_of`],
+/// and the handle answers for it from then on: [`Handle::pool_slot`]
+/// builds its entry, [`Handle::view`] serves it beside the operator's
+/// list. `None` on a board with no fee slot and on an off build.
+///
 /// Each [`Message::Update`] persists the new value before publishing
 /// it and bumps [`GENERATION_WATCH`] so every stratum session tears
 /// down and reconnects.
@@ -764,7 +792,13 @@ pub async fn run<S: Storage>(
     board: &'static HashboardDescriptor,
     info: &'static MiningInfo,
     seed: Option<Seed>,
+    fee: Option<FeeSlot>,
 ) -> ! {
+    // Before the first publish, which every reader of the fee slot
+    // waits for, so none of them can read an empty slot and park.
+    if let Some(fee) = fee {
+        fee::install(fee);
+    }
     let mut committed = load_initial(&mut storage, board, info, seed).await;
     STATE_WATCH.sender().send(committed.clone());
     let mut preview: Option<(NetworkConfig, Instant)> = None;
@@ -855,10 +889,10 @@ pub async fn run<S: Storage>(
 /// offer; a board with none spawns it with `None`.
 #[macro_export]
 macro_rules! config_task {
-    ($storage:ty, $board:expr, $info:expr) => {
+    ($storage:ty, $board:expr, $info:expr, $fee:expr) => {
         #[embassy_executor::task]
         async fn config_task(storage: $storage, seed: Option<ubos_config::Seed>) -> ! {
-            ubos_config::run(storage, $board, $info, seed).await
+            ubos_config::run(storage, $board, $info, seed, $fee).await
         }
     };
 }
