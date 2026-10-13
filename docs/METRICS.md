@@ -181,9 +181,15 @@ board pool slot, labelled `pool="0"`, `pool="1"`, ...:
 - `board_shares_accepted_total{pool=...}` — pool-accepted shares.
 - `board_shares_rejected_total{pool=...}` — pool-rejected shares.
 - `board_stratum_reconnects_total{pool=...}` — reconnect attempts.
-- `board_pool_work_shares_total{pool=...}` — diff-1 chip shares per
-  originating slot; the ratio between these series is the work
-  split the dispatch scheduler actually delivered.
+- `board_pool_work_shares_total{pool=...}` — chip shares per
+  originating slot, in the unit below; the ratio between these
+  series is the work split the dispatch scheduler actually delivered.
+
+A share is 2^32 expected hashes. A chip solution found against a
+difficulty `d` filter adds `d` to the counter, so the counter times
+2^32 is the expected hash count on every chip family, and
+`rate(...) * 2^32` is a hashrate in H/s whatever difficulty the chip
+filters at.
 
 `board_uart_desync_bytes_total` and `board_pool_work_shares_total` also
 carry a `chain="i"` label identifying the hashboard chain they came
@@ -214,8 +220,8 @@ no per-chain series is emitted before the miner has started:
   last frequency until the actor resets it during bring-up.
 - `board_hashrate_hps` — the smoothed hashrate of the chain's own
   estimator.
-- `board_shares_total` — the chain's lifetime count of diff-1 chip
-  shares.
+- `board_shares_total` — the chain's lifetime chip shares, in the
+  same unit as `board_pool_work_shares_total`.
 
 There are no unlabelled duplicates of the last two. A board total is
 `sum(...)` over the `chain` label, as for the per-pool series above.
@@ -244,13 +250,15 @@ as `board_chip_temperature_millicelsius`, the sample it took.
 
 Code: `ubos/ubos-metrics/src/hashrate.rs`, `ubos/ubos-metrics/src/chain.rs`.
 
-`HashrateEstimator::record_share` feeds a share's difficulty into an
+`HashrateEstimator::record_share` feeds a solution's difficulty into an
 EWMA-smoothed bucketed estimator over 1-second buckets with α = 1/8
-(~8 s smoothing window). `hashrate` reads the smoothed value and applies
-read-side decay so the displayed rate drops toward zero when shares stop
-arriving. Each board hashboard chain owns one estimator, inside that
-chain's `ChainStats`; the ubos-mining serial actor calls `record_share`
-on its own chain's `ChainStats` for every diff-1 chip share it consumes.
+(~8 s smoothing window), and adds the same difficulty, in shares of
+2^32 hashes, to the share counter. `hashrate` reads the smoothed value
+and applies read-side decay so the displayed rate drops toward zero
+when solutions stop arriving. Each board hashboard chain owns one
+estimator, inside that chain's `ChainStats`; the ubos-mining serial
+actor calls `record_share` on its own chain's `ChainStats` for every
+chip solution it consumes.
 `ChainStatsHandle::machine_hashrate` and `machine_share_count`, in the
 same module,
 sum every chain's estimator for the board-wide figures the REST API and

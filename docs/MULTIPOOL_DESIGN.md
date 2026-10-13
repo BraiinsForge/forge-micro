@@ -348,9 +348,10 @@ prometheus exposition and the logs:
   `board_stratum_reconnects_total{pool="0"}`. No unlabelled
   duplicates are emitted; the REST `system_info` totals sum the
   arrays in code, so its schema is unchanged.
-- `ubos-mining` counts delivered diff-1 shares per chain and per
-  originating slot (the `pool_shares` array in `ChainStats`, bumped
-  next to the scheduler's `accumulate_share`) and publishes
+- `ubos-mining` counts delivered shares, in units of 2^32 expected
+  hashes, per chain and per originating slot (the `pool_shares`
+  array in `ChainStats`, bumped next to the scheduler's
+  `accumulate_share`) and publishes
   `board_pool_work_shares_total{chain="0",pool="0"}` — the ratio
   between these series is the split the scheduler actually
   delivered. The hashrate EWMA and the share count are per chain as
