@@ -408,13 +408,14 @@ Code: `firmware/hashnode/src/temperature.rs` binds
 `ubos_thermal::SensorArray` to the board's I2C1 bus from the
 `ubos_machine::HASHNODE` sensor table.
 
-The hashboard carries a TMP461 remote-diode sensor reading the ASIC die
-plus two TMP102 PCB sensors on the shared I2C1 bus. The controller
-exposes the maximum across the sensors so a single hot spot drives the
-thermal limit. Because the safety gate reads the real die temperature
-from the TMP461 remote channel, the Hashnode dangerous-temperature
-threshold is raised (toward ~108 °C) in the per-board `ThermalConfig`
-rather than the shared 90 °C PCB-calibrated default.
+The hashboard carries a TMP461 sensor and two TMP102 sensors on the
+shared I2C1 bus. The TMP461 remote channel reads the ASIC die. The
+TMP461 local channel and the two TMP102 sensors read the hashboard.
+While the die reading is available, the safety gate uses it and halts
+above `dangerous_chip_temp_c`. If the die reading is not available, the
+safety gate uses the hottest hashboard reading and halts above
+`dangerous_hashboard_temp_c`. `BFMX4_HASHBOARD` in `ubos-asic` gives the
+factory value of both thresholds.
 
 ## Host parity
 

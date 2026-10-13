@@ -31,7 +31,7 @@ use log::{error, info};
 use ubos_core::units::Temperature;
 use ubos_machine::BMM101_SENSORS;
 use ubos_temperature::lm75a::{Error as Lm75aError, Lm75a};
-use ubos_thermal::{Reading, Sample, TemperatureSensor};
+use ubos_thermal::{Reading, Sample, Source, TemperatureSensor};
 
 use crate::psu::I2C_BUS_ENV;
 
@@ -87,8 +87,8 @@ impl TemperatureSensor for HashboardTemperature {
             }
         }
         // Every sensor here is an LM75A on the hashboard, and the board
-        // carries no die sensor to contrast them against, so the hottest
-        // reading is the one estimate this board reports.
+        // carries no die sensor, so the hottest hashboard reading is the one
+        // this board reports.
         //
         // Never idle: these sensors sit on the board's own I2C bus and
         // answer whether or not the hashboard rail is up, so silence is
@@ -96,6 +96,10 @@ impl TemperatureSensor for HashboardTemperature {
         let Some(hottest) = hottest else {
             return Reading::Unreadable;
         };
-        Reading::Measured(Sample::sole(Temperature::from_millicelsius(hottest)))
+        Reading::Measured(Sample {
+            safety: Temperature::from_millicelsius(hottest),
+            safety_source: Source::Hashboard,
+            pid: None,
+        })
     }
 }

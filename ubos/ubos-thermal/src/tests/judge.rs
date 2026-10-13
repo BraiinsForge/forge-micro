@@ -30,17 +30,26 @@ extern crate std;
 use ubos_core::units::Temperature;
 use ubos_manager::{Message, PauseReasons};
 
-use super::{Note, Reading, SENSOR_FAULT_TICKS, Sample, Step, Thermal, Tick};
+use super::{Note, Reading, SENSOR_FAULT_TICKS, Sample, Source, Step, Thermal, Tick};
+
+/// A sample of one hashboard reading, which the PID tracks too.
+fn hashboard(safety: Temperature) -> Sample {
+    Sample {
+        safety,
+        safety_source: Source::Hashboard,
+        pid: None,
+    }
+}
 
 /// A measurement well below every threshold, so the only thing a tick
 /// on it decides is what to publish.
 fn cool_reading() -> Reading {
-    Reading::Measured(Sample::sole(Temperature::from_millicelsius(50_000)))
+    Reading::Measured(hashboard(Temperature::from_millicelsius(50_000)))
 }
 
 /// The cool measurement as the gauges receive it.
 fn cool_sample() -> Sample {
-    Sample::sole(Temperature::from_millicelsius(50_000))
+    hashboard(Temperature::from_millicelsius(50_000))
 }
 
 /// Judge one reading against `held`, and answer what the tick decided.
@@ -184,14 +193,14 @@ fn a_dangerous_measurement_halts_once_and_a_cool_one_under_the_halt_resumes() {
 
     let step = judge(
         &mut thermal,
-        Reading::Measured(Sample::sole(hot)),
+        Reading::Measured(hashboard(hot)),
         PauseReasons::default(),
     );
     assert_eq!(step.dangerous, Some(Note::Dangerous(hot)));
 
     // Under the halt the same reading crosses nothing.
     let halted = PauseReasons::default().apply(Message::DangerousTemperature);
-    let step = judge(&mut thermal, Reading::Measured(Sample::sole(hot)), halted);
+    let step = judge(&mut thermal, Reading::Measured(hashboard(hot)), halted);
     assert_eq!(step.dangerous, None);
 
     // The cool reading sits above the cooldown threshold, so the halt
@@ -200,10 +209,6 @@ fn a_dangerous_measurement_halts_once_and_a_cool_one_under_the_halt_resumes() {
     assert_eq!(step.dangerous, None);
     #[allow(clippy::cast_possible_truncation)]
     let cooled = Temperature::from_millicelsius((config.cooldown_temp_c * 1000.0) as i32 - 1000);
-    let step = judge(
-        &mut thermal,
-        Reading::Measured(Sample::sole(cooled)),
-        halted,
-    );
+    let step = judge(&mut thermal, Reading::Measured(hashboard(cooled)), halted);
     assert_eq!(step.dangerous, Some(Note::Cooled(cooled)));
 }

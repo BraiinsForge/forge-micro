@@ -61,7 +61,7 @@ fn typical_die_temp() {
 fn standard_range_is_twos_complement() {
     // high = 0xC0 in standard range is −64 °C (2's complement), the
     // open/unbiased remote-diode reading — not +192 °C. Out of range, so
-    // the caller rejects it and falls back to the board-sensor estimate.
+    // the caller rejects it and falls back to the hashboard readings.
     assert_eq!(decode_millicelsius(0xC0, 0x00, false), -64_000);
 }
 

@@ -146,14 +146,14 @@ next tick that publishes.
 
 ### The `source` label
 
-A board that reports one chip-temperature estimate publishes
-`board_chip_temperature_millicelsius` with no label. A board that reports
-a real die reading and a PCB estimate publishes one series for each:
+`board_chip_temperature_millicelsius` always carries a `source` label. A
+board that reports a chip reading and a hashboard reading publishes one
+series for each:
 
-- `source="chip"` comes from a remote diode wired to a chip die. This
-  series selects the `dangerous_chip_temp_c` threshold.
-- `source="approximated"` is a PCB reading plus the fixed offset that the
-  sensor table gives for that sensor.
+- `source="chip"` is the hottest chip reading. This series selects the
+  `dangerous_chip_temp_c` threshold.
+- `source="hashboard"` is the hottest hashboard reading. This series
+  selects the `dangerous_hashboard_temp_c` threshold.
 
 ### Per-sensor series
 

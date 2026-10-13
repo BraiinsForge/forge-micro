@@ -43,7 +43,7 @@ use ubos_manager::{
 };
 
 use super::{
-    NoAmbient, Reading, SENSOR_FAULT_TICKS, Sample, TemperatureSensor, clock, run_thermal,
+    NoAmbient, Reading, SENSOR_FAULT_TICKS, Sample, Source, TemperatureSensor, clock, run_thermal,
 };
 
 /// A board sensor whose answers are scripted in advance.
@@ -76,7 +76,11 @@ impl TemperatureSensor for ScriptedSensor {
 /// `cooldown_temp_c`, so a tick taken while the halt stands evaluates to
 /// `Ok` and not to a resume.
 fn hot_reading() -> Reading {
-    Reading::Measured(Sample::sole(Temperature::from_millicelsius(90_000)))
+    Reading::Measured(Sample {
+        safety: Temperature::from_millicelsius(90_000),
+        safety_source: Source::Hashboard,
+        pid: None,
+    })
 }
 
 /// Drain every `Message` queued so far on the manager's command channel
@@ -330,7 +334,7 @@ fn dangerous_temperature_re_arms_after_an_acknowledged_halt_clears_the_mask() {
     );
 
     // Tick 3: the same over-threshold sample must trip the halt again.
-    // This is the half that proves the read is fresh. A local flag set
+    // This is the half that proves the read is fresh. A flag of its own set
     // on tick 1 and never told about the acknowledgement would still
     // read as held, and `evaluate` would answer `Ok` at any temperature
     // for the rest of the loop's life.

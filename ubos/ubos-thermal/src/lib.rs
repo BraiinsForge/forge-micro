@@ -131,16 +131,10 @@ type CSMutex = CriticalSectionRawMutex;
 /// threshold, and `metrics` turns it into the `source` label.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Source {
-    /// The only chip-temperature estimate the board reports. The gauge
-    /// carries no `source` label, and the reading selects
-    /// `dangerous_hashboard_temp_c`.
-    Sole,
-    /// A remote diode wired to a chip die. Selects
-    /// `dangerous_chip_temp_c`.
+    /// A hashboard reading. Selects `dangerous_hashboard_temp_c`.
+    Hashboard,
+    /// A chip's own die reading. Selects `dangerous_chip_temp_c`.
     Chip,
-    /// A hashboard reading, published beside a real die reading. Selects
-    /// `dangerous_hashboard_temp_c`.
-    Approximated,
 }
 
 /// One sample from a board temperature sensor.
@@ -153,19 +147,6 @@ pub struct Sample {
     /// The reading that drives the cooling PID, when the board reports a
     /// second value. `None` means the PID tracks the safety reading.
     pub pid: Option<Temperature>,
-}
-
-impl Sample {
-    /// A board that reports one estimate and nothing else. The gauge
-    /// carries no label and the PID tracks the same value.
-    #[must_use]
-    pub const fn sole(safety: Temperature) -> Self {
-        Self {
-            safety,
-            safety_source: Source::Sole,
-            pid: None,
-        }
-    }
 }
 
 /// What one poll of a board temperature sensor found.
@@ -246,7 +227,7 @@ pub struct ThermalReading {
     pub chip_max: Option<Temperature>,
     /// Temperature that drives the cooling PID. The hashboard reading rather
     /// than the real die reading, falling back to the
-    /// safety reading when the board reports no distinct estimate.
+    /// safety reading when the board reports no second reading.
     /// `None` on a tick that measured nothing: [`chip_max`](Self::chip_max)
     /// is held over for the operator, this one is not, because the fan
     /// holds full on it rather than on a value never measured.
@@ -378,12 +359,12 @@ impl Handle {
 /// Lowering that margin fails the cooling crate's build.
 pub const SENSOR_FAULT_TICKS: u32 = 5;
 
-/// Publish the safety reading, and the cooling-PID estimate too when the
-/// board reports a distinct one, each tagged with its source.
+/// Publish the safety reading, and the cooling-PID reading too when the
+/// board reports a second one, each tagged with its source.
 async fn publish_chip_temperatures(sample: &Sample) {
     publish_chip_temperature(sample.safety, sample.safety_source).await;
-    if let Some(approximated) = sample.pid {
-        publish_chip_temperature(approximated, Source::Approximated).await;
+    if let Some(hashboard) = sample.pid {
+        publish_chip_temperature(hashboard, Source::Hashboard).await;
     }
 }
 
@@ -723,12 +704,12 @@ macro_rules! thermal_task {
 /// because this halt has no state of its own: the threshold decision is
 /// [`evaluate`]'s, and whether the halt stands is what `held` says the
 /// manager's mask holds. Reading the mask back each tick is what makes
-/// an operator's release real: a local flag would leave this loop halted
+/// an operator's release real: a flag of its own would leave this loop halted
 /// for ever after, with `evaluate` answering `Ok` at any temperature.
 fn judge_dangerous(sample: &Sample, config: &ThermalConfig, held: PauseReasons) -> Option<Note> {
     let dangerous = match sample.safety_source {
         Source::Chip => config.dangerous_chip_temp_c,
-        Source::Sole | Source::Approximated => config.dangerous_hashboard_temp_c,
+        Source::Hashboard => config.dangerous_hashboard_temp_c,
     };
     let halted = held.contains(PauseReason::DangerousTemperature);
     let temp = sample.safety;

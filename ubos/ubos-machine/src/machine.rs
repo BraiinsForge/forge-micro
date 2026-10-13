@@ -150,8 +150,8 @@ pub const MINIMINER_INPUT_POWER_MW: core::ops::RangeInclusive<u32> = 19_000..=67
 
 /// The Hashnode's TMP461 remote diode on the ASIC die plus two TMP102 PCB
 /// sensors. The TMP461 gates thermal shutdown from the real die reading;
-/// the TMP102 pair drives the cooling PID and covers the safety value if
-/// the die read fails.
+/// the hashboard readings, the TMP102 pair's and the TMP461 local channel's,
+/// drive the cooling PID and cover the safety value if the die read fails.
 pub const BFMX4_SENSORS: [SensorDescriptor; 3] = [
     SensorDescriptor {
         kind: SensorKind::Tmp461,

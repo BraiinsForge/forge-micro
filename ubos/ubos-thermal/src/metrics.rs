@@ -43,23 +43,19 @@ const AMBIENT_METRIC_NAME: &str = "board_ambient_temperature_millicelsius";
 
 /// The `source` label for a reading. The two label strings live here and
 /// nowhere else, so no comparison outside this module can turn on one.
-const fn source_label(source: Source) -> Option<&'static str> {
+const fn source_label(source: Source) -> &'static str {
     match source {
-        Source::Sole => None,
-        Source::Chip => Some("chip"),
-        Source::Approximated => Some("approximated"),
+        Source::Hashboard => "hashboard",
+        Source::Chip => "chip",
     }
 }
 
 /// Push a chip-temperature reading, tagged with a `source` label so a
-/// board that reports more than one chip-temperature estimate keeps them
-/// as distinct series under one metric name.
+/// board that reports both a hashboard and a chip reading keeps them as
+/// distinct series under one metric name.
 pub(crate) async fn publish_chip_temperature(temp: Temperature, source: Source) {
     let value = Value::Int(i64::from(temp.millicelsius()));
-    let Some(source) = source_label(source) else {
-        push(Metric::with_no_labels(METRIC_NAME, value)).await;
-        return;
-    };
+    let source = source_label(source);
     let mut labels = Labels::new();
     let _ = labels.push(Label {
         name: "source",

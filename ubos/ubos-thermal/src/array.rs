@@ -23,7 +23,7 @@
 //! table, then instantiates [`SensorArray`] with that table. On each sample,
 //! `SensorArray` reads every sensor through the drivers in
 //! `ubos-temperature`, folds the readings into the two values this crate
-//! needs — a safety reading and a cooling-PID estimate — and publishes a
+//! needs — a safety reading and a cooling-PID input — and publishes a
 //! per-sensor metric for every sensor that has a named gauge. Boards supply
 //! only the topology; all folding logic lives here.
 
@@ -36,10 +36,6 @@ use ubos_temperature::{SensorDescriptor, SensorKind, read_sensor};
 
 use crate::{Reading, Sample, Source, TemperatureSensor};
 
-#[cfg(test)]
-#[path = "tests/array.rs"]
-mod tests;
-
 /// Per-sensor gauge name for a driver, or `None` to publish no
 /// per-sensor metric. The match is exhaustive, so a new `SensorKind`
 /// fails this crate's build until it states which of the two it is.
@@ -48,41 +44,6 @@ const fn sensor_metric_name(kind: SensorKind) -> Option<&'static str> {
         SensorKind::Lm75a => Some("board_lm75a_temperature_millicelsius"),
         SensorKind::Tmp102 | SensorKind::Tmp461 => None,
     }
-}
-
-/// Pure fold. `die` = hottest trustworthy die reading, `est` = hottest
-/// hashboard reading, which estimates the die, `has_die_capable` = the table contains at
-/// least one die-wired sensor. Picks the safety value (real die if any,
-/// else the estimate), tags its source, and exposes the estimate as the
-/// PID input only when it is a distinct second series.
-///
-/// [`Reading::Unreadable`] when nothing answered. Never
-/// [`Reading::Idle`]: these sensors sit on the board's own I2C bus and
-/// answer whether or not the hashboard rail is up, so silence here is
-/// always a fault and never an idle board.
-fn fuse(die: Option<i32>, est: Option<i32>, has_die_capable: bool) -> Reading {
-    if let Some(mc) = die {
-        return Reading::Measured(Sample {
-            safety: Temperature::from_millicelsius(mc),
-            safety_source: Source::Chip,
-            pid: est.map(Temperature::from_millicelsius),
-        });
-    }
-    let Some(est) = est else {
-        return Reading::Unreadable;
-    };
-    Reading::Measured(Sample {
-        safety: Temperature::from_millicelsius(est),
-        // Approximated only when there is a real die sensor to contrast
-        // against. A board with no die sensor reports the one estimate it
-        // has, and its gauge carries no label.
-        safety_source: if has_die_capable {
-            Source::Approximated
-        } else {
-            Source::Sole
-        },
-        pid: None,
-    })
 }
 
 /// Publish a per-sensor metric labeled by I2C address.
@@ -120,29 +81,37 @@ where
     Bus: I2c,
 {
     async fn sample(&mut self) -> Reading {
-        let mut die: Option<i32> = None;
-        let mut est: Option<i32> = None;
-        let mut has_die_capable = false;
+        let mut chip: Option<Temperature> = None;
+        let mut hashboard: Option<Temperature> = None;
 
         for desc in self.sensors {
             let reading = read_sensor(desc, &mut self.bus).await;
             if desc.attached_chip.is_some() {
-                has_die_capable = true;
-                // Die-wired sensor: only its remote diode feeds the safety
-                // value. The local channel is read only so its I2C faults are
-                // logged; the value is not a board PCB reference, so it is
-                // neither used nor folded into the estimate.
+                // Die-wired sensor: its remote diode reads the die.
                 if let Some(mc) = reading.remote {
-                    die = Some(die.map_or(mc, |cur| cur.max(mc)));
+                    chip = chip.max(Some(Temperature::from_millicelsius(mc)));
                 }
-            } else if let Some(local) = reading.local {
-                est = Some(est.map_or(local, |cur| cur.max(local)));
+            }
+            if let Some(local) = reading.local {
+                hashboard = hashboard.max(Some(Temperature::from_millicelsius(local)));
                 if let Some(name) = sensor_metric_name(desc.kind) {
                     publish_sensor(name, desc.address, local).await;
                 }
             }
         }
 
-        fuse(die, est, has_die_capable)
+        match (chip, hashboard) {
+            (Some(chip), hashboard) => Reading::Measured(Sample {
+                safety: chip,
+                safety_source: Source::Chip,
+                pid: hashboard,
+            }),
+            (None, Some(hashboard)) => Reading::Measured(Sample {
+                safety: hashboard,
+                safety_source: Source::Hashboard,
+                pid: None,
+            }),
+            (None, None) => Reading::Unreadable,
+        }
     }
 }
