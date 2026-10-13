@@ -121,11 +121,11 @@ async fn cpu_load_task() -> ! {
     ubos_metrics::cpu_load::run_cpu_load::<1>().await
 }
 
-ubos_firmware::stratum_metrics_task!(POOL_SLOTS);
+ubos_firmware::stratum_metrics_task!(POOL_SLOTS, FEE_SLOT);
 
 ubos_mining::pool_weights_task!(&mining::CHAINS);
 
-ubos_mining::miner_metrics_task!(POOL_SLOTS);
+ubos_mining::miner_metrics_task!(POOL_SLOTS, FEE_SLOT);
 
 ubos_thermal::thermal_task!(
     ubos_thermal::SensorArray<{ config::MACHINE.temp.len() }, psu::Device>,
@@ -139,7 +139,12 @@ ubos_manager::manager_task!();
 /// `embassy-stm32 blocking Flash → SyncFlash → FlashStorage`.
 type BoardConfigStorage = FlashStorage<SyncFlash<Flash<'static, FlashBlocking>>>;
 
-ubos_config::config_task!(BoardConfigStorage, config::BOARD, &config::MINING_INFO);
+ubos_config::config_task!(
+    BoardConfigStorage,
+    config::BOARD,
+    &config::MINING_INFO,
+    FEE_SLOT
+);
 
 ubos_cooling::cooling_task!(ubos_stm32::fan::BoardFan, ubos_stm32::fan::BoardTach);
 
@@ -173,8 +178,12 @@ ubos_net::network_control_task!();
 /// Single-pool board: the F407's 128 KiB main SRAM cannot afford the
 /// multipool per-slot session-task futures — the 3-slot build overflows
 /// RAM by ~25 KiB — so this board runs one stratum session and ignores
-/// the config's backup pool entries.
+/// the config's backup pool entries. A fee slot needs an operator slot
+/// beside it, so this board runs none in either state of the switch.
 pub(crate) const POOL_SLOTS: usize = 1;
+
+/// No fee slot: the one session is the operator's.
+pub(crate) const FEE_SLOT: Option<ubos_config::FeeSlot> = None;
 
 /// Shared ASIC session: the bridge between the per-slot stratum sessions and
 /// the BM1362 serial worker. One instance per binary; referenced by every

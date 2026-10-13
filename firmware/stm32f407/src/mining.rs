@@ -41,7 +41,8 @@ ubos_mining::serial_task!(
     ubos_stm32::uart::MinerUart,
     ubos_firmware::AsicSession<{ crate::POOL_SLOTS }>,
     crate::config::BOARD,
-    ubos_asic::Bm13xxDriver
+    ubos_asic::Bm13xxDriver,
+    scheduler = ubos_mining::scheduler::RatioScheduler::new()
 );
 
 /// The reset line is one push-pull output with no timings, so the shared
