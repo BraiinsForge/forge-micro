@@ -171,7 +171,8 @@ pub struct SystemInfo<'response> {
     /// Rejected shares since boot, sourced from the stratum-client
     /// session counter.
     pub shares_rejected: u64,
-    /// Total hardware shares observed since boot.
+    /// Total chip shares since boot, in units of 2^32 expected
+    /// hashes: a solution at chip difficulty `d` counts `d`.
     pub shares_total: u64,
     /// Best difficulty nonce found since boot; zero until the
     /// scoreboard ring buffer is wired.

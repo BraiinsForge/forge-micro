@@ -29,13 +29,22 @@ use std::boxed::Box;
 
 use super::ChainPresence;
 
-/// An arbitrary target used only to drive `record_share`; the exact
-/// leading-zero count is irrelevant to these tests, which check the
-/// share and pool-slot counters rather than the hashrate estimate.
-fn some_target() -> [u8; 32] {
+/// The leading-zero bits of a difficulty-one target.
+const DIFF_1_BITS: u32 = 32;
+
+/// A target of power-of-two difficulty `2^log2`, built from its
+/// leading-zero count as the drivers' targets are.
+fn pow2_target(log2: u32) -> [u8; 32] {
+    let bits = DIFF_1_BITS + log2;
     let mut target = [0u8; 32];
-    target[0] = 0x01;
+    target[31 - (bits / 8) as usize] = 0x80 >> (bits % 8);
     target
+}
+
+/// The difficulty-one target, so a solution against it counts one
+/// share in every counter these tests read.
+fn some_target() -> [u8; 32] {
+    pow2_target(0)
 }
 
 #[test]
@@ -46,6 +55,19 @@ fn record_share_bumps_share_count_and_pool_slot() {
     assert_eq!(stats.share_count(), 1);
     assert_eq!(stats.pool_shares(2), 1);
     assert_eq!(stats.pool_shares(0), 0);
+}
+
+/// A solution found against a harder filter counts as that many
+/// shares in both counters, so a counter times 2^32 stays the hash
+/// count.
+#[test]
+fn record_share_weighs_a_solution_by_its_difficulty() {
+    let stats = ChainStats::new();
+    stats.record_share(&pow2_target(10), 1);
+    stats.record_share(&some_target(), 1);
+
+    assert_eq!(stats.share_count(), 1024 + 1);
+    assert_eq!(stats.pool_shares(1), 1024 + 1);
 }
 
 #[test]

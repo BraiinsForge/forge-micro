@@ -20,11 +20,11 @@
 //! Tests for the pure helpers behind
 //! [`super::HashrateEstimator::record_share`]. `record_share` itself
 //! is coupled to [`embassy_time::Instant`] and the instance's own
-//! fields, so the tests exercise the extracted `hashes_per_share` and
+//! fields, so the tests exercise the extracted `hashes_per_solution` and
 //! `next_ewma` functions instead.
 
 use super::{
-    BUCKET_MS, EWMA_ALPHA_SHIFT, MAX_DECAY_STEPS, decay_silent, hashes_per_share, next_ewma,
+    BUCKET_MS, EWMA_ALPHA_SHIFT, MAX_DECAY_STEPS, decay_silent, hashes_per_solution, next_ewma,
     resume_split,
 };
 
@@ -36,39 +36,39 @@ fn target_with_leading_zero_bytes(zero_bytes: usize) -> [u8; 32] {
 }
 
 #[test]
-fn hashes_per_share_target_one_byte() {
+fn hashes_per_solution_target_one_byte() {
     // Target with the most significant byte set to 0x01 leaves
     // 7 leading zero bits in that byte → 256 hashes per share.
     let target = target_with_leading_zero_bytes(0);
-    assert_eq!(hashes_per_share(&target), 1u64 << 7);
+    assert_eq!(hashes_per_solution(&target), 1u64 << 7);
 }
 
 #[test]
-fn hashes_per_share_scales_with_target() {
+fn hashes_per_solution_scales_with_target() {
     // Each leading zero byte multiplies hashes-per-share by 256.
     assert_eq!(
-        hashes_per_share(&target_with_leading_zero_bytes(1)),
+        hashes_per_solution(&target_with_leading_zero_bytes(1)),
         1u64 << 15
     );
     assert_eq!(
-        hashes_per_share(&target_with_leading_zero_bytes(2)),
+        hashes_per_solution(&target_with_leading_zero_bytes(2)),
         1u64 << 23
     );
 }
 
 #[test]
-fn hashes_per_share_saturates_when_shift_overflows() {
+fn hashes_per_solution_saturates_when_shift_overflows() {
     // Eight leading zero bytes leaves 0x01 at index 23: 7 + 8*8 = 71
     // bits to shift by, which overflows a u64; the checked_shl path
     // saturates to u64::MAX.
     let target = target_with_leading_zero_bytes(8);
-    assert_eq!(hashes_per_share(&target), u64::MAX);
+    assert_eq!(hashes_per_solution(&target), u64::MAX);
 }
 
 #[test]
-fn hashes_per_share_all_zero_target_saturates() {
+fn hashes_per_solution_all_zero_target_saturates() {
     // An all-zero target counts 256 leading zero bits and saturates.
-    assert_eq!(hashes_per_share(&[0u8; 32]), u64::MAX);
+    assert_eq!(hashes_per_solution(&[0u8; 32]), u64::MAX);
 }
 
 #[test]

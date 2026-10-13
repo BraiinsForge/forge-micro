@@ -46,6 +46,12 @@ const BUCKET_MS: u64 = 1_000;
 /// rounds to zero in u64.
 const MAX_DECAY_STEPS: u64 = 64;
 
+/// Expected hashes behind one share, the unit every share counter
+/// reports in. A chip solution found against a difficulty `d` target
+/// counts as `d` shares, so a counter times this constant is the
+/// expected hash count whatever filter the chip runs.
+pub const HASHES_PER_SHARE: u64 = 1 << 32;
+
 /// A single instance's bucketed EWMA hashrate accounting.
 ///
 /// One instance per chain, expected to be written by exactly one
@@ -54,8 +60,9 @@ const MAX_DECAY_STEPS: u64 = 64;
 /// load/store sequences on the fields below cannot interleave with
 /// themselves as long as that single-writer invariant holds.
 pub struct HashrateEstimator {
-    /// Total shares observed by [`record_share`](Self::record_share)
-    /// since this instance was created.
+    /// Total shares, in units of [`HASHES_PER_SHARE`], credited by
+    /// [`record_share`](Self::record_share) since this instance was
+    /// created.
     share_count: AtomicU64,
     /// Smoothed hashrate in H/s. Updated when a bucket's worth of
     /// hashes has accumulated; read by [`hashrate`](Self::hashrate).
@@ -87,21 +94,26 @@ impl HashrateEstimator {
         }
     }
 
-    /// Total shares observed since this instance was created.
+    /// Total shares, in units of [`HASHES_PER_SHARE`], credited since
+    /// this instance was created.
     #[must_use]
     pub fn share_count(&self) -> u64 {
         self.share_count.load(Ordering::Relaxed)
     }
 
-    /// Bump the share counter and credit this share's hashes toward
-    /// the current bucket. When the bucket has run for at least
-    /// `BUCKET_MS`, finalize it: compute the average rate over the
-    /// elapsed window and fold that into the EWMA. The first share
-    /// just primes the bucket.
-    pub fn record_share(&self, target: &[u8; 32]) {
-        self.share_count.fetch_add(1, Ordering::Relaxed);
+    /// Credit one chip solution found against `target`: its share
+    /// weight, the target's difficulty in units of [`HASHES_PER_SHARE`],
+    /// goes to the share counter and its hashes toward the current
+    /// bucket. When the bucket has run for at least `BUCKET_MS`,
+    /// finalize it: compute the average rate over the elapsed window
+    /// and fold that into the EWMA. The first solution just primes the
+    /// bucket. Returns the share weight so the caller can account the
+    /// same solution elsewhere in the same unit.
+    pub fn record_share(&self, target: &[u8; 32]) -> u64 {
+        let hashes = hashes_per_solution(target);
+        let shares = hashes / HASHES_PER_SHARE;
+        self.share_count.fetch_add(shares, Ordering::Relaxed);
 
-        let hashes = hashes_per_share(target);
         let now_ms = Instant::now().as_millis();
 
         // First share after creation: prime the bucket and return; we
@@ -110,14 +122,14 @@ impl HashrateEstimator {
         if !self.bucket_primed.swap(true, Ordering::Relaxed) {
             self.bucket_start_ms.store(now_ms, Ordering::Relaxed);
             self.bucket_hashes.store(hashes, Ordering::Relaxed);
-            return;
+            return shares;
         }
 
         let bucket_start = self.bucket_start_ms.load(Ordering::Relaxed);
         let elapsed_ms = now_ms.saturating_sub(bucket_start);
         if elapsed_ms < BUCKET_MS {
             self.bucket_hashes.fetch_add(hashes, Ordering::Relaxed);
-            return;
+            return shares;
         }
 
         // Finalize the bucket. Swap so concurrent readers still see a
@@ -134,6 +146,7 @@ impl HashrateEstimator {
             next_ewma(bucket_total, fold_window, previous),
             Ordering::Relaxed,
         );
+        shares
     }
 
     /// Smoothed hashrate in hashes per second. Zero until the first
@@ -243,11 +256,11 @@ impl core::fmt::Display for HashrateDisplay {
     }
 }
 
-/// Approximate hashes per share via leading-zero bits of the 256-bit
-/// little-endian target. Coarse but bounded: within a factor of two
-/// of the exact `2^256 / (target+1)` value, which is good enough for
-/// a rolling-window display.
-fn hashes_per_share(target: &[u8; 32]) -> u64 {
+/// Expected hashes behind one solution found against `target`, from
+/// the leading-zero bits of the 256-bit little-endian target. Exact
+/// for the power-of-two difficulties the chip drivers program, and
+/// within a factor of two of `2^256 / (target+1)` for any other.
+fn hashes_per_solution(target: &[u8; 32]) -> u64 {
     let mut bits: u32 = 0;
     // The array is little-endian, so the most significant byte is at
     // index 31. Walk from MSB toward LSB counting leading zero bits.

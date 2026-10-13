@@ -120,20 +120,22 @@ impl ChainStats {
         }
     }
 
-    /// Record a diff-1 share found on this chain, crediting the
-    /// hashrate estimator and, when `pool_slot` is in range, that
-    /// pool slot's share counter.
+    /// Record a chip solution found on this chain against `target`,
+    /// crediting the hashrate estimator and, when `pool_slot` is in
+    /// range, that pool slot's share counter. Both count the solution
+    /// as its difficulty in shares of [`HASHES_PER_SHARE`](crate::hashrate::HASHES_PER_SHARE) hashes, so
+    /// a chip filtering above difficulty one still reports the work
+    /// it did.
     ///
     /// The share counter wraps rather than saturating, unlike
-    /// [`Self::add_desync_bytes`]. It counts one per share into a `u64`,
-    /// so a chain finding a share every microsecond reaches the wrap
-    /// after longer than the age of the universe. A compare-and-swap
-    /// loop on this path would cost every share for a case that cannot
-    /// arrive.
+    /// [`Self::add_desync_bytes`]. It adds the solution's difficulty
+    /// into a `u64`, which no chain fills in its lifetime, and a
+    /// compare-and-swap loop on this path would cost every solution
+    /// for a case that cannot arrive.
     pub fn record_share(&self, target: &[u8; 32], pool_slot: usize) {
-        self.hashrate.record_share(target);
+        let shares = self.hashrate.record_share(target);
         if let Some(counter) = self.pool_shares.get(pool_slot) {
-            counter.fetch_add(1, Ordering::Relaxed);
+            counter.fetch_add(shares, Ordering::Relaxed);
         }
     }
 
@@ -160,14 +162,15 @@ impl ChainStats {
         self.hashrate.hashrate()
     }
 
-    /// Total shares this chain has found since it was created.
+    /// Total shares, in units of [`HASHES_PER_SHARE`](crate::hashrate::HASHES_PER_SHARE), this chain has
+    /// found since it was created.
     #[must_use]
     pub fn share_count(&self) -> u64 {
         self.hashrate.share_count()
     }
 
-    /// Shares this chain has found for the given pool slot, or 0 if
-    /// `slot` is out of range.
+    /// Shares, in units of [`HASHES_PER_SHARE`](crate::hashrate::HASHES_PER_SHARE), this chain has found
+    /// for the given pool slot, or 0 if `slot` is out of range.
     #[must_use]
     pub fn pool_shares(&self, slot: usize) -> u64 {
         self.pool_shares

@@ -1159,10 +1159,10 @@ impl Serial {
             return;
         }
 
-        // Credit one share against the chip's difficulty target so the
-        // chain's hashrate EWMA reflects the actual chip work rather than
-        // only pool-passing shares. The estimator weights by target, so a
-        // harder difficulty makes each collected solution count for more.
+        // Credit the solution against the chip's difficulty target so the
+        // chain's hashrate and share counters reflect the actual chip work
+        // rather than only pool-passing shares. Both weight by target, so
+        // a harder difficulty makes each collected solution count for more.
         stats.record_share(difficulty, slot.session_slot);
         scheduler.accumulate_share(slot.session_slot);
 
