@@ -214,7 +214,7 @@ fn changed_field_is_taken_again_alone() {
 
     let mut edited = seeded();
     edited.api = login("edited");
-    edited.thermal.dangerous_estimated_temp_c = 80.0;
+    edited.thermal.dangerous_hashboard_temp_c = 80.0;
     save(&mut storage, &edited);
 
     let changed = Seed {
@@ -246,11 +246,11 @@ fn stored_config_without_a_record_takes_the_seed() {
     let mut storage = FileStorage::new(&dir);
 
     let mut existing = Config::for_board(BOARD, INFO.default_tuning);
-    existing.thermal.dangerous_estimated_temp_c = 80.0;
+    existing.thermal.dangerous_hashboard_temp_c = 80.0;
     save(&mut storage, &existing);
 
     let mut expected = seeded();
-    expected.thermal.dangerous_estimated_temp_c = 80.0;
+    expected.thermal.dangerous_hashboard_temp_c = 80.0;
     let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(seed())));
     assert_eq!(loaded, expected);
     assert_eq!(stored(&mut storage), Some(expected));
@@ -385,7 +385,7 @@ fn invalid_seed_keeps_the_config() {
     );
 
     let mut existing = Config::for_board(BOARD, INFO.default_tuning);
-    existing.thermal.dangerous_estimated_temp_c = 80.0;
+    existing.thermal.dangerous_hashboard_temp_c = 80.0;
     save(&mut storage, &existing);
     let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(bad)));
     assert_eq!(loaded, existing);

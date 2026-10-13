@@ -83,12 +83,12 @@ function StatCard({ label, value, cls, wide }: StatCardProps) {
 }
 
 // The board's two halt thresholds, which the card tiers by severity: the
-// estimated one turns the reading amber and the chip one turns it red.
+// hashboard one turns the reading amber and the chip one turns it red.
 // The board judges against whichever matches its live sensor, and the
 // pair is ordered, so the amber step is the point past which some sensor
 // would already halt.
 interface TempThresholds {
-  estimatedC: number;
+  hashboardC: number;
   chipC: number;
 }
 
@@ -137,7 +137,7 @@ export default function Dashboard({ shown }: DashboardProps) {
         );
         if (data.thermal) {
           setTempThresh({
-            estimatedC: data.thermal.dangerous_estimated_temp_c,
+            hashboardC: data.thermal.dangerous_hashboard_temp_c,
             chipC: data.thermal.dangerous_chip_temp_c,
           });
         }
@@ -152,7 +152,7 @@ export default function Dashboard({ shown }: DashboardProps) {
   function tempCls(): string {
     if (temperature == null || !tempThresh) return '';
     if (temperature >= tempThresh.chipC) return 'temp-red';
-    if (temperature >= tempThresh.estimatedC) return 'temp-warn';
+    if (temperature >= tempThresh.hashboardC) return 'temp-warn';
     return 'temp-ok';
   }
 

@@ -137,11 +137,11 @@ export interface PoolConfig {
 
 // The two dangerous thresholds are both halt thresholds, and the board
 // judges against the one that matches the sensor its safety reading came
-// from: the estimate where a PCB sensor plus an offset stands in for the
-// die, the chip one where a die reading is real.
+// from: the hashboard one where a hashboard reading stands in for the die, the chip
+// one where a die reading is real.
 export interface ThermalConfig {
   sample_interval_ms: number;
-  dangerous_estimated_temp_c: number;
+  dangerous_hashboard_temp_c: number;
   cooldown_temp_c: number;
   dangerous_chip_temp_c: number;
 }
@@ -241,7 +241,7 @@ export interface AsicDefaults {
 }
 
 export interface ThermalBounds {
-  dangerousEstimatedTempC: Range;
+  dangerousHashboardTempC: Range;
   cooldownTempC: Range;
   dangerousChipTempC: Range;
 }

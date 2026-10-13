@@ -43,9 +43,8 @@ mod tests;
 
 /// Per-board cooling profile. Grouped onto [`HashboardDescriptor`] so the
 /// cooling defaults travel with the board rather than as loose fields.
-/// The hashnode runs die-temp blind (a synthetic pcb+offset proxy), so it
-/// targets a lower setpoint and pins a higher fan floor than the default
-/// board.
+/// The setpoint is compared with what the board's PID tracks, so a board
+/// that tracks a hashboard reading sets it below the die temperature it means.
 #[derive(Clone, Copy)]
 pub struct BoardCooling {
     /// Cooling PID setpoint in Celsius.
@@ -105,6 +104,11 @@ pub struct HashboardDescriptor {
     /// Travels with the board because a chip family's safe junction
     /// ceiling is a property of the silicon, not a runtime tuning knob.
     pub dangerous_chip_temp_c: f32,
+    /// Hashboard halt threshold in Celsius, read by `Config::for_board`
+    /// into `ThermalConfig::dangerous_hashboard_temp_c`. Travels with the
+    /// board because the temperature a hashboard may reach is a property of
+    /// the board, as the chip ceiling is a property of the silicon.
+    pub dangerous_hashboard_temp_c: f32,
     /// Product name reported to external clients and the dashboard, sited
     /// here so the active board's name has one home.
     pub model: &'static str,
@@ -156,11 +160,12 @@ pub const BMM101_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     ),
     swarm_color: "blue",
     cooling: BoardCooling {
-        target_temp_c: 67.0,
+        target_temp_c: 60.0,
         min_fan_pwm: 20,
         input_smoother_half_decay_secs: 0.0,
     },
     dangerous_chip_temp_c: 110.0,
+    dangerous_hashboard_temp_c: 83.0,
     model: "miniminer",
     // Confirmed against BOS's AM2-S17 addressing
     // (`BASE_I2C_ADDRESS = 0x50`, single-hashboard `hashboard_address = 1`
@@ -184,11 +189,12 @@ pub const BFMX4_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     default_efficiency: BMM101_HASHBOARD.default_efficiency,
     swarm_color: "blue",
     cooling: BoardCooling {
-        target_temp_c: 62.0,
+        target_temp_c: 47.0,
         min_fan_pwm: 20,
         input_smoother_half_decay_secs: 0.0,
     },
     dangerous_chip_temp_c: 110.0,
+    dangerous_hashboard_temp_c: 75.0,
     model: "Braiins Forge Miner x4",
     // Tentative, unlike BMM101_HASHBOARD's 0x50: not yet cross-checked
     // against a parsed product-name match the way 0x50 was. See
@@ -210,13 +216,15 @@ pub const FORGE_AXE_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     // TODO: Replace this placeholder with a value measured on the board.
     default_efficiency: BMM101_HASHBOARD.default_efficiency,
     swarm_color: "blue",
-    // Same cooling profile as the hashnode until tuned on hardware.
+    // Same cooling profile and hashboard halt threshold as the hashnode until
+    // tuned on hardware.
     cooling: BoardCooling {
-        target_temp_c: 62.0,
+        target_temp_c: 47.0,
         min_fan_pwm: 20,
         input_smoother_half_decay_secs: 0.0,
     },
     dangerous_chip_temp_c: 110.0,
+    dangerous_hashboard_temp_c: 75.0,
     model: "Forge Axe",
     eeprom_i2c_address: None,
 };

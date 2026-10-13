@@ -73,32 +73,27 @@ pub struct MachineDescriptor<Psu: Copy> {
 }
 
 /// The BMM101 hashboard's four LM75A board sensors, IC12D..IC12A at
-/// `0x49..=0x4c`, each offset by +7 °C to approximate chip junction
-/// temperature. Shared by every miniminer machine and the host runner so
-/// the two cannot drift.
+/// `0x49..=0x4c`. Shared by every miniminer machine and the host runner
+/// so the two cannot drift.
 pub const BMM101_SENSORS: [SensorDescriptor; 4] = [
     SensorDescriptor {
         kind: SensorKind::Lm75a,
         address: 0x49,
-        pcb_to_die_offset_mc: 7_000,
         attached_chip: None,
     },
     SensorDescriptor {
         kind: SensorKind::Lm75a,
         address: 0x4a,
-        pcb_to_die_offset_mc: 7_000,
         attached_chip: None,
     },
     SensorDescriptor {
         kind: SensorKind::Lm75a,
         address: 0x4b,
-        pcb_to_die_offset_mc: 7_000,
         attached_chip: None,
     },
     SensorDescriptor {
         kind: SensorKind::Lm75a,
         address: 0x4c,
-        pcb_to_die_offset_mc: 7_000,
         attached_chip: None,
     },
 ];
@@ -155,25 +150,22 @@ pub const MINIMINER_INPUT_POWER_MW: core::ops::RangeInclusive<u32> = 19_000..=67
 
 /// The Hashnode's TMP461 remote diode on the ASIC die plus two TMP102 PCB
 /// sensors. The TMP461 gates thermal shutdown from the real die reading;
-/// the TMP102 pair drives the cooling estimate with a +15 °C PCB-to-die
-/// offset and covers the safety value if the die read fails.
+/// the TMP102 pair drives the cooling PID and covers the safety value if
+/// the die read fails.
 pub const BFMX4_SENSORS: [SensorDescriptor; 3] = [
     SensorDescriptor {
         kind: SensorKind::Tmp461,
         address: 0x4E,
-        pcb_to_die_offset_mc: 0,
         attached_chip: Some(0),
     },
     SensorDescriptor {
         kind: SensorKind::Tmp102,
         address: 0x48,
-        pcb_to_die_offset_mc: 15_000,
         attached_chip: None,
     },
     SensorDescriptor {
         kind: SensorKind::Tmp102,
         address: 0x49,
-        pcb_to_die_offset_mc: 15_000,
         attached_chip: None,
     },
 ];
@@ -237,20 +229,18 @@ const _: () = assert!(
 );
 
 /// The Forge Axe's two TMP102 PCB sensors. There is no die-attached
-/// remote diode on this board; both sensors drive the cooling estimate
-/// with the PCB-to-die offset. Addresses are the schematic strap
+/// remote diode on this board; both sensors drive the cooling PID and
+/// the safety value. Addresses are the schematic strap
 /// candidates, pending hardware confirmation.
 pub const FORGE_AXE_SENSORS: [SensorDescriptor; 2] = [
     SensorDescriptor {
         kind: SensorKind::Tmp102,
         address: 0x48,
-        pcb_to_die_offset_mc: 15_000,
         attached_chip: None,
     },
     SensorDescriptor {
         kind: SensorKind::Tmp102,
         address: 0x49,
-        pcb_to_die_offset_mc: 15_000,
         attached_chip: None,
     },
 ];

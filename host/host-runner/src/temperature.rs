@@ -19,9 +19,7 @@
 
 //! BMM101 hashboard temperature sensor array.
 //!
-//! Reads the four LM75A board sensors via Linux i2c-dev. Each reading
-//! is offset by the descriptor's `pcb_to_die_offset_mc` to approximate
-//! chip junction temperature from the board-mounted sensor; the
+//! Reads the four LM75A board sensors via Linux i2c-dev; the
 //! controller exposes the maximum across all sensors so a single hot
 //! spot wins. Mirrors the `BRAIINS_MINI_BMM101_BM1362_4X1` descriptor
 //! in BOS. The sensor table is `ubos_machine::BMM101_SENSORS`, the same
@@ -78,8 +76,7 @@ impl TemperatureSensor for HashboardTemperature {
             let address = desc.address;
             match sensor.read_millicelsius(&mut self.bus).await {
                 Ok(reading) => {
-                    let adjusted = reading + desc.pcb_to_die_offset_mc;
-                    hottest = Some(hottest.map_or(adjusted, |current| current.max(adjusted)));
+                    hottest = Some(hottest.map_or(reading, |current| current.max(reading)));
                 }
                 Err(Lm75aError::I2c(error)) => {
                     error!("temperature: LM75A {address:#x} I2C error: {error:?}");
@@ -89,9 +86,9 @@ impl TemperatureSensor for HashboardTemperature {
                 }
             }
         }
-        // Every sensor here is a PCB LM75A with an offset, and the board
+        // Every sensor here is an LM75A on the hashboard, and the board
         // carries no die sensor to contrast them against, so the hottest
-        // adjusted reading is the one estimate this board reports.
+        // reading is the one estimate this board reports.
         //
         // Never idle: these sensors sit on the board's own I2C bus and
         // answer whether or not the hashboard rail is up, so silence is

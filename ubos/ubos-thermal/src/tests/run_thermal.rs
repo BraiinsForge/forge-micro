@@ -71,8 +71,8 @@ impl TemperatureSensor for ScriptedSensor {
     }
 }
 
-/// A measured reading at the default `dangerous_estimated_temp_c` (90 °C), which
-/// `evaluate` trips inclusively. Well above the 45 °C default
+/// A measured reading of 90 °C, above the `dangerous_hashboard_temp_c` of the
+/// BMM101 that `Config::default` describes. Well above the 45 °C default
 /// `cooldown_temp_c`, so a tick taken while the halt stands evaluates to
 /// `Ok` and not to a resume.
 fn hot_reading() -> Reading {

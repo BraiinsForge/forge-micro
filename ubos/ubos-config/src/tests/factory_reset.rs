@@ -103,9 +103,9 @@ fn factory_reset_overwrites_existing_config() {
     let mut storage = FileStorage::new(&dir);
 
     // Store a modified config (non-default dangerous temperature) to simulate
-    // pre-existing state. 85.0 differs from the default of 90.0.
+    // pre-existing state. 85.0 differs from the default of 83.0.
     let mut modified = Config::default();
-    modified.thermal.dangerous_estimated_temp_c = 85.0;
+    modified.thermal.dangerous_hashboard_temp_c = 85.0;
     let mut modified_buf = [0u8; LOAD_BUFFER_SIZE];
     let modified_len =
         crate::encode_blob(&modified, &mut modified_buf).expect("BUG: encode_blob failed in test");
@@ -176,7 +176,7 @@ fn boot_with_stored(name: &str, tuning: Tuning, info: &'static MiningInfo) -> (C
     ));
     let mut storage = FileStorage::new(&dir);
     let mut stored = Config::default();
-    stored.thermal.dangerous_estimated_temp_c = 85.0;
+    stored.thermal.dangerous_hashboard_temp_c = 85.0;
     stored.miner.tuning = tuning;
     let mut buffer = [0u8; LOAD_BUFFER_SIZE];
     let len = crate::encode_blob(&stored, &mut buffer).expect("BUG: encode_blob failed in test");

@@ -51,7 +51,7 @@ const fn sensor_metric_name(kind: SensorKind) -> Option<&'static str> {
 }
 
 /// Pure fold. `die` = hottest trustworthy die reading, `est` = hottest
-/// PCB-plus-offset estimate, `has_die_capable` = the table contains at
+/// hashboard reading, which estimates the die, `has_die_capable` = the table contains at
 /// least one die-wired sensor. Picks the safety value (real die if any,
 /// else the estimate), tags its source, and exposes the estimate as the
 /// PID input only when it is a distinct second series.
@@ -136,10 +136,9 @@ where
                     die = Some(die.map_or(mc, |cur| cur.max(mc)));
                 }
             } else if let Some(local) = reading.local {
-                let adjusted = local + desc.pcb_to_die_offset_mc;
-                est = Some(est.map_or(adjusted, |cur| cur.max(adjusted)));
+                est = Some(est.map_or(local, |cur| cur.max(local)));
                 if let Some(name) = sensor_metric_name(desc.kind) {
-                    publish_sensor(name, desc.address, adjusted).await;
+                    publish_sensor(name, desc.address, local).await;
                 }
             }
         }

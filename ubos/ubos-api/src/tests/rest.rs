@@ -410,7 +410,7 @@ fn config_response_body_fits_in_buffer() {
         pool: Some(pool),
         thermal: Some(ubos_config::ThermalConfig {
             sample_interval_ms: u32::MAX,
-            dangerous_estimated_temp_c: WIDEST_F32,
+            dangerous_hashboard_temp_c: WIDEST_F32,
             dangerous_chip_temp_c: WIDEST_F32,
             cooldown_temp_c: WIDEST_F32,
         }),

@@ -182,6 +182,7 @@ const BMM_TEST_MULTI_DOMAIN: HashboardDescriptor = HashboardDescriptor {
         input_smoother_half_decay_secs: 0.0,
     },
     dangerous_chip_temp_c: 110.0,
+    dangerous_hashboard_temp_c: 90.0,
     model: "test",
     eeprom_i2c_address: None,
 };
@@ -204,6 +205,7 @@ const BM1370_TEST_BOARD: HashboardDescriptor = HashboardDescriptor {
         input_smoother_half_decay_secs: 0.0,
     },
     dangerous_chip_temp_c: 110.0,
+    dangerous_hashboard_temp_c: 90.0,
     model: "test",
     eeprom_i2c_address: None,
 };

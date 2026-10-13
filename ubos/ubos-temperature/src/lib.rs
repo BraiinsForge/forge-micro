@@ -52,8 +52,6 @@ pub enum SensorKind {
 pub struct SensorDescriptor {
     pub kind: SensorKind,
     pub address: u8,
-    /// Added to a PCB sensor's reading to approximate die temperature.
-    pub pcb_to_die_offset_mc: i32,
     /// Chip index whose remote diode this sensor reads, if any. `Some`
     /// marks the sensor's remote reading as a trustworthy die temperature;
     /// `None` means a PCB-surface sensor. A plain index for now — nothing

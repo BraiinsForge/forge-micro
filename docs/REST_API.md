@@ -135,7 +135,7 @@ chain value only when the PSU reading is unavailable.
 |--------|-----------------------------------|-----------|--------|--------------------------------------------------------------------------|
 | GET    | `/api/system/info`                | any       | 200    | `SystemInfo`; full telemetry with `apiVariant: "ubos-0.2"`, plus `hwInfo` (`productName` the name of the machine, `null` on a board that does not report it; `nominalHashrate` the hashrate in hashes per second that the maker rates the machine at, `null` on a board that does not report it; `psuModel` detected at runtime, `null` where the supply is not identifiable; `bootloaderVersion`/`fanControllerVersion` populated only on platforms that report them, `null` elsewhere; `hashboardIds` per-chain hashboard EEPROM serials, `null` slot when a chain's board is absent or unreadable; `chainsPresent` count of chains currently enumerated `Present`) |
 | GET    | `/api/system/asic`                | any       | 200    | `MiningInfo`; chip facts (`asicModel`, `deviceModel`, `swarmColor`, `asicCount`), tuning defaults (`defaultFrequencyKhz`, `defaultVoltageMv`, `defaultEfficiencyMjPerTh`, and `defaultTuning`, the tuning a new config starts on: `"Fixed"` or `{ Power: { inputPowerMw } }`), `bounds: { frequencyKhz: { start, end }, voltageMv: { start, end }, inputPowerMw, tuners }`, where `inputPowerMw` is `{ start, end }`, or `null` when no tuner reads a power target, and `tuners` lists the tuners the machine offers, each `{ Fixed: { name } }` or `{ Power: { name, readsEfficiency } }` |
-| GET    | `/api/system/thermal`             | any       | 200    | `ThermalInfo`; accepted ranges as `bounds: { sampleIntervalMs, dangerousEstimatedTempC, dangerousChipTempC, cooldownTempC }` |
+| GET    | `/api/system/thermal`             | any       | 200    | `ThermalInfo`; accepted ranges as `bounds: { sampleIntervalMs, dangerousHashboardTempC, dangerousChipTempC, cooldownTempC }` |
 | GET    | `/api/system/cooling`             | any       | 200    | `CoolingInfo`; accepted ranges as `bounds: { targetTempC, minFanPwm, fixedFanPwm }` |
 | GET    | `/api/system/statistics`          | any       | 200    | `SystemStatistics`; label set + (currently empty) ring of samples        |
 | GET    | `/api/system/scoreboard`          | any       | 200    | `SystemScoreboardEntry[]`; currently empty                               |
@@ -216,9 +216,9 @@ The `cooling` section carries `mode`, either `"auto"` or `"fixed"`,
 alongside `fixed_fan_pwm` and `min_fan_pwm`, both 0-100. Each duty is
 validated on its own, independently of the mode, so one can be edited
 while the other governs the fan. `target_temp_c` is validated under
-both modes: it must stay below `thermal.dangerous_estimated_temp_c`,
+both modes: it must stay below `thermal.dangerous_hashboard_temp_c`,
 the lower of the two halt thresholds, and that rule is what bounds how
-low `dangerous_estimated_temp_c` can be set. A fixed duty of 0 is
+low `dangerous_hashboard_temp_c` can be set. A fixed duty of 0 is
 accepted. The mining halt protects the board.
 
 Under `"fixed"` the fan holds `fixed_fan_pwm`. No PID runs, so

@@ -176,10 +176,10 @@ fn a_measurement_releases_the_halt_and_the_budget_starts_over() {
 #[test]
 fn a_dangerous_measurement_halts_once_and_a_cool_one_under_the_halt_resumes() {
     let config = ubos_config::Config::default().thermal;
-    // One degree above the sole-source threshold the default config sets.
+    // One degree above the hashboard threshold the default config sets.
     #[allow(clippy::cast_possible_truncation)]
     let hot =
-        Temperature::from_millicelsius((config.dangerous_estimated_temp_c * 1000.0) as i32 + 1000);
+        Temperature::from_millicelsius((config.dangerous_hashboard_temp_c * 1000.0) as i32 + 1000);
     let mut thermal = Thermal::default();
 
     let step = judge(

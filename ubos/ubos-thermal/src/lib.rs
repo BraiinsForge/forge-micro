@@ -133,13 +133,13 @@ type CSMutex = CriticalSectionRawMutex;
 pub enum Source {
     /// The only chip-temperature estimate the board reports. The gauge
     /// carries no `source` label, and the reading selects
-    /// `dangerous_estimated_temp_c`.
+    /// `dangerous_hashboard_temp_c`.
     Sole,
     /// A remote diode wired to a chip die. Selects
     /// `dangerous_chip_temp_c`.
     Chip,
-    /// A PCB reading plus an offset, published beside a real die
-    /// reading. Selects `dangerous_estimated_temp_c`.
+    /// A hashboard reading, published beside a real die reading. Selects
+    /// `dangerous_hashboard_temp_c`.
     Approximated,
 }
 
@@ -244,8 +244,8 @@ pub struct ThermalReading {
     /// consumer reads the last known temperature, and `None` until the
     /// first measurement.
     pub chip_max: Option<Temperature>,
-    /// Temperature that drives the cooling PID. PCB-plus-offset
-    /// estimate rather than the real die reading, falling back to the
+    /// Temperature that drives the cooling PID. The hashboard reading rather
+    /// than the real die reading, falling back to the
     /// safety reading when the board reports no distinct estimate.
     /// `None` on a tick that measured nothing: [`chip_max`](Self::chip_max)
     /// is held over for the operator, this one is not, because the fan
@@ -728,7 +728,7 @@ macro_rules! thermal_task {
 fn judge_dangerous(sample: &Sample, config: &ThermalConfig, held: PauseReasons) -> Option<Note> {
     let dangerous = match sample.safety_source {
         Source::Chip => config.dangerous_chip_temp_c,
-        Source::Sole | Source::Approximated => config.dangerous_estimated_temp_c,
+        Source::Sole | Source::Approximated => config.dangerous_hashboard_temp_c,
     };
     let halted = held.contains(PauseReason::DangerousTemperature);
     let temp = sample.safety;

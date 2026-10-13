@@ -499,13 +499,13 @@ impl ConfigUpdate {
     ///
     /// For `cooling.target_temp_c`, the dangerous-temp limit is resolved
     /// from the incoming `thermal` field when present, otherwise from
-    /// `current.thermal.dangerous_estimated_temp_c`.
+    /// `current.thermal.dangerous_hashboard_temp_c`.
     ///
     /// The cross-field rule covers both directions:
     /// - When `cooling.target_temp_c` is in the update, the incoming target
-    ///   must be strictly less than the incoming (or current) `dangerous_estimated_temp_c`.
+    ///   must be strictly less than the incoming (or current) `dangerous_hashboard_temp_c`.
     /// - When only `thermal` is in the update, the current `cooling.target_temp_c`
-    ///   must still be strictly less than the incoming `dangerous_estimated_temp_c`.
+    ///   must still be strictly less than the incoming `dangerous_hashboard_temp_c`.
     ///
     /// Returns `Ok(())` when every present field is within its allowed range.
     /// Returns `Err(msg)` with a static, operator-readable message on the
@@ -559,15 +559,15 @@ impl ConfigUpdate {
             let dangerous = self
                 .thermal
                 .as_ref()
-                .map_or(current.thermal.dangerous_estimated_temp_c, |thermal| {
-                    thermal.dangerous_estimated_temp_c
+                .map_or(current.thermal.dangerous_hashboard_temp_c, |thermal| {
+                    thermal.dangerous_hashboard_temp_c
                 });
 
             if let Some(target) = cooling_target {
                 CoolingConfig::validate_target_temp(target, dangerous)?;
             } else if current.cooling.target_temp_c >= dangerous {
                 return Err(
-                    "current cooling.target_temp_c must remain less than thermal.dangerous_estimated_temp_c",
+                    "current cooling.target_temp_c must remain less than thermal.dangerous_hashboard_temp_c",
                 );
             }
         }
@@ -640,18 +640,21 @@ impl Config {
                 // The chip family's safe junction ceiling lives on the
                 // board descriptor rather than a single hardcoded
                 // default, so a board with a different die-temperature
-                // rating comes up at its own halt threshold.
+                // rating comes up at its own halt threshold. The hashboard
+                // threshold lives there too, because each board defines the
+                // temperature its hashboard may reach.
                 dangerous_chip_temp_c: board.dangerous_chip_temp_c,
-                ..ThermalConfig::default()
+                dangerous_hashboard_temp_c: board.dangerous_hashboard_temp_c,
+                sample_interval_ms: thermal::DEFAULT_SAMPLE_INTERVAL_MS,
+                cooldown_temp_c: thermal::DEFAULT_COOLDOWN_TEMP_C,
             },
             cooling: CoolingConfig {
                 // Every board boots under PID control; a fixed duty is an
                 // explicit operator choice, never a factory default.
                 mode: FanMode::Auto,
-                // The board's cooling profile lives on its descriptor: the
-                // hashnode runs die-temp blind (synthetic pcb+offset), so it
-                // carries a lower setpoint and a higher fan floor than the
-                // default board. Runtime-editable via the UI afterwards.
+                // The board's cooling profile lives on its descriptor, so a
+                // board whose PID tracks a hashboard reading carries its own lower
+                // setpoint. Runtime-editable via the UI afterwards.
                 target_temp_c: board.cooling.target_temp_c,
                 fixed_fan_pwm: cooling::DEFAULT_FIXED_FAN_PWM,
                 pid: PidConfig {
@@ -685,7 +688,7 @@ impl Config {
     ///
     /// Runs the pool, thermal, miner, api, and network
     /// sub-validators, bounds both cooling duties, and enforces the
-    /// cross-field rule `cooling.target_temp_c < thermal.dangerous_estimated_temp_c`.
+    /// cross-field rule `cooling.target_temp_c < thermal.dangerous_hashboard_temp_c`.
     /// Stored blobs pass through serde and can carry out-of-range or
     /// non-finite floats in those fields; [`load_initial`] calls this after
     /// [`decode_blob`] so a corrupted blob falls back to defaults instead of
@@ -710,7 +713,7 @@ impl Config {
         self.network.validate()?;
         CoolingConfig::validate_target_temp(
             self.cooling.target_temp_c,
-            self.thermal.dangerous_estimated_temp_c,
+            self.thermal.dangerous_hashboard_temp_c,
         )?;
         CoolingConfig::validate_fixed_fan_pwm(self.cooling.fixed_fan_pwm)?;
         CoolingConfig::validate_min_fan_pwm(self.cooling.pid.min_fan_pwm)?;

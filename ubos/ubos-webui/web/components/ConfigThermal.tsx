@@ -16,8 +16,8 @@ export interface ConfigThermalProps {
 
 export default function ConfigThermal({ thermal, cooling, thermalBounds, coolingBounds }: ConfigThermalProps) {
   const [sampleMs] = useState<number | null>(() => (thermal ? thermal.sample_interval_ms : null));
-  const [estimatedC, setEstimatedC] = useState<string | number>(() =>
-    thermal ? thermal.dangerous_estimated_temp_c : '',
+  const [hashboardC, setHashboardC] = useState<string | number>(() =>
+    thermal ? thermal.dangerous_hashboard_temp_c : '',
   );
   const [chipC, setChipC] = useState<string | number>(() => (thermal ? thermal.dangerous_chip_temp_c : ''));
   const [cooldownC, setCooldownC] = useState<string | number>(() => (thermal ? thermal.cooldown_temp_c : ''));
@@ -32,7 +32,7 @@ export default function ConfigThermal({ thermal, cooling, thermalBounds, cooling
     cooling && cooling.fixed_fan_pwm != null ? cooling.fixed_fan_pwm : '',
   );
 
-  const estimated: Partial<Range> = thermalBounds.dangerousEstimatedTempC || {};
+  const hashboard: Partial<Range> = thermalBounds.dangerousHashboardTempC || {};
   const chip: Partial<Range> = thermalBounds.dangerousChipTempC || {};
   const cooldown: Partial<Range> = thermalBounds.cooldownTempC || {};
   const target: Partial<Range> = coolingBounds.targetTempC || {};
@@ -57,7 +57,7 @@ export default function ConfigThermal({ thermal, cooling, thermalBounds, cooling
     return saveConfig({
       thermal: {
         sample_interval_ms: sampleMs,
-        dangerous_estimated_temp_c: +estimatedC,
+        dangerous_hashboard_temp_c: +hashboardC,
         cooldown_temp_c: +cooldownC,
         dangerous_chip_temp_c: +chipC,
       },
@@ -76,15 +76,15 @@ export default function ConfigThermal({ thermal, cooling, thermalBounds, cooling
     <form onSubmit={save}>
       <div class="fldRows">
           <Field
-            label="Estimated danger threshold"
-            desc={fmtRange(estimated.start, estimated.end)}
+            label="Hashboard danger threshold"
+            desc={fmtRange(hashboard.start, hashboard.end)}
             unit="°C"
-            value={estimatedC}
-            onInput={(e) => setEstimatedC(e.currentTarget.value)}
+            value={hashboardC}
+            onInput={(e) => setHashboardC(e.currentTarget.value)}
             type="number"
             step="0.5"
-            min={estimated.start}
-            max={estimated.end}
+            min={hashboard.start}
+            max={hashboard.end}
           />
           <Field
             label="Chip danger threshold"

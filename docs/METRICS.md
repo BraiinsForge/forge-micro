@@ -159,8 +159,8 @@ a real die reading and a PCB estimate publishes one series for each:
 
 `SensorArray` publishes one series for each PCB sensor whose driver has a
 gauge name. Today the LM75A is the only such driver:
-`board_lm75a_temperature_millicelsius{addr="0x48"}`. The value carries
-the same PCB-to-die offset as the estimate above.
+`board_lm75a_temperature_millicelsius{addr="0x48"}`. The value is the
+reading that the sensor measured, with no offset.
 
 ### Units
 

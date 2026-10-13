@@ -129,9 +129,9 @@ impl Default for CoolingConfig {
 
 impl CoolingConfig {
     /// Validate the proposed `target` temperature against [`BOUNDS`] and
-    /// `dangerous_estimated_temp_c`.
+    /// `dangerous_hashboard_temp_c`.
     ///
-    /// `dangerous_estimated_temp_c` is resolved by the caller to either the
+    /// `dangerous_hashboard_temp_c` is resolved by the caller to either the
     /// value being set in the same update or the current live config's
     /// value. It is the lower of the two halt thresholds, so a target below
     /// it stays below both.
@@ -140,10 +140,10 @@ impl CoolingConfig {
     ///
     /// Returns `Err` when `target` is non-finite, outside
     /// `BOUNDS.target_temp_c`, or not strictly less than
-    /// `dangerous_estimated_temp_c`.
+    /// `dangerous_hashboard_temp_c`.
     pub fn validate_target_temp(
         target: f32,
-        dangerous_estimated_temp_c: f32,
+        dangerous_hashboard_temp_c: f32,
     ) -> Result<(), &'static str> {
         if !target.is_finite() {
             return Err("cooling.target_temp_c must be a finite number");
@@ -151,8 +151,8 @@ impl CoolingConfig {
         if !BOUNDS.target_temp_c.contains(&target) {
             return Err("cooling.target_temp_c must be between 30 and 85");
         }
-        if target >= dangerous_estimated_temp_c {
-            return Err("cooling.target_temp_c must be less than dangerous_estimated_temp_c");
+        if target >= dangerous_hashboard_temp_c {
+            return Err("cooling.target_temp_c must be less than dangerous_hashboard_temp_c");
         }
         Ok(())
     }
