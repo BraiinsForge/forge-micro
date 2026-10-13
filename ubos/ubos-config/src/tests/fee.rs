@@ -156,3 +156,15 @@ fn the_worker_has_the_layout_the_pool_parses() {
     assert_eq!(&suffix[..4], "ubos", "the mark names the firmware");
     assert_eq!(&suffix[12..13], "_", "the code mark marks the device code");
 }
+
+#[test]
+fn the_braiins_pool_carries_the_open_default_key() {
+    let entry = BRAIINS_POOL.entry();
+    assert_eq!(
+        entry.protocol,
+        ProtocolKind::Sv2 {
+            pool_pubkey: Some(DEFAULT_POOL_SV2_PUBKEY)
+        }
+    );
+    assert_eq!(entry.weight, 0);
+}

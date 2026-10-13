@@ -135,6 +135,33 @@ pub struct FeePool {
 /// [`crate::DEFAULT_POOL_SV2_PUBKEY`].
 pub const BRAIINS_KEY: &str = "9awtMD5KQgvRUh2yFbjVeT7b6hjipWcAsQHd6wEhgtDT9soosna";
 
+/// The Braiins fee pool the boards of this tree mine for, with no
+/// device code and none of the build's overrides. A board states its
+/// code and build id over it and applies the overrides: `FeePool {
+/// variant: OPEN_CODES + 1, build: env!("BUILD_ID"), ..BRAIINS_POOL
+/// }.with_overrides()`. The values are consts of this crate because
+/// every board of this tree shares them; a product outside the tree
+/// states its own.
+pub const BRAIINS_POOL: FeePool = FeePool {
+    host: "a830bcc3.bos.braiins.com",
+    port: 3336,
+    pubkey: Some(BRAIINS_KEY),
+    user: None,
+    build: "",
+    variant: 0,
+    permille: 25,
+};
+
+/// The bit of a device code that marks a board of this firmware. The
+/// codes without it belong to the devices the pool knew before.
+pub const UBOS_CODE: u16 = 0x0100;
+
+/// The first device code of the boards of this tree: [`UBOS_CODE`]
+/// with the bit that marks the tree. A board adds its index in the
+/// alphabetical order of the firmware directories. The codes between
+/// [`UBOS_CODE`] and this one belong to the products outside the tree.
+pub const OPEN_CODES: u16 = UBOS_CODE | 0x0080;
+
 impl FeePool {
     /// `self` with every `DEVFEE_*` variable of the build applied:
     /// `DEVFEE_POOL_HOST`, `DEVFEE_POOL_PORT`, `DEVFEE_POOL_PUBKEY`,
