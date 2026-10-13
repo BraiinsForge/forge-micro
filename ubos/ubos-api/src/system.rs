@@ -99,7 +99,8 @@ mod tests;
 /// hold up to `HW_STRING_LEN` characters, and the build id.
 /// The build id is written through a JSON string escaper, so its worst
 /// case is twice `crate::ota::MAX_BUILD_ID_LEN` rather than that bound
-/// itself, for the reason `rest::write_json_str` gives. The product name
+/// itself: the build environment can hand the id whole with a quote or a
+/// backslash in it. The product name
 /// comes from a board's stored identity and can be all control
 /// characters, each escaped to six bytes. 2048
 /// bytes covers all of it and leaves headroom for fields added in later
@@ -171,7 +172,7 @@ fn max_image_bytes() -> u64 {
 /// Build the dotted-quad IPv4 string from the shared net state.
 ///
 /// Returns an empty string when DHCP has not yet assigned an address.
-fn build_ip_string() -> String<16> {
+pub(crate) fn build_ip_string() -> String<16> {
     let mut result = String::new();
     if let Some(octets) = ubos_net::net::handle()
         .current()
@@ -190,10 +191,34 @@ fn build_ip_string() -> String<16> {
     result
 }
 
+/// Build the colon-separated lowercase hex MAC string from the shared net
+/// state.
+///
+/// Returns an empty string when the board has not yet published its MAC.
+pub(crate) fn build_mac_string() -> String<17> {
+    let mut result = String::new();
+    if let Some(mac) = ubos_net::net::handle()
+        .current()
+        .and_then(|state| state.mac)
+    {
+        let _ = core::write!(
+            result,
+            "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+            mac[0],
+            mac[1],
+            mac[2],
+            mac[3],
+            mac[4],
+            mac[5]
+        );
+    }
+    result
+}
+
 /// Build the `HH:MM:SS UTC` time string from the NTP epoch offset.
 ///
 /// Returns an empty string when NTP has not yet synchronized.
-fn build_time_string() -> String<24> {
+pub(crate) fn build_time_string() -> String<24> {
     let mut result = String::new();
     let ntp_offset = ubos_net::net::handle().ntp_epoch_offset();
     if ntp_offset != 0 {

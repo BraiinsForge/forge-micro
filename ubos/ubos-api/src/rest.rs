@@ -38,6 +38,8 @@ use ubos_thermal::Handle as ThermalHandle;
 
 use ubos_http::{RequestParts, Service, read_body, write_json_response, write_status_only};
 
+use crate::schema::info::{ApiInfo, ApiInfoChain, ApiInfoOta};
+
 #[cfg(test)]
 #[path = "tests/rest.rs"]
 mod tests;
@@ -64,7 +66,9 @@ mod tests;
 /// carried a build id, 1408 once each chain reported its pool, and 1536
 /// once the body carried a product name, whose every control character
 /// escapes to six bytes; 1792 bytes covers the synthetic worst case
-/// while staying on the stack.
+/// while staying on the stack. A body that outgrows the buffer is caught
+/// rather than truncated: `to_slice` returns `Err` and the handler
+/// answers 500.
 const API_INFO_BODY_BUFFER_SIZE: usize = 1792;
 
 /// Body buffer for the POST /api/config acknowledgement.
@@ -111,24 +115,6 @@ const CONFIG_RESPONSE_BUFFER_SIZE: usize = 3072;
 /// across reads, so the two never had to agree. Requests that exceed this
 /// cap receive a 413 response.
 const BODY_READ_BUFFER_SIZE: usize = CONFIG_RESPONSE_BUFFER_SIZE;
-
-/// Validate that a board name string contains no JSON-unsafe characters.
-///
-/// Returns `true` when `name` contains no `"` (0x22) or `\` (0x5c)
-/// bytes. Any such byte would break the unescaped JSON string literal
-/// in the `/api/info` response body, so callers that inject board names
-/// into JSON must enforce this invariant at compile time.
-const fn validate_board_name(name: &str) -> bool {
-    let bytes = name.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] == 0x22 || bytes[index] == 0x5c {
-            return false;
-        }
-        index += 1;
-    }
-    true
-}
 
 /// REST API handler implementing `ubos_http::Service`.
 ///
@@ -180,78 +166,75 @@ impl RestApiService {
             stack,
         }
     }
-}
 
-/// Write `text` as a JSON string. Every other string in the info body
-/// is a literal this crate spells, but the build id comes from the build
-/// environment, which can hand it whole with a quote or a backslash in it,
-/// and the product name comes from a board's stored identity, which can
-/// hold a control character too.
-fn write_json_str(writer: &mut ubos_http::BufferWriter<'_>, text: &str) -> core::fmt::Result {
-    writer.write_str("\"")?;
-    for c in text.chars() {
-        match c {
-            '"' => writer.write_str("\\\"")?,
-            '\\' => writer.write_str("\\\\")?,
-            c if c.is_control() => core::write!(writer, "\\u{:04x}", u32::from(c))?,
-            c => writer.write_char(c)?,
+    /// The `/api/info` snapshot, read from every subsystem the body
+    /// reports. Each read is a lock-free snapshot, so an upload holding
+    /// the OTA target mutex never blocks the dashboard's poll.
+    fn info(&self) -> ApiInfo {
+        let chain_stats = ubos_metrics::chain::handle();
+        let thermal_reading = self.thermal.current();
+        let fan = ubos_cooling::handle().current();
+        let psu_reading = self.psu.current();
+        let pause_reasons = self.manager.pause_reasons();
+        let ota = crate::ota::ota_info().map(|info| {
+            ApiInfoOta::new(
+                info,
+                crate::ota::ota_session().snapshot(),
+                crate::ota::reset_diag(),
+            )
+        });
+        ApiInfo {
+            name: self.board_name,
+            hashrate: chain_stats.machine_hashrate(),
+            uptime: Instant::now().as_secs(),
+            temperature: thermal_reading
+                .as_ref()
+                .map_or(0, ubos_thermal::ThermalReading::chip_max_celsius),
+            ambient: thermal_reading
+                .as_ref()
+                .and_then(ubos_thermal::ThermalReading::ambient_celsius),
+            chip_reading_stale: thermal_reading
+                .as_ref()
+                .is_none_or(ubos_thermal::ThermalReading::chip_reading_stale),
+            fan_rpm: fan.map_or(0, |f| f.rpm.rpm()),
+            fan_pwm: fan.map_or(0, |f| f.pwm.percent()),
+            power_in_mw: psu_reading.map_or(0, |r| r.input_power.mw()),
+            power_out_mw: psu_reading.map_or(0, |r| r.output_power.mw()),
+            psu_voltage_set_mv: psu_reading.map_or(0, |r| r.output_voltage_set.mv()),
+            psu_voltage_measured_mv: psu_reading.map_or(0, |r| r.output_voltage_measured.mv()),
+            chain_voltage_mv: thermal_reading
+                .as_ref()
+                .and_then(|reading| reading.chain_voltage_mv)
+                .unwrap_or(0),
+            psu_fault: psu_reading.is_some_and(|r| r.sensor_fault),
+            pools: stratum_client::pool_alive_bitmap(),
+            net_confirm_seconds: ubos_config::pending_seconds_remaining(),
+            running: matches!(
+                ubos_mining::handle().state(),
+                Some(ubos_mining::MiningState::Running),
+            ),
+            paused: !pause_reasons.is_empty(),
+            pause_reason: pause_reasons
+                .dominant()
+                .map(ubos_manager::PauseReason::as_api_str),
+            // One entry per chain the board wired up rather than one per
+            // slot in the table behind `chain_stats`, so a single-chain
+            // board does not report phantom chains 1 and 2. The table is
+            // `MAX_CHAINS` slots long, so `collect` cannot overflow the
+            // vector.
+            chains: chain_stats
+                .chains()
+                .enumerate()
+                .map(|(chain, stats)| ApiInfoChain::new(chain, stats))
+                .collect(),
+            ip: crate::system::build_ip_string(),
+            mac: crate::system::build_mac_string(),
+            time: crate::system::build_time_string(),
+            build: self.build,
+            product_name: crate::hw_info::product_name(),
+            ota,
         }
     }
-    writer.write_str("\"")
-}
-
-/// Write the `/api/info` `chains` array: one entry per chain the
-/// board actually owns, which is what `chain_stats.chains()` yields,
-/// rather than one entry per slot in the fixed-size table `chain_stats`
-/// is backed by. A single-chain board must not advertise phantom chains
-/// 1 and 2.
-fn write_chains(
-    writer: &mut ubos_http::BufferWriter<'_>,
-    chain_stats: ubos_metrics::chain::ChainStatsHandle,
-) {
-    let _ = writer.write_str(",\"chains\":[");
-    for (chain, stats) in chain_stats.chains().enumerate() {
-        if chain > 0 {
-            let _ = writer.write_str(",");
-        }
-        let state = match stats.presence() {
-            ubos_metrics::chain::ChainPresence::Unknown => "unknown",
-            ubos_metrics::chain::ChainPresence::Present { .. } => "present",
-            ubos_metrics::chain::ChainPresence::Absent => "absent",
-            ubos_metrics::chain::ChainPresence::Faulted { .. } => "faulted",
-        };
-        let _ = core::write!(
-            writer,
-            "{{\"chain\":{chain},\
-             \"state\":\"{state}\",\
-             \"chips\":{},\
-             \"frequency_khz\":{},\
-             \"hashrate\":{},\
-             \"hottest_c\":",
-            stats.chips(),
-            stats.frequency().khz(),
-            stats.hashrate(),
-        );
-        match stats.hottest_mc() {
-            Some(hottest_mc) => {
-                let _ = core::write!(writer, "{}", hottest_mc / 1000);
-            }
-            None => {
-                let _ = writer.write_str("null");
-            }
-        }
-        let _ = writer.write_str(",\"pool\":");
-        match stats.active_pool() {
-            Some(slot) => {
-                let _ = core::write!(writer, "{slot}");
-            }
-            None => {
-                let _ = writer.write_str("null");
-            }
-        }
-        let _ = writer.write_str("}");
-    }
-    let _ = writer.write_str("]");
 }
 
 impl Service for RestApiService {
@@ -466,226 +449,26 @@ impl Service for RestApiService {
 
         match (method, path) {
             ("GET", "/api/info") => {
-                let uptime_secs = Instant::now().as_secs();
-                let chain_stats = ubos_metrics::chain::handle();
-                let hashrate = chain_stats.machine_hashrate();
-                let thermal_reading = self.thermal.current();
-                let chain_voltage_mv = thermal_reading
-                    .as_ref()
-                    .and_then(|reading| reading.chain_voltage_mv)
-                    .unwrap_or(0);
-                let ambient = thermal_reading
-                    .as_ref()
-                    .and_then(ubos_thermal::ThermalReading::ambient_celsius);
-                let chip_reading_stale = thermal_reading
-                    .as_ref()
-                    .is_none_or(ubos_thermal::ThermalReading::chip_reading_stale);
-                let temperature = thermal_reading
-                    .as_ref()
-                    .map_or(0i32, ubos_thermal::ThermalReading::chip_max_celsius);
-                let fan = ubos_cooling::handle().current();
-                let fan_rpm = fan.map_or(0, |f| f.rpm.rpm());
-                let fan_pwm = fan.map_or(0, |f| f.pwm.percent());
-                let pools = stratum_client::pool_alive_bitmap();
-                let psu_reading = self.psu.current();
-                let power_in_mw = psu_reading.map_or(0u32, |r| r.input_power.mw());
-                let power_out_mw = psu_reading.map_or(0u32, |r| r.output_power.mw());
-                let psu_voltage_set_mv = psu_reading.map_or(0u32, |r| r.output_voltage_set.mv());
-                let psu_voltage_measured_mv =
-                    psu_reading.map_or(0u32, |r| r.output_voltage_measured.mv());
-                let psu_fault = psu_reading.is_some_and(|r| r.sensor_fault);
-                // Seconds left in the network confirm window, or 0 when nothing is pending.
-                // Serialized as `net_confirm_seconds` in the JSON body.
-                let net_confirm_seconds = ubos_config::pending_seconds_remaining();
-                let pause_reasons = self.manager.pause_reasons();
-                let paused = !pause_reasons.is_empty();
-                let running = matches!(
-                    ubos_mining::handle().state(),
-                    Some(ubos_mining::MiningState::Running),
-                );
-
                 let mut body_buf = [0u8; API_INFO_BODY_BUFFER_SIZE];
-                let mut writer = ubos_http::BufferWriter::new(&mut body_buf);
-
-                debug_assert!(
-                    validate_board_name(self.board_name),
-                    "BUG: board_name contains JSON-unsafe characters"
-                );
-                let _ = core::write!(
-                    writer,
-                    "{{\"name\":\"{}\",\
-                     \"hashrate\":{hashrate},\
-                     \"uptime\":{uptime_secs},\
-                     \"temperature\":{temperature},\
-                     \"ambient\":",
-                    self.board_name
-                );
-                match ambient {
-                    Some(ambient) => {
-                        let _ = core::write!(writer, "{ambient}");
-                    }
-                    None => {
-                        let _ = writer.write_str("null");
-                    }
-                }
-                let _ = core::write!(
-                    writer,
-                    ",\"chip_reading_stale\":{chip_reading_stale},\
-                     \"fan_rpm\":{fan_rpm},\
-                     \"fan_pwm\":{fan_pwm},\
-                     \"power_in_mw\":{power_in_mw},\
-                     \"power_out_mw\":{power_out_mw},\
-                     \"psu_voltage_set_mv\":{psu_voltage_set_mv},\
-                     \"psu_voltage_measured_mv\":{psu_voltage_measured_mv},\
-                     \"chain_voltage_mv\":{chain_voltage_mv},\
-                     \"psu_fault\":{psu_fault},\
-                     \"pools\":{pools},\
-                     \"net_confirm_seconds\":{net_confirm_seconds},\
-                     \"running\":{running},\
-                     \"paused\":{paused},\
-                     \"pause_reason\":"
-                );
-                match pause_reasons.dominant() {
-                    Some(reason) => {
-                        let _ = core::write!(writer, "\"{}\"", reason.as_api_str());
-                    }
-                    None => {
-                        let _ = writer.write_str("null");
-                    }
-                }
-                write_chains(&mut writer, chain_stats);
-
-                let _ = writer.write_str(",\"ip\":\"");
-
-                let net_state = ubos_net::net::handle().current();
-                if let Some(octets) = net_state.and_then(|state| state.ipv4).map(|ip| ip.octets()) {
-                    let _ = core::write!(
-                        writer,
-                        "{}.{}.{}.{}",
-                        octets[0],
-                        octets[1],
-                        octets[2],
-                        octets[3]
-                    );
-                }
-
-                let _ = writer.write_str("\",\"mac\":\"");
-                if let Some(mac) = net_state.and_then(|state| state.mac) {
-                    let _ = core::write!(
-                        writer,
-                        "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-                        mac[0],
-                        mac[1],
-                        mac[2],
-                        mac[3],
-                        mac[4],
-                        mac[5]
-                    );
-                }
-
-                let _ = writer.write_str("\",\"time\":\"");
-                let ntp_offset = ubos_net::net::handle().ntp_epoch_offset();
-                if ntp_offset != 0 {
-                    let unix_secs = ubos_net::wall_clock_secs();
-                    let time = ubos_net::ntp::format_utc_time(unix_secs);
-                    let _ = writer.write_str(time.as_str());
-                }
-                let _ = writer.write_str("\",\"build\":");
-                let _ = write_json_str(&mut writer, self.build);
-                let _ = writer.write_str(",\"product_name\":");
-                match crate::hw_info::product_name() {
-                    Some(name) => {
-                        let _ = write_json_str(&mut writer, &name);
-                    }
-                    None => {
-                        let _ = writer.write_str("null");
-                    }
-                }
-
-                // OTA block: the dashboard polls /api/info and only renders
-                // the firmware card when this field is present. Read from
-                // the lock-free published snapshot, never the upload mutex.
-                if let Some(ota) = crate::ota::ota_info() {
-                    let _ = core::write!(
-                        writer,
-                        ",\"ota\":{{\"runningSlot\":\"{}\",\
-                         \"runningVersion\":{},\
-                         \"hasPreviousImage\":{},\
-                         \"previousVersion\":",
-                        ota.running_slot,
-                        ota.running_version,
-                        ota.has_previous_image,
-                    );
-                    match ota.previous_version {
-                        Some(version) => {
-                            let _ = core::write!(writer, "{version}");
-                        }
-                        None => {
-                            let _ = writer.write_str("null");
-                        }
-                    }
-                    let _ = core::write!(writer, ",\"maxImageBytes\":{}", ota.max_image_bytes);
-
-                    // Live upload session state: readable lock-free even
-                    // while an upload holds the target mutex.
-                    let session = crate::ota::ota_session().snapshot();
-                    let phase_str = match session.phase {
-                        crate::ota::OtaPhase::Idle => "idle",
-                        crate::ota::OtaPhase::Uploading => "uploading",
-                        crate::ota::OtaPhase::Error => "error",
-                        crate::ota::OtaPhase::Rebooting => "rebooting",
+                // The snapshot is a temporary, so it is dropped before the
+                // await and does not live on the rest_api future stack
+                // across write_json_response.
+                let serialize_result = serde_json_core::ser::to_slice(&self.info(), &mut body_buf);
+                // Both outcomes share one await. A buffer held across two
+                // awaits is stored outside the space the handler's suspend
+                // points share, which grows every HTTP worker by its size.
+                let (status, reason, body): (u16, &str, &[u8]) =
+                    if let Ok(length) = serialize_result {
+                        (200, "OK", &body_buf[..length])
+                    } else {
+                        warn!("info: failed to serialize ApiInfo response");
+                        (
+                            500,
+                            "Internal Server Error",
+                            b"{\"message\":\"serialization error\"}",
+                        )
                     };
-                    let _ = core::write!(
-                        writer,
-                        ",\"phase\":\"{phase_str}\",\
-                         \"bytesWritten\":{},\
-                         \"chunks\":{},\
-                         \"lastError\":{}",
-                        session.bytes_written,
-                        session.chunks,
-                        session.last_error,
-                    );
-
-                    // Reset diagnostics: captured at boot from the watchdog
-                    // reason register and the OTA breadcrumb.
-                    let (
-                        reset_reason_str,
-                        reset_ota_active,
-                        reset_ota_offset,
-                        reset_write_phase_str,
-                    ) = match crate::ota::reset_diag() {
-                        Some(diag) => {
-                            let reason_str = match diag.reason {
-                                crate::ota::ResetReason::Unknown => "unknown",
-                                crate::ota::ResetReason::Clean => "clean",
-                                crate::ota::ResetReason::WatchdogTimeout => "watchdogTimeout",
-                                crate::ota::ResetReason::WatchdogForced => "watchdogForced",
-                            };
-                            let phase_str = match diag.write_phase {
-                                crate::ota::OtaWritePhase::None => "none",
-                                crate::ota::OtaWritePhase::InFlash => "inFlash",
-                                crate::ota::OtaWritePhase::FlashDone => "flashDone",
-                                crate::ota::OtaWritePhase::Panic => "panic",
-                            };
-                            (reason_str, diag.ota_was_active, diag.ota_offset, phase_str)
-                        }
-                        None => ("unknown", false, 0u32, "none"),
-                    };
-                    let _ = core::write!(
-                        writer,
-                        ",\"resetReason\":\"{reset_reason_str}\",\
-                         \"resetOtaActive\":{reset_ota_active},\
-                         \"resetOtaOffset\":{reset_ota_offset},\
-                         \"resetWritePhase\":\"{reset_write_phase_str}\"",
-                    );
-
-                    let _ = writer.write_str("}");
-                }
-
-                let _ = writer.write_str("}");
-                let json_len = writer.len();
-
-                write_json_response(connection, 200, "OK", &body_buf[..json_len]).await
+                write_json_response(connection, status, reason, body).await
             }
             ("GET", "/api/config") => {
                 let mut body_buf = [0u8; CONFIG_RESPONSE_BUFFER_SIZE];

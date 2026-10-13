@@ -17,9 +17,8 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Tests for REST-specific helpers: `validate_board_name`, the
-//! `/api/info` body and the `/api/info` and `/api/config` body-buffer
-//! sizes.
+//! Tests for the `/api/info` body and the `/api/info` and `/api/config`
+//! body-buffer sizes.
 
 // The crate is `#![no_std]`; explicitly opt back into std for the
 // test harness so we can lock a mutex and allocate format strings.
@@ -28,35 +27,8 @@ extern crate std;
 use core::fmt::Write as _;
 
 use crate::ota::{MAX_BUILD_ID_LEN, OtaPhase, OtaWritePhase, ResetReason};
-use crate::rest::{API_INFO_BODY_BUFFER_SIZE, CONFIG_RESPONSE_BUFFER_SIZE, validate_board_name};
+use crate::rest::{API_INFO_BODY_BUFFER_SIZE, CONFIG_RESPONSE_BUFFER_SIZE};
 use crate::schema::info::{ApiInfo, ApiInfoChain, ApiInfoOta};
-
-// --- M7: validate_board_name ---
-
-/// Board names with no special characters must pass the check.
-#[test]
-fn validate_board_name_accepts_safe_names() {
-    assert!(validate_board_name("W5500-EVB-Pico2"));
-    assert!(validate_board_name("host-runner"));
-    assert!(validate_board_name(""));
-    assert!(validate_board_name("abc123 !@#$%^&*()"));
-}
-
-/// A board name containing a double-quote must be rejected.
-#[test]
-fn validate_board_name_rejects_double_quote() {
-    assert!(!validate_board_name("bad\"name"));
-    assert!(!validate_board_name("\"starts"));
-    assert!(!validate_board_name("ends\""));
-}
-
-/// A board name containing a backslash must be rejected.
-#[test]
-fn validate_board_name_rejects_backslash() {
-    assert!(!validate_board_name("bad\\name"));
-    assert!(!validate_board_name("\\starts"));
-    assert!(!validate_board_name("ends\\"));
-}
 
 // --- N6: API_INFO_BODY_BUFFER_SIZE covers the worst-case body ---
 
@@ -509,50 +481,6 @@ fn api_info_chain_renders_each_chain() {
     );
     assert!(
         json.contains("{\"chain\":1,\"state\":\"absent\",\"chips\":0"),
-        "chain 1 fields missing or wrong: {json}"
-    );
-}
-
-// --- write_chains renders the real chains array ---
-
-/// Drives [`super::write_chains`] itself, rather than rebuilding its
-/// JSON output by hand, so a typo in the handler's literal fails this
-/// test instead of only ever landing in the live response.
-#[test]
-fn write_chains_renders_the_chains_array() {
-    static CHAINS: [ubos_metrics::chain::ChainStats; 2] = [
-        ubos_metrics::chain::ChainStats::new(),
-        ubos_metrics::chain::ChainStats::new(),
-    ];
-    CHAINS[0].set_presence(ubos_metrics::chain::ChainPresence::Present { chips: 105 });
-    CHAINS[0].set_frequency(ubos_core::units::Frequency::from_mhz(650));
-    CHAINS[0].set_hottest(Some(72_000));
-    CHAINS[1].set_presence(ubos_metrics::chain::ChainPresence::Absent);
-
-    let active = std::boxed::Box::leak(std::boxed::Box::new(portable_atomic::AtomicU8::new(
-        u8::try_from(CHAINS.len()).expect("BUG: the test table fits a u8"),
-    )));
-    let handle = ubos_metrics::chain::ChainStatsHandle::new(&CHAINS, active);
-    let mut buffer = [0u8; 512];
-    let mut writer = ubos_http::BufferWriter::new(&mut buffer);
-    super::write_chains(&mut writer, handle);
-    let len = writer.len();
-    let json = std::str::from_utf8(&buffer[..len]).expect("write_chains emits valid UTF-8");
-
-    assert!(
-        json.starts_with(",\"chains\":[") && json.ends_with(']'),
-        "unexpected chains array framing: {json}"
-    );
-    assert!(
-        json.contains("\"chain\":0,\"state\":\"present\",\"chips\":105,\"frequency_khz\":650000"),
-        "chain 0 fields missing or wrong: {json}"
-    );
-    assert!(
-        json.contains("\"hottest_c\":72"),
-        "chain 0 hottest_c missing or wrong: {json}"
-    );
-    assert!(
-        json.contains("\"chain\":1,\"state\":\"absent\",\"chips\":0"),
         "chain 1 fields missing or wrong: {json}"
     );
 }

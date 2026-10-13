@@ -29,7 +29,8 @@ use serde::Serialize;
 use ubos_metrics::chain::{ChainPresence, ChainStats, MAX_CHAINS};
 
 use crate::hw_info::HwString;
-use crate::ota::{OtaPhase, OtaWritePhase, ResetReason};
+use crate::ota::{OtaPhase, OtaSessionSnapshot, OtaWritePhase, ResetDiag, ResetReason};
+use crate::schema::system_info::OtaInfo;
 
 /// Millidegrees in one degree Celsius, the unit `hottest_c` is reported in.
 const MILLICELSIUS_PER_CELSIUS: i32 = 1000;
@@ -181,4 +182,37 @@ pub struct ApiInfoOta {
     pub reset_ota_offset: u32,
     /// Where in a flash write the most recent reset landed.
     pub reset_write_phase: OtaWritePhase,
+}
+
+impl ApiInfoOta {
+    /// The block for a board with an OTA target. A board that has not
+    /// published its reset diagnostics reports an unknown reset with no
+    /// upload active, which is what a fresh boot records.
+    pub(crate) fn new(
+        info: OtaInfo,
+        session: OtaSessionSnapshot,
+        reset: Option<ResetDiag>,
+    ) -> Self {
+        let reset = reset.unwrap_or(ResetDiag {
+            reason: ResetReason::Unknown,
+            ota_was_active: false,
+            ota_offset: 0,
+            write_phase: OtaWritePhase::None,
+        });
+        Self {
+            running_slot: info.running_slot,
+            running_version: info.running_version,
+            has_previous_image: info.has_previous_image,
+            previous_version: info.previous_version,
+            max_image_bytes: info.max_image_bytes,
+            phase: session.phase,
+            bytes_written: session.bytes_written,
+            chunks: session.chunks,
+            last_error: session.last_error,
+            reset_reason: reset.reason,
+            reset_ota_active: reset.ota_was_active,
+            reset_ota_offset: reset.ota_offset,
+            reset_write_phase: reset.write_phase,
+        }
+    }
 }

@@ -120,8 +120,8 @@ impl OtaErrorCode {
 
 /// Snapshot of the live upload session state.
 ///
-/// Returned by [`OtaSession::snapshot`] for the `/api/info` response
-/// writer. All fields are derived from atomics and are consistent only
+/// Returned by [`OtaSession::snapshot`] for the `/api/info` response.
+/// All fields are derived from atomics and are consistent only
 /// on a per-field basis; no cross-field ordering is guaranteed.
 #[derive(Clone, Copy)]
 pub(crate) struct OtaSessionSnapshot {

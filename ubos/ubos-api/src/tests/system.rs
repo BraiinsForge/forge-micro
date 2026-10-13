@@ -833,7 +833,8 @@ const _: () = assert!(WORST_CASE_SYSTEM_INFO_LEN <= super::SCRATCH_SIZE);
 ///
 /// Every string field stands at its maximum, and the build id is
 /// `MAX_BUILD_ID_LEN` double quotes, the widest character a build id
-/// can carry, for the reason `rest::write_json_str` gives. The product
+/// can carry: the build environment can hand the id whole with a quote
+/// or a backslash in it. The product
 /// name is `HW_STRING_LEN` control characters, which serialize to six
 /// bytes each.
 ///
