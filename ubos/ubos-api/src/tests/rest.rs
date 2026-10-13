@@ -17,8 +17,9 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Tests for REST-specific helpers: `validate_board_name` and the
-//! `/api/info` and `/api/config` body-buffer sizes.
+//! Tests for REST-specific helpers: `validate_board_name`, the
+//! `/api/info` body and the `/api/info` and `/api/config` body-buffer
+//! sizes.
 
 // The crate is `#![no_std]`; explicitly opt back into std for the
 // test harness so we can lock a mutex and allocate format strings.
@@ -26,7 +27,9 @@ extern crate std;
 
 use core::fmt::Write as _;
 
+use crate::ota::{MAX_BUILD_ID_LEN, OtaPhase, OtaWritePhase, ResetReason};
 use crate::rest::{API_INFO_BODY_BUFFER_SIZE, CONFIG_RESPONSE_BUFFER_SIZE, validate_board_name};
+use crate::schema::info::{ApiInfo, ApiInfoChain, ApiInfoOta};
 
 // --- M7: validate_board_name ---
 
@@ -62,18 +65,22 @@ fn validate_board_name_rejects_backslash() {
 /// Pinned exactly, as [`WORST_CASE_BODY_LEN`] is and for the same reason:
 /// a field addition that still fits the buffer fails here, and updating
 /// this constant is the prompt to check the buffer's comment.
-const WORST_CASE_INFO_BODY_LEN: usize = 1676;
+const WORST_CASE_INFO_BODY_LEN: usize = 1715;
 
-/// The `/api/info` body assembler in `rest.rs` writes into a fixed
-/// `[u8; API_INFO_BODY_BUFFER_SIZE]` buffer via `BufferWriter`, which
-/// silently discards bytes past the end. This test constructs the
-/// worst-case body — every variable-width field at its maximum width —
-/// and asserts that the result fits. Any future field addition that
-/// pushes the total over the buffer size will fail here rather than
-/// silently truncating the live response.
+/// A `&'static str` of `len` copies of `text`. [`ApiInfo`] takes
+/// `&'static str`, and a leak in a test costs nothing.
+fn leaked(text: &str, len: usize) -> &'static str {
+    std::boxed::Box::leak(text.repeat(len).into_boxed_str())
+}
+
+/// The `/api/info` body is written into a fixed
+/// `[u8; API_INFO_BODY_BUFFER_SIZE]`. This test serializes the worst-case
+/// [`ApiInfo`], compares it byte for byte with the body the dashboard
+/// reads, pins its length at [`WORST_CASE_INFO_BODY_LEN`] and asserts that
+/// it fits. The byte comparison is what holds the keys, their order and
+/// the `null`s to the contract in `ubos-webui/web/lib/types.ts`.
 ///
-/// Worst-case assumptions (mirroring the exact `core::write!` calls in
-/// `rest.rs`):
+/// Worst-case assumptions:
 /// - `name`: 42 ASCII characters, the length of the longest current
 ///   `ControlBoardDescriptor::name` (`CONTROL_BOARD_ESP32S3`'s
 ///   "Waveshare ESP32-S3-LCD-Driver-Board W5100S").
@@ -82,22 +89,22 @@ const WORST_CASE_INFO_BODY_LEN: usize = 1676;
 /// - `temperature` (`i32`): `i32::MIN` (11 chars including the sign).
 /// - `ambient` (`Option<i32>`): `Some(i32::MIN)` (11 chars), wider than `null`.
 /// - `fan_pwm`/`pools` (`u8`/`u8`): `u8::MAX` = 255 (3 digits).
+/// - `chip_reading_stale`: `false` (5 chars).
 /// - `psu_fault`/`hasPreviousImage`/`resetOtaActive`: `true` (4 chars).
 /// - `ip`: `"255.255.255.255"` (15 chars).
 /// - `mac`: `"ff:ff:ff:ff:ff:ff"` (17 chars).
 /// - `time`: `"23:59:59 UTC"` (12 chars, the fixed `format_utc_time` width).
+/// - `runningSlot`: `"INACTIVE"` (8 chars), as in the `SystemInfo` worst case.
 /// - `phase`: `"rebooting"` (9 chars, longest variant).
 /// - `resetReason`: `"watchdogTimeout"` (15 chars, longest variant).
 /// - `resetWritePhase`: `"flashDone"` (9 chars, longest variant).
 /// - `previousVersion`: `Some(u32::MAX)` (10 digits, longer than `null`).
-/// - `build`: `crate::ota::MAX_BUILD_ID_LEN` double quotes, the most
-///   the service keeps of a build id with every
-///   character escaped by `write_json_str` to two bytes. The quote is
-///   the widest character a build id can carry, for the reason
-///   `write_json_str` gives.
+/// - `build`: `MAX_BUILD_ID_LEN` double quotes, each escaped to two bytes.
+///   The quote is the widest character a build id can carry: the build
+///   environment can hand the id whole with a quote or a backslash in it.
 /// - `product_name`: `crate::HW_STRING_LEN` one-byte control characters,
-///   each of which `write_json_str` escapes to the six bytes of a
-///   `\u00XX` sequence, the widest escape it writes per input byte.
+///   each escaped to the six bytes of a `\u00XX` sequence, the widest
+///   escape per input byte.
 /// - `running`: `true` (4 chars).
 /// - `paused`: `true` (4 chars).
 /// - `pause_reason`: `"temperatureUnreadable"` (21 chars, longest variant).
@@ -105,143 +112,200 @@ const WORST_CASE_INFO_BODY_LEN: usize = 1676;
 ///   can report, since [`ubos_metrics::chain::ChainStatsHandle::chain_count`]
 ///   never exceeds the table it wraps — each with `chips` at `u16::MAX`
 ///   (5 digits), `frequency_khz` at `u32::MAX` (10 digits), `hashrate`
-///   at `u64::MAX` (20 digits), and `hottest_c` at `i32::MIN / 1000` (7
-///   digits including the sign), the widest `state` string
-///   (`"unknown"`/`"faulted"`, 7 chars), and `pool` at `null` (4 chars,
-///   wider than any one-digit slot).
+///   at `u64::MAX` (20 digits), and `hottest_c` at `i32::MIN / 1000`, the
+///   widest whole-degree value a millidegree reading divides to, the
+///   widest `state` string (`"unknown"`/`"faulted"`, 7 chars), and `pool`
+///   at `null` (4 chars, wider than any one-digit slot).
 #[test]
 #[allow(clippy::too_many_lines)]
 fn api_info_body_fits_in_buffer() {
-    // Build the body using the same `format!` calls that `rest.rs` uses,
-    // with every variable-width field set to its maximum-width value.
-    let board_name = "A".repeat(42);
-    let hashrate = u64::MAX;
-    let uptime_secs = u64::MAX;
-    let temperature = i32::MIN;
-    let ambient = i32::MIN;
-    let fan_rpm = u32::MAX;
-    let fan_pwm = u8::MAX;
-    let power_in_mw = u32::MAX;
-    let power_out_mw = u32::MAX;
-    let psu_voltage_set_mv = u32::MAX;
-    let psu_voltage_measured_mv = u32::MAX;
-    let chain_voltage_mv = u32::MAX;
-    let psu_fault = true;
-    let pools = u8::MAX;
-    let net_confirm_seconds = u64::MAX;
-    let running = true;
-    let paused = true;
-    let pause_reason = "temperatureUnreadable";
-    let chip_reading_stale = false;
-    // The escaped form the handler's `write_json_str` emits for a build
-    // id of MAX_BUILD_ID_LEN double quotes; see the worst-case list above.
-    let build = "\\\"".repeat(crate::ota::MAX_BUILD_ID_LEN);
-    // The escaped form `write_json_str` emits for a product name of
-    // HW_STRING_LEN control characters; see the worst-case list above.
-    let product_name = "\\u0001".repeat(crate::HW_STRING_LEN);
+    let chain_hottest_c = i32::MIN / 1000;
+    let chains = (0..ubos_metrics::chain::MAX_CHAINS)
+        .map(|chain| ApiInfoChain {
+            chain,
+            state: "unknown",
+            chips: u16::MAX,
+            frequency_khz: u32::MAX,
+            hashrate: u64::MAX,
+            hottest_c: Some(chain_hottest_c),
+            pool: None,
+        })
+        .collect();
 
-    let mut body = std::format!(
+    let info = ApiInfo {
+        name: leaked("A", 42),
+        hashrate: u64::MAX,
+        uptime: u64::MAX,
+        temperature: i32::MIN,
+        ambient: Some(i32::MIN),
+        chip_reading_stale: false,
+        fan_rpm: u32::MAX,
+        fan_pwm: u8::MAX,
+        power_in_mw: u32::MAX,
+        power_out_mw: u32::MAX,
+        psu_voltage_set_mv: u32::MAX,
+        psu_voltage_measured_mv: u32::MAX,
+        chain_voltage_mv: u32::MAX,
+        psu_fault: true,
+        pools: u8::MAX,
+        net_confirm_seconds: u64::MAX,
+        running: true,
+        paused: true,
+        pause_reason: Some("temperatureUnreadable"),
+        chains,
+        ip: "255.255.255.255".parse().expect("BUG: an IPv4 fits ip"),
+        mac: "ff:ff:ff:ff:ff:ff".parse().expect("BUG: a MAC fits mac"),
+        time: "23:59:59 UTC".parse().expect("BUG: a UTC time fits time"),
+        build: leaked("\"", MAX_BUILD_ID_LEN),
+        product_name: Some(
+            leaked("\u{1}", crate::HW_STRING_LEN)
+                .parse()
+                .expect("BUG: fills HwString exactly"),
+        ),
+        ota: Some(ApiInfoOta {
+            running_slot: "INACTIVE",
+            running_version: u32::MAX,
+            has_previous_image: true,
+            previous_version: Some(u32::MAX),
+            max_image_bytes: u64::MAX,
+            phase: OtaPhase::Rebooting,
+            bytes_written: u32::MAX,
+            chunks: u32::MAX,
+            last_error: u8::MAX,
+            reset_reason: ResetReason::WatchdogTimeout,
+            reset_ota_active: true,
+            reset_ota_offset: u32::MAX,
+            reset_write_phase: OtaWritePhase::FlashDone,
+        }),
+    };
+
+    // The body the dashboard reads, spelled out by hand so that a renamed,
+    // reordered or dropped key fails the comparison below.
+    let board_name = "A".repeat(42);
+    let build = "\\\"".repeat(MAX_BUILD_ID_LEN);
+    let product_name = "\\u0001".repeat(crate::HW_STRING_LEN);
+    let max_u64 = u64::MAX;
+    let max_u32 = u32::MAX;
+    let max_u8 = u8::MAX;
+    let min_i32 = i32::MIN;
+    let mut expected = std::format!(
         "{{\"name\":\"{board_name}\",\
-         \"hashrate\":{hashrate},\
-         \"uptime\":{uptime_secs},\
-         \"temperature\":{temperature},\
-         \"ambient\":{ambient},\
-         \"chip_reading_stale\":{chip_reading_stale},\
-         \"fan_rpm\":{fan_rpm},\
-         \"fan_pwm\":{fan_pwm},\
-         \"power_in_mw\":{power_in_mw},\
-         \"power_out_mw\":{power_out_mw},\
-         \"psu_voltage_set_mv\":{psu_voltage_set_mv},\
-         \"psu_voltage_measured_mv\":{psu_voltage_measured_mv},\
-         \"chain_voltage_mv\":{chain_voltage_mv},\
-         \"psu_fault\":{psu_fault},\
-         \"pools\":{pools},\
-         \"net_confirm_seconds\":{net_confirm_seconds},\
-         \"running\":{running},\
-         \"paused\":{paused},\
-         \"pause_reason\":\"{pause_reason}\",\
-         \"ip\":\"255.255.255.255\",\
+         \"hashrate\":{max_u64},\
+         \"uptime\":{max_u64},\
+         \"temperature\":{min_i32},\
+         \"ambient\":{min_i32},\
+         \"chip_reading_stale\":false,\
+         \"fan_rpm\":{max_u32},\
+         \"fan_pwm\":{max_u8},\
+         \"power_in_mw\":{max_u32},\
+         \"power_out_mw\":{max_u32},\
+         \"psu_voltage_set_mv\":{max_u32},\
+         \"psu_voltage_measured_mv\":{max_u32},\
+         \"chain_voltage_mv\":{max_u32},\
+         \"psu_fault\":true,\
+         \"pools\":{max_u8},\
+         \"net_confirm_seconds\":{max_u64},\
+         \"running\":true,\
+         \"paused\":true,\
+         \"pause_reason\":\"temperatureUnreadable\",\
+         \"chains\":["
+    );
+    for chain in 0..ubos_metrics::chain::MAX_CHAINS {
+        if chain > 0 {
+            expected.push(',');
+        }
+        let _ = write!(
+            expected,
+            "{{\"chain\":{chain},\
+             \"state\":\"unknown\",\
+             \"chips\":{},\
+             \"frequency_khz\":{max_u32},\
+             \"hashrate\":{max_u64},\
+             \"hottest_c\":{chain_hottest_c},\
+             \"pool\":null}}",
+            u16::MAX,
+        );
+    }
+    let _ = write!(
+        expected,
+        "],\"ip\":\"255.255.255.255\",\
          \"mac\":\"ff:ff:ff:ff:ff:ff\",\
          \"time\":\"23:59:59 UTC\",\
          \"build\":\"{build}\",\
-         \"product_name\":\"{product_name}\""
+         \"product_name\":\"{product_name}\",\
+         \"ota\":{{\"runningSlot\":\"INACTIVE\",\
+         \"runningVersion\":{max_u32},\
+         \"hasPreviousImage\":true,\
+         \"previousVersion\":{max_u32},\
+         \"maxImageBytes\":{max_u64},\
+         \"phase\":\"rebooting\",\
+         \"bytesWritten\":{max_u32},\
+         \"chunks\":{max_u32},\
+         \"lastError\":{max_u8},\
+         \"resetReason\":\"watchdogTimeout\",\
+         \"resetOtaActive\":true,\
+         \"resetOtaOffset\":{max_u32},\
+         \"resetWritePhase\":\"flashDone\"}}}}"
     );
 
-    // Chains array: the handler emits one entry per
-    // `ChainStatsHandle::chain_count`, which never exceeds
-    // `ubos_metrics::chain::MAX_CHAINS`, so that bound is the worst case
-    // regardless of how many chains any one board actually owns.
-    let chain_chips = u16::MAX;
-    let chain_frequency_khz = u32::MAX;
-    let chain_hashrate = u64::MAX;
-    let chain_hottest_c = i32::MIN / 1000;
-    let mut chains = std::string::String::from(",\"chains\":[");
-    for chain in 0..ubos_metrics::chain::MAX_CHAINS {
-        if chain > 0 {
-            chains.push(',');
-        }
-        let _ = write!(
-            chains,
-            "{{\"chain\":{chain},\
-             \"state\":\"unknown\",\
-             \"chips\":{chain_chips},\
-             \"frequency_khz\":{chain_frequency_khz},\
-             \"hashrate\":{chain_hashrate},\
-             \"hottest_c\":{chain_hottest_c},\
-             \"pool\":null}}"
-        );
-    }
-    chains.push(']');
-    body.push_str(&chains);
-
-    // OTA block with all fields populated.
-    let running_slot = "ACTIVE";
-    let running_version = u32::MAX;
-    let has_previous_image = true;
-    let previous_version = u32::MAX;
-    let phase_str = "rebooting";
-    let bytes_written = u32::MAX;
-    let chunks = u32::MAX;
-    let last_error = u8::MAX;
-    let reset_reason_str = "watchdogTimeout";
-    let reset_ota_active = true;
-    let reset_ota_offset = u32::MAX;
-    let reset_write_phase_str = "flashDone";
-
-    let _ = write!(
-        body,
-        ",\"ota\":{{\"runningSlot\":\"{running_slot}\",\
-         \"runningVersion\":{running_version},\
-         \"hasPreviousImage\":{has_previous_image},\
-         \"previousVersion\":{previous_version}"
-    );
-    let _ = write!(
-        body,
-        ",\"phase\":\"{phase_str}\",\
-         \"bytesWritten\":{bytes_written},\
-         \"chunks\":{chunks},\
-         \"lastError\":{last_error}"
-    );
-    let _ = write!(
-        body,
-        ",\"resetReason\":\"{reset_reason_str}\",\
-         \"resetOtaActive\":{reset_ota_active},\
-         \"resetOtaOffset\":{reset_ota_offset},\
-         \"resetWritePhase\":\"{reset_write_phase_str}\"}}"
-    );
-
-    body.push('}');
-
+    let mut buffer = std::vec![0u8; API_INFO_BODY_BUFFER_SIZE * 2];
+    let len = serde_json_core::to_slice(&info, &mut buffer).expect("worst case fits the probe");
+    let body = std::str::from_utf8(&buffer[..len]).expect("serde_json_core emits UTF-8");
     assert_eq!(
-        body.len(),
-        WORST_CASE_INFO_BODY_LEN,
+        body, expected,
+        "the /api/info body moved; the dashboard reads it by the keys in \
+         ubos-webui/web/lib/types.ts"
+    );
+    assert_eq!(
+        len, WORST_CASE_INFO_BODY_LEN,
         "worst-case /api/info body moved; update WORST_CASE_INFO_BODY_LEN"
     );
     assert!(
-        body.len() < API_INFO_BODY_BUFFER_SIZE,
-        "worst-case /api/info body is {} bytes, which overflows API_INFO_BODY_BUFFER_SIZE ({})",
-        body.len(),
-        API_INFO_BODY_BUFFER_SIZE,
+        len <= API_INFO_BODY_BUFFER_SIZE,
+        "worst-case /api/info body is {len} bytes, which overflows \
+         API_INFO_BODY_BUFFER_SIZE ({API_INFO_BODY_BUFFER_SIZE})"
+    );
+}
+
+/// A board with no OTA target leaves the `ota` key out of the body rather
+/// than writing it as `null`, which is what the dashboard tests to decide
+/// whether to render its firmware card.
+#[test]
+fn api_info_without_ota_leaves_the_key_out() {
+    let info = ApiInfo {
+        name: "board",
+        hashrate: 0,
+        uptime: 0,
+        temperature: 0,
+        ambient: None,
+        chip_reading_stale: true,
+        fan_rpm: 0,
+        fan_pwm: 0,
+        power_in_mw: 0,
+        power_out_mw: 0,
+        psu_voltage_set_mv: 0,
+        psu_voltage_measured_mv: 0,
+        chain_voltage_mv: 0,
+        psu_fault: false,
+        pools: 0,
+        net_confirm_seconds: 0,
+        running: false,
+        paused: false,
+        pause_reason: None,
+        chains: heapless::Vec::new(),
+        ip: heapless::String::new(),
+        mac: heapless::String::new(),
+        time: heapless::String::new(),
+        build: "",
+        product_name: None,
+        ota: None,
+    };
+    let mut buffer = [0u8; API_INFO_BODY_BUFFER_SIZE];
+    let len = serde_json_core::to_slice(&info, &mut buffer).expect("an empty body fits");
+    let body = std::str::from_utf8(&buffer[..len]).expect("serde_json_core emits UTF-8");
+    assert!(
+        body.ends_with(",\"build\":\"\",\"product_name\":null}"),
+        "expected the body to end at product_name with no ota key: {body}"
     );
 }
 
@@ -407,6 +471,45 @@ fn config_response_body_fits_in_buffer() {
         len <= CONFIG_RESPONSE_BUFFER_SIZE,
         "worst-case GET /api/config body is {len} bytes, which overflows \
          CONFIG_RESPONSE_BUFFER_SIZE ({CONFIG_RESPONSE_BUFFER_SIZE})"
+    );
+}
+
+// --- ApiInfoChain renders each chain's fields ---
+
+/// Drives [`ApiInfoChain::new`] over live chain accounting and serializes
+/// the result, so a wrong read or state string in the constructor fails
+/// this test instead of only ever landing in the live response.
+#[test]
+fn api_info_chain_renders_each_chain() {
+    static CHAINS: [ubos_metrics::chain::ChainStats; 2] = [
+        ubos_metrics::chain::ChainStats::new(),
+        ubos_metrics::chain::ChainStats::new(),
+    ];
+    CHAINS[0].set_presence(ubos_metrics::chain::ChainPresence::Present { chips: 105 });
+    CHAINS[0].set_frequency(ubos_core::units::Frequency::from_mhz(650));
+    CHAINS[0].set_hottest(Some(72_000));
+    CHAINS[1].set_presence(ubos_metrics::chain::ChainPresence::Absent);
+
+    let chains: heapless::Vec<ApiInfoChain, 2> = CHAINS
+        .iter()
+        .enumerate()
+        .map(|(chain, stats)| ApiInfoChain::new(chain, stats))
+        .collect();
+    let mut buffer = [0u8; 512];
+    let len = serde_json_core::to_slice(&chains, &mut buffer).expect("two chains fit the probe");
+    let json = std::str::from_utf8(&buffer[..len]).expect("serde_json_core emits UTF-8");
+
+    assert!(
+        json.contains("{\"chain\":0,\"state\":\"present\",\"chips\":105,\"frequency_khz\":650000"),
+        "chain 0 fields missing or wrong: {json}"
+    );
+    assert!(
+        json.contains("\"hottest_c\":72,\"pool\":null}"),
+        "chain 0 hottest_c or pool missing or wrong: {json}"
+    );
+    assert!(
+        json.contains("{\"chain\":1,\"state\":\"absent\",\"chips\":0"),
+        "chain 1 fields missing or wrong: {json}"
     );
 }
 
