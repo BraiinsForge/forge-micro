@@ -121,11 +121,11 @@ async fn cpu_load_task() -> ! {
     ubos_metrics::cpu_load::run_cpu_load::<1>().await
 }
 
-ubos_firmware::stratum_metrics_task!(POOL_SLOTS);
+ubos_firmware::stratum_metrics_task!(POOL_SLOTS, FEE_SLOT);
 
 ubos_mining::pool_weights_task!(&mining::CHAINS);
 
-ubos_mining::miner_metrics_task!(POOL_SLOTS);
+ubos_mining::miner_metrics_task!(POOL_SLOTS, FEE_SLOT);
 
 ubos_thermal::thermal_task!(
     ubos_thermal::SensorArray<{ config::MACHINE.temp.len() }, psu::Device>,
@@ -139,7 +139,12 @@ ubos_manager::manager_task!();
 /// `embassy-stm32 blocking Flash → SyncFlash → FlashStorage`.
 type BoardConfigStorage = FlashStorage<SyncFlash<Flash<'static, FlashBlocking>>>;
 
-ubos_config::config_task!(BoardConfigStorage, config::BOARD, &config::MINING_INFO);
+ubos_config::config_task!(
+    BoardConfigStorage,
+    config::BOARD,
+    &config::MINING_INFO,
+    FEE_SLOT
+);
 
 ubos_cooling::cooling_task!(ubos_stm32::fan::BoardFan, ubos_stm32::fan::BoardTach);
 
@@ -170,10 +175,17 @@ ubos_firmware::serve_all!(
 
 ubos_net::network_control_task!();
 
-/// Parallel stratum session slots this board runs — the full config
-/// capacity; this board has the RAM for a session task per pool slot.
-/// RAM-constrained boards may choose fewer (see stm32f407).
-pub(crate) const POOL_SLOTS: usize = ubos_firmware::MAX_POOLS;
+/// Parallel stratum session slots this board runs — the operator's
+/// three plus the fee slot the build ships; this board has the RAM
+/// for a session task per slot. A board with less RAM runs fewer and
+/// gives the fee its last slot (see rp2040), or runs one and no fee
+/// (see stm32f407).
+pub(crate) const POOL_SLOTS: usize = ubos_config::POOL_SLOTS;
+
+/// The fee pool this board runs, at its last session slot. `None` on
+/// an off build, so the source reads the same in both states.
+pub(crate) const FEE_SLOT: Option<ubos_config::FeeSlot> =
+    ubos_config::FeeSlot::last_of(config::FEE_POOL, POOL_SLOTS);
 
 /// Shared ASIC session: the bridge between the per-slot stratum sessions and
 /// the BM1362 serial worker. One instance per binary; referenced by every

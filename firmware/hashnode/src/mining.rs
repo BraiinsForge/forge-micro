@@ -36,7 +36,8 @@ ubos_mining::serial_task!(
     ubos_rp::uart::MinerUart,
     ubos_firmware::AsicSession<{ crate::POOL_SLOTS }>,
     crate::config::BOARD,
-    ubos_asic::Bm13xxDriver
+    ubos_asic::Bm13xxDriver,
+    scheduler = ubos_mining::scheduler::FeeScheduler::new(crate::config::FEE_POOL.permille)
 );
 
 /// The reset line is one push-pull output with no timings, so the shared
