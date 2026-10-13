@@ -81,7 +81,7 @@ pub use mining::{
 pub use network::{NetworkConfig, NetworkMode};
 pub use pool::{
     DEFAULT_POOL_HOST, DEFAULT_POOL_PORT, DEFAULT_POOL_SV2_PUBKEY, DEFAULT_POOL_USER,
-    MAX_POOL_WEIGHT, PoolEntry, ProtocolKind,
+    MAX_POOL_WEIGHT, NAME_CAPACITY, PoolEntry, ProtocolKind,
 };
 pub use seed::{Seed, SeedField};
 pub use thermal::{

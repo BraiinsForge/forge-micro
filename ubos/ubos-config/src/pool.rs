@@ -141,11 +141,11 @@ pub enum ProtocolKind {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PoolEntry {
     /// DNS name or IPv4 literal of the pool host.
-    pub host: heapless::String<128>,
+    pub host: heapless::String<NAME_CAPACITY>,
     /// TCP port.
     pub port: u16,
     /// Worker name sent in `mining.authorize`.
-    pub user: heapless::String<128>,
+    pub user: heapless::String<NAME_CAPACITY>,
     /// Protocol selection and its parameters.
     pub protocol: ProtocolKind,
     /// Scheduler dispatch weight for this slot. Zero marks a
@@ -157,6 +157,9 @@ pub struct PoolEntry {
     #[serde(default)]
     pub weight: u32,
 }
+
+/// Bytes a [`PoolEntry`] host or worker name can hold.
+pub const NAME_CAPACITY: usize = 128;
 
 /// Maximum number of pool slots the firmware persists and validates.
 ///
