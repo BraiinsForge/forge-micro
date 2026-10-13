@@ -10,7 +10,7 @@ workspace = true
 [dependencies]
 ubos-core = { workspace = true }
 ubos-cooling = { workspace = true }
-ubos-metrics = { workspace = true }
+ubos-thermal = { workspace = true }
 serial-baudrate = { workspace = true }
 embedded-io-async = { workspace = true }
 embassy-time = { workspace = true }

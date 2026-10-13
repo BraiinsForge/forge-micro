@@ -113,8 +113,6 @@ async fn mdns_task(stack: embassy_net::Stack<'static>, hostname: &'static str) -
     .await
 }
 
-ubos_metrics::mcu_temperature_task!(ubos_stm32::mcu_temp::McuTempSensor);
-
 #[embassy_executor::task]
 async fn cpu_load_task() -> ! {
     ubos_metrics::cpu_load::run_cpu_load::<1>().await
@@ -126,7 +124,8 @@ ubos_mining::miner_metrics_task!(POOL_SLOTS);
 
 ubos_thermal::thermal_task!(
     ubos_thermal::SensorArray<{ config::MACHINE.temp.len() }, psu::Device>,
-    ubos_thermal::NoAmbient
+    ubos_thermal::NoAmbient,
+    ubos_stm32::mcu_temp::McuTempSensor
 );
 
 ubos_manager::manager_task!();
@@ -335,7 +334,6 @@ async fn boot(spawner: Spawner) {
     spawner.spawn(unwrap!(pool_weights_task()));
 
     let mcu_temp_sensor = ubos_stm32::mcu_temp::McuTempSensor::new(hw.adc);
-    spawner.spawn(unwrap!(mcu_temperature_task(mcu_temp_sensor)));
 
     // Hashboard plug-detect input on PE1, pulled up. `boot` returns once the
     // listeners are spawned, and dropping the input would release the pad
@@ -401,6 +399,7 @@ async fn boot(spawner: Spawner) {
         spawner.spawn(unwrap!(thermal_task(
             hashboard_temp,
             ubos_thermal::NoAmbient,
+            mcu_temp_sensor,
             manager_handle
         )));
         spawner.spawn(unwrap!(manager_task(mining_handle)));

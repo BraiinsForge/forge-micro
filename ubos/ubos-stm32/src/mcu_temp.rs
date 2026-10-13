@@ -25,7 +25,7 @@
 use embassy_stm32::Peri;
 use embassy_stm32::adc::{Adc, SampleTime, Temperature};
 use embassy_stm32::peripherals::ADC1;
-use ubos_metrics::mcu_temperature::McuTemperatureSensor;
+use ubos_thermal::McuTemperatureSensor;
 
 /// The die thermometer reads about 0.76 V at 25 °C and moves 2.5 mV per
 /// degree, sampled by the 12-bit ADC against a 3.3 V reference. The

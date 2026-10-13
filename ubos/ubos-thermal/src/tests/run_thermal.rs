@@ -43,7 +43,8 @@ use ubos_manager::{
 };
 
 use super::{
-    NoAmbient, Reading, SENSOR_FAULT_TICKS, Sample, Source, TemperatureSensor, clock, run_thermal,
+    NoAmbient, NoMcu, Reading, SENSOR_FAULT_TICKS, Sample, Source, TemperatureSensor, clock,
+    run_thermal,
 };
 
 /// A board sensor whose answers are scripted in advance.
@@ -180,6 +181,7 @@ fn unreadable_halts_exactly_once_at_the_budget() {
     let mut thermal = pin!(run_thermal(
         sensor,
         NoAmbient,
+        NoMcu,
         manager,
         ubos_config::handle()
     ));
@@ -235,6 +237,7 @@ fn idle_after_a_halt_releases_it_and_a_following_run_spends_the_full_budget_agai
     let mut thermal = pin!(run_thermal(
         sensor,
         NoAmbient,
+        NoMcu,
         manager,
         ubos_config::handle()
     ));
@@ -296,6 +299,7 @@ fn dangerous_temperature_re_arms_after_an_acknowledged_halt_clears_the_mask() {
     let mut thermal = pin!(run_thermal(
         sensor,
         NoAmbient,
+        NoMcu,
         manager,
         ubos_config::handle()
     ));

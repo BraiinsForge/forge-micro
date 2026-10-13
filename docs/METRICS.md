@@ -113,8 +113,7 @@ OTA waits for the miner's `Stopped` state, independent of this metric.
 ## Board temperature
 
 Code: `ubos/ubos-thermal/src/metrics.rs`,
-`ubos/ubos-thermal/src/array.rs`, `ubos/ubos-thermal/src/chain.rs`,
-`ubos/ubos-metrics/src/mcu_temperature.rs`.
+`ubos/ubos-thermal/src/array.rs`, `ubos/ubos-thermal/src/chain.rs`.
 
 Four gauges in this section carry a temperature. A fifth is the
 per-chain chip temperature, under "Per-chain PVT series" below.
@@ -138,9 +137,10 @@ per-chain chip temperature, under "Per-chain PVT series" below.
   of each chip together with the per-chain PVT series. See "Reading
   series" below.
 - `board_mcu_temperature_millicelsius` is the temperature of the MCU die
-  on the control board. `ubos_metrics::mcu_temperature` writes it once
-  per second, on the boards whose MCU carries an internal thermometer:
-  esp32s3, stm32f407 and stm32f439.
+  on the control board. `ubos_thermal::run_thermal` writes it on every
+  tick, from the board's `ubos_thermal::McuTemperatureSensor`, on the
+  boards whose MCU carries an internal thermometer: esp32s3, stm32f407
+  and stm32f439.
 
 The four gauges measure different hardware. Under load a control board
 is tens of degrees cooler than a hashboard, and the air is cooler again.

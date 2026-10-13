@@ -17,8 +17,8 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! The chip temperature gauge and the ambient gauge.
-//! [`run_thermal`](crate::run_thermal) is the only writer of both, so
+//! The chip temperature gauge, the ambient gauge and the MCU die gauge.
+//! [`run_thermal`](crate::run_thermal) is the only writer of all three, so
 //! the names and the pushes live beside that loop. Beside them is the
 //! reading gauge, which the sensors write: one series for every reading a
 //! sensor takes.
@@ -69,6 +69,11 @@ const METRIC_NAME: &str = "board_chip_temperature_millicelsius";
 /// Carries no label: a board reports one ambient reading or none. Integer
 /// millicelsius for the reason [`METRIC_NAME`] gives.
 const AMBIENT_METRIC_NAME: &str = "board_ambient_temperature_millicelsius";
+
+/// The temperature of the MCU die on the control board. Carries no
+/// label: a board has one MCU. Integer millicelsius for the reason
+/// [`METRIC_NAME`] gives.
+pub(crate) const MCU_METRIC_NAME: &str = "board_mcu_temperature_millicelsius";
 
 /// The `source` label for a reading. The two label strings live here and
 /// nowhere else, so no comparison outside this module can turn on one.

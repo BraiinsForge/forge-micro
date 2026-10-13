@@ -133,7 +133,7 @@ ubos_mining::miner_metrics_task!(POOL_SLOTS);
 /// `McuTemperatureSensor` trait.
 struct McuTempSensor(esp32s3_tsens::Tsens<'static>);
 
-impl ubos_metrics::mcu_temperature::McuTemperatureSensor for McuTempSensor {
+impl ubos_thermal::McuTemperatureSensor for McuTempSensor {
     async fn read(&mut self) -> Option<ubos_core::units::Temperature> {
         self.0
             .read_millicelsius()
@@ -142,11 +142,10 @@ impl ubos_metrics::mcu_temperature::McuTemperatureSensor for McuTempSensor {
     }
 }
 
-ubos_metrics::mcu_temperature_task!(McuTempSensor);
-
 ubos_thermal::thermal_task!(
     ubos_thermal::SensorArray<{ config::MACHINE.temp.len() }, psu::Device>,
-    ubos_thermal::NoAmbient
+    ubos_thermal::NoAmbient,
+    McuTempSensor
 );
 
 ubos_manager::manager_task!();
@@ -442,7 +441,6 @@ async fn boot(spawner: Spawner) {
     spawner.spawn(unwrap!(pool_weights_task()));
     // No LED blink task: board wiring does not include an accessible LED.
     let tsens = esp32s3_tsens::Tsens::new(hw.sens, esp32s3_tsens::Range::Standard).await;
-    spawner.spawn(unwrap!(mcu_temperature_task(McuTempSensor(tsens))));
 
     // SH1106 OLED on SPI3: reset pulse, then async DMA SPI.
     // The reset pin is moved into display_task so it stays driven high for the display's lifetime.
@@ -542,6 +540,7 @@ async fn boot(spawner: Spawner) {
         spawner.spawn(unwrap!(thermal_task(
             hashboard_temp,
             ubos_thermal::NoAmbient,
+            McuTempSensor(tsens),
             manager_handle
         )));
         spawner.spawn(unwrap!(manager_task(mining_handle)));

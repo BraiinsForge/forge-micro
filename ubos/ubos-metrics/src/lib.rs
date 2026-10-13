@@ -24,8 +24,7 @@
 //! Prometheus port. `hashrate` owns the EWMA accumulator that the
 //! `ubos-mining` firmware path and the host-runner CPU mock push work
 //! into. `cpu_load` samples per-core idle ticks and exposes a
-//! busy-ratio gauge. `mcu_temperature` samples the MCU internal
-//! thermometer on the boards that have one.
+//! busy-ratio gauge.
 //!
 //! `PROMETHEUS_SERVICE` is the mDNS advertisement for the Prometheus
 //! endpoint; firmware that advertises this crate includes it in the
@@ -45,5 +44,4 @@ pub mod chain;
 pub mod consts;
 pub mod cpu_load;
 pub mod hashrate;
-pub mod mcu_temperature;
 pub mod metrics;

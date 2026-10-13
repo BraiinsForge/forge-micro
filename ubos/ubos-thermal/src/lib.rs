@@ -36,9 +36,11 @@
 //! `docs/MINING.md`.
 //!
 //! This task is also the sole writer of the chip temperature gauge and
-//! the ambient gauge, in `metrics`. `array` aggregates a board's I2C
-//! sensor table into the reading the task polls, over the drivers and
-//! the descriptor types in `ubos-temperature`.
+//! the ambient gauge, in `metrics`, and of the MCU temperature gauge,
+//! which it reads from the board's [`McuTemperatureSensor`] on each tick.
+//! `array` aggregates a board's I2C sensor table into the reading the
+//! task polls, over the drivers and the descriptor types in
+//! `ubos-temperature`.
 
 #![no_std]
 #![allow(clippy::missing_errors_doc)]
@@ -98,7 +100,7 @@ fn measured(reading: Reading) -> Sample {
     }
 }
 
-use crate::metrics::{publish_ambient_temperature, publish_chip_temperature};
+use crate::metrics::{MCU_METRIC_NAME, publish_ambient_temperature, publish_chip_temperature};
 use crate::threshold::{Action, evaluate};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::{Receiver, Watch};
@@ -108,6 +110,7 @@ use ubos_config::ThermalConfig;
 use ubos_core::units::Temperature;
 use ubos_logging::{error, info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage, PauseReason, PauseReasons};
+use ubos_metrics::metrics::{Metric, Value};
 
 ubos_events::events! {
     critical_temperature(temp_c: i16)   error = "Critical temperature {} °C, mining halted",
@@ -208,6 +211,29 @@ pub struct NoAmbient;
 
 impl AmbientSensor for NoAmbient {
     async fn ambient(&mut self) -> Option<Temperature> {
+        None
+    }
+}
+
+/// The thermometer on the MCU die, which measures the control board.
+/// Every board hands [`run_thermal`] one, for the reason
+/// [`AmbientSensor`] gives, and a board whose MCU has none hands
+/// [`NoMcu`]. The reading feeds a gauge and nothing else: no control
+/// loop reads it.
+#[allow(async_fn_in_trait)]
+pub trait McuTemperatureSensor {
+    /// Read the current MCU die temperature, or `None` if the reading
+    /// failed. Implementations may await on the underlying hardware
+    /// conversion.
+    async fn read(&mut self) -> Option<Temperature>;
+}
+
+/// The MCU sensor of a board whose MCU has no thermometer: the reading
+/// stays `None`, so the gauge is never pushed.
+pub struct NoMcu;
+
+impl McuTemperatureSensor for NoMcu {
+    async fn read(&mut self) -> Option<Temperature> {
         None
     }
 }
@@ -595,7 +621,9 @@ async fn read_ambient<A: AmbientSensor>(ambient: &mut A) -> Option<Temperature> 
 ///
 /// Spawned once per board firmware. `sensor` is the board-specific
 /// temperature sensor driver and `ambient` its ambient temperature
-/// sensor, [`NoAmbient`] where it has none. `manager_handle` takes the two
+/// sensor, [`NoAmbient`] where it has none. `mcu` is the thermometer on
+/// the MCU die, [`NoMcu`] where the MCU has none, and the loop pushes its
+/// reading to the metrics on each tick. `manager_handle` takes the two
 /// message pairs this loop sends, and is also where it reads both halts
 /// back from: the manager's mask is the only copy of that state, so an
 /// operator who clears a thermal halt cannot leave this loop believing
@@ -608,9 +636,10 @@ async fn read_ambient<A: AmbientSensor>(ambient: &mut A) -> Option<Temperature> 
 /// Thermal tuning is read from `config` and refreshed whenever that
 /// config publishes a new value. Board firmware passes
 /// [`ubos_config::handle`], which [`thermal_task`] supplies for it.
-pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor>(
+pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatureSensor>(
     mut sensor: S,
     mut ambient: A,
+    mut mcu: M,
     manager_handle: ManagerHandle,
     config_handle: ConfigHandle,
 ) -> ! {
@@ -659,37 +688,49 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor>(
             note.report(&manager_handle).await;
         }
         let ambient_temp = read_ambient(&mut ambient).await;
-        let Tick::Publish { chip_max, pid_temp } = step.tick else {
-            continue;
-        };
-        // The chain voltage is not held over the way the chip
-        // temperature is: it goes out only beside a measurement, and a
-        // tick that measured nothing reports none.
-        publisher.send(ThermalReading {
-            chip_max,
-            pid_temp,
-            ambient: ambient_temp,
-            chain_voltage_mv: pid_temp.and_then(|_| sensor.chain_voltage_mv()),
-            timestamp_ms: now.as_millis(),
-        });
+        // A tick inside the miss budget withholds its reading, for the
+        // reason `Tick::Withhold` gives.
+        if let Tick::Publish { chip_max, pid_temp } = step.tick {
+            // The chain voltage is not held over the way the chip
+            // temperature is: it goes out only beside a measurement, and a
+            // tick that measured nothing reports none.
+            publisher.send(ThermalReading {
+                chip_max,
+                pid_temp,
+                ambient: ambient_temp,
+                chain_voltage_mv: pid_temp.and_then(|_| sensor.chain_voltage_mv()),
+                timestamp_ms: now.as_millis(),
+            });
+        }
+        // Read last, after the reading the cooling loop turns on has gone
+        // out. The gauge is dropped on a full metrics channel, because this
+        // safety loop must not wait on the metrics, and the next tick
+        // replaces it.
+        if let Some(temp) = mcu.read().await {
+            let value = Value::Int(i64::from(temp.millicelsius()));
+            Metric::with_no_labels(MCU_METRIC_NAME, value).try_push();
+        }
     }
 }
 
 /// Task shell around [`run_thermal`], which polls the temperature
 /// sensors and publishes the thermal reading. Takes the board's sensor
 /// type, an I2C sensor array on most boards, and its ambient temperature sensor type,
-/// [`NoAmbient`] on a board without one. The ambient type has no default, for
-/// the reason [`AmbientSensor`] gives.
+/// [`NoAmbient`] on a board without one, and its MCU thermometer type,
+/// [`NoMcu`] on an MCU without one. Neither
+/// type has a default, for the reason [`AmbientSensor`] gives.
 #[macro_export]
 macro_rules! thermal_task {
-    ($sensor:ty, $ambient:ty) => {
+    ($sensor:ty, $ambient:ty, $mcu:ty) => {
         #[embassy_executor::task]
         async fn thermal_task(
             sensor: $sensor,
             ambient: $ambient,
+            mcu: $mcu,
             manager_handle: ubos_manager::Handle,
         ) -> ! {
-            ubos_thermal::run_thermal(sensor, ambient, manager_handle, ubos_config::handle()).await
+            ubos_thermal::run_thermal(sensor, ambient, mcu, manager_handle, ubos_config::handle())
+                .await
         }
     };
 }

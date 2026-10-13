@@ -252,6 +252,7 @@ async fn thermal_task(
     ubos_thermal::run_thermal(
         sensor,
         ubos_thermal::NoAmbient,
+        ubos_thermal::NoMcu,
         manager_handle,
         ubos_config::handle(),
     )

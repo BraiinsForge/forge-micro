@@ -141,7 +141,8 @@ async fn mdns_task(stack: embassy_net::Stack<'static>, hostname: &'static str) -
 
 ubos_thermal::thermal_task!(
     ubos_thermal::SensorArray<{ config::MACHINE.temp.len() }, psu::Device>,
-    ubos_thermal::NoAmbient
+    ubos_thermal::NoAmbient,
+    ubos_thermal::NoMcu
 );
 
 ubos_manager::manager_task!();
@@ -368,6 +369,7 @@ async fn boot(spawner: Spawner) {
         spawner.spawn(unwrap!(thermal_task(
             hashboard_temp,
             ubos_thermal::NoAmbient,
+            ubos_thermal::NoMcu,
             manager_handle
         )));
         spawner.spawn(unwrap!(manager_task(mining_handle)));
