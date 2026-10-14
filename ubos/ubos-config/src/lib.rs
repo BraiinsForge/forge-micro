@@ -699,8 +699,8 @@ impl Config {
                 // rating comes up at its own halt threshold. The hashboard
                 // threshold lives there too, because each board defines the
                 // temperature its hashboard may reach.
-                dangerous_chip_temp_c: board.dangerous_chip_temp_c,
-                dangerous_hashboard_temp_c: board.dangerous_hashboard_temp_c,
+                dangerous_chip_temp_c: board.dangerous_chip_temp.celsius_f32(),
+                dangerous_hashboard_temp_c: board.dangerous_hashboard_temp.celsius_f32(),
                 sample_interval_ms: thermal::DEFAULT_SAMPLE_INTERVAL_MS,
                 cooldown_temp_c: thermal::DEFAULT_COOLDOWN_TEMP_C,
             },
@@ -711,7 +711,7 @@ impl Config {
                 // The board's cooling profile lives on its descriptor, so a
                 // board whose PID tracks a hashboard reading carries its own lower
                 // setpoint. Runtime-editable via the UI afterwards.
-                target_temp_c: board.cooling.target_temp_c,
+                target_temp_c: board.cooling.target_temp.celsius_f32(),
                 fixed_fan_pwm: cooling::DEFAULT_FIXED_FAN_PWM,
                 pid: PidConfig {
                     min_fan_pwm: board.cooling.min_fan_pwm,

@@ -177,12 +177,12 @@ const BMM_TEST_MULTI_DOMAIN: HashboardDescriptor = HashboardDescriptor {
     default_efficiency: ubos_core::units::Efficiency::from_mj_per_th(core::num::NonZeroU32::MIN),
     swarm_color: "blue",
     cooling: crate::board::BoardCooling {
-        target_temp_c: 0.0,
+        target_temp: ubos_core::units::Temperature::from_celsius(0),
         min_fan_pwm: 0,
         input_smoother_half_decay_secs: 0.0,
     },
-    dangerous_chip_temp_c: 110.0,
-    dangerous_hashboard_temp_c: 90.0,
+    dangerous_chip_temp: ubos_core::units::Temperature::from_celsius(110),
+    dangerous_hashboard_temp: ubos_core::units::Temperature::from_celsius(90),
     model: "test",
     eeprom_i2c_address: None,
 };
@@ -200,12 +200,12 @@ const BM1370_TEST_BOARD: HashboardDescriptor = HashboardDescriptor {
     default_efficiency: ubos_core::units::Efficiency::from_mj_per_th(core::num::NonZeroU32::MIN),
     swarm_color: "blue",
     cooling: crate::board::BoardCooling {
-        target_temp_c: 0.0,
+        target_temp: ubos_core::units::Temperature::from_celsius(0),
         min_fan_pwm: 0,
         input_smoother_half_decay_secs: 0.0,
     },
-    dangerous_chip_temp_c: 110.0,
-    dangerous_hashboard_temp_c: 90.0,
+    dangerous_chip_temp: ubos_core::units::Temperature::from_celsius(110),
+    dangerous_hashboard_temp: ubos_core::units::Temperature::from_celsius(90),
     model: "test",
     eeprom_i2c_address: None,
 };

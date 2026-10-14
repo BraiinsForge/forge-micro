@@ -29,7 +29,7 @@
 
 use core::num::NonZeroU32;
 
-use ubos_core::units::{Efficiency, Frequency, Voltage};
+use ubos_core::units::{Efficiency, Frequency, Temperature, Voltage};
 
 use crate::ChipDescriptor;
 // The built-in hashboard statics below are populated with the built-in
@@ -47,8 +47,8 @@ mod tests;
 /// that tracks a hashboard reading sets it below the die temperature it means.
 #[derive(Clone, Copy)]
 pub struct BoardCooling {
-    /// Cooling PID setpoint in Celsius.
-    pub target_temp_c: f32,
+    /// Cooling PID setpoint.
+    pub target_temp: Temperature,
     /// Cooling PID fan-floor (minimum duty).
     pub min_fan_pwm: u8,
     /// Half-decay time of the smoother on the temperature the cooling PID
@@ -99,16 +99,16 @@ pub struct HashboardDescriptor {
     pub swarm_color: &'static str,
     /// Per-board cooling profile (PID setpoint and fan floor).
     pub cooling: BoardCooling,
-    /// Die-temperature halt threshold in Celsius, read by
+    /// Die-temperature halt threshold, read by
     /// `Config::for_board` into `ThermalConfig::dangerous_chip_temp_c`.
     /// Travels with the board because a chip family's safe junction
     /// ceiling is a property of the silicon, not a runtime tuning knob.
-    pub dangerous_chip_temp_c: f32,
-    /// Hashboard halt threshold in Celsius, read by `Config::for_board`
-    /// into `ThermalConfig::dangerous_hashboard_temp_c`. Travels with the
+    pub dangerous_chip_temp: Temperature,
+    /// Hashboard halt threshold, read by `Config::for_board` into
+    /// `ThermalConfig::dangerous_hashboard_temp_c`. Travels with the
     /// board because the temperature a hashboard may reach is a property of
     /// the board, as the chip ceiling is a property of the silicon.
-    pub dangerous_hashboard_temp_c: f32,
+    pub dangerous_hashboard_temp: Temperature,
     /// Product name reported to external clients and the dashboard, sited
     /// here so the active board's name has one home.
     pub model: &'static str,
@@ -160,12 +160,12 @@ pub const BMM101_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     ),
     swarm_color: "blue",
     cooling: BoardCooling {
-        target_temp_c: 60.0,
+        target_temp: Temperature::from_celsius(60),
         min_fan_pwm: 20,
         input_smoother_half_decay_secs: 0.0,
     },
-    dangerous_chip_temp_c: 110.0,
-    dangerous_hashboard_temp_c: 83.0,
+    dangerous_chip_temp: Temperature::from_celsius(110),
+    dangerous_hashboard_temp: Temperature::from_celsius(83),
     model: "miniminer",
     // Confirmed against BOS's AM2-S17 addressing
     // (`BASE_I2C_ADDRESS = 0x50`, single-hashboard `hashboard_address = 1`
@@ -189,12 +189,12 @@ pub const BFMX4_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     default_efficiency: BMM101_HASHBOARD.default_efficiency,
     swarm_color: "blue",
     cooling: BoardCooling {
-        target_temp_c: 47.0,
+        target_temp: Temperature::from_celsius(47),
         min_fan_pwm: 20,
         input_smoother_half_decay_secs: 0.0,
     },
-    dangerous_chip_temp_c: 110.0,
-    dangerous_hashboard_temp_c: 75.0,
+    dangerous_chip_temp: Temperature::from_celsius(110),
+    dangerous_hashboard_temp: Temperature::from_celsius(75),
     model: "Braiins Forge Miner x4",
     // Tentative, unlike BMM101_HASHBOARD's 0x50: not yet cross-checked
     // against a parsed product-name match the way 0x50 was. See
@@ -219,12 +219,12 @@ pub const FORGE_AXE_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     // Same cooling profile and hashboard halt threshold as the hashnode until
     // tuned on hardware.
     cooling: BoardCooling {
-        target_temp_c: 47.0,
+        target_temp: Temperature::from_celsius(47),
         min_fan_pwm: 20,
         input_smoother_half_decay_secs: 0.0,
     },
-    dangerous_chip_temp_c: 110.0,
-    dangerous_hashboard_temp_c: 75.0,
+    dangerous_chip_temp: Temperature::from_celsius(110),
+    dangerous_hashboard_temp: Temperature::from_celsius(75),
     model: "Forge Axe",
     eeprom_i2c_address: None,
 };
