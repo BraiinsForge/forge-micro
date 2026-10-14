@@ -40,6 +40,12 @@ root="${root:-$(git rev-parse --show-toplevel)}"
 # files can never break the clean-tree assertion below.
 state="$(git -C "$root" rev-parse --absolute-git-dir)/gate"
 
+# Everything the gate writes is group-writable. One worktree can be
+# gated by accounts that share only a group, such as an operator and
+# a sandboxed agent, and each run deletes and rewrites what the last
+# one left, which the default umask would make the writer's alone.
+umask 002
+
 plan="$state/plan.tsv"
 events="$state/events.jsonl"
 summary="$state/summary.txt"
