@@ -450,7 +450,7 @@ impl Note {
             Self::Dangerous(temp) => {
                 error!(
                     "thermal: dangerous temperature {}°C, halting mining",
-                    temp.celsius_f32()
+                    temp.celsius_f64()
                 );
                 crate::events::critical_temperature(temp_celsius_i16(temp));
                 ManagerMessage::DangerousTemperature
@@ -458,7 +458,7 @@ impl Note {
             Self::Cooled(temp) => {
                 warn!(
                     "thermal: cooled to {}°C, resuming mining",
-                    temp.celsius_f32()
+                    temp.celsius_f64()
                 );
                 crate::events::temperature_recovered(temp_celsius_i16(temp));
                 ManagerMessage::TemperatureNormal

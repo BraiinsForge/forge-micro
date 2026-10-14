@@ -20,11 +20,12 @@
 //! PID controller and thermal-target wrapper.
 //!
 //! Port of the BOS PID controller and its temperature-target wrapper to
-//! f32 on `no_std`. Only the `OnErrorWithSmoothing` derivative mode is
+//! f64 on `no_std`. Only the `OnErrorWithSmoothing` derivative mode is
 //! kept: it is the only one used by the BOS hashboard profile this
 //! crate carries forward.
 
 use ubos_config::CoolingConfig;
+use ubos_core::units::Temperature;
 
 /// Fixed-capacity ring buffer used to detect a stable temperature window.
 ///
@@ -32,7 +33,7 @@ use ubos_config::CoolingConfig;
 /// freeze its derivative term once the system settles, avoiding
 /// quantization-noise oscillations.
 pub(crate) struct RingBuffer<const CAP: usize> {
-    buffer: heapless::Deque<f32, CAP>,
+    buffer: heapless::Deque<f64, CAP>,
 }
 
 impl<const CAP: usize> RingBuffer<CAP> {
@@ -43,7 +44,7 @@ impl<const CAP: usize> RingBuffer<CAP> {
         }
     }
 
-    pub fn add(&mut self, value: f32) {
+    pub fn add(&mut self, value: f64) {
         if self.buffer.is_full() {
             self.buffer.pop_front();
         }
@@ -57,7 +58,7 @@ impl<const CAP: usize> RingBuffer<CAP> {
     }
 
     #[must_use]
-    pub fn min_max(&self) -> Option<(f32, f32)> {
+    pub fn min_max(&self) -> Option<(f64, f64)> {
         let mut iter = self.buffer.iter().copied();
         let first = iter.next()?;
         Some(iter.fold((first, first), |(min, max), value| {
@@ -83,28 +84,28 @@ impl<const CAP: usize> Default for RingBuffer<CAP> {
 /// Frozen integral runs at 15% gain to suppress quantization noise
 /// once the system has settled, matching the BOS implementation.
 pub(crate) struct PidController {
-    p_gain: f32,
-    i_gain: f32,
-    d_gain: f32,
+    p_gain: f64,
+    i_gain: f64,
+    d_gain: f64,
     /// `exp(ln(0.5) / smoother_half_decay_secs)`, the per-tick decay
     /// factor for the exponential smoother. Pre-computed at construction
-    /// because `libm::expf` / `libm::logf` are not const fn. Matches the
+    /// because `libm::exp` and `libm::log` are not const fn. Matches the
     /// BOS numerics in the nominal `delta_t == 1 s` case the cooling
     /// loop drives.
-    decay_lambda: f32,
-    out_min: f32,
-    out_max: f32,
-    err_sum: f32,
-    prev_smoothed_error: Option<f32>,
-    prev_derivative: f32,
+    decay_lambda: f64,
+    out_min: f64,
+    out_max: f64,
+    err_sum: f64,
+    prev_smoothed_error: Option<f64>,
+    prev_derivative: f64,
 }
 
 /// Per-second decay factor `lambda` such that `lambda^decay_secs == 0.5`.
 /// Pre-computed at PID construction so the per-step path needs only
-/// `powf(lambda, dt)` instead of `expf` / `logf`.
+/// `pow(lambda, dt)` instead of `exp` / `log`.
 #[must_use]
-pub fn half_time_decay(decay_secs: f32) -> f32 {
-    libm::expf(libm::logf(0.5) / decay_secs)
+pub fn half_time_decay(decay_secs: f64) -> f64 {
+    libm::exp(libm::log(0.5) / decay_secs)
 }
 
 /// One step of an exponentially-smoothed lowpass: blend `value` into
@@ -114,30 +115,30 @@ pub fn half_time_decay(decay_secs: f32) -> f32 {
 /// cached lambda.
 #[cfg(test)]
 #[must_use]
-pub fn exponential_smoother(prev: f32, value: f32, decay_secs: f32, dt: f32) -> f32 {
+pub fn exponential_smoother(prev: f64, value: f64, decay_secs: f64, dt: f64) -> f64 {
     let alpha = half_time_decay(decay_secs);
-    let pow_alpha = libm::powf(alpha, dt);
+    let pow_alpha = libm::pow(alpha, dt);
     prev * pow_alpha + value * (1.0 - pow_alpha)
 }
 
 impl PidController {
     #[must_use]
-    pub fn new(p_gain: f32, i_gain: f32, d_gain: f32, smoother_half_decay_secs: f32) -> Self {
+    pub fn new(p_gain: f64, i_gain: f64, d_gain: f64, smoother_half_decay_secs: f64) -> Self {
         let decay_lambda = half_time_decay(smoother_half_decay_secs);
         Self {
             p_gain,
             i_gain,
             d_gain,
             decay_lambda,
-            out_min: f32::NEG_INFINITY,
-            out_max: f32::INFINITY,
+            out_min: f64::NEG_INFINITY,
+            out_max: f64::INFINITY,
             err_sum: 0.0,
             prev_smoothed_error: None,
             prev_derivative: 0.0,
         }
     }
 
-    pub fn set_limits(&mut self, min: f32, max: f32) {
+    pub fn set_limits(&mut self, min: f64, max: f64) {
         self.out_min = min;
         self.out_max = max;
         self.err_sum = self.err_sum.clamp(min, max);
@@ -150,7 +151,7 @@ impl PidController {
     /// feeds its PID a constant `TICK_LENGTH`, so the gains absorb the
     /// nominal one-second-per-tick assumption.
     #[must_use]
-    pub fn update(&mut self, error: f32, settled: bool) -> f32 {
+    pub fn update(&mut self, error: f64, settled: bool) -> f64 {
         let p_term = self.p_gain * error;
 
         let i_gain = if settled {
@@ -192,13 +193,13 @@ impl PidController {
 pub struct TempControl {
     pid: PidController,
     history: RingBuffer<{ Self::HISTORY_SIZE }>,
-    target_temp_c: f32,
+    target_temp_c: f64,
     min_fan_pwm: u8,
     /// Per-tick decay factor of the input smoother, from
     /// [`half_time_decay`]. Zero passes the reading through.
-    input_decay_lambda: f32,
+    input_decay_lambda: f64,
     /// The smoothed temperature, absent until the first sample.
-    smoothed_temp_c: Option<f32>,
+    smoothed_temp_c: Option<f64>,
 }
 
 impl TempControl {
@@ -208,18 +209,18 @@ impl TempControl {
     const HISTORY_SIZE: usize = 60;
     /// Maximum spread, in degrees Celsius, between the min and max of
     /// the history window for the system to count as stable.
-    const STABLE_MAX_TEMP_DIFF_C: f32 = 1.6;
+    const STABLE_MAX_TEMP_DIFF_C: f64 = 1.6;
     /// Only freeze the derivative once the absolute error is within
     /// this many degrees of the target.
-    const CLOSE_TO_TARGET_C: f32 = 3.1;
+    const CLOSE_TO_TARGET_C: f64 = 3.1;
 
     #[must_use]
     pub fn new(
-        p_gain: f32,
-        i_gain: f32,
-        d_gain: f32,
-        smoother_half_decay_secs: f32,
-        input_smoother_half_decay_secs: f32,
+        p_gain: f64,
+        i_gain: f64,
+        d_gain: f64,
+        smoother_half_decay_secs: f64,
+        input_smoother_half_decay_secs: f64,
         min_fan_pwm: u8,
     ) -> Self {
         // PWM is reported as a percent, so a min above 100 would invert
@@ -232,7 +233,7 @@ impl TempControl {
         }
         let min_fan_pwm = min_fan_pwm.min(100);
         let mut pid = PidController::new(p_gain, i_gain, d_gain, smoother_half_decay_secs);
-        pid.set_limits(f32::from(min_fan_pwm), 100.0);
+        pid.set_limits(f64::from(min_fan_pwm), 100.0);
         Self {
             pid,
             history: RingBuffer::new(),
@@ -248,14 +249,14 @@ impl TempControl {
     #[must_use]
     pub fn from_config(config: &CoolingConfig) -> Self {
         let mut control = Self::new(
-            config.pid.p_gain,
-            config.pid.i_gain,
-            config.pid.d_gain,
-            config.pid.smoother_half_decay_secs,
-            config.pid.input_smoother_half_decay_secs,
+            f64::from(config.pid.p_gain),
+            f64::from(config.pid.i_gain),
+            f64::from(config.pid.d_gain),
+            f64::from(config.pid.smoother_half_decay_secs),
+            f64::from(config.pid.input_smoother_half_decay_secs),
             config.pid.min_fan_pwm,
         );
-        control.set_target(config.target_temp.celsius_f32());
+        control.set_target(config.target_temp);
         control
     }
 
@@ -270,8 +271,8 @@ impl TempControl {
         *self = Self::from_config(config);
     }
 
-    pub fn set_target(&mut self, target_temp_c: f32) {
-        self.target_temp_c = target_temp_c;
+    pub fn set_target(&mut self, target: Temperature) {
+        self.target_temp_c = target.celsius_f64();
     }
 
     /// Drop the smoothed temperature, so the next sample is taken as it
@@ -286,13 +287,13 @@ impl TempControl {
     /// must invoke `update` once per sample tick for the PID gains to
     /// behave as tuned.
     #[must_use]
-    pub fn update(&mut self, temp_c: f32) -> u8 {
-        let error = self.target_temp_c - self.smooth(temp_c);
+    pub fn update(&mut self, temp: Temperature) -> u8 {
+        let error = self.target_temp_c - self.smooth(temp.celsius_f64());
         self.history.add(error);
 
         let settled = self.history.min_max().is_some_and(|(min, max)| {
             let stable = max - min < Self::STABLE_MAX_TEMP_DIFF_C;
-            let close = libm::fabsf(error) < Self::CLOSE_TO_TARGET_C;
+            let close = libm::fabs(error) < Self::CLOSE_TO_TARGET_C;
             self.history.full() && stable && close
         });
 
@@ -300,13 +301,13 @@ impl TempControl {
         // PID output is already clamped to [min_fan_pwm, 100].
         // u8 cast is safe because of the clamp.
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let pwm = libm::roundf(raw) as u8;
+        let pwm = libm::round(raw) as u8;
         pwm.clamp(self.min_fan_pwm, 100)
     }
 
     /// Blend `temp_c` into the smoothed temperature and return it. The
     /// first sample is taken as it is.
-    fn smooth(&mut self, temp_c: f32) -> f32 {
+    fn smooth(&mut self, temp_c: f64) -> f64 {
         let lambda = self.input_decay_lambda;
         let smoothed = self
             .smoothed_temp_c

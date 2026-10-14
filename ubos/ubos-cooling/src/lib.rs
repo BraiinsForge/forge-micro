@@ -220,7 +220,7 @@ fn refresh_control(control: &mut TempControl, old: &CoolingConfig, new: &Cooling
     if rebuild {
         control.reconfigure(new);
     } else {
-        control.set_target(new.target_temp.celsius_f32());
+        control.set_target(new.target_temp);
     }
     log_cooling("cooling: updated", new);
 }
@@ -234,7 +234,7 @@ fn log_cooling(prefix: &str, config: &CoolingConfig) {
         "{} (mode={}, target={}°C, floor={}%, fixed={}%)",
         prefix,
         config.mode.as_str(),
-        config.target_temp.celsius_f32(),
+        config.target_temp.celsius_f64(),
         config.pid.min_fan_pwm,
         config.fixed_fan_pwm
     );
@@ -414,9 +414,7 @@ impl Cooling {
                     // PID; the mode transition back to auto rebuilds the
                     // controller, so no state is carried across.
                     FanMode::Fixed => fixed_pwm(&self.config),
-                    FanMode::Auto => {
-                        FanPwm::from_percent(self.control.update(pid_temp.celsius_f32()))
-                    }
+                    FanMode::Auto => FanPwm::from_percent(self.control.update(pid_temp)),
                 }
             }
         };

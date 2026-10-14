@@ -18,7 +18,7 @@
 // shall be considered distinct from the grant above.
 
 //! Unit tests for the PID port. Runs under host `cargo test`, where std
-//! and floating point are available, so f32 helpers in `super::pid`
+//! and floating point are available, so f64 helpers in `super::pid`
 //! are exercised exactly as they will run on the embedded target.
 
 use super::pid::RingBuffer;
@@ -36,8 +36,8 @@ fn ring_buffer_min_max_partial() {
     buffer.add(1.0);
     buffer.add(4.0);
     let (min, max) = buffer.min_max().expect("non-empty");
-    assert!((min - 1.0).abs() < f32::EPSILON);
-    assert!((max - 4.0).abs() < f32::EPSILON);
+    assert!((min - 1.0).abs() < f64::EPSILON);
+    assert!((max - 4.0).abs() < f64::EPSILON);
     assert!(!buffer.full());
 }
 
@@ -50,8 +50,8 @@ fn ring_buffer_overwrites_when_full() {
     assert!(buffer.full());
     buffer.add(4.0);
     let (min, max) = buffer.min_max().expect("non-empty");
-    assert!((min - 2.0).abs() < f32::EPSILON);
-    assert!((max - 4.0).abs() < f32::EPSILON);
+    assert!((min - 2.0).abs() < f64::EPSILON);
+    assert!((max - 4.0).abs() < f64::EPSILON);
 }
 
 use super::pid::PidController;
@@ -61,7 +61,7 @@ fn pid_proportional_only_clamped() {
     let mut pid = PidController::new(-5.0, 0.0, 0.0, 10.0);
     pid.set_limits(20.0, 100.0);
     let output = pid.update(50.0, false);
-    assert!((output - 20.0).abs() < f32::EPSILON);
+    assert!((output - 20.0).abs() < f64::EPSILON);
 }
 
 #[test]
@@ -69,7 +69,7 @@ fn pid_clamps_output_high() {
     let mut pid = PidController::new(-5.0, 0.0, 0.0, 10.0);
     pid.set_limits(20.0, 100.0);
     let output = pid.update(-50.0, false);
-    assert!((output - 100.0).abs() < f32::EPSILON);
+    assert!((output - 100.0).abs() < f64::EPSILON);
 }
 
 #[test]
@@ -94,13 +94,14 @@ fn pid_freeze_dampens_integral() {
 }
 
 use super::pid::{TempControl, exponential_smoother, half_time_decay};
+use ubos_core::units::Temperature;
 
 /// Match the BOS decay reference: lambda for a 30 s
 /// half-decay is ~0.9772, and the smoother crosses 0.5 between
 /// `decay_time - 1` and `decay_time + 1`.
 #[test]
 fn smoother_half_decay_matches_bos() {
-    const EPS: f32 = 0.001;
+    const EPS: f64 = 0.001;
     let lambda = half_time_decay(30.0);
     assert!((lambda - 0.9772).abs() < EPS);
     assert!(exponential_smoother(1.0, 0.0, 30.0, 29.0) > 0.5);
@@ -113,15 +114,15 @@ fn smoother_half_decay_matches_bos() {
 /// is consistent with the algebraic one-shot form.
 #[test]
 fn smoother_iterative_matches_one_shot() {
-    const EPS: f32 = 0.005;
-    let decay = 30.0_f32;
-    let total = 32.0_f32;
-    let step = 0.1_f32;
-    let a = 1.0_f32;
-    let b = 2.0_f32;
+    const EPS: f64 = 0.005;
+    let decay = 30.0_f64;
+    let total = 32.0_f64;
+    let step = 0.1_f64;
+    let a = 1.0_f64;
+    let b = 2.0_f64;
     let mut iterative = a;
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let steps = libm::roundf(total / step) as usize;
+    let steps = libm::round(total / step) as usize;
     for _ in 0..steps {
         iterative = exponential_smoother(iterative, b, decay, step);
     }
@@ -129,13 +130,18 @@ fn smoother_iterative_matches_one_shot() {
     assert!((iterative - one_shot).abs() < EPS);
 }
 
+/// A reading of `celsius` whole degrees.
+fn degrees(celsius: i32) -> Temperature {
+    Temperature::from_millicelsius(celsius * 1000)
+}
+
 #[test]
 fn temp_control_clamps_min_pwm() {
     // Cold sample (temp below target) drives the PID negative, clamped
     // to the lower bound.
     let mut control = TempControl::new(-50.0, 0.0, 0.0, 10.0, 0.0, 20);
-    control.set_target(67.0);
-    let pwm = control.update(50.0);
+    control.set_target(degrees(67));
+    let pwm = control.update(degrees(50));
     assert_eq!(pwm, 20);
 }
 
@@ -144,45 +150,45 @@ fn temp_control_clamps_max_pwm() {
     // Hot sample (temp above target) drives the PID positive, clamped
     // to the upper bound.
     let mut control = TempControl::new(-50.0, 0.0, 0.0, 10.0, 0.0, 20);
-    control.set_target(67.0);
-    let pwm = control.update(72.0);
+    control.set_target(degrees(67));
+    let pwm = control.update(degrees(72));
     assert_eq!(pwm, 100);
 }
 
 /// A proportional-only controller whose duty reads back the temperature
 /// the PID saw: with a gain of -1 against a target of 0 the duty is that
 /// temperature in degrees, and a floor of 0 leaves it unclamped.
-fn reads_back_input(input_smoother_half_decay_secs: f32) -> TempControl {
+fn reads_back_input(input_smoother_half_decay_secs: f64) -> TempControl {
     let mut control = TempControl::new(-1.0, 0.0, 0.0, 10.0, input_smoother_half_decay_secs, 0);
-    control.set_target(0.0);
+    control.set_target(degrees(0));
     control
 }
 
 #[test]
 fn input_smoother_of_zero_passes_a_jump_through() {
     let mut control = reads_back_input(0.0);
-    assert_eq!(control.update(40.0), 40);
-    assert_eq!(control.update(80.0), 80);
+    assert_eq!(control.update(degrees(40)), 40);
+    assert_eq!(control.update(degrees(80)), 80);
 }
 
 #[test]
 fn input_smoother_moves_half_way_in_its_half_decay_time() {
-    const HALF_DECAY_SECS: f32 = 10.0;
+    const HALF_DECAY_SECS: f64 = 10.0;
     let mut control = reads_back_input(HALF_DECAY_SECS);
-    assert_eq!(control.update(40.0), 40);
+    assert_eq!(control.update(degrees(40)), 40);
     // One tick keeps 2^(-1/10) of the old reading: 80 - 40 * 0.933 = 42.7.
-    assert_eq!(control.update(80.0), 43);
+    assert_eq!(control.update(degrees(80)), 43);
     // Ticks 2 to 9.
     for _ in 2..10 {
-        let _ = control.update(80.0);
+        let _ = control.update(degrees(80));
     }
-    assert_eq!(control.update(80.0), 60);
+    assert_eq!(control.update(degrees(80)), 60);
 }
 
 #[test]
 fn forget_input_takes_the_next_sample_as_it_is() {
     let mut control = reads_back_input(10.0);
-    assert_eq!(control.update(40.0), 40);
+    assert_eq!(control.update(degrees(40)), 40);
     control.forget_input();
-    assert_eq!(control.update(80.0), 80);
+    assert_eq!(control.update(degrees(80)), 80);
 }
