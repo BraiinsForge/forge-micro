@@ -15,8 +15,7 @@ lines, which is where the second copy usually creeps in.
   `slotMaxKiB` and `claudeMdMaxLines` in `nix/checks.nix` are the
   pattern.
 - **Rust**: a `const`, or a `static` where it must have an address,
-  scoped to the module that owns it. `pub const` when another crate
-  compares against the same value.
+  scoped to the module that owns it.
 
 The failure this prevents is one literal written two or three times — the
 comparison, the message that reports it, and a comment restating it —
@@ -29,3 +28,22 @@ each other, name it on both sides and gate the agreement; the
 
 Exempt are the values with no other name: `0`, `1`, and the indices and
 offsets whose meaning is exhausted by the expression they sit in.
+
+## Across a crate boundary
+
+A value a crate tunes for its own behavior, such as a retry delay, a
+hold time or a settle window, is internal to that crate. It is never a
+`pub const`, and no other crate reads it, compares against it, or
+asserts on it. What another crate needs reaches it one of two ways:
+
+- **Runtime facts** go through the owning crate's `Handle`, as the
+  state the value produces rather than the value. The cooling loop
+  reads whether the rail is off from `ubos_psu::Handle::subscribe_rail`,
+  not how long the miner holds it off.
+- **Static board facts** go in the board's descriptor, which every
+  consumer reads from the same place.
+
+A consumer that seems to need another crate's timing is coupled the
+wrong way. Make it decide on its own state instead. A `pub const`
+remains correct for a value both sides use by definition, such as a
+capacity in a public type or a field width in a wire format.
