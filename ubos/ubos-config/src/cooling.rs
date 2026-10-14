@@ -71,11 +71,11 @@ pub struct PidConfig {
     /// given.
     pub min_fan_pwm: u8,
     /// Proportional gain.
-    pub p_gain: f32,
+    pub p_gain: f64,
     /// Integral gain.
-    pub i_gain: f32,
+    pub i_gain: f64,
     /// Derivative gain.
-    pub d_gain: f32,
+    pub d_gain: f64,
     /// Half-decay time for the derivative smoother in seconds.
     pub smoother_half_decay_secs: f32,
     /// Half-decay time of the smoother on the temperature the PID reads,

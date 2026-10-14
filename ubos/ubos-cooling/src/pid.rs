@@ -249,9 +249,9 @@ impl TempControl {
     #[must_use]
     pub fn from_config(config: &CoolingConfig) -> Self {
         let mut control = Self::new(
-            f64::from(config.pid.p_gain),
-            f64::from(config.pid.i_gain),
-            f64::from(config.pid.d_gain),
+            config.pid.p_gain,
+            config.pid.i_gain,
+            config.pid.d_gain,
             f64::from(config.pid.smoother_half_decay_secs),
             f64::from(config.pid.input_smoother_half_decay_secs),
             config.pid.min_fan_pwm,
