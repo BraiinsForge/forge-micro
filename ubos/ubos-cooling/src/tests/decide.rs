@@ -96,7 +96,7 @@ fn a_measurement_after_a_hold_reaches_the_pid_unsmoothed() {
     config.cooling.pid.i_gain = 0.0;
     config.cooling.pid.d_gain = 0.0;
     config.cooling.pid.min_fan_pwm = 0;
-    config.cooling.pid.input_smoother_half_decay_secs = 10.0;
+    config.cooling.pid.input_smoother_half_decay_secs = 10;
     let mut cooling = Cooling::new(&config, START);
 
     let celsius = |c: i32| Some(Temperature::from_millicelsius(c * 1000));

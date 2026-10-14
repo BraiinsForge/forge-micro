@@ -139,7 +139,7 @@ fn degrees(celsius: i32) -> Temperature {
 fn temp_control_clamps_min_pwm() {
     // Cold sample (temp below target) drives the PID negative, clamped
     // to the lower bound.
-    let mut control = TempControl::new(-50.0, 0.0, 0.0, 10.0, 0.0, 20);
+    let mut control = TempControl::new(-50.0, 0.0, 0.0, 10, 0, 20);
     control.set_target(degrees(67));
     let pwm = control.update(degrees(50));
     assert_eq!(pwm, 20);
@@ -149,7 +149,7 @@ fn temp_control_clamps_min_pwm() {
 fn temp_control_clamps_max_pwm() {
     // Hot sample (temp above target) drives the PID positive, clamped
     // to the upper bound.
-    let mut control = TempControl::new(-50.0, 0.0, 0.0, 10.0, 0.0, 20);
+    let mut control = TempControl::new(-50.0, 0.0, 0.0, 10, 0, 20);
     control.set_target(degrees(67));
     let pwm = control.update(degrees(72));
     assert_eq!(pwm, 100);
@@ -158,22 +158,22 @@ fn temp_control_clamps_max_pwm() {
 /// A proportional-only controller whose duty reads back the temperature
 /// the PID saw: with a gain of -1 against a target of 0 the duty is that
 /// temperature in degrees, and a floor of 0 leaves it unclamped.
-fn reads_back_input(input_smoother_half_decay_secs: f64) -> TempControl {
-    let mut control = TempControl::new(-1.0, 0.0, 0.0, 10.0, input_smoother_half_decay_secs, 0);
+fn reads_back_input(input_smoother_half_decay_secs: u32) -> TempControl {
+    let mut control = TempControl::new(-1.0, 0.0, 0.0, 10, input_smoother_half_decay_secs, 0);
     control.set_target(degrees(0));
     control
 }
 
 #[test]
 fn input_smoother_of_zero_passes_a_jump_through() {
-    let mut control = reads_back_input(0.0);
+    let mut control = reads_back_input(0);
     assert_eq!(control.update(degrees(40)), 40);
     assert_eq!(control.update(degrees(80)), 80);
 }
 
 #[test]
 fn input_smoother_moves_half_way_in_its_half_decay_time() {
-    const HALF_DECAY_SECS: f64 = 10.0;
+    const HALF_DECAY_SECS: u32 = 10;
     let mut control = reads_back_input(HALF_DECAY_SECS);
     assert_eq!(control.update(degrees(40)), 40);
     // One tick keeps 2^(-1/10) of the old reading: 80 - 40 * 0.933 = 42.7.
@@ -187,7 +187,7 @@ fn input_smoother_moves_half_way_in_its_half_decay_time() {
 
 #[test]
 fn forget_input_takes_the_next_sample_as_it_is() {
-    let mut control = reads_back_input(10.0);
+    let mut control = reads_back_input(10);
     assert_eq!(control.update(degrees(40)), 40);
     control.forget_input();
     assert_eq!(control.update(degrees(80)), 80);

@@ -219,8 +219,8 @@ impl TempControl {
         p_gain: f64,
         i_gain: f64,
         d_gain: f64,
-        smoother_half_decay_secs: f64,
-        input_smoother_half_decay_secs: f64,
+        smoother_half_decay_secs: u32,
+        input_smoother_half_decay_secs: u32,
         min_fan_pwm: u8,
     ) -> Self {
         // PWM is reported as a percent, so a min above 100 would invert
@@ -232,14 +232,15 @@ impl TempControl {
             ubos_logging::warn!("min_fan_pwm {} exceeds 100, clamping to 100", min_fan_pwm);
         }
         let min_fan_pwm = min_fan_pwm.min(100);
-        let mut pid = PidController::new(p_gain, i_gain, d_gain, smoother_half_decay_secs);
+        let mut pid =
+            PidController::new(p_gain, i_gain, d_gain, f64::from(smoother_half_decay_secs));
         pid.set_limits(f64::from(min_fan_pwm), 100.0);
         Self {
             pid,
             history: RingBuffer::new(),
             target_temp_c: 0.0,
             min_fan_pwm,
-            input_decay_lambda: half_time_decay(input_smoother_half_decay_secs),
+            input_decay_lambda: half_time_decay(f64::from(input_smoother_half_decay_secs)),
             smoothed_temp_c: None,
         }
     }
@@ -252,8 +253,8 @@ impl TempControl {
             config.pid.p_gain,
             config.pid.i_gain,
             config.pid.d_gain,
-            f64::from(config.pid.smoother_half_decay_secs),
-            f64::from(config.pid.input_smoother_half_decay_secs),
+            config.pid.smoother_half_decay_secs,
+            config.pid.input_smoother_half_decay_secs,
             config.pid.min_fan_pwm,
         );
         control.set_target(config.target_temp);

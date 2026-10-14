@@ -54,7 +54,7 @@ pub struct BoardCooling {
     /// Half-decay time of the smoother on the temperature the cooling PID
     /// reads, counted in thermal samples, which are seconds at the default
     /// one-second sample interval. Zero passes the reading through.
-    pub input_smoother_half_decay_secs: f32,
+    pub input_smoother_half_decay_secs: u32,
 }
 
 /// Hashboard-level descriptor. Carries the chip's capability descriptor
@@ -162,7 +162,7 @@ pub const BMM101_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     cooling: BoardCooling {
         target_temp: Temperature::from_celsius(60),
         min_fan_pwm: 20,
-        input_smoother_half_decay_secs: 0.0,
+        input_smoother_half_decay_secs: 0,
     },
     dangerous_chip_temp: Temperature::from_celsius(110),
     dangerous_hashboard_temp: Temperature::from_celsius(83),
@@ -191,7 +191,7 @@ pub const BFMX4_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     cooling: BoardCooling {
         target_temp: Temperature::from_celsius(47),
         min_fan_pwm: 20,
-        input_smoother_half_decay_secs: 0.0,
+        input_smoother_half_decay_secs: 0,
     },
     dangerous_chip_temp: Temperature::from_celsius(110),
     dangerous_hashboard_temp: Temperature::from_celsius(75),
@@ -221,7 +221,7 @@ pub const FORGE_AXE_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     cooling: BoardCooling {
         target_temp: Temperature::from_celsius(47),
         min_fan_pwm: 20,
-        input_smoother_half_decay_secs: 0.0,
+        input_smoother_half_decay_secs: 0,
     },
     dangerous_chip_temp: Temperature::from_celsius(110),
     dangerous_hashboard_temp: Temperature::from_celsius(75),

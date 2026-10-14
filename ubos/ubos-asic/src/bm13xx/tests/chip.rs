@@ -179,7 +179,7 @@ const BMM_TEST_MULTI_DOMAIN: HashboardDescriptor = HashboardDescriptor {
     cooling: crate::board::BoardCooling {
         target_temp: ubos_core::units::Temperature::from_celsius(0),
         min_fan_pwm: 0,
-        input_smoother_half_decay_secs: 0.0,
+        input_smoother_half_decay_secs: 0,
     },
     dangerous_chip_temp: ubos_core::units::Temperature::from_celsius(110),
     dangerous_hashboard_temp: ubos_core::units::Temperature::from_celsius(90),
@@ -202,7 +202,7 @@ const BM1370_TEST_BOARD: HashboardDescriptor = HashboardDescriptor {
     cooling: crate::board::BoardCooling {
         target_temp: ubos_core::units::Temperature::from_celsius(0),
         min_fan_pwm: 0,
-        input_smoother_half_decay_secs: 0.0,
+        input_smoother_half_decay_secs: 0,
     },
     dangerous_chip_temp: ubos_core::units::Temperature::from_celsius(110),
     dangerous_hashboard_temp: ubos_core::units::Temperature::from_celsius(90),

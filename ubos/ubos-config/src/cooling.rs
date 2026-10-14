@@ -77,11 +77,11 @@ pub struct PidConfig {
     /// Derivative gain.
     pub d_gain: f64,
     /// Half-decay time for the derivative smoother in seconds.
-    pub smoother_half_decay_secs: f32,
+    pub smoother_half_decay_secs: u32,
     /// Half-decay time of the smoother on the temperature the PID reads,
     /// counted in thermal samples, which are seconds at the default
     /// one-second sample interval. Zero passes the reading through.
-    pub input_smoother_half_decay_secs: f32,
+    pub input_smoother_half_decay_secs: u32,
 }
 
 impl Default for PidConfig {
@@ -92,8 +92,8 @@ impl Default for PidConfig {
             p_gain: -5.0,
             i_gain: -0.15,
             d_gain: -100.0,
-            smoother_half_decay_secs: 10.0,
-            input_smoother_half_decay_secs: 0.0,
+            smoother_half_decay_secs: 10,
+            input_smoother_half_decay_secs: 0,
         }
     }
 }
