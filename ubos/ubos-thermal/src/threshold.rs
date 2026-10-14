@@ -23,6 +23,8 @@
 //! can be unit-tested with plain values, with no embassy executor or
 //! atomics in the loop.
 
+use ubos_core::units::Temperature;
+
 /// What the thermal task should do for the current sample.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Action {
@@ -40,19 +42,24 @@ pub enum Action {
 /// Decide what action to take given the current sample and whether the
 /// halt flag is currently set.
 ///
-/// `dangerous_temp_c` is the halt threshold `judge_dangerous` resolved for
-/// the source of this reading; the config layer bounds both thresholds it
-/// can be (`ThermalConfig::validate` caps them), so there is no separate
+/// `dangerous` is the halt threshold `judge_dangerous` resolved for the
+/// source of this reading; the config layer bounds both thresholds it can
+/// be (`ThermalConfig::validate` caps them), so there is no separate
 /// ceiling here.
 #[must_use]
-pub fn evaluate(temp_c: f32, halted: bool, dangerous_temp_c: f32, cooldown_temp_c: f32) -> Action {
+pub fn evaluate(
+    temp: Temperature,
+    halted: bool,
+    dangerous: Temperature,
+    cooldown: Temperature,
+) -> Action {
     if halted {
-        if temp_c <= cooldown_temp_c {
+        if temp <= cooldown {
             return Action::Resume;
         }
         return Action::Ok;
     }
-    if temp_c >= dangerous_temp_c {
+    if temp >= dangerous {
         return Action::EnterHalt;
     }
     Action::Ok

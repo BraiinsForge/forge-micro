@@ -21,58 +21,73 @@
 //! embassy executor, so boundary semantics are easy to nail down.
 
 use super::threshold::{Action, evaluate};
+use ubos_core::units::Temperature;
 
-const DANGEROUS: f32 = 90.0;
-const COOLDOWN: f32 = 45.0;
+const DANGEROUS: Temperature = degrees(90);
+const COOLDOWN: Temperature = degrees(45);
+
+/// A reading of `celsius` whole degrees.
+const fn degrees(celsius: i32) -> Temperature {
+    Temperature::from_millicelsius(celsius * 1000)
+}
 
 #[test]
 fn ok_below_dangerous() {
-    assert_eq!(evaluate(70.0, false, DANGEROUS, COOLDOWN), Action::Ok);
+    assert_eq!(
+        evaluate(degrees(70), false, DANGEROUS, COOLDOWN),
+        Action::Ok
+    );
 }
 
 #[test]
 fn dangerous_halts() {
     assert_eq!(
-        evaluate(91.0, false, DANGEROUS, COOLDOWN),
+        evaluate(degrees(91), false, DANGEROUS, COOLDOWN),
         Action::EnterHalt
     );
 }
 
 #[test]
 fn dangerous_while_halted_keeps_halt() {
-    assert_eq!(evaluate(91.0, true, DANGEROUS, COOLDOWN), Action::Ok);
+    assert_eq!(evaluate(degrees(91), true, DANGEROUS, COOLDOWN), Action::Ok);
 }
 
 #[test]
 fn halted_resumes_under_cooldown() {
-    assert_eq!(evaluate(40.0, true, DANGEROUS, COOLDOWN), Action::Resume);
+    assert_eq!(
+        evaluate(degrees(40), true, DANGEROUS, COOLDOWN),
+        Action::Resume
+    );
 }
 
 #[test]
 fn halted_above_cooldown_stays_halted() {
-    assert_eq!(evaluate(60.0, true, DANGEROUS, COOLDOWN), Action::Ok);
+    assert_eq!(evaluate(degrees(60), true, DANGEROUS, COOLDOWN), Action::Ok);
 }
 
 #[test]
 fn boundary_at_dangerous_triggers_halt() {
-    // Inclusive: 90.0 must already trip the halt, not stay Ok.
+    // Inclusive: 90 degrees must already trip the halt, not stay Ok.
     assert_eq!(
-        evaluate(90.0, false, DANGEROUS, COOLDOWN),
+        evaluate(degrees(90), false, DANGEROUS, COOLDOWN),
         Action::EnterHalt
     );
 }
 
 #[test]
 fn boundary_at_cooldown_resumes() {
-    // Inclusive: 45.0 must already clear the halt, not stay Ok.
-    assert_eq!(evaluate(45.0, true, DANGEROUS, COOLDOWN), Action::Resume);
+    // Inclusive: 45 degrees must already clear the halt, not stay Ok.
+    assert_eq!(
+        evaluate(degrees(45), true, DANGEROUS, COOLDOWN),
+        Action::Resume
+    );
 }
 
 #[test]
 fn halts_at_the_configured_threshold() {
     // The evaluator trusts `dangerous_hashboard_temp` straight from the config
     // (the config layer bounds it); there is no separate hard ceiling.
-    const HIGH: f32 = 105.0;
+    const HIGH: Temperature = degrees(105);
     assert_eq!(evaluate(HIGH, false, HIGH, COOLDOWN), Action::EnterHalt);
-    assert_eq!(evaluate(HIGH - 1.0, false, HIGH, COOLDOWN), Action::Ok);
+    assert_eq!(evaluate(degrees(104), false, HIGH, COOLDOWN), Action::Ok);
 }
