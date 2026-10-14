@@ -29,6 +29,7 @@ use ubos_psu::BmmPsuDescriptor;
 
 use super::FixedTarget;
 use super::FixedTuner;
+use super::curve_power;
 use embassy_time::Instant;
 use ubos_tuner::{ChainReadings, Readings, Tuner};
 
@@ -135,15 +136,15 @@ fn walk_converges_for_float_lossy_voltage() {
 #[test]
 fn walk_preserves_power_ceiling_after_phase_a() {
     // P_target = V_target^2 * f_target. Phase B steps must stay below
-    // or equal to P_target (within float rounding). Phase A walks at
-    // constant V_open which may briefly exceed P_target on its final
-    // hop; the gating invariant kicks in after the curve is entered.
+    // or equal to P_target, exactly, since the curve voltage is a
+    // floored integer square root. Phase A walks at constant V_open which
+    // may briefly exceed P_target on its final hop; the gating invariant
+    // kicks in after the curve is entered.
     let target = FixedTarget {
         frequency: Frequency::from_mhz(550),
         voltage: Voltage::from_mv(1100),
     };
-    let v_target = target.voltage.as_volts();
-    let p_target = v_target * v_target * target.frequency.as_mhz();
+    let p_target = curve_power(target.voltage, target.frequency);
     let steps = walk_steps(
         FixedTarget {
             frequency: BMM101_HASHBOARD.chip.frequency_range.min(),
@@ -153,15 +154,13 @@ fn walk_preserves_power_ceiling_after_phase_a() {
     );
     let mut in_phase_b = false;
     for (f_khz, v_mv) in steps.iter().copied() {
-        let volts = Voltage::from_mv(v_mv).as_volts();
-        let mhz = Frequency::from_khz(f_khz).as_mhz();
-        let power = volts * volts * mhz;
+        let power = curve_power(Voltage::from_mv(v_mv), Frequency::from_khz(f_khz));
         if v_mv < BMM101_HASHBOARD.max_rail_voltage().mv() {
             in_phase_b = true;
         }
         if in_phase_b {
             assert!(
-                power <= p_target * 1.01,
+                power <= p_target,
                 "phase B step (f={f_khz} kHz, v={v_mv} mV) violates power ceiling: {power} > {p_target}",
             );
         }
@@ -359,7 +358,7 @@ fn unequal_chains_converge_without_exceeding_the_shared_rail_power_ceiling() {
         ],
     };
     let mut tuner = FixedTuner::new(board);
-    let target_power = target.voltage.as_volts().powi(2) * target.frequency.as_mhz();
+    let target_power = curve_power(target.voltage, target.frequency);
     for _ in 0..STEPS {
         let plan = tuner.step(target, &readings, &());
         assert_eq!(plan.frequencies[1], None);
@@ -373,8 +372,8 @@ fn unequal_chains_converge_without_exceeding_the_shared_rail_power_ceiling() {
         }
         if readings.voltage < board.max_rail_voltage() {
             for chain in readings.chains.iter().flatten() {
-                let power = readings.voltage.as_volts().powi(2) * chain.frequency.as_mhz();
-                assert!(power <= target_power * 1.01);
+                let power = curve_power(readings.voltage, chain.frequency);
+                assert!(power <= target_power);
             }
         }
         if plan.rail.is_none() && plan.frequencies.iter().all(Option::is_none) {

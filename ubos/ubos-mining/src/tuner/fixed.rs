@@ -23,7 +23,7 @@
 //! Each step returns commands only; the miner owns hardware access and delays.
 
 use embassy_time::Duration;
-use libm::sqrtf;
+use libm::sqrt;
 use ubos_asic::HashboardDescriptor;
 use ubos_config::{TunerInfo, Tuning};
 use ubos_core::units::{Frequency, Voltage};
@@ -177,15 +177,14 @@ impl<const CHAINS: usize> Tuner<CHAINS> for FixedTuner {
             voltage: target.voltage.min(self.board.max_rail_voltage()),
         };
         let voltage = readings.voltage;
-        let power_target =
-            (target.voltage.as_volts() * target.voltage.as_volts()) * target.frequency.as_mhz();
+        let power_target = curve_power(target.voltage, target.frequency);
         let phase = match &self.progress {
             Some(progress) if progress.target == target => progress.phase,
             _ => {
                 crate::events::frequency_ramp_started(target.frequency.khz());
                 let cap = frequency_at_target_power(
                     power_target,
-                    voltage.as_volts() * voltage.as_volts(),
+                    voltage,
                     target.frequency,
                     step,
                     self.board.chip.frequency_range.min(),
@@ -228,11 +227,12 @@ impl<const CHAINS: usize> Tuner<CHAINS> for FixedTuner {
                         .map(|chain| chain.frequency.step_toward(target.frequency, step))
                         .max()
                         .expect("BUG: present chain checked above");
-                    // Snap the last voltage command exactly, avoiding a residual from float rounding.
+                    // Snap the last voltage command exactly, leaving no square-root residual.
+                    #[allow(clippy::cast_precision_loss)]
                     let next_voltage = if frequency == target.frequency {
                         target.voltage
                     } else {
-                        curve_voltage(power_target, frequency, target.voltage)
+                        curve_voltage(power_target as f64, frequency, target.voltage)
                     };
                     (
                         Phase::Curve,
@@ -255,39 +255,40 @@ impl<const CHAINS: usize> Tuner<CHAINS> for FixedTuner {
     }
 }
 
-/// Frequency where `voltage_now_squared * f` reaches the target power estimate.
-/// Uses the currently applied voltage, then snaps to the PLL grid and clamps
-/// between the minimum and target frequencies.
+/// `V^2 * f` at `voltage` and `frequency`, in mV²·kHz. The constant-power
+/// curve holds this product, which is the power up to the chips' own
+/// factor, so the curve needs no float to walk.
+fn curve_power(voltage: Voltage, frequency: Frequency) -> u64 {
+    u64::from(voltage.mv()).pow(2) * u64::from(frequency.khz())
+}
+
+/// Frequency where `V^2 * f` at the applied `voltage` reaches `power_target`,
+/// snapped to the PLL grid and clamped between the minimum and target
+/// frequencies.
 fn frequency_at_target_power(
-    power_target: f32,
-    voltage_now_squared: f32,
+    power_target: u64,
+    voltage: Voltage,
     target: Frequency,
     step: Frequency,
     floor: Frequency,
 ) -> Frequency {
-    let curve_mhz = power_target / voltage_now_squared;
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let curve_kilohertz = (curve_mhz * 1000.0) as u32;
+    let curve_khz = power_target
+        .checked_div(u64::from(voltage.mv()).pow(2))
+        .map_or(u32::MAX, |khz| u32::try_from(khz).unwrap_or(u32::MAX));
     // Snap the curve crossing onto the PLL grid before clamping. With a
     // grid-aligned target and floor, the resulting cap stays on the grid
     // so phase A's final step lands on an exact hash clock.
-    let curve_snapped = Frequency::from_khz(curve_kilohertz).snap_down(step);
+    let curve_snapped = Frequency::from_khz(curve_khz).snap_down(step);
     curve_snapped.min(target).max(floor)
 }
 
-/// Voltage that keeps `V^2 * f = power_target` at `f`. Clamped to
-/// `target_voltage` so the curve walk converges instead of overshooting
-/// past the target on the last step.
-fn curve_voltage(power_target: f32, frequency: Frequency, target_voltage: Voltage) -> Voltage {
-    let curve_volts = sqrtf(power_target / frequency.as_mhz());
-    let floor_volts = target_voltage.as_volts();
-    let clamped_volts = if curve_volts < floor_volts {
-        floor_volts
-    } else {
-        curve_volts
-    };
+/// Voltage that keeps `V^2 * f = power_target` at `f`, with `power_target`
+/// in mV²·kHz. Clamped to `target_voltage` so the curve walk converges
+/// instead of overshooting past the target on the last step.
+fn curve_voltage(power_target: f64, frequency: Frequency, target_voltage: Voltage) -> Voltage {
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    Voltage::from_mv((clamped_volts * 1000.0) as u32)
+    let curve_mv = sqrt(power_target / f64::from(frequency.khz())) as u32;
+    Voltage::from_mv(curve_mv).max(target_voltage)
 }
 
 #[cfg(test)]
