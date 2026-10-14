@@ -21,6 +21,17 @@ set. On each TCP connection, the exposition service reads the map. It
 renders the full map and a fixed set of derived metrics (uptime,
 request count, NTP sync state) in Prometheus exposition format 0.0.4.
 
+Every push is one sample of one value, and it carries the time of the
+push. A sample says nothing about the value between two pushes, so no
+series holds a value and no series is a state. Each publisher therefore
+pushes on a ticker. A push on a change is one more sample, not a
+replacement for the ticker.
+
+The stored time is monotonic milliseconds since boot. The exposition
+adds the NTP epoch offset at scrape time and renders an absolute
+Unix-epoch timestamp. If NTP has not synced, the exposition omits the
+timestamp and Prometheus stamps the sample at scrape time.
+
 Every response, including 404 and 405, carries
 `Access-Control-Allow-Origin: *` so the dashboard on port 80 can read
 the endpoint cross-origin for the state snapshot download and sees the
@@ -217,11 +228,11 @@ from, since a board can own more than one; see `ubos_metrics::chain`.
 There are no unlabelled duplicates of these series; board totals are
 `sum(...)` over the label.
 
-## Per-chain state
+## Per-chain series
 
 Code: `ubos/ubos-mining/src/publishers.rs`.
 
-Five state series are labelled `chain="i"`. Each is pushed once per chain the
+Five series are labelled `chain="i"`. Each is pushed once per chain the
 machine wired up, which `ChainStatsHandle::chain_count` reports. The
 unused slots of the `MAX_CHAINS`-sized table are never published, and
 no per-chain series is emitted before the miner has started:
