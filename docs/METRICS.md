@@ -211,9 +211,18 @@ board pool slot, labelled `pool="0"`, `pool="1"`, ...:
 - `board_shares_accepted_total{pool=...}` — pool-accepted shares.
 - `board_shares_rejected_total{pool=...}` — pool-rejected shares.
 - `board_stratum_reconnects_total{pool=...}` — reconnect attempts.
-- `board_pool_work_shares_total{pool=...}` — chip shares per
-  originating slot, in the unit below; the ratio between these
-  series is the work split the dispatch scheduler actually delivered.
+
+The miner metrics task pushes one more series, and no stratum session
+writes it:
+
+- `board_pool_work_shares_total{chain=...,pool=...}` — chip shares
+  for the slot that supplied the work, in the unit below. The ratio
+  between these series is the work split that the dispatch scheduler
+  delivered. The `chain` label names the chain that found the shares,
+  because a board can own more than one. See `ubos_metrics::chain`.
+
+It pushes this series for every slot the board compiles in, so a slot
+with no pool in the config still has it.
 
 A share is 2^32 expected hashes. A chip solution found against a
 difficulty `d` filter adds `d` to the counter, so the counter times
@@ -221,21 +230,17 @@ difficulty `d` filter adds `d` to the counter, so the counter times
 `rate(...) * 2^32` is a hashrate in H/s whatever difficulty the chip
 filters at.
 
-`board_uart_desync_bytes_total` and `board_pool_work_shares_total` also
-carry a `chain="i"` label identifying the hashboard chain they came
-from, since a board can own more than one; see `ubos_metrics::chain`.
-
-There are no unlabelled duplicates of these series; board totals are
+There are no unlabelled duplicates of these series. A board total is
 `sum(...)` over the label.
 
 ## Per-chain series
 
 Code: `ubos/ubos-mining/src/publishers.rs`.
 
-Five series are labelled `chain="i"`. Each is pushed once per chain the
-machine wired up, which `ChainStatsHandle::chain_count` reports. The
-unused slots of the `MAX_CHAINS`-sized table are never published, and
-no per-chain series is emitted before the miner has started:
+Six series are labelled `chain="i"`. Each is pushed once for each chain
+the machine wired up, which `ChainStatsHandle::chain_count` reports. The
+unused slots of the `MAX_CHAINS`-sized table are never published, and no
+per-chain series is pushed before the miner metrics task starts:
 
 - `board_chain_chips` — the chain's chip count from its most recent
   bring-up, or zero for a chain that is absent, faulted, or not yet
@@ -248,14 +253,18 @@ no per-chain series is emitted before the miner has started:
   unlabelled machine-wide one, because each chain carries its own clock.
   Read it with `board_chain_present`: a chain held in reset keeps its
   last frequency until the actor resets it during bring-up.
+- `board_uart_desync_bytes_total` — the chain's lifetime count of UART
+  bytes that the driver discarded, on a failed CRC or to find the start
+  of a frame.
 - `board_hashrate_hps` — the smoothed hashrate of the chain's own
   estimator.
 - `board_shares_total` — the chain's lifetime chip shares, in the
   same unit as `board_pool_work_shares_total`.
 
-There are no unlabelled duplicates of the last two. A board total is
-`sum(...)` over the `chain` label, as for the per-pool series above.
-They describe chip output, not pool credit.
+No series here has an unlabelled duplicate. A board total is `sum(...)`
+over the `chain` label, as for the per-pool series above.
+`board_hashrate_hps` and `board_shares_total` describe chip output, not
+pool credit.
 
 ## Per-chain PVT series
 
