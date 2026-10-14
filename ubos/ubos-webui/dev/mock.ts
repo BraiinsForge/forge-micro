@@ -110,11 +110,11 @@ const CONFIG = {
   fee_permille: 25,
   thermal: {
     sample_interval_ms: 1000,
-    dangerous_hashboard_temp_c: 85,
-    cooldown_temp_c: 75,
-    dangerous_chip_temp_c: 105,
+    dangerous_hashboard_temp: 85000,
+    cooldown_temp: 75000,
+    dangerous_chip_temp: 105000,
   },
-  cooling: { mode: 'auto', target_temp_c: 65, fixed_fan_pwm: 60, min_fan_pwm: 20 },
+  cooling: { mode: 'auto', target_temp: 65000, fixed_fan_pwm: 60, min_fan_pwm: 20 },
   miner: { tuning: { Fixed: { frequency_khz: 500000, voltage_mv: 1200 } } },
   api: { username: 'admin', password: '' },
   network: { mode: 'Dhcp', hostname: '', address: [192, 168, 1, 50], prefix_len: 24, gateway: [192, 168, 1, 1], dns: [] },
@@ -132,8 +132,8 @@ const ASIC = {
     tuners: [{ Fixed: { name: 'Fixed' } }, { Power: { name: 'PowerRamp', readsEfficiency: true } }],
   },
 };
-const THERMAL = { bounds: { dangerousHashboardTempC: { start: 70, end: 110 }, cooldownTempC: { start: 50, end: 90 }, dangerousChipTempC: { start: 90, end: 125 } } };
-const COOLING = { bounds: { targetTempC: { start: 40, end: 85 }, minFanPwm: { start: 0, end: 100 }, fixedFanPwm: { start: 0, end: 100 } } };
+const THERMAL = { bounds: { dangerousHashboardTemp: { start: 70000, end: 110000 }, cooldownTemp: { start: 50000, end: 90000 }, dangerousChipTemp: { start: 90000, end: 125000 } } };
+const COOLING = { bounds: { targetTemp: { start: 40000, end: 85000 }, minFanPwm: { start: 0, end: 100 }, fixedFanPwm: { start: 0, end: 100 } } };
 const NETWORK = { mode: 'Dhcp', address: [192, 168, 1, 50], prefix_len: 24, gateway: [192, 168, 1, 1], dns: [[8, 8, 8, 8]] };
 
 const EVENTS_CATALOG = [

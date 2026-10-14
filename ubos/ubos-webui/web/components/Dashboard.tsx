@@ -4,7 +4,7 @@ import Chart from './Chart';
 import { useDash } from '../lib/store';
 import { getConfig } from '../lib/api';
 import { fmtHr, fmtUp, fmtPower, fmtVolts } from '../lib/format';
-import { MINING_STATE_CLASS, MINING_STATE_LABEL, PAUSE_LABEL } from '../lib/types';
+import { MC_PER_C, MINING_STATE_CLASS, MINING_STATE_LABEL, PAUSE_LABEL } from '../lib/types';
 import type { ChainInfo, Info } from '../lib/types';
 
 // A pool slot's display metadata, derived from GET /api/config. `null`
@@ -137,8 +137,8 @@ export default function Dashboard({ shown }: DashboardProps) {
         );
         if (data.thermal) {
           setTempThresh({
-            hashboardC: data.thermal.dangerous_hashboard_temp_c,
-            chipC: data.thermal.dangerous_chip_temp_c,
+            hashboardC: data.thermal.dangerous_hashboard_temp / MC_PER_C,
+            chipC: data.thermal.dangerous_chip_temp / MC_PER_C,
           });
         }
       } catch (_) {

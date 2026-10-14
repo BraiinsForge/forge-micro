@@ -135,15 +135,18 @@ export interface PoolConfig {
   weight?: number;
 }
 
+/** Millicelsius in one degree. The API carries every config temperature in millicelsius. */
+export const MC_PER_C = 1000;
+
 // The two dangerous thresholds are both halt thresholds, and the board
 // judges against the one that matches the sensor its safety reading came
 // from: the hashboard one where a hashboard reading stands in for the die, the chip
 // one where a die reading is real.
 export interface ThermalConfig {
   sample_interval_ms: number;
-  dangerous_hashboard_temp_c: number;
-  cooldown_temp_c: number;
-  dangerous_chip_temp_c: number;
+  dangerous_hashboard_temp: number;
+  cooldown_temp: number;
+  dangerous_chip_temp: number;
 }
 
 // The fan runs the PID against the target under `auto` and holds the
@@ -152,7 +155,7 @@ export type FanMode = 'auto' | 'fixed';
 
 export interface CoolingConfig {
   mode: FanMode;
-  target_temp_c: number;
+  target_temp: number;
   fixed_fan_pwm: number;
   min_fan_pwm: number;
 }
@@ -245,13 +248,13 @@ export interface AsicDefaults {
 }
 
 export interface ThermalBounds {
-  dangerousHashboardTempC: Range;
-  cooldownTempC: Range;
-  dangerousChipTempC: Range;
+  dangerousHashboardTemp: Range;
+  cooldownTemp: Range;
+  dangerousChipTemp: Range;
 }
 
 export interface CoolingBounds {
-  targetTempC: Range;
+  targetTemp: Range;
   minFanPwm: Range;
   fixedFanPwm: Range;
 }

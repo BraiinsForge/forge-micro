@@ -3,6 +3,7 @@ import type { JSX } from 'preact';
 import { saveConfig } from '../lib/api';
 import { fmtRange } from '../lib/format';
 import { toast } from '../lib/toast';
+import { MC_PER_C } from '../lib/types';
 import type { CoolingBounds, CoolingConfig, FanMode, Range, ThermalBounds, ThermalConfig } from '../lib/types';
 import Field from './Field';
 import Section from './Section';
@@ -17,13 +18,13 @@ export interface ConfigThermalProps {
 export default function ConfigThermal({ thermal, cooling, thermalBounds, coolingBounds }: ConfigThermalProps) {
   const [sampleMs] = useState<number | null>(() => (thermal ? thermal.sample_interval_ms : null));
   const [hashboardC, setHashboardC] = useState<string | number>(() =>
-    thermal ? thermal.dangerous_hashboard_temp_c : '',
+    thermal ? thermal.dangerous_hashboard_temp / MC_PER_C : '',
   );
-  const [chipC, setChipC] = useState<string | number>(() => (thermal ? thermal.dangerous_chip_temp_c : ''));
-  const [cooldownC, setCooldownC] = useState<string | number>(() => (thermal ? thermal.cooldown_temp_c : ''));
+  const [chipC, setChipC] = useState<string | number>(() => (thermal ? thermal.dangerous_chip_temp / MC_PER_C : ''));
+  const [cooldownC, setCooldownC] = useState<string | number>(() => (thermal ? thermal.cooldown_temp / MC_PER_C : ''));
   const [mode, setMode] = useState<FanMode>(() => (cooling && cooling.mode != null ? cooling.mode : 'auto'));
   const [targetC, setTargetC] = useState<string | number>(() =>
-    cooling && cooling.target_temp_c != null ? cooling.target_temp_c : '',
+    cooling && cooling.target_temp != null ? cooling.target_temp / MC_PER_C : '',
   );
   const [minFanPwm, setMinFanPwm] = useState<string | number>(() =>
     cooling && cooling.min_fan_pwm != null ? cooling.min_fan_pwm : '',
@@ -32,10 +33,13 @@ export default function ConfigThermal({ thermal, cooling, thermalBounds, cooling
     cooling && cooling.fixed_fan_pwm != null ? cooling.fixed_fan_pwm : '',
   );
 
-  const hashboard: Partial<Range> = thermalBounds.dangerousHashboardTempC || {};
-  const chip: Partial<Range> = thermalBounds.dangerousChipTempC || {};
-  const cooldown: Partial<Range> = thermalBounds.cooldownTempC || {};
-  const target: Partial<Range> = coolingBounds.targetTempC || {};
+  // The bounds arrive in millicelsius and the fields show degrees.
+  const celsius = (range?: Range): Partial<Range> =>
+    range ? { start: range.start / MC_PER_C, end: range.end / MC_PER_C } : {};
+  const hashboard = celsius(thermalBounds.dangerousHashboardTemp);
+  const chip = celsius(thermalBounds.dangerousChipTemp);
+  const cooldown = celsius(thermalBounds.cooldownTemp);
+  const target = celsius(coolingBounds.targetTemp);
   const floor: Partial<Range> = coolingBounds.minFanPwm || {};
   const fixed: Partial<Range> = coolingBounds.fixedFanPwm || {};
   const isFixed = mode === 'fixed';
@@ -57,13 +61,13 @@ export default function ConfigThermal({ thermal, cooling, thermalBounds, cooling
     return saveConfig({
       thermal: {
         sample_interval_ms: sampleMs,
-        dangerous_hashboard_temp_c: +hashboardC,
-        cooldown_temp_c: +cooldownC,
-        dangerous_chip_temp_c: +chipC,
+        dangerous_hashboard_temp: Math.round(+hashboardC * MC_PER_C),
+        cooldown_temp: Math.round(+cooldownC * MC_PER_C),
+        dangerous_chip_temp: Math.round(+chipC * MC_PER_C),
       },
       cooling: {
         mode,
-        target_temp_c: +targetC,
+        target_temp: Math.round(+targetC * MC_PER_C),
         fixed_fan_pwm: +fixedFanPwm,
         min_fan_pwm: +minFanPwm,
       },
