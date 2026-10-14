@@ -75,7 +75,7 @@ pub struct Board {
     pub uart_tx: Peri<'static, PIN_4>,
     pub uart_rx: Peri<'static, PIN_5>,
     /// Power I2C1 bus: SDA=GPIO2, SCL=GPIO3. Devices: TPS53647
-    /// `PMBus`, TMP102 ×2.
+    /// `PMBus`, TMP464, two TMP102.
     pub i2c: Peri<'static, I2C1>,
     pub sda: Peri<'static, PIN_2>,
     pub scl: Peri<'static, PIN_3>,

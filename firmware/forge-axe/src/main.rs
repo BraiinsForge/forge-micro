@@ -148,9 +148,9 @@ async fn mdns_task(stack: embassy_net::Stack<'static>, hostname: &'static str) -
     .await
 }
 
-// This board's array is two TMP102 PCB sensors, from the
-// `ubos_machine::FORGE_AXE` sensor table. There is no die-attached
-// remote diode on this board, so the safety gate runs on the PCB
+// This board's array is a TMP464 and two TMP102, from the
+// `ubos_machine::FORGE_AXE` sensor table. The TMP464 reads each die
+// through a remote diode, so the safety gate runs on the die
 // readings.
 ubos_thermal::thermal_task!(
     ubos_thermal::SensorArray<{ config::MACHINE.temp.len() }, psu::Device>,

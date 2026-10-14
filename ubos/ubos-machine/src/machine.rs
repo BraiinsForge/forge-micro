@@ -26,6 +26,7 @@ use ubos_psu::{BfmPsuDescriptor, BmmPsuDescriptor, ForgeAxePsuDescriptor};
 use ubos_temperature::lm75a::Lm75a;
 use ubos_temperature::tmp102::Tmp102;
 use ubos_temperature::tmp461::Tmp461;
+use ubos_temperature::tmp464::Tmp464;
 use ubos_temperature::{SensorDescriptor, TempSource};
 
 use crate::control_board::{
@@ -225,18 +226,24 @@ const _: () = assert!(
     "the Hashnode has more chains than MAX_CHAINS"
 );
 
-/// The Forge Axe's two TMP102 PCB sensors. There is no die-attached
-/// remote diode on this board; both sensors drive the cooling PID and
-/// the safety value. Addresses are the schematic strap
-/// candidates, pending hardware confirmation.
-pub const FORGE_AXE_SENSORS: [SensorDescriptor; 2] = [
+pub const FORGE_AXE_SENSORS: [SensorDescriptor; 3] = [
     SensorDescriptor::Tmp102(Tmp102 {
         address: 0x48,
         local: TempSource::Hashboard,
     }),
+    SensorDescriptor::Tmp464(Tmp464 {
+        address: 0x4A,
+        local: TempSource::Hashboard,
+        remote: [
+            Some(TempSource::Chip(0)),
+            Some(TempSource::Chip(1)),
+            Some(TempSource::Chip(2)),
+            Some(TempSource::Chip(3)),
+        ],
+    }),
     SensorDescriptor::Tmp102(Tmp102 {
         address: 0x49,
-        local: TempSource::Hashboard,
+        local: TempSource::Psu,
     }),
 ];
 
