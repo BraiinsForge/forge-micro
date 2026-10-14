@@ -1,0 +1,11 @@
+# Clippy configuration for every crate in this workspace. Clippy reads the
+# nearest clippy.toml above a crate's manifest, and nix/source.nix carries
+# this file into each check's source, so the clippy checks gate it.
+
+# Floats are f64 throughout. One FPU this firmware runs on reads an f32 as
+# zero once a function prologue and epilogue have saved and restored its
+# register as 64 bits, which every call may do. A double survives that
+# round trip, so code that never holds an f32 cannot hit the fault.
+disallowed-types = [
+  { path = "f32", reason = "use f64: an f32 can read as zero after a 64-bit register save and restore" },
+]

@@ -166,7 +166,9 @@ let
   # the closure directories. The workspace manifest and lock are overlaid
   # too so the scoped source carries the real ones verbatim; `extraRoots`
   # extends the list for a consumer whose own workspace root sits at a
-  # path this repo does not know.
+  # path this repo does not know. `clippy.toml` is here because clippy
+  # reads the nearest one above a crate's manifest, and a scoped source
+  # without it would lint against the defaults.
   #
   # `brand` does not belong here, however much it looks like it should.
   # It sits at the tree root and belongs to no crate, but ubos-webui's
@@ -179,6 +181,7 @@ let
     "Cargo.toml"
     "Cargo.lock"
     ".cargo"
+    "clippy.toml"
   ]
   ++ extraRoots;
 
