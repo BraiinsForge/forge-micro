@@ -41,6 +41,12 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     crane.url = "github:ipetkov/crane";
+    # One derivation per cargo unit for the host and board checks; see
+    # nix/units.nix.
+    rostnix = {
+      url = "github:draganm/rostnix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     # ESP-IDF packaged for Nix; used only to build the esp32s3 second-stage
     # bootloader with rollback enabled. No esp-rs prebuilt rollback bootloader
     # exists, so we compile our own. It intentionally does NOT follow our
@@ -64,6 +70,7 @@
       crane,
       nixpkgs-esp-dev,
       micro-sv2,
+      rostnix,
     }@inputs:
     let
       # The build id an image carries, handed whole to ubos-build's build
