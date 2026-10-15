@@ -447,24 +447,30 @@ run_ended() {
 # whole of what `--keep-going` is for. A check that never started
 # and has no output is one whose dependency failed, so nix never
 # built it; that is only knowable once the run has ended.
+#
+# The three lists reach awk as files, not as arguments: a check is a
+# graph of hundreds of derivations, each started and stopped in the
+# stream, and a list of them all is longer than one argument may be.
+# Each call writes them to a directory of its own, because `gate status`
+# from a second terminal runs this beside the run's own tick, and a
+# list one of them empties while the other reads it shows every check
+# as built.
 summarize() {
-  local invalid started running
+  local lists invalid started running
   fold_events
-  invalid="$(cut -f3 "$plan" | xargs nix-store --check-validity --print-invalid)"
-  started="$(started_drvs)"
-  running="$(running_drvs)"
+  lists="$(mktemp -d "$state/lists.XXXXXX")"
+  invalid="$lists/invalid"
+  started="$lists/started"
+  running="$lists/running"
+  cut -f3 "$plan" | xargs nix-store --check-validity --print-invalid > "$invalid"
+  started_drvs > "$started"
+  running_drvs > "$running"
 
   awk -F'\t' \
-    -v invalid="$invalid" -v started="$started" -v running="$running" \
     -v ended="$(run_ended && echo 1 || echo 0)" '
-    BEGIN {
-      n = split(invalid, rows, "\n");
-      for (i = 1; i <= n; i++) if (rows[i] != "") isMissing[rows[i]] = 1;
-      n = split(started, rows, "\n");
-      for (i = 1; i <= n; i++) if (rows[i] != "") wasStarted[rows[i]] = 1;
-      n = split(running, rows, "\n");
-      for (i = 1; i <= n; i++) if (rows[i] != "") isRunning[rows[i]] = 1;
-    }
+    FILENAME == ARGV[1] { if ($0 != "") isMissing[$0] = 1; next }
+    FILENAME == ARGV[2] { if ($0 != "") wasStarted[$0] = 1; next }
+    FILENAME == ARGV[3] { if ($0 != "") isRunning[$0] = 1; next }
     {
       name = $1; drv = $2; out = $3;
       if (isRunning[drv])        state = "building";
@@ -473,7 +479,8 @@ summarize() {
       else if (ended == 1)       state = "FAILED";
       else                       state = "queued";
       printf "%s\t%s\n", state, name;
-    }' "$plan"
+    }' "$invalid" "$started" "$running" "$plan"
+  rm -r "$lists"
 }
 
 # The table. Every check is in exactly one state, so the counts
