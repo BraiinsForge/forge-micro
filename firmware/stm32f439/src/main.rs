@@ -121,11 +121,11 @@ async fn cpu_load_task() -> ! {
     ubos_metrics::cpu_load::run_cpu_load::<1>().await
 }
 
-ubos_firmware::stratum_metrics_task!(POOL_SLOTS, FEE_SLOT);
+ubos_firmware::stratum_metrics_task!(POOL_SLOTS);
 
 ubos_mining::pool_weights_task!(&mining::CHAINS);
 
-ubos_mining::miner_metrics_task!(POOL_SLOTS, FEE_SLOT);
+ubos_mining::miner_metrics_task!(POOL_SLOTS);
 
 ubos_thermal::thermal_task!(
     ubos_thermal::SensorArray<{ config::MACHINE.temp.len() }, psu::Device>,

@@ -113,15 +113,13 @@ pub const FEE_POOL: ubos_config::FeePool = ubos_config::FeePool {
 ```
 
 Then `main` places it at the board's last session slot and hands it
-to the config task, the metrics tasks and the serial task:
+to the config task and the serial task:
 
 ```rust
 pub(crate) const FEE_SLOT: Option<ubos_config::FeeSlot> =
     ubos_config::FeeSlot::last_of(config::FEE_POOL, POOL_SLOTS);
 
 ubos_config::config_task!(BoardConfigStorage, config::BOARD, &config::MINING_INFO, FEE_SLOT);
-ubos_firmware::stratum_metrics_task!(POOL_SLOTS, FEE_SLOT);
-ubos_mining::miner_metrics_task!(POOL_SLOTS, FEE_SLOT);
 ```
 
 ```rust
@@ -131,9 +129,7 @@ scheduler = ubos_mining::scheduler::FeeScheduler::new(config::FEE_POOL.permille)
 `FEE_SLOT` is `None` on an off build, so the lines read the same in
 both states. The config task keeps the slot, and the readers of its
 entry ask the config handle for it: `pool_slot(slot)` builds the
-entry a session runs, and `view()` serves it on the API. The metrics
-publishers take the slot index from the board's `FEE_SLOT` const at
-spawn, as they take the slot count.
+entry a session runs, and `view()` serves it on the API.
 
 The `DEVFEE_*` variables override the board's values at build time.
 An unset variable keeps the board's value.
@@ -329,11 +325,13 @@ sum by (pool) (rate(board_pool_work_shares_total[3m]))
 sum (rate(board_pool_work_shares_total[3m]))
 ```
 
-Whether the fee pool accepts what it gets:
+The fee slot is the last session slot of the board, and its series
+carry that number. Whether the fee pool accepts what it gets, on a
+board with four sessions:
 
 ```promql
-rate(board_shares_rejected_total{pool="fee"}[15m])
-  / rate(board_shares_accepted_total{pool="fee"}[15m])
+rate(board_shares_rejected_total{pool="3"}[15m])
+  / rate(board_shares_accepted_total{pool="3"}[15m])
 ```
 
 ## Logs
@@ -360,9 +358,7 @@ rejected, and the teardown on a config change.
   the worker name from whichever it is handed.
 - The fee slot is a boot argument of the config task, not a static
   another crate fills. The config module owns it, and the handle is
-  the one door to its entry, as for every other config fact. The
-  metrics publishers take the slot index from the same board const
-  at spawn, because a label is a boot-time fact and not a config.
+  the one door to its entry, as for every other config fact.
 - The operator cannot edit the fee entry because it is not in the
   list a `POST /api/config` replaces: it is a field of its own on
   `GET`, and a `POST` ignores it. The board builds it from the stored

@@ -125,11 +125,11 @@ async fn cpu_load_task() -> ! {
     ubos_metrics::cpu_load::run_cpu_load::<2>().await
 }
 
-ubos_firmware::stratum_metrics_task!(POOL_SLOTS, FEE_SLOT);
+ubos_firmware::stratum_metrics_task!(POOL_SLOTS);
 
 ubos_mining::pool_weights_task!(&mining::CHAINS);
 
-ubos_mining::miner_metrics_task!(POOL_SLOTS, FEE_SLOT);
+ubos_mining::miner_metrics_task!(POOL_SLOTS);
 
 /// Adapts the MCU internal thermometer, `esp32s3_tsens::Tsens`, to the
 /// `McuTemperatureSensor` trait.

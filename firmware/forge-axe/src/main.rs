@@ -182,9 +182,9 @@ async fn cpu_load_task() -> ! {
     ubos_metrics::cpu_load::run_cpu_load::<2>().await
 }
 
-ubos_firmware::stratum_metrics_task!(POOL_SLOTS, FEE_SLOT);
+ubos_firmware::stratum_metrics_task!(POOL_SLOTS);
 
-ubos_mining::miner_metrics_task!(POOL_SLOTS, FEE_SLOT);
+ubos_mining::miner_metrics_task!(POOL_SLOTS);
 
 #[cfg(feature = "display")]
 type OledDisplay = Sh1106<

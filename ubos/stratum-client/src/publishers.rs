@@ -25,7 +25,7 @@
 //! `#[embassy_executor::task]` wrapper.
 
 use embassy_time::{Duration, Ticker};
-use ubos_metrics::metrics::{Value, push_pool_metric};
+use ubos_metrics::metrics::{Value, push_indexed_metric};
 
 use crate::run::POOL_INDEX_SPACE;
 
@@ -36,9 +36,8 @@ use crate::run::POOL_INDEX_SPACE;
 ///
 /// `pool_slots` is clamped to [`POOL_INDEX_SPACE`], the capacity of
 /// the backing per-slot counter arrays; callers pass their board's
-/// `POOL_SLOTS` constant. `fee_slot` is the board's fee slot, whose
-/// series carry the fee's name rather than a number.
-pub async fn run_stratum_metrics_publisher(pool_slots: usize, fee_slot: Option<usize>) -> ! {
+/// `POOL_SLOTS` constant.
+pub async fn run_stratum_metrics_publisher(pool_slots: usize) -> ! {
     let mut ticker = Ticker::every(Duration::from_secs(2));
     loop {
         ticker.next().await;
@@ -47,24 +46,24 @@ pub async fn run_stratum_metrics_publisher(pool_slots: usize, fee_slot: Option<u
                 continue;
             };
             let snapshot = metrics.snapshot();
-            push_pool_metric(
+            push_indexed_metric(
                 "board_shares_accepted_total",
+                "pool",
                 slot,
-                fee_slot,
                 Value::Uint(snapshot.shares_accepted),
             )
             .await;
-            push_pool_metric(
+            push_indexed_metric(
                 "board_shares_rejected_total",
+                "pool",
                 slot,
-                fee_slot,
                 Value::Uint(snapshot.shares_rejected),
             )
             .await;
-            push_pool_metric(
+            push_indexed_metric(
                 "board_stratum_reconnects_total",
+                "pool",
                 slot,
-                fee_slot,
                 Value::Uint(u64::from(snapshot.reconnects)),
             )
             .await;

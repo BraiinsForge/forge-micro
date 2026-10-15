@@ -387,58 +387,6 @@ pub async fn push_indexed_metric(
     push_indexed_metrics(name, &[(label, index)], value).await;
 }
 
-/// The `pool` label value of the fee slot. Named by role rather than
-/// by index, so the fee series reads the same on every board, whichever
-/// slot runs it.
-pub const FEE_POOL_LABEL: &str = "fee";
-
-/// The `pool` label of a session slot: [`FEE_POOL_LABEL`] for
-/// `fee_slot`, the slot's number for every other.
-fn pool_label(slot: usize, fee_slot: Option<usize>) -> Label {
-    let value = if fee_slot == Some(slot) {
-        LabelValue::Static(FEE_POOL_LABEL)
-    } else {
-        index_value(slot)
-    };
-    Label {
-        name: "pool",
-        value,
-    }
-}
-
-/// Push one metric carrying the `pool` label of `slot`.
-///
-/// The per-slot shape every pool-indexed series in this tree uses;
-/// `fee_slot` is the board's, so the fee series carries its name.
-pub async fn push_pool_metric(
-    name: &'static str,
-    slot: usize,
-    fee_slot: Option<usize>,
-    value: Value,
-) {
-    let mut labels = Labels::new();
-    let _ = labels.push(pool_label(slot, fee_slot));
-    push(Metric::with_labels(name, labels, value)).await;
-}
-
-/// Push one metric carrying `chain="<chain>"` and the `pool` label of
-/// `slot`.
-pub async fn push_chain_pool_metric(
-    name: &'static str,
-    chain: usize,
-    slot: usize,
-    fee_slot: Option<usize>,
-    value: Value,
-) {
-    let mut labels = Labels::new();
-    let _ = labels.push(Label {
-        name: "chain",
-        value: index_value(chain),
-    });
-    let _ = labels.push(pool_label(slot, fee_slot));
-    push(Metric::with_labels(name, labels, value)).await;
-}
-
 /// Consume pushed metrics into the shared map.
 ///
 /// The sole writer of `statics`' map. `ubos_firmware::serve_all!` wraps

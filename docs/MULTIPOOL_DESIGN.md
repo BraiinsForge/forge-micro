@@ -575,10 +575,8 @@ and state a code each. How to build with it and how to read it is
 - The config module owns the slot, and the handle is the one door to
   its entry: `Handle::pool_slot(slot)` reads the operator's list below
   the fee slot and builds the fee entry at it, `Handle::view()` is the
-  `GET` body with the entry and its share beside the list. The metrics publishers
-  take the slot index from the board's const at spawn, as they take
-  the slot count. `Config` is a snapshot and answers for its fields
-  alone.
+  `GET` body with the entry and its share beside the list. `Config` is
+  a snapshot and answers for its fields alone.
 - `run_stratum_session` resolves its slot through
   `Handle::pool_slot`, so the fee slot is a normal session. The
   generation watch budget counts `POOL_SLOTS` sessions.
@@ -587,8 +585,8 @@ and state a code each. How to build with it and how to read it is
   both and leaves them out on a board that runs no fee slot. `apply`
   reads neither, so an echo of the `GET` body is an identity. The
   stored `Config` is unchanged, so the schema hash is too.
-- The metrics label the fee slot `pool="fee"` and an operator slot by
-  its number, so the fee series reads the same on every board.
+- The metrics label the fee slot by its number, as they label every
+  other slot.
 - `ubos_mining::scheduler::FeeScheduler::new(permille)` wraps the
   ratio scheduler and holds the fee slot at the share, in a debt
   counter of its own: an operator share adds the numerator, a fee

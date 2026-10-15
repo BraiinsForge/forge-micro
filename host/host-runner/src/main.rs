@@ -385,12 +385,12 @@ async fn stratum_client_task(stack: Stack<'static>) -> ! {
 
 #[embassy_executor::task]
 async fn stratum_metrics_task() -> ! {
-    stratum_client::publishers::run_stratum_metrics_publisher(1, None).await
+    stratum_client::publishers::run_stratum_metrics_publisher(1).await
 }
 
 #[embassy_executor::task]
 async fn miner_metrics_task(mining: MiningHandle) -> ! {
-    ubos_mining::publishers::run_miner_metrics_publisher(mining, 1, None).await
+    ubos_mining::publishers::run_miner_metrics_publisher(mining, 1).await
 }
 
 #[embassy_executor::task]

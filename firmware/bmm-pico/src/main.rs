@@ -162,11 +162,11 @@ ubos_config::config_task!(
 
 ubos_cooling::cooling_task!(ubos_rp::fan::BoardFan, ubos_rp::fan::BoardTach);
 
-ubos_firmware::stratum_metrics_task!(POOL_SLOTS, FEE_SLOT);
+ubos_firmware::stratum_metrics_task!(POOL_SLOTS);
 
 ubos_mining::pool_weights_task!(&mining::CHAINS);
 
-ubos_mining::miner_metrics_task!(POOL_SLOTS, FEE_SLOT);
+ubos_mining::miner_metrics_task!(POOL_SLOTS);
 
 #[cfg(feature = "display")]
 type OledDisplay = Sh1106<
