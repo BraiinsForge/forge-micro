@@ -30,8 +30,10 @@
 //! low byte's upper nibble carries the 1/16 °C fraction (always positive).
 //! Ideality correction and offset calibration are not applied.
 
-use embedded_hal_async::i2c::I2c;
+use embedded_hal_async::i2c::{I2c, SevenBitAddress};
 use ubos_core::units::Temperature;
+
+use crate::{Readings, TempSource, add_source};
 
 /// Status register (read-only). Reports ADC state and the remote-diode
 /// connection fault.
@@ -85,23 +87,26 @@ const FRACTION_SHIFT: u32 = 4;
 const FRACTION_STEP_NUMERATOR: i32 = 625;
 const FRACTION_STEP_DENOMINATOR: i32 = 10;
 
-/// One TMP461 on the I2C bus. Holds the address only; the bus is passed
-/// in on each read so multiple devices can share a `&mut I`.
+/// One TMP461 on the I2C bus: its address and what each of its two
+/// channels measures. The bus is passed in on each read so multiple
+/// devices can share a `&mut I`.
+#[derive(Clone, Copy)]
 pub struct Tmp461 {
-    address: u8,
+    /// The sensor's 7-bit I2C address.
+    pub address: SevenBitAddress,
+    /// What the local channel, the sensor's own package, measures.
+    pub local: TempSource,
+    /// What the remote diode measures.
+    pub remote: TempSource,
 }
 
 impl Tmp461 {
-    /// Construct a driver for the TMP461 at `address`.
-    #[must_use]
-    pub const fn new(address: u8) -> Self {
-        Self { address }
-    }
-
-    /// Return the configured I2C address.
-    #[must_use]
-    pub const fn address(&self) -> u8 {
-        self.address
+    /// Read both channels, each as what its field names, or as the fault
+    /// that kept it from a reading.
+    pub async fn read_temperatures<I: I2c>(&self, i2c: &mut I) -> Readings<I::Error> {
+        let local = add_source(self.local, self.read_local_temperature(i2c).await);
+        let remote = add_source(self.remote, self.read_remote_temperature(i2c).await);
+        [local, remote].into_iter().collect()
     }
 
     /// Read the remote-diode channel.

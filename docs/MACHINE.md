@@ -21,7 +21,7 @@ the crate that owns the component:
 | `HashboardDescriptor` | `ubos-asic` | `BMM101_HASHBOARD`, `BFMX4_HASHBOARD` |
 | `BmmPsuDescriptor` | `ubos-psu` | `BmmPsuDescriptor::DEFAULT` |
 | `BfmPsuDescriptor` | `ubos-psu` | `BfmPsuDescriptor::DEFAULT` |
-| `SensorDescriptor` | `ubos-temperature` | struct only; the tables (`BMM101_SENSORS`, `BFMX4_SENSORS`) live in `ubos-machine` |
+| `SensorDescriptor` | `ubos-temperature` | enum only; the tables (`BMM101_SENSORS`, `BFMX4_SENSORS`) live in `ubos-machine` |
 | `PlatformDescriptor` | `ubos-machine` | `RP2040` .. `ESP32S3` |
 | `ControlBoardDescriptor` | `ubos-machine` | `CONTROL_BOARD_*` |
 | `MachineDescriptor<Psu>` | `ubos-machine` | `MINIMINER_*`, `HASHNODE` |

@@ -24,8 +24,10 @@
 //! 0.5°C on the LM75A. Both produce the same register layout, so the
 //! driver handles either.
 
-use embedded_hal_async::i2c::I2c;
+use embedded_hal_async::i2c::{I2c, SevenBitAddress};
 use ubos_core::units::Temperature;
+
+use crate::{Readings, TempSource, add_source};
 
 #[cfg(test)]
 #[path = "tests/lm75a.rs"]
@@ -39,23 +41,18 @@ const REG_TEMPERATURE: u8 = 0x00;
 const MIN_MILLICELSIUS: i32 = -55_000;
 const MAX_MILLICELSIUS: i32 = 125_000;
 
-/// One LM75A on the I2C bus. Address only — bus is passed in on each
-/// read so multiple sensors can share a `&mut I` without owning it.
+/// One LM75A on the I2C bus: its address and what it measures. The bus
+/// is passed in on each read so multiple sensors can share a `&mut I`
+/// without owning it.
+#[derive(Clone, Copy)]
 pub struct Lm75a {
-    address: u8,
+    /// The sensor's 7-bit I2C address.
+    pub address: SevenBitAddress,
+    /// What the sensor's own channel measures.
+    pub local: TempSource,
 }
 
 impl Lm75a {
-    #[must_use]
-    pub const fn new(address: u8) -> Self {
-        Self { address }
-    }
-
-    #[must_use]
-    pub const fn address(&self) -> u8 {
-        self.address
-    }
-
     /// Read the temperature register.
     /// Returns `Err` on bus error or out-of-range reading.
     pub async fn read_temperature<I, E>(&self, i2c: &mut I) -> Result<Temperature, Error<E>>
@@ -71,6 +68,14 @@ impl Lm75a {
             return Err(Error::OutOfRange(millicelsius));
         }
         Ok(Temperature::from_millicelsius(millicelsius))
+    }
+
+    /// Read the temperature as what [`local`](Self::local) names, or the
+    /// fault that kept it from one.
+    pub async fn read_temperatures<I: I2c>(&self, i2c: &mut I) -> Readings<I::Error> {
+        [add_source(self.local, self.read_temperature(i2c).await)]
+            .into_iter()
+            .collect()
     }
 }
 

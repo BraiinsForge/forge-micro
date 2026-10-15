@@ -29,20 +29,21 @@
 
 use core::fmt::Write as _;
 
-use embedded_hal_async::i2c::I2c;
+use embedded_hal_async::i2c::{I2c, SevenBitAddress};
 use ubos_core::units::Temperature;
+use ubos_logging::{Debug2Format, error};
 use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value, push};
-use ubos_temperature::{SensorDescriptor, SensorKind, TempSource, read_sensor};
+use ubos_temperature::{ReadingError, SensorDescriptor, TempSource};
 
 use crate::{Reading, Sample, Source, TemperatureSensor};
 
 /// Per-sensor gauge name for a driver, or `None` to publish no
-/// per-sensor metric. The match is exhaustive, so a new `SensorKind`
-/// fails this crate's build until it states which of the two it is.
-const fn sensor_metric_name(kind: SensorKind) -> Option<&'static str> {
-    match kind {
-        SensorKind::Lm75a => Some("board_lm75a_temperature_millicelsius"),
-        SensorKind::Tmp102 | SensorKind::Tmp461 => None,
+/// per-sensor metric. The match is exhaustive, so a new sensor fails this
+/// crate's build until it states which of the two it is.
+const fn sensor_metric_name(desc: SensorDescriptor) -> Option<&'static str> {
+    match desc {
+        SensorDescriptor::Lm75a(_) => Some("board_lm75a_temperature_millicelsius"),
+        SensorDescriptor::Tmp102(_) | SensorDescriptor::Tmp461(_) => None,
     }
 }
 
@@ -85,13 +86,17 @@ where
         let mut hashboard: Option<Temperature> = None;
 
         for desc in self.sensors {
-            for reading in read_sensor(desc, &mut self.bus).await {
+            let address = desc.address();
+            for result in desc.read_temperatures(&mut self.bus).await {
+                let Ok(reading) = result.inspect_err(|error| log_fault(address, error)) else {
+                    continue;
+                };
                 match reading.source {
                     TempSource::Chip(_) => chip = chip.max(Some(reading.value)),
                     TempSource::Hashboard => {
                         hashboard = hashboard.max(Some(reading.value));
-                        if let Some(name) = sensor_metric_name(desc.kind) {
-                            publish_sensor(name, desc.address, reading.value.millicelsius()).await;
+                        if let Some(name) = sensor_metric_name(*desc) {
+                            publish_sensor(name, address, reading.value.millicelsius()).await;
                         }
                     }
                     // Published only: these gate no halt and drive no fan.
@@ -114,4 +119,15 @@ where
             (None, None) => Reading::Unreadable,
         }
     }
+}
+
+/// Log the fault that kept a channel of the sensor at `address` from a
+/// reading. Free because `ReadingError` belongs to `ubos-temperature`.
+fn log_fault<E: core::fmt::Debug>(address: SevenBitAddress, error: &ReadingError<E>) {
+    error!(
+        "temperature: {:?} {:#x} error: {:?}",
+        Debug2Format(&error.source),
+        address,
+        Debug2Format(&error.fault),
+    );
 }

@@ -19,10 +19,11 @@
 
 //! Board-temperature hardware drivers and the descriptor types a board
 //! uses to declare its sensor topology. The LM75A, TMP102 and TMP461
-//! drivers live in sibling modules, and [`read_sensor`] takes the
-//! [`Readings`] of whichever of them a descriptor names. `ubos-thermal`
-//! folds those readings, owns the sensor trait and the sample loop, and
-//! writes every metric; nothing here decides or publishes anything.
+//! drivers live in sibling modules, and
+//! [`SensorDescriptor::read_temperatures`] takes the [`Readings`] of
+//! whichever of them a descriptor names. `ubos-thermal` folds those
+//! readings, owns the sensor trait and the sample loop, and writes every
+//! metric; nothing here decides or publishes anything.
 
 #![no_std]
 #![allow(clippy::missing_errors_doc)]
@@ -32,32 +33,45 @@ pub mod lm75a;
 pub mod tmp102;
 pub mod tmp461;
 
-use embedded_hal_async::i2c::I2c;
+use embedded_hal_async::i2c::{I2c, SevenBitAddress};
 use heapless::Vec;
 use ubos_core::units::Temperature;
-use ubos_logging::error;
 
 use crate::lm75a::Lm75a;
 use crate::tmp102::Tmp102;
 use crate::tmp461::Tmp461;
 
-/// Which chip driver backs a sensor entry.
+/// One sensor of the board's topology, supplied by the board as const
+/// data: the part's driver, which carries its I2C address and what each of
+/// its channels measures.
 #[derive(Clone, Copy)]
-pub enum SensorKind {
-    Lm75a,
-    Tmp102,
-    Tmp461,
+pub enum SensorDescriptor {
+    Lm75a(Lm75a),
+    Tmp102(Tmp102),
+    Tmp461(Tmp461),
 }
 
-/// One sensor's board topology, supplied by the board as const data.
-#[derive(Clone, Copy)]
-pub struct SensorDescriptor {
-    pub kind: SensorKind,
-    pub address: u8,
-    /// The chip whose die this sensor's remote diode reads, if any. `Some`
-    /// makes the remote reading a [`TempSource::Chip`] one; `None` means a
-    /// PCB-surface sensor, read through its local channel alone.
-    pub attached_chip: Option<ChipId>,
+impl SensorDescriptor {
+    /// The sensor's 7-bit I2C address.
+    #[must_use]
+    pub const fn address(&self) -> SevenBitAddress {
+        match self {
+            Self::Lm75a(sensor) => sensor.address,
+            Self::Tmp102(sensor) => sensor.address,
+            Self::Tmp461(sensor) => sensor.address,
+        }
+    }
+
+    /// Read every channel of the sensor through its driver, which tags
+    /// each channel's reading, or the fault that kept it from one, with
+    /// what the channel measures.
+    pub async fn read_temperatures<Bus: I2c>(&self, bus: &mut Bus) -> Readings<Bus::Error> {
+        match self {
+            Self::Lm75a(sensor) => sensor.read_temperatures(bus).await,
+            Self::Tmp102(sensor) => sensor.read_temperatures(bus).await,
+            Self::Tmp461(sensor) => sensor.read_temperatures(bus).await,
+        }
+    }
 }
 
 /// Index of a chip on its chain. The chain itself is the reader's to
@@ -149,86 +163,10 @@ pub struct ReadingError<E> {
     pub fault: SensorFault<E>,
 }
 
-/// Log a fault. `channel` qualifies the out-of-range message for
-/// multi-channel sensors and is empty for single-channel ones.
-fn log_fault<E: core::fmt::Debug>(chip: &str, address: u8, channel: &str, fault: SensorFault<E>) {
-    // The diode faults share one message shape, so they fold to a reason
-    // string and log once; I2C and out-of-range have their own shapes.
-    let diode = match fault {
-        SensorFault::I2c(e) => {
-            error!(
-                "temperature: {} {:#x} I2C error: {:?}",
-                chip,
-                address,
-                ubos_logging::Debug2Format(&e),
-            );
-            return;
-        }
-        SensorFault::OutOfRange(mc) => {
-            error!(
-                "temperature: {} {:#x}{} reading {} mC out of range",
-                chip, address, channel, mc,
-            );
-            return;
-        }
-        SensorFault::OpenCircuit => "open-circuit",
-        SensorFault::ShortCircuit => "short-circuit",
-        SensorFault::Saturated => "floating or railed",
-    };
-    error!(
-        "temperature: {} {:#x} remote diode {}",
-        chip, address, diode
-    );
-}
-
 /// The most readings one sensor yields: a TMP461's local and remote
 /// channel.
 pub const MAX_READINGS: usize = 2;
 
-/// The readings one sensor yielded. A channel that failed is absent.
-pub type Readings = Vec<Reading, MAX_READINGS>;
-
-/// Read one sensor through the driver its kind names, and tag each
-/// channel's reading with what it measures: the local channel the
-/// hashboard, the remote one the attached chip. A channel that fails is
-/// logged and left out.
-pub async fn read_sensor<Bus: I2c>(desc: &SensorDescriptor, bus: &mut Bus) -> Readings {
-    let address = desc.address;
-    match desc.kind {
-        SensorKind::Lm75a => add_source(
-            TempSource::Hashboard,
-            Lm75a::new(address).read_temperature(bus).await,
-        )
-        .map_err(|error| log_fault("LM75A", address, "", error.fault))
-        .ok()
-        .into_iter()
-        .collect(),
-        SensorKind::Tmp102 => add_source(
-            TempSource::Hashboard,
-            Tmp102::new(address).read_temperature(bus).await,
-        )
-        .map_err(|error| log_fault("TMP102", address, "", error.fault))
-        .ok()
-        .into_iter()
-        .collect(),
-        SensorKind::Tmp461 => {
-            let sensor = Tmp461::new(address);
-            let hashboard = add_source(
-                TempSource::Hashboard,
-                sensor.read_local_temperature(bus).await,
-            )
-            .map_err(|error| log_fault("TMP461", address, " local", error.fault))
-            .ok();
-            let chip = match desc.attached_chip {
-                Some(chip) => add_source(
-                    TempSource::Chip(chip),
-                    sensor.read_remote_temperature(bus).await,
-                )
-                .map_err(|error| log_fault("TMP461", address, " remote", error.fault))
-                .ok(),
-                None => None,
-            };
-            [hashboard, chip].into_iter().flatten().collect()
-        }
-    }
-}
+/// The outcome of every channel of one sensor: its reading, or the fault
+/// that kept it from one. The caller decides what a fault means.
+pub type Readings<E> = Vec<Result<Reading, ReadingError<E>>, MAX_READINGS>;

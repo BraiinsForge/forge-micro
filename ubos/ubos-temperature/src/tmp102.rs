@@ -24,8 +24,10 @@
 //! mode at 4 Hz with 12-bit resolution; no configuration write is needed
 //! for a simple read-only use.
 
-use embedded_hal_async::i2c::I2c;
+use embedded_hal_async::i2c::{I2c, SevenBitAddress};
 use ubos_core::units::Temperature;
+
+use crate::{Readings, TempSource, add_source};
 
 /// Temperature register pointer. POR value selects this register, so a
 /// plain two-byte read without a preceding pointer write also works if the
@@ -43,26 +45,18 @@ const MAX_MILLICELSIUS: i32 = 150_000;
 const MILLICELSIUS_NUMERATOR: i32 = 125;
 const MILLICELSIUS_DENOMINATOR: i32 = 2;
 
-/// One TMP102 on the I2C bus. Holds the address only; the bus is passed
-/// in on each read so multiple sensors can share a `&mut I` without
-/// each owning a copy.
+/// One TMP102 on the I2C bus: its address and what it measures. The bus
+/// is passed in on each read so multiple sensors can share a `&mut I`
+/// without each owning a copy.
+#[derive(Clone, Copy)]
 pub struct Tmp102 {
-    address: u8,
+    /// The sensor's 7-bit I2C address.
+    pub address: SevenBitAddress,
+    /// What the sensor's own channel measures.
+    pub local: TempSource,
 }
 
 impl Tmp102 {
-    /// Construct a driver for the TMP102 at `address`.
-    #[must_use]
-    pub const fn new(address: u8) -> Self {
-        Self { address }
-    }
-
-    /// Return the configured I2C address.
-    #[must_use]
-    pub const fn address(&self) -> u8 {
-        self.address
-    }
-
     /// Read the temperature register.
     ///
     /// Returns `Err` on a bus error or when the decoded value is outside
@@ -80,6 +74,14 @@ impl Tmp102 {
             return Err(Error::OutOfRange(millicelsius));
         }
         Ok(Temperature::from_millicelsius(millicelsius))
+    }
+
+    /// Read the temperature as what [`local`](Self::local) names, or the
+    /// fault that kept it from one.
+    pub async fn read_temperatures<I: I2c>(&self, i2c: &mut I) -> Readings<I::Error> {
+        [add_source(self.local, self.read_temperature(i2c).await)]
+            .into_iter()
+            .collect()
     }
 }
 

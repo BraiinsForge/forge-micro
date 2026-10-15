@@ -23,7 +23,10 @@ use ubos_asic::HashboardDescriptor;
 use ubos_psu::sic45x::{LoopScale, Sic45xConfig};
 use ubos_psu::tps53647::Tps53647Config;
 use ubos_psu::{BfmPsuDescriptor, BmmPsuDescriptor, ForgeAxePsuDescriptor};
-use ubos_temperature::{SensorDescriptor, SensorKind};
+use ubos_temperature::lm75a::Lm75a;
+use ubos_temperature::tmp102::Tmp102;
+use ubos_temperature::tmp461::Tmp461;
+use ubos_temperature::{SensorDescriptor, TempSource};
 
 use crate::control_board::{
     CONTROL_BOARD_BMM_ADAPTER, CONTROL_BOARD_ESP32S3, CONTROL_BOARD_FORGE_AXE,
@@ -76,26 +79,22 @@ pub struct MachineDescriptor<Psu: Copy> {
 /// `0x49..=0x4c`. Shared by every miniminer machine and the host runner
 /// so the two cannot drift.
 pub const BMM101_SENSORS: [SensorDescriptor; 4] = [
-    SensorDescriptor {
-        kind: SensorKind::Lm75a,
+    SensorDescriptor::Lm75a(Lm75a {
         address: 0x49,
-        attached_chip: None,
-    },
-    SensorDescriptor {
-        kind: SensorKind::Lm75a,
+        local: TempSource::Hashboard,
+    }),
+    SensorDescriptor::Lm75a(Lm75a {
         address: 0x4a,
-        attached_chip: None,
-    },
-    SensorDescriptor {
-        kind: SensorKind::Lm75a,
+        local: TempSource::Hashboard,
+    }),
+    SensorDescriptor::Lm75a(Lm75a {
         address: 0x4b,
-        attached_chip: None,
-    },
-    SensorDescriptor {
-        kind: SensorKind::Lm75a,
+        local: TempSource::Hashboard,
+    }),
+    SensorDescriptor::Lm75a(Lm75a {
         address: 0x4c,
-        attached_chip: None,
-    },
+        local: TempSource::Hashboard,
+    }),
 ];
 
 impl MachineDescriptor<BmmPsuDescriptor> {
@@ -153,21 +152,19 @@ pub const MINIMINER_INPUT_POWER_MW: core::ops::RangeInclusive<u32> = 19_000..=67
 /// the hashboard readings, the TMP102 pair's and the TMP461 local channel's,
 /// drive the cooling PID and cover the safety value if the die read fails.
 pub const BFMX4_SENSORS: [SensorDescriptor; 3] = [
-    SensorDescriptor {
-        kind: SensorKind::Tmp461,
+    SensorDescriptor::Tmp461(Tmp461 {
         address: 0x4E,
-        attached_chip: Some(0),
-    },
-    SensorDescriptor {
-        kind: SensorKind::Tmp102,
+        local: TempSource::Hashboard,
+        remote: TempSource::Chip(0),
+    }),
+    SensorDescriptor::Tmp102(Tmp102 {
         address: 0x48,
-        attached_chip: None,
-    },
-    SensorDescriptor {
-        kind: SensorKind::Tmp102,
+        local: TempSource::Hashboard,
+    }),
+    SensorDescriptor::Tmp102(Tmp102 {
         address: 0x49,
-        attached_chip: None,
-    },
+        local: TempSource::Hashboard,
+    }),
 ];
 
 /// `SIC45x` configuration for the Hashnode 4-domain 4.8 V rail.
@@ -233,16 +230,14 @@ const _: () = assert!(
 /// the safety value. Addresses are the schematic strap
 /// candidates, pending hardware confirmation.
 pub const FORGE_AXE_SENSORS: [SensorDescriptor; 2] = [
-    SensorDescriptor {
-        kind: SensorKind::Tmp102,
+    SensorDescriptor::Tmp102(Tmp102 {
         address: 0x48,
-        attached_chip: None,
-    },
-    SensorDescriptor {
-        kind: SensorKind::Tmp102,
+        local: TempSource::Hashboard,
+    }),
+    SensorDescriptor::Tmp102(Tmp102 {
         address: 0x49,
-        attached_chip: None,
-    },
+        local: TempSource::Hashboard,
+    }),
 ];
 
 /// TPS53647 configuration for the Forge Axe 1.2 V rail. The `PMBus`
