@@ -128,7 +128,7 @@ ubos_mining::pool_weights_task!(&mining::CHAINS);
 ubos_mining::miner_metrics_task!(POOL_SLOTS);
 
 ubos_thermal::thermal_task!(
-    ubos_thermal::SensorArray<psu::Device>,
+    ubos_thermal::SensorArray<{ config::MACHINE.temp.len() }, psu::Device>,
     ubos_thermal::NoAmbient
 );
 
@@ -389,8 +389,10 @@ async fn boot(spawner: Spawner) {
         )));
 
         // Temperature and fan monitor via shared I2C1 bus.
-        let temp_device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
-        let hashboard_temp = ubos_thermal::SensorArray::new(temp_device, config::MACHINE.temp);
+        let hashboard_temp = ubos_thermal::SensorArray::new(
+            const { config::MACHINE.temp.as_array().unwrap() },
+            || embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus),
+        );
         let board_fan = ubos_stm32::fan::BoardFan::new(hw.tim4, hw.fan_pwm_pin, hw.fan_tach_pin);
         // Takes the fan by reference as proof that CH4 is configured and its
         // capture interrupt is armed.

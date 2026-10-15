@@ -2381,6 +2381,7 @@ dependencies = [
  "ubos-mining",
  "ubos-net",
  "ubos-psu",
+ "ubos-temperature",
  "ubos-thermal",
  "ubos-webui",
 ]

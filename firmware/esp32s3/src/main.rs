@@ -147,7 +147,7 @@ impl ubos_metrics::mcu_temperature::McuTemperatureSensor for McuTempSensor {
 ubos_metrics::mcu_temperature_task!(McuTempSensor);
 
 ubos_thermal::thermal_task!(
-    ubos_thermal::SensorArray<psu::Device>,
+    ubos_thermal::SensorArray<{ config::MACHINE.temp.len() }, psu::Device>,
     ubos_thermal::NoAmbient
 );
 
@@ -524,8 +524,10 @@ async fn boot(spawner: Spawner) {
         )));
 
         // Temperature and fan monitor via shared I2C0 bus.
-        let temp_device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
-        let hashboard_temp = ubos_thermal::SensorArray::new(temp_device, config::MACHINE.temp);
+        let hashboard_temp = ubos_thermal::SensorArray::new(
+            const { config::MACHINE.temp.as_array().unwrap() },
+            || embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus),
+        );
         let board_fan = ubos_esp32::fan::BoardFan::new(hw.ledc, hw.fan_pwm_pin);
         let board_tach =
             ubos_esp32::fan::BoardTach::new(hw.pcnt, hw.fan_tach_pin, TACH_PULSES_PER_REV);

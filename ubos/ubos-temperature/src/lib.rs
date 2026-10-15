@@ -19,11 +19,11 @@
 
 //! Board-temperature hardware drivers and the descriptor types a board
 //! uses to declare its sensor topology. The LM75A, TMP102 and TMP461
-//! drivers live in sibling modules, and
-//! [`SensorDescriptor::read_temperatures`] takes the [`Readings`] of
-//! whichever of them a descriptor names. `ubos-thermal` folds those
-//! readings, owns the sensor trait and the sample loop, and writes every
-//! metric; nothing here decides or publishes anything.
+//! drivers live in sibling modules, and [`Sensor::read_temperatures`]
+//! takes the [`Readings`] of whichever of them a descriptor names.
+//! `ubos-thermal` folds those readings, owns the sensor trait and the
+//! sample loop, and writes every metric; nothing here decides or
+//! publishes anything.
 
 #![no_std]
 #![allow(clippy::missing_errors_doc)]
@@ -61,15 +61,38 @@ impl SensorDescriptor {
             Self::Tmp461(sensor) => sensor.address,
         }
     }
+}
+
+/// One sensor on the board: the descriptor of its part and the bus device
+/// it is read through. Each sensor owns its device, so a device that
+/// serialises a shared bus, such as embassy's `I2cDevice`, lets every
+/// sensor be read on its own.
+pub struct Sensor<Bus> {
+    descriptor: &'static SensorDescriptor,
+    bus: Bus,
+}
+
+impl<Bus: I2c> Sensor<Bus> {
+    /// The sensor `descriptor` names, read through `bus`.
+    #[must_use]
+    pub const fn new(descriptor: &'static SensorDescriptor, bus: Bus) -> Self {
+        Self { descriptor, bus }
+    }
+
+    /// The descriptor of the sensor's part.
+    #[must_use]
+    pub const fn descriptor(&self) -> &'static SensorDescriptor {
+        self.descriptor
+    }
 
     /// Read every channel of the sensor through its driver, which tags
     /// each channel's reading, or the fault that kept it from one, with
     /// what the channel measures.
-    pub async fn read_temperatures<Bus: I2c>(&self, bus: &mut Bus) -> Readings<Bus::Error> {
-        match self {
-            Self::Lm75a(sensor) => sensor.read_temperatures(bus).await,
-            Self::Tmp102(sensor) => sensor.read_temperatures(bus).await,
-            Self::Tmp461(sensor) => sensor.read_temperatures(bus).await,
+    pub async fn read_temperatures(&mut self) -> Readings<Bus::Error> {
+        match self.descriptor {
+            SensorDescriptor::Lm75a(driver) => driver.read_temperatures(&mut self.bus).await,
+            SensorDescriptor::Tmp102(driver) => driver.read_temperatures(&mut self.bus).await,
+            SensorDescriptor::Tmp461(driver) => driver.read_temperatures(&mut self.bus).await,
         }
     }
 }

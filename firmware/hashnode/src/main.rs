@@ -151,7 +151,7 @@ async fn mdns_task(stack: embassy_net::Stack<'static>, hostname: &'static str) -
 // back to the PCB sensors when that channel goes quiet, and halts on the
 // lower `dangerous_hashboard_temp_c` for as long as it does.
 ubos_thermal::thermal_task!(
-    ubos_thermal::SensorArray<psu::Device>,
+    ubos_thermal::SensorArray<{ config::MACHINE.temp.len() }, psu::Device>,
     ubos_thermal::NoAmbient
 );
 
@@ -368,8 +368,10 @@ async fn boot(spawner: Spawner) {
     )));
 
     // Temperature and fan monitor via shared I2C bus.
-    let temp_device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
-    let hashboard_temp = ubos_thermal::SensorArray::new(temp_device, config::MACHINE.temp);
+    let hashboard_temp =
+        ubos_thermal::SensorArray::new(const { config::MACHINE.temp.as_array().unwrap() }, || {
+            embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus)
+        });
     let board_fan = fan::BoardFan::new(
         hw.fan_pwm_slice,
         hw.fan_pwm_pin,

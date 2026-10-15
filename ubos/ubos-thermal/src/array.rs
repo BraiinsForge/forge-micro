@@ -30,7 +30,7 @@
 use embedded_hal_async::i2c::{I2c, SevenBitAddress};
 use ubos_core::units::Temperature;
 use ubos_logging::{Debug2Format, error};
-use ubos_temperature::{ReadingError, SensorDescriptor, TempSource};
+use ubos_temperature::{ReadingError, Sensor, SensorDescriptor, TempSource};
 
 use crate::metrics::publish_sensor_reading;
 use crate::{Reading, Sample, Source, TemperatureSensor};
@@ -42,20 +42,28 @@ use crate::{Reading, Sample, Source, TemperatureSensor};
 /// table per hashboard.
 const CHAIN: usize = 0;
 
-/// Multi-sensor hashboard aggregator backed by a descriptor slice.
-pub struct SensorArray<Bus> {
-    bus: Bus,
-    sensors: &'static [SensorDescriptor],
+/// Multi-sensor hashboard aggregator over a board's sensor table.
+pub struct SensorArray<const N: usize, Bus> {
+    sensors: [Sensor<Bus>; N],
 }
 
-impl<Bus> SensorArray<Bus> {
+impl<const N: usize, Bus: I2c> SensorArray<N, Bus> {
+    /// One [`Sensor`] for each entry of `sensors`, each read through a
+    /// device of its own from `bus_device`.
     #[must_use]
-    pub const fn new(bus: Bus, sensors: &'static [SensorDescriptor]) -> Self {
-        Self { bus, sensors }
+    pub fn new(
+        sensors: &'static [SensorDescriptor; N],
+        mut bus_device: impl FnMut() -> Bus,
+    ) -> Self {
+        Self {
+            sensors: sensors
+                .each_ref()
+                .map(|descriptor| Sensor::new(descriptor, bus_device())),
+        }
     }
 }
 
-impl<Bus> TemperatureSensor for SensorArray<Bus>
+impl<const N: usize, Bus> TemperatureSensor for SensorArray<N, Bus>
 where
     Bus: I2c,
 {
@@ -63,9 +71,9 @@ where
         let mut chip: Option<Temperature> = None;
         let mut hashboard: Option<Temperature> = None;
 
-        for desc in self.sensors {
-            let address = desc.address();
-            for result in desc.read_temperatures(&mut self.bus).await {
+        for sensor in &mut self.sensors {
+            let address = sensor.descriptor().address();
+            for result in sensor.read_temperatures().await {
                 let Ok(reading) = result.inspect_err(|error| log_fault(address, error)) else {
                     continue;
                 };

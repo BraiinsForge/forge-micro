@@ -30,16 +30,17 @@ use embedded_i2c_unix::I2c as HostI2c;
 use log::{error, info};
 use ubos_core::units::Temperature;
 use ubos_machine::BMM101_SENSORS;
+use ubos_temperature::Sensor;
 use ubos_thermal::{Reading, Sample, Source, TemperatureSensor};
 
 use crate::psu::I2C_BUS_ENV;
 
 pub struct HashboardTemperature {
-    bus: HostI2c,
+    sensors: Vec<Sensor<HostI2c>>,
 }
 
 impl HashboardTemperature {
-    /// Open a second handle to the PSU I2C bus for the four LM75A
+    /// Open a handle to the PSU I2C bus for each of the four LM75A
     /// sensors. Bus path comes from `UBOS_I2C_BUS`, defaulting to
     /// `/dev/i2c-0`. Returns `None` if the env var is set but empty
     /// or the bus cannot be opened.
@@ -49,8 +50,12 @@ impl HashboardTemperature {
         if path.is_empty() {
             return None;
         }
-        let bus = match HostI2c::open(path) {
-            Ok(bus) => bus,
+        let sensors = BMM101_SENSORS
+            .iter()
+            .map(|desc| HostI2c::open(path).map(|bus| Sensor::new(desc, bus)))
+            .collect();
+        let sensors = match sensors {
+            Ok(sensors) => sensors,
             Err(error) => {
                 error!("temperature: cannot open {path}: {error}");
                 return None;
@@ -60,16 +65,16 @@ impl HashboardTemperature {
             "temperature: opened {path} for {} LM75A sensor(s)",
             BMM101_SENSORS.len()
         );
-        Some(Self { bus })
+        Some(Self { sensors })
     }
 }
 
 impl TemperatureSensor for HashboardTemperature {
     async fn sample(&mut self) -> Reading {
         let mut hottest: Option<Temperature> = None;
-        for desc in &BMM101_SENSORS {
-            let address = desc.address();
-            for result in desc.read_temperatures(&mut self.bus).await {
+        for sensor in &mut self.sensors {
+            let address = sensor.descriptor().address();
+            for result in sensor.read_temperatures().await {
                 match result {
                     Ok(reading) => hottest = hottest.max(Some(reading.value)),
                     Err(error) => error!(
