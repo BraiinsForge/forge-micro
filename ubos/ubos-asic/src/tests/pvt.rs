@@ -28,6 +28,12 @@ fn the_store() {
     store.record(0, Some(41.5), Some(300.0));
     store.record(1, Some(38.0), Some(290.0));
     assert_eq!(store.hottest_millicelsius(), Some(41_500));
+    assert_eq!(
+        store.temperature(1),
+        Some(Temperature::from_millicelsius(38_000))
+    );
+    assert_eq!(store.temperature(2), None, "chip 2 has not reported");
+    assert_eq!(store.temperature(16), None, "chip 16 is past the array");
     let dies = store.temperature_summary().expect("two chips reported");
     assert_eq!(dies.chips, 2);
     assert_eq!(dies.total_millicelsius, 79_500);

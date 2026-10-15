@@ -176,11 +176,12 @@ struct StoredValue {
 const KEY_CAPACITY: usize = 80;
 
 /// The longest key the tree renders, in the label-expanded form
-/// [`MetricKey::from_metric`] builds: `hashboard_chain_chip_temperature_millicelsius`
-/// with the `chain` and `stat` labels `ubos-thermal` gives it. A chain
-/// index is one digit for every `MAX_CHAINS` below ten.
+/// [`MetricKey::from_metric`] builds: `board_temperature_millicelsius`
+/// with the `addr`, `chain` and `source` labels `ubos-thermal` gives a
+/// hashboard reading. A chain index is one digit for every `MAX_CHAINS`
+/// below ten, and a 7-bit address renders in four characters.
 const LONGEST_RENDERED_KEY: &str =
-    "hashboard_chain_chip_temperature_millicelsius{chain=\"0\",stat=\"highest\"}";
+    "board_temperature_millicelsius{addr=\"0x48\",chain=\"0\",source=\"hashboard\"}";
 
 const _: () = assert!(
     LONGEST_RENDERED_KEY.len() <= KEY_CAPACITY,

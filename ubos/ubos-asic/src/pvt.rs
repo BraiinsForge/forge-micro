@@ -28,16 +28,20 @@
 //! a cell that has never been written reads as absent rather than as
 //! zero.
 //!
-//! What the store hands out is the chain's aggregate, not one chip's
-//! cell: the thermal loop needs the hottest die the chain reported and
-//! whether the chain is still reporting at all, and nothing outside
-//! needs to walk the chips.
+//! What the store hands out is mostly the chain's aggregate: the thermal
+//! loop needs the hottest die the chain reported and whether the chain is
+//! still reporting at all. One chip's die temperature is handed out too,
+//! for the metric that publishes every chip's reading.
 
 use core::cell::RefCell;
 
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time::Instant;
+use ubos_core::units::Temperature;
+
+/// Index of a chip on its chain, the byte the driver addresses it by.
+pub type ChipIndex = u8;
 
 #[cfg(test)]
 #[path = "tests/pvt.rs"]
@@ -93,7 +97,7 @@ impl<const CHIPS: usize> ChainPvt<CHIPS> {
 
     /// Record what one status turn read from `chip`; either quantity may
     /// be absent when its read failed.
-    pub fn record(&self, chip: u8, celsius: Option<f64>, millivolts: Option<f64>) {
+    pub fn record(&self, chip: ChipIndex, celsius: Option<f64>, millivolts: Option<f64>) {
         self.readings.lock(|readings| {
             let mut readings = readings.borrow_mut();
             let Some(entry) = readings.chips.get_mut(usize::from(chip)) else {
@@ -122,6 +126,20 @@ impl<const CHIPS: usize> ChainPvt<CHIPS> {
     #[must_use]
     pub fn last_answer(&self) -> Option<Instant> {
         self.readings.lock(|readings| readings.borrow().last_answer)
+    }
+
+    /// The die temperature `chip` last reported, or `None` until it has
+    /// reported one.
+    #[must_use]
+    pub fn temperature(&self, chip: ChipIndex) -> Option<Temperature> {
+        self.readings.lock(|readings| {
+            readings
+                .borrow()
+                .chips
+                .get(usize::from(chip))
+                .and_then(|entry| entry.temperature_millicelsius)
+                .map(Temperature::from_millicelsius)
+        })
     }
 
     /// The hottest die the chain has reported, in millicelsius.

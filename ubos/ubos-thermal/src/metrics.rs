@@ -19,14 +19,43 @@
 
 //! The chip temperature gauge and the ambient gauge.
 //! [`run_thermal`](crate::run_thermal) is the only writer of both, so
-//! the names and the pushes live beside that loop.
+//! the names and the pushes live beside that loop. Beside them is the
+//! reading gauge, which the sensors write: one series for every reading a
+//! sensor takes.
 //!
 //! Metrics: `../../../docs/METRICS.md`.
 
+use core::fmt::Write as _;
+
+use embedded_hal_async::i2c::SevenBitAddress;
 use ubos_core::units::Temperature;
 use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value, push};
+use ubos_temperature::{ChipId, Reading, TempSource};
 
 use crate::Source;
+use crate::chain::chain_labels;
+
+/// Every reading a sensor takes, under the `source` it measures. A
+/// hashboard or chip reading also carries the `chain` it comes from, a
+/// chip reading the `chip` it measures, and every other reading the
+/// `addr` of the sensor that took it.
+const READING_METRIC_NAME: &str = "board_temperature_millicelsius";
+
+/// The `source` label of a hashboard reading, in both gauges that carry
+/// one.
+const HASHBOARD_SOURCE: &str = "hashboard";
+
+/// The `source` label of a chip reading, in both gauges that carry one.
+const CHIP_SOURCE: &str = "chip";
+
+/// The `source` label of a reading of the air around the board.
+const AMBIENT_SOURCE: &str = "ambient";
+
+/// The `source` label of a control-board reading.
+const CONTROL_BOARD_SOURCE: &str = "control_board";
+
+/// The `source` label of a power-supply reading.
+const PSU_SOURCE: &str = "psu";
 
 /// Gauge name. Prometheus convention prefers base SI units, which would
 /// make `_celsius` the canonical suffix. The firmware targets the RP2040
@@ -45,8 +74,8 @@ const AMBIENT_METRIC_NAME: &str = "board_ambient_temperature_millicelsius";
 /// nowhere else, so no comparison outside this module can turn on one.
 const fn source_label(source: Source) -> &'static str {
     match source {
-        Source::Hashboard => "hashboard",
-        Source::Chip => "chip",
+        Source::Hashboard => HASHBOARD_SOURCE,
+        Source::Chip => CHIP_SOURCE,
     }
 }
 
@@ -62,6 +91,84 @@ pub(crate) async fn publish_chip_temperature(temp: Temperature, source: Source) 
         value: LabelValue::Static(source),
     });
     push(Metric::with_labels(METRIC_NAME, labels, value)).await;
+}
+
+/// Push one reading that the I2C sensor at `address` on `chain` took.
+pub(crate) async fn publish_sensor_reading(
+    chain: usize,
+    address: SevenBitAddress,
+    reading: Reading,
+) {
+    match reading.source {
+        TempSource::Hashboard => publish_hashboard_reading(chain, address, reading.value).await,
+        TempSource::Chip(chip) => publish_chip_reading(chain, chip, reading.value).await,
+        TempSource::Ambient => publish_board_reading(AMBIENT_SOURCE, address, reading.value).await,
+        TempSource::ControlBoard => {
+            publish_board_reading(CONTROL_BOARD_SOURCE, address, reading.value).await;
+        }
+        TempSource::Psu => publish_board_reading(PSU_SOURCE, address, reading.value).await,
+    }
+}
+
+/// Push one hashboard reading under the I2C address of the sensor that
+/// took it.
+async fn publish_hashboard_reading(chain: usize, address: SevenBitAddress, value: Temperature) {
+    let mut labels = reading_labels(HASHBOARD_SOURCE, chain);
+    let _ = labels.push(address_label(address));
+    let value = Value::Int(i64::from(value.millicelsius()));
+    push(Metric::with_labels(READING_METRIC_NAME, labels, value)).await;
+}
+
+/// Push one reading of something on no chain under the I2C address of the
+/// sensor that took it.
+async fn publish_board_reading(source: &'static str, address: SevenBitAddress, value: Temperature) {
+    let mut labels = Labels::new();
+    let _ = labels.push(reading_source_label(source));
+    let _ = labels.push(address_label(address));
+    let value = Value::Int(i64::from(value.millicelsius()));
+    push(Metric::with_labels(READING_METRIC_NAME, labels, value)).await;
+}
+
+/// Push one chip's reading under its index on `chain`.
+///
+/// TODO: A board that read one chip both through a sensor diode and over
+/// its chain would write this series from two places, each overwriting the
+/// other. No board does today; one that does needs the series told apart.
+pub(crate) async fn publish_chip_reading(chain: usize, chip: ChipId, value: Temperature) {
+    let mut chip_str = heapless::String::new();
+    let _ = write!(chip_str, "{chip}");
+    let mut labels = reading_labels(CHIP_SOURCE, chain);
+    let _ = labels.push(Label {
+        name: "chip",
+        value: LabelValue::Short(chip_str),
+    });
+    let value = Value::Int(i64::from(value.millicelsius()));
+    push(Metric::with_labels(READING_METRIC_NAME, labels, value)).await;
+}
+
+/// The `source` label that every reading carries.
+const fn reading_source_label(source: &'static str) -> Label {
+    Label {
+        name: "source",
+        value: LabelValue::Static(source),
+    }
+}
+
+/// The `source` and `chain` labels that every reading of a chain carries.
+fn reading_labels(source: &'static str, chain: usize) -> Labels {
+    let mut labels = chain_labels(chain);
+    let _ = labels.push(reading_source_label(source));
+    labels
+}
+
+/// The `addr` label of the I2C sensor at `address`.
+fn address_label(address: SevenBitAddress) -> Label {
+    let mut address_str = heapless::String::new();
+    let _ = write!(address_str, "{address:#04x}");
+    Label {
+        name: "addr",
+        value: LabelValue::Short(address_str),
+    }
 }
 
 /// Push the ambient temperature around the board. What the reading is

@@ -23,46 +23,24 @@
 //! table, then instantiates [`SensorArray`] with that table. On each sample,
 //! `SensorArray` reads every sensor through the drivers in
 //! `ubos-temperature`, folds the readings into the two values this crate
-//! needs — a safety reading and a cooling-PID input — and publishes a
-//! per-sensor metric for every sensor that has a named gauge. Boards supply
-//! only the topology; all folding logic lives here.
-
-use core::fmt::Write as _;
+//! needs — a safety reading and a cooling-PID input — and publishes
+//! every reading it took. Boards supply only the topology; all folding
+//! logic lives here.
 
 use embedded_hal_async::i2c::{I2c, SevenBitAddress};
 use ubos_core::units::Temperature;
 use ubos_logging::{Debug2Format, error};
-use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value, push};
 use ubos_temperature::{ReadingError, SensorDescriptor, TempSource};
 
+use crate::metrics::publish_sensor_reading;
 use crate::{Reading, Sample, Source, TemperatureSensor};
 
-/// Per-sensor gauge name for a driver, or `None` to publish no
-/// per-sensor metric. The match is exhaustive, so a new sensor fails this
-/// crate's build until it states which of the two it is.
-const fn sensor_metric_name(desc: SensorDescriptor) -> Option<&'static str> {
-    match desc {
-        SensorDescriptor::Lm75a(_) => Some("board_lm75a_temperature_millicelsius"),
-        SensorDescriptor::Tmp102(_) | SensorDescriptor::Tmp461(_) => None,
-    }
-}
-
-/// Publish a per-sensor metric labeled by I2C address.
-async fn publish_sensor(name: &'static str, address: u8, millicelsius: i32) {
-    let mut address_str = heapless::String::<24>::new();
-    let _ = write!(address_str, "{address:#04x}");
-    let mut labels = Labels::new();
-    let _ = labels.push(Label {
-        name: "addr",
-        value: LabelValue::Short(address_str),
-    });
-    push(Metric::with_labels(
-        name,
-        labels,
-        Value::Int(i64::from(millicelsius)),
-    ))
-    .await;
-}
+/// The chain of every board that carries an I2C sensor table: one
+/// hashboard, on chain 0.
+///
+/// TODO: Take the chain from the board once a machine carries a sensor
+/// table per hashboard.
+const CHAIN: usize = 0;
 
 /// Multi-sensor hashboard aggregator backed by a descriptor slice.
 pub struct SensorArray<Bus> {
@@ -91,14 +69,10 @@ where
                 let Ok(reading) = result.inspect_err(|error| log_fault(address, error)) else {
                     continue;
                 };
+                publish_sensor_reading(CHAIN, address, reading).await;
                 match reading.source {
                     TempSource::Chip(_) => chip = chip.max(Some(reading.value)),
-                    TempSource::Hashboard => {
-                        hashboard = hashboard.max(Some(reading.value));
-                        if let Some(name) = sensor_metric_name(*desc) {
-                            publish_sensor(name, address, reading.value.millicelsius()).await;
-                        }
-                    }
+                    TempSource::Hashboard => hashboard = hashboard.max(Some(reading.value)),
                     // Published only: these gate no halt and drive no fan.
                     TempSource::Ambient | TempSource::ControlBoard | TempSource::Psu => {}
                 }

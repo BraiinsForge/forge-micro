@@ -51,10 +51,11 @@
 
 use core::fmt::Write as _;
 
+use crate::metrics::publish_chip_reading;
 use crate::{Reading, Sample, Source, TemperatureSensor};
 use embassy_futures::poll_once;
 use embassy_time::{Duration, Instant, Ticker};
-use ubos_asic::ChainPvt;
+use ubos_asic::{ChainPvt, ChipIndex};
 use ubos_core::units::Temperature;
 use ubos_logging::{debug, warn};
 use ubos_metrics::chain::ChainStatsHandle;
@@ -208,8 +209,8 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
         }
     }
 
-    /// One present chain's voltage gauge, die-temperature spread and log
-    /// line.
+    /// One present chain's voltage gauge, die temperatures, their spread
+    /// and log line.
     async fn report_chain(&mut self, chain: usize) {
         let answered = self.pvt[chain].last_answer();
         if answered == self.reported_answer[chain] {
@@ -220,6 +221,12 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
             return;
         }
         self.reported_answer[chain] = answered;
+        for chip in (0..=ChipIndex::MAX).take(CHIPS) {
+            let Some(value) = self.pvt[chain].temperature(chip) else {
+                continue;
+            };
+            publish_chip_reading(chain, chip, value).await;
+        }
         if let Some(temperature) = self.pvt[chain].temperature_summary() {
             let mean = temperature.total_millicelsius / i32::from(temperature.chips);
             Self::publish_stat(chain, "lowest", temperature.lowest_millicelsius).await;
@@ -275,7 +282,7 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
 /// a second label: the die-temperature spread also tags a `stat`, so it
 /// cannot go through [`push_indexed_metric`] alone. Since a board can own
 /// more than one chain, the series would otherwise collide.
-fn chain_labels(chain: usize) -> Labels {
+pub(crate) fn chain_labels(chain: usize) -> Labels {
     let mut chain_str = heapless::String::new();
     let _ = write!(chain_str, "{chain}");
     let mut labels = Labels::new();

@@ -67,8 +67,8 @@ fn the_per_chain_temperature_spread_key_fits_the_budget() {
 #[test]
 fn the_longest_key_constant_matches_what_from_metric_renders() {
     let key = key_for(
-        "hashboard_chain_chip_temperature_millicelsius",
-        &[("chain", "0"), ("stat", "highest")],
+        "board_temperature_millicelsius",
+        &[("source", "hashboard"), ("chain", "0"), ("addr", "0x48")],
     )
     .expect("the longest key must encode");
     assert_eq!(key.0.as_str(), LONGEST_RENDERED_KEY);

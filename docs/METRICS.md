@@ -100,12 +100,11 @@ OTA waits for the miner's `Stopped` state, independent of this metric.
 ## Board temperature
 
 Code: `ubos/ubos-thermal/src/metrics.rs`,
-`ubos/ubos-thermal/src/array.rs`,
+`ubos/ubos-thermal/src/array.rs`, `ubos/ubos-thermal/src/chain.rs`,
 `ubos/ubos-metrics/src/mcu_temperature.rs`.
 
-Four gauges in this section carry a temperature, and each one has a
-single writer. A fifth is the per-chain chip temperature, under
-"Per-chain PVT series" below.
+Four gauges in this section carry a temperature. A fifth is the
+per-chain chip temperature, under "Per-chain PVT series" below.
 
 - `board_chip_temperature_millicelsius` is the hashboard chip
   temperature. `ubos_thermal::run_thermal` writes it on every tick that
@@ -120,10 +119,11 @@ single writer. A fifth is the per-chain chip temperature, under
   a tick whose sensor answers nothing leaves the last written value in
   place. It carries no label, because a board reports one ambient
   reading or none.
-- `board_lm75a_temperature_millicelsius` is a per-sensor reading from
-  each LM75A on the board, labelled by I2C address.
-  `ubos_thermal::array::SensorArray` writes it beside the aggregate the
-  chip gauge carries.
+- `board_temperature_millicelsius` is every reading that a sensor takes.
+  `ubos_thermal::array::SensorArray` writes the readings of its sensors
+  on every tick, and `ubos_thermal::ChainTemperature` writes the reading
+  of each chip together with the per-chain PVT series. See "Reading
+  series" below.
 - `board_mcu_temperature_millicelsius` is the temperature of the MCU die
   on the control board. `ubos_metrics::mcu_temperature` writes it once
   per second, on the boards whose MCU carries an internal thermometer:
@@ -155,12 +155,31 @@ series for each:
 - `source="hashboard"` is the hottest hashboard reading. This series
   selects the `dangerous_hashboard_temp_c` threshold.
 
-### Per-sensor series
+### Reading series
 
-`SensorArray` publishes one series for each PCB sensor whose driver has a
-gauge name. Today the LM75A is the only such driver:
-`board_lm75a_temperature_millicelsius{addr="0x48"}`. The value is the
-reading that the sensor measured, with no offset.
+Each reading that a sensor takes has its own series under
+`board_temperature_millicelsius`. The `source` label tells what the
+reading measures, and the other labels tell where it comes from. A
+series carries only the labels that apply to it:
+
+| Reading | Series |
+|---------|--------|
+| Hashboard | `board_temperature_millicelsius{source="hashboard",chain="0",addr="0x48"}` |
+| Chip | `board_temperature_millicelsius{source="chip",chain="0",chip="5"}` |
+| Ambient | `board_temperature_millicelsius{source="ambient",addr="0x49"}` |
+| Control board | `board_temperature_millicelsius{source="control_board",addr="0x48"}` |
+| PSU | `board_temperature_millicelsius{source="psu",addr="0x48"}` |
+
+The value is the reading that the sensor measured, with no offset.
+`chain` is the chain index that the `hashboard_chain_*` series also use.
+Only hashboard and chip readings have a chain.
+`addr` is the I2C address of the sensor that took the reading. Every
+series except a chip series carries it.
+`chip` is the index of the chip on its chain. A chip has the same series
+whether a TMP461 diode read it or the chain did.
+
+No board has a sensor table entry for the air, the control board or the
+PSU yet. The ambient and MCU gauges above still carry those readings.
 
 ### Units
 

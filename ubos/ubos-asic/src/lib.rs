@@ -47,5 +47,5 @@ pub use chain::{
     ShareDifficulty, ShareTarget, SolutionBatch, VersionPartition, WorkJob, block_header,
     partition_version_mask, rolled_version, solution_hash,
 };
-pub use pvt::{ChainPvt, TemperatureSummary, VoltageSummary};
+pub use pvt::{ChainPvt, ChipIndex, TemperatureSummary, VoltageSummary};
 pub use transport::{BaudRateError, Transport};
