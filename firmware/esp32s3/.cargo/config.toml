@@ -8,6 +8,8 @@ runner = [
 [env]
 # The brand this board ships; brand/README.md holds the table and the format.
 UBOS_BRAND = { value = "../../brand/ubos", relative = true }
+# This board ships no fee slot; docs/DEVFEE.md says how the line is read.
+DEVFEE = "0"
 # DEFMT_LOG stays per-firmware (see workspace .cargo/config.toml for
 # why). The common default all boards share, plus silencers for the
 # board-only esp-hal/esp-rtos crates, which chatter at debug. POOL_*

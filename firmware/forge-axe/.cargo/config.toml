@@ -12,6 +12,8 @@ runner = [
 [env]
 # The brand this board ships; brand/README.md holds the table and the format.
 UBOS_BRAND = { value = "../../brand/forge", relative = true }
+# This board ships no fee slot; docs/DEVFEE.md says how the line is read.
+DEVFEE = "0"
 DEFMT_LOG = "info,embassy_net=info,smoltcp=info"
 # A dev-flash worker for the test pool, and the one name the board's
 # rename did not move: it is an operator-facing identity on a pool

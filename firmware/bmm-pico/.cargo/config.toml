@@ -7,6 +7,8 @@ runner = "probe-rs-board-run"
 [env]
 # The brand this board ships; brand/README.md holds the table and the format.
 UBOS_BRAND = { value = "../../brand/ubos", relative = true }
+# This board ships no fee slot; docs/DEVFEE.md says how the line is read.
+DEVFEE = "0"
 # The shared probe-rs-board-run cargo runner reads the chip from here.
 PROBE_RS_CHIP = "RP235x"
 DEFMT_LOG = "debug,embassy_net=info,smoltcp=info"
