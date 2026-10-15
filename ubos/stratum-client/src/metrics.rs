@@ -77,10 +77,9 @@ impl PoolMetrics {
         }
     }
 
-    /// Set the slot's reachability flag, returning the previous value
-    /// so a caller can detect an alive-to-dead transition.
-    pub(crate) fn set_alive(&self, alive: bool) -> bool {
-        self.alive.swap(alive, Ordering::Relaxed)
+    /// Set the slot's reachability flag.
+    pub(crate) fn set_alive(&self, alive: bool) {
+        self.alive.store(alive, Ordering::Relaxed);
     }
 
     /// Accepted shares since boot.

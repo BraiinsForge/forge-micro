@@ -173,19 +173,11 @@ impl<const N: usize, const CHAINS: usize> PoolHandle<'_, N, CHAINS> {
         self.session.solutions[self.slot].try_receive().ok()
     }
 
-    /// Set or clear this slot's reachability flag.
-    ///
-    /// Fires [`crate::events::pool_unreachable`] on a genuine
-    /// alive-to-dead transition, never on a call that finds the slot
-    /// already dead — such as the initial boot state before a first
-    /// successful connect.
+    /// Set or clear this slot's reachability flag, which the dashboard
+    /// renders as the slot's `Alive` or `Dead` state.
     pub fn set_alive(&self, alive: bool) {
-        let Some(metrics) = crate::metrics::for_slot(self.slot) else {
-            return;
-        };
-        let previous = metrics.set_alive(alive);
-        if previous && !alive {
-            crate::events::pool_unreachable();
+        if let Some(metrics) = crate::metrics::for_slot(self.slot) {
+            metrics.set_alive(alive);
         }
     }
 

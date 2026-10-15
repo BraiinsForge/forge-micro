@@ -309,6 +309,18 @@ pub async fn run_stratum_session<const N: usize>(
                 }
                 Ok(()) => RECONNECT_DELAY,
             };
+            // A session that held a job was serving work, so its end is the
+            // pool going down and the chains moving to a backup pool.
+            if state.job_ring.current().is_some()
+                && let Ok(pool) = u8::try_from(slot + 1)
+            {
+                warn!(
+                    "stratum-client: pool {} unreachable: {}",
+                    pool,
+                    entry.host.as_str()
+                );
+                stratum_client::events::pool_unreachable(pool);
+            }
             Timer::after(delay).await;
         };
         if matches!(

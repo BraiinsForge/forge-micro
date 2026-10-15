@@ -42,7 +42,7 @@ pub mod work;
 pub mod work_ring;
 
 ubos_events::events! {
-    pool_unreachable() warn = "Pool unreachable",
+    pool_unreachable(pool: u8) warn = "Pool {} unreachable",
 }
 
 /// Delay between reconnect attempts when the TCP session drops or the
