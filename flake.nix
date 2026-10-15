@@ -410,6 +410,7 @@
         probe-rs = ./nix/probe-rs.nix;
         source = ./nix/source.nix;
         toolchains = ./nix/toolchains.nix;
+        units = ./nix/units.nix;
       };
 
       # The probe-rs overlay as this repo instantiates it. A consumer

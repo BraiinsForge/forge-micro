@@ -1,0 +1,22 @@
+--- a/nix/build-rust-application.nix	2026-10-15 18:10:04.877365037 +0000
++++ b/nix/build-rust-application.nix	2026-10-15 18:14:28.492311808 +0000
+@@ -105,8 +105,8 @@
+       "rostnix: unknown ${lib.concatStringsSep ", " unknownOverrides}; a crateOverrides entry takes ${lib.concatStringsSep ", " overrideAttrs}";
+     assert lib.assertMsg (foreignExtraSrc == [ ])
+       "rostnix: ${lib.concatStringsSep ", " foreignExtraSrc} is set for a package that is not part of the source tree; extraSrc adds files of the source tree to a local package";
+-    assert lib.assertMsg (graph.bins != { } || graph.libs != { })
+-      "rostnix: the selection builds no binary, no example and no library for use from outside Rust (a cdylib or a staticlib), so there is nothing to install; name what to build with `bins` or `examples`";
++    assert lib.assertMsg (graph.units != { })
++      "rostnix: the selection builds nothing; name what to build with `packages`, `bins` or `examples`";
+     lib.warnIf (unmatchedOverrides != [ ])
+       "rostnix: ${lib.concatStringsSep ", " unmatchedOverrides} ${if lib.length unmatchedOverrides == 1 then "names" else "name"} no package of this build and ${if lib.length unmatchedOverrides == 1 then "has" else "have"} no effect; a key is a package name"
+       (lib.warnIf (unmatchedSkips != [ ])
+@@ -237,6 +237,8 @@
+   };
+ }
+   ''
++    # A selection that installs nothing, a library's units or its tests, leaves an empty result.
++    mkdir -p $out
+     ${collectDebugInfo}
+     ${dropUnusedRunPaths}
+     ${lib.concatMapStrings install (lib.attrNames checked.bins)}
