@@ -81,10 +81,10 @@ pub const NTIME_ROLL_MAX_SECS: u32 = 7_200;
 
 /// Run the integration loop forever (until the transport errors).
 ///
-/// Sets the reachability bit of the handle's slot only after
-/// `client.connect()` completes the protocol handshake successfully,
-/// and clears it on return. A handshake-level failure therefore never
-/// appears as a fleeting "alive" state on the dashboard. Callers
+/// Sets the reachability bit of the handle's slot once the pool has
+/// handed the session a job, and clears it on return. A handshake the
+/// pool completes and then rejects therefore never shows the slot as
+/// alive, because a session that has no job cannot mine. Callers
 /// should invoke [`PoolHandle::record_reconnect_attempt`] at the top
 /// of their outer reconnect loop so the counter reflects
 /// re-establishment attempts rather than the very first boot
@@ -163,11 +163,6 @@ where
     T: Read + Write,
 {
     client.connect(transport).await?;
-    // Handshake completed; only now mark the pool as alive so a
-    // failed connect does not produce a transient "alive" blip in the
-    // reachability bitmap between this function's entry and the
-    // `await?` returning Err.
-    asic.set_alive(true);
 
     // A caller passing `Some(0)` most likely means "publish as fast as
     // possible", not "don't roll" — that's what `None` is for.
@@ -193,6 +188,7 @@ where
             Either3::First(drive_result) => {
                 drive_result?;
                 client.accept(state);
+                asic.set_alive(state.job_ring.current().is_some());
                 if work_ticker.is_none()
                     && let Some(current_job_id) = state.job_ring.current().map(|slot| slot.job_id)
                     && last_published != Some(current_job_id)
