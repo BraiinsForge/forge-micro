@@ -114,8 +114,8 @@ type CSMutex = CriticalSectionRawMutex;
 
 /// A single PSU metrics sample.
 ///
-/// Published by [`run_power_stats`] on every tick. Successful ticks
-/// carry fresh values with `sensor_fault = false`; failed ticks carry
+/// Published by [`PowerSupply::run`] on every poll. Successful polls
+/// carry fresh values with `sensor_fault = false`; failed polls carry
 /// the most recent known-good values plus `sensor_fault = true` so
 /// consumers see a stable last-good reading alongside a fault flag.
 #[derive(Clone, Copy)]
@@ -132,7 +132,7 @@ pub struct PsuReading {
     pub output_voltage_measured: Voltage,
     /// Monotonic timestamp of this reading in milliseconds since boot.
     pub timestamp_ms: u64,
-    /// True when one or more reads on this tick failed and the values
+    /// True when one or more reads on this poll failed and the values
     /// above are the last successful sample carried forward.
     pub sensor_fault: bool,
 }
@@ -143,13 +143,14 @@ pub struct PsuReading {
 /// `subscribe()` callers.
 const WATCH_CAPACITY: usize = 4;
 
-/// Module-internal state watch. Single writer is [`run_power_stats`];
+/// Module-internal state watch. Single writer is [`PowerSupply::run`];
 /// readers obtained via [`Handle::subscribe`] or [`Handle::current`].
 pub(crate) static STATE_WATCH: Watch<CSMutex, PsuReading, WATCH_CAPACITY> = Watch::new();
 
 /// Most recent voltage commanded via [`Psu::set_voltage`], in
 /// millivolts. Zero means no `set_voltage` call has succeeded yet on
-/// this boot. Written by the PSU impl, read by [`run_power_stats`].
+/// this boot. Written by [`record_set_voltage`], read by
+/// [`PowerSupply::run`].
 static SET_VOLTAGE_MV: AtomicU32 = AtomicU32::new(0);
 
 /// Gauge carrying the last voltage commanded, published from the two
@@ -160,20 +161,20 @@ const SET_VOLTAGE_METRIC: &str = "board_psu_output_voltage_set_mv";
 /// so the metrics publisher can include it in the next [`PsuReading`].
 ///
 /// The task that commands the rail calls this with the voltage the
-/// driver answered, so [`run_power_stats`] reports the set voltage
+/// driver answered, so [`PowerSupply::run`] reports the set voltage
 /// alongside the measured one.
 pub fn record_set_voltage(voltage: Voltage) {
     SET_VOLTAGE_MV.store(voltage.mv(), AtomicOrdering::Relaxed);
 }
 
 /// Record a successful `set_voltage` write and publish its gauge, for a
-/// driver whose board runs no [`run_power_stats`].
+/// driver whose board runs no [`PowerSupply::run`].
 ///
 /// A supply with nothing to measure has no reason to be polled, but the
 /// voltage it was commanded to is still worth exposing, and that gauge
 /// otherwise rides the poll loop. One push per setpoint suffices: the
 /// metric map holds the last value pushed until it is overwritten, and
-/// [`run_power_stats`] republishes every tick only because it is already
+/// [`PowerSupply::run`] republishes every poll only because it is already
 /// awake.
 pub async fn publish_set_voltage(voltage: Voltage) {
     record_set_voltage(voltage);
@@ -193,7 +194,7 @@ pub const MODEL_LEN: usize = 40;
 pub type ModelString = heapless::String<MODEL_LEN>;
 
 /// Module-internal model watch. Written at most once, by
-/// [`run_power_stats`] once the driver identified a model; read via
+/// [`PowerSupply::run`] once the driver identified a model; read via
 /// [`Handle::model`].
 static MODEL_WATCH: Watch<CSMutex, ModelString, 1> = Watch::new();
 
@@ -255,39 +256,60 @@ impl Handle {
     }
 }
 
-/// Periodic publisher for INA230 power and voltage readings. Runs forever.
+/// A board's PSU: the driver the PSU task polls.
 ///
-/// Reads input power, output power, and the output-rail bus voltage at
-/// every [`POWER_STATS_INTERVAL`] tick. Successful reads push to
-/// prometheus and publish a fresh [`PsuReading`]; failures log an error
-/// and republish the last known values with `sensor_fault = true` so
-/// consumers see a stable last-good sample plus a fault flag. Mirrors
-/// the publish pattern in `ubos_thermal::run_thermal`. Boards spawn it
-/// through [`power_stats_task`], because a task cannot be generic.
-///
-/// `psu` is a generic parameter rather than a receiver, so no inherent
-/// `impl` here can take it. A default method on the [`Psu`] trait could,
-/// and would put a publishing loop on the trait every implementor has to
-/// carry, so this stays a free function the macro wraps.
-// The function reads in a flat sequence (power, voltage, status) and
-// pushes metrics inline; splitting into helpers would force the `P:
-// Psu` bound and the publisher captures through each one.
-#[allow(clippy::too_many_lines)]
-pub async fn run_power_stats<P>(psu: &P) -> !
-where
-    P: Psu,
-{
-    let publisher = STATE_WATCH.sender();
-    let mut ticker = embassy_time::Ticker::every(POWER_STATS_INTERVAL);
-    let mut last_known: Option<(Power, Power, Voltage)> = None;
-    // Tracks whether a fault was active on the previous poll so the event
-    // fires only on the false-to-true transition rather than every tick.
-    let mut psu_fault_active = false;
-    loop {
-        ticker.next().await;
-        let input_result = psu.read_input_power().await;
-        let output_result = psu.read_output_power().await;
-        let voltage_result = psu.read_output_voltage().await;
+/// [`PowerSupply::run`] is the only writer of the readings and the model
+/// the [`Handle`] reads, so they are recorded where the driver answers.
+pub struct PowerSupply<P: 'static> {
+    driver: &'static P,
+}
+
+/// What one poll hands the next.
+#[derive(Default)]
+struct Poll {
+    /// The last fully successful sample, republished with a fault flag
+    /// when a later poll fails.
+    last_known: Option<(Power, Power, Voltage)>,
+    /// Whether a fault was active on the previous poll, so the event
+    /// fires only on the rising edge rather than every poll.
+    fault_active: bool,
+}
+
+impl<P: Psu> PowerSupply<P> {
+    /// A supply over `driver`. The first call into the driver comes
+    /// from [`PowerSupply::run`].
+    #[must_use]
+    pub const fn new(driver: &'static P) -> Self {
+        Self { driver }
+    }
+
+    /// Run the PSU forever: every [`POWER_STATS_INTERVAL`] read the
+    /// power, the voltage and the status and publish them. Boards spawn
+    /// it through [`power_stats_task`].
+    pub async fn run(&self) -> ! {
+        let mut ticker = embassy_time::Ticker::every(POWER_STATS_INTERVAL);
+        let mut poll = Poll::default();
+        loop {
+            ticker.next().await;
+            self.poll(&mut poll).await;
+            if MODEL_WATCH.try_get().is_none()
+                && let Some(model) = self.driver.model().await
+            {
+                MODEL_WATCH.sender().send(model);
+            }
+        }
+    }
+
+    /// One poll: read the power, the voltage and the status, push their
+    /// gauges, and publish a [`PsuReading`].
+    // The function reads the power, the voltage and the status in a flat
+    // sequence and pushes metrics inline; splitting it would only move the
+    // pushes.
+    #[allow(clippy::too_many_lines)]
+    async fn poll(&self, poll: &mut Poll) {
+        let input_result = self.driver.read_input_power().await;
+        let output_result = self.driver.read_output_power().await;
+        let voltage_result = self.driver.read_output_voltage().await;
         let set_voltage = Voltage::from_mv(SET_VOLTAGE_MV.load(AtomicOrdering::Relaxed));
         let now_ms = embassy_time::Instant::now().as_millis();
 
@@ -327,7 +349,7 @@ where
         }
 
         match &voltage_result {
-            Ok(voltage) => publish_measured_voltage(*voltage, psu.voltage_source()).await,
+            Ok(voltage) => publish_measured_voltage(*voltage, self.driver.voltage_source()).await,
             Err(error) => {
                 ubos_logging::error!(
                     "psu voltage read failed: {:?}",
@@ -335,10 +357,10 @@ where
                 );
             }
         }
-        if let Some(secondary) = psu.read_secondary_voltage().await {
+        if let Some(secondary) = self.driver.read_secondary_voltage().await {
             match secondary {
                 Ok(voltage) => {
-                    publish_measured_voltage(voltage, psu.secondary_voltage_source()).await;
+                    publish_measured_voltage(voltage, self.driver.secondary_voltage_source()).await;
                 }
                 Err(error) => {
                     ubos_logging::error!(
@@ -356,8 +378,8 @@ where
 
         match (input_result, output_result, voltage_result) {
             (Ok(input), Ok(output), Ok(voltage)) => {
-                last_known = Some((input, output, voltage));
-                publisher.send(PsuReading {
+                poll.last_known = Some((input, output, voltage));
+                STATE_WATCH.sender().send(PsuReading {
                     input_power: input,
                     output_power: output,
                     output_voltage_set: set_voltage,
@@ -367,8 +389,8 @@ where
                 });
             }
             _ => {
-                if let Some((input, output, voltage)) = last_known {
-                    publisher.send(PsuReading {
+                if let Some((input, output, voltage)) = poll.last_known {
+                    STATE_WATCH.sender().send(PsuReading {
                         input_power: input,
                         output_power: output,
                         output_voltage_set: set_voltage,
@@ -380,7 +402,7 @@ where
             }
         }
 
-        match psu.read_status().await {
+        match self.driver.read_status().await {
             Ok(flags) => {
                 Metric::with_no_labels(
                     "board_psu_status_current_limit",
@@ -413,7 +435,7 @@ where
                 // Emit the fault event and log it once on the rising edge: the
                 // SIC latches the rail off in hardware, so a tripped rail must
                 // not be silent, but logging every tick would spam.
-                if fault_now && !psu_fault_active {
+                if fault_now && !poll.fault_active {
                     crate::events::psu_fault();
                     ubos_logging::warn!(
                         "psu FAULT: overvoltage={} current_limit={} undervoltage={} thermal_shutdown={}",
@@ -423,17 +445,16 @@ where
                         flags.thermal_shutdown,
                     );
                 }
-                psu_fault_active = fault_now;
+                poll.fault_active = fault_now;
             }
             // A terminated PSU will not recover; stop polling it so the
-            // task does not spam warn logs on every tick indefinitely.
+            // task does not spam warn logs on every poll indefinitely.
             // Parking here is symmetric with the `(Err(_), Err(_))` power-read
             // path: both represent an unrecoverable device condition and
             // neither can reset the hardware — the miner task owns that.
             Err(Error::Terminated) => {
                 ubos_logging::warn!("psu status: device terminated; halting poll loop");
                 core::future::pending::<()>().await;
-                unreachable!()
             }
             Err(error) => {
                 ubos_logging::warn!(
@@ -442,15 +463,10 @@ where
                 );
             }
         }
-        if MODEL_WATCH.try_get().is_none()
-            && let Some(model) = psu.model().await
-        {
-            MODEL_WATCH.sender().send(model);
-        }
     }
 }
 
-/// Cadence at which [`run_power_stats`] reads PSU input/output power.
+/// Cadence at which [`PowerSupply::run`] reads PSU input/output power.
 /// Matches the host-runner cadence so the prometheus series rates are
 /// comparable across firmware targets.
 pub const POWER_STATS_INTERVAL: embassy_time::Duration = embassy_time::Duration::from_secs(2);
@@ -522,7 +538,7 @@ pub trait Psu {
     async fn terminate(&self);
 }
 
-/// Task shell around [`run_power_stats`]. Takes the board's PSU type.
+/// Task shell around [`PowerSupply::run`]. Takes the board's PSU type.
 ///
 /// Every board that reads a PSU spawns this. A board on a [`BmmPsu`]
 /// gets it from [`bmm_psu`]; a board whose power stage is its own
@@ -533,7 +549,8 @@ macro_rules! power_stats_task {
     ($psu:ty) => {
         #[embassy_executor::task]
         pub async fn power_stats_task(psu: &'static $psu) -> ! {
-            ubos_psu::run_power_stats(psu).await
+            let supply = ubos_psu::PowerSupply::new(psu);
+            supply.run().await
         }
     };
 }

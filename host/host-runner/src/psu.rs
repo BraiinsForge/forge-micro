@@ -32,7 +32,7 @@
 use embedded_i2c_unix::I2c as HostI2c;
 use log::{error, info};
 use static_cell::StaticCell;
-use ubos_psu::{BmmPsu, BmmPsuDescriptor, BmmShared, run_power_stats};
+use ubos_psu::{BmmPsu, BmmPsuDescriptor, BmmShared, PowerSupply};
 
 /// Env var that points at the i2c-dev character device wired to the
 /// BMM101 PSU. Unset means no hashboard is attached and the runner
@@ -73,5 +73,5 @@ pub async fn watchdog_task(psu: &'static HostPsu) {
 
 #[embassy_executor::task]
 pub async fn power_stats_task(psu: &'static HostPsu) -> ! {
-    run_power_stats(psu).await
+    PowerSupply::new(psu).run().await
 }
