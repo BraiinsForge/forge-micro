@@ -455,6 +455,11 @@ fn main() {
 
     let mining_handle = ubos_mining::handle();
 
+    // Opened before the executor runs, because the HTTP service takes
+    // the PSU handle whether or not a hashboard is attached.
+    let psu = psu::open();
+    let psu_handle = psu.map_or_else(psu::absent, |(_, psu)| psu.handle());
+
     let executor = EXECUTOR.init(Executor::new());
     executor.run(|spawner: Spawner| {
         // SpawnError only fires on reuse of a task token; each constructor
@@ -520,7 +525,7 @@ fn main() {
                 &BOUNDS,
                 thermal,
                 manager_handle,
-                ubos_psu::handle(),
+                psu_handle,
                 stack,
             ),
             fallback: ubos_webui::DashboardService,
@@ -603,7 +608,7 @@ fn main() {
                 info!("host-runner: no pwmfan device found; fan control disabled");
             }
         }
-        match psu::open() {
+        match psu {
             Some((psu_driver, psu)) => {
                 spawner.spawn(psu::watchdog_task(psu_driver).expect("BUG: psu watchdog token"));
                 spawner.spawn(psu::psu_task(psu).expect("BUG: psu_task token"));

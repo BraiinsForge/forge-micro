@@ -330,7 +330,7 @@ async fn handle_info<T, const N: usize>(
     scratch: &mut [u8],
     board_name: &'static str,
     build: &'static str,
-    psu: ubos_psu::Handle,
+    psu_handle: &'static ubos_psu::Handle,
     mining_info: &'static ubos_config::MiningInfo,
 ) -> Result<(), HttpError<T::Error>>
 where
@@ -374,7 +374,7 @@ where
         nominal_hashrate: crate::hw_info::nominal_hashrate(),
         bootloader_version: crate::hw_info::bootloader_version(),
         fan_controller_version: crate::hw_info::fan_controller_version(),
-        psu_model: psu.model(),
+        psu_model: psu_handle.model(),
         hashboard_ids: crate::hw_info::hashboard_ids(),
         chains_present: chain_stats.present_chain_count(),
     };
@@ -1969,7 +1969,7 @@ pub(crate) fn route(method: &str, path: &str) -> DispatchOutcome {
 /// `RestApiService::handle`; exposing this directly would let an
 /// outside caller bypass those checks.
 // The argument count comes from threading `stack`
-// through the existing board_name/build/psu/thermal/manager set. A context
+// through the existing board_name/build/psu_handle/thermal/manager set. A context
 // struct would reduce the count but add indirection without simplifying
 // the callers.
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
@@ -1980,7 +1980,7 @@ pub(crate) async fn dispatch<T, const N: usize>(
     body: &[u8],
     board_name: &'static str,
     build: &'static str,
-    psu: ubos_psu::Handle,
+    psu_handle: &'static ubos_psu::Handle,
     mining_info: &'static ubos_config::MiningInfo,
     thermal: ThermalHandle,
     manager: ManagerHandle,
@@ -2002,7 +2002,15 @@ where
             write_method_not_allowed(connection, allowed).await?;
         }
         DispatchOutcome::Handled(Route::SystemInfo) => {
-            handle_info(connection, scratch, board_name, build, psu, mining_info).await?;
+            handle_info(
+                connection,
+                scratch,
+                board_name,
+                build,
+                psu_handle,
+                mining_info,
+            )
+            .await?;
         }
         DispatchOutcome::Handled(Route::SystemAsic) => {
             handle_asic(connection, scratch, mining_info).await?;

@@ -394,6 +394,7 @@ async fn boot(spawner: Spawner) {
         Input::new(hw.vr_rdy, Pull::None),
     );
     spawner.spawn(unwrap!(psu::psu_task(psu)));
+    let psu_handle = psu.handle();
 
     // GPIO32: HIGH = enabled/out-of-reset; start LOW (in reset) until the
     // miner task is ready to bring up the hashboard.
@@ -570,5 +571,5 @@ async fn boot(spawner: Spawner) {
     spawner.spawn(unwrap!(ota_watchdog_task()));
     spawner.spawn(unwrap!(network_control_task(stack)));
 
-    serve_all(spawner, stack, thermal, manager_handle).await;
+    serve_all(spawner, stack, thermal, manager_handle, psu_handle).await;
 }

@@ -37,7 +37,7 @@
 /// spawner.spawn(unwrap!(metrics_ingest_task()));
 ///
 /// // Once the stack has an address:
-/// serve_all(spawner, stack, thermal, manager_handle).await;
+/// serve_all(spawner, stack, thermal, manager_handle, psu_handle).await;
 /// ```
 ///
 /// The expansion is one `async fn serve_all`, which seeds each
@@ -94,6 +94,7 @@ macro_rules! serve_all {
             stack: embassy_net::Stack<'static>,
             thermal: ubos_thermal::Handle,
             manager: ubos_manager::Handle,
+            psu_handle: &'static ubos_psu::Handle,
         ) {
             // Bound to names of their own so what reaches the task
             // attribute is an identifier. The pool sizes are const
@@ -135,7 +136,7 @@ macro_rules! serve_all {
                     $bounds,
                     thermal,
                     manager,
-                    ubos_psu::handle(),
+                    psu_handle,
                     stack,
                 ),
                 fallback: ubos_webui::DashboardService,

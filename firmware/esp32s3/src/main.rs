@@ -509,7 +509,7 @@ async fn boot(spawner: Spawner) {
     // TCA9554 I/O expander all share I2C0 (GPIO15 SDA, GPIO7 SCL). All
     // mining tasks run on Core 0 so the I2C bus mutex can stay
     // `NoopRawMutex`: every consumer is on the same executor.
-    {
+    let psu_handle = {
         static I2C0_BUS: StaticCell<i2c::Bus> = StaticCell::new();
         // Valid I2C0 peripheral with GPIO15/7 routed via the GPIO matrix; cannot fail.
         let i2c = I2c::new(hw.i2c, I2cConfig::default())
@@ -535,6 +535,7 @@ async fn boot(spawner: Spawner) {
         let (psu_driver, psu) = psu::init(bus);
         spawner.spawn(unwrap!(psu::watchdog_task(psu_driver)));
         spawner.spawn(unwrap!(psu::psu_task(psu)));
+        let psu_handle = psu.handle();
 
         // Hashboard reset: active-low, driven through the carrier TCA9554
         // expander on EXIO5. Asserted (held low) here until the miner
@@ -561,7 +562,8 @@ async fn boot(spawner: Spawner) {
         )));
         spawner.spawn(unwrap!(manager_task(mining_handle)));
         spawner.spawn(unwrap!(cooling_task(board_fan, board_tach, thermal)));
-    }
+        psu_handle
+    };
 
     // Hashboard plug-detect input on GPIO5, pulled up. `boot` returns once the
     // listeners are spawned and the binding drops there, but esp-hal gives
@@ -589,5 +591,5 @@ async fn boot(spawner: Spawner) {
     ubos_api::register_ota_target(ota_target).await;
     spawner.spawn(unwrap!(ota_watchdog_task()));
 
-    serve_all(spawner, stack, thermal, manager_handle).await;
+    serve_all(spawner, stack, thermal, manager_handle, psu_handle).await;
 }

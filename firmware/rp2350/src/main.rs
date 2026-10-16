@@ -346,7 +346,7 @@ async fn boot(spawner: Spawner) {
     // BMM101 hashboard PSU on I2C1: shared bus, PSU watchdog, power
     // stats, and the miner bring-up task all run on core 0 so the I2C
     // bus mutex can stay NoopRawMutex.
-    {
+    let psu_handle = {
         static I2C1_BUS: StaticCell<i2c::Bus> = StaticCell::new();
         let i2c = I2c::new_async(hw.i2c, hw.scl, hw.sda, Irqs, I2cConfig::default());
         let bus: &'static i2c::Bus = I2C1_BUS.init(Mutex::new(i2c));
@@ -367,6 +367,7 @@ async fn boot(spawner: Spawner) {
         let (psu_driver, psu) = psu::init(bus);
         spawner.spawn(unwrap!(psu::watchdog_task(psu_driver)));
         spawner.spawn(unwrap!(psu::psu_task(psu)));
+        let psu_handle = psu.handle();
         let reset = mining::BoardResetPin::new(Output::new(hw.hb_rst, Level::Low));
         spawner.spawn(unwrap!(mining::miner_task(
             psu_driver,
@@ -393,7 +394,8 @@ async fn boot(spawner: Spawner) {
         )));
         spawner.spawn(unwrap!(manager_task(mining_handle)));
         spawner.spawn(unwrap!(cooling_task(board_fan, board_tach, thermal)));
-    }
+        psu_handle
+    };
 
     let config_storage = FlashStorage::new(
         SyncFlash(ubos_ota::SharedBlockingFlash::new(shared_flash, &PARK)),
@@ -524,5 +526,5 @@ async fn boot(spawner: Spawner) {
     spawner.spawn(unwrap!(ota_watchdog_task()));
     spawner.spawn(unwrap!(network_control_task(stack)));
 
-    serve_all(spawner, stack, thermal, manager_handle).await;
+    serve_all(spawner, stack, thermal, manager_handle, psu_handle).await;
 }

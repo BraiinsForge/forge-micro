@@ -20,9 +20,8 @@
 //! Workspace-static `BmmPsu` over the Linux i2c-dev bus.
 //!
 //! Activated by `UBOS_I2C_BUS=/dev/i2c-N`; without the env var set
-//! `open()` returns `None` and the runner skips the miner spawn. The
-//! driver [`open`] returns is handed to the watchdog and miner tasks by
-//! `main.rs`, and the `PowerSupply` over it to the PSU task.
+//! `open()` returns `None` and the runner skips the miner spawn, and
+//! every other task reads the handle that [`absent`] returns instead.
 //!
 //! The host harness is not one of the boards and has no
 //! `MachineDescriptor`; it initializes from `BmmPsuDescriptor::DEFAULT`,
@@ -67,6 +66,14 @@ pub fn open() -> Option<(&'static HostPsu, &'static PowerSupply<HostPsu>)> {
     let shared: &'static _ = SHARED.init(BmmShared::new(i2c, BmmPsuDescriptor::DEFAULT));
     let driver: &'static HostPsu = DRIVER.init(BmmPsu::new(shared));
     Some((driver, PSU.init(PowerSupply::new(driver))))
+}
+
+static ABSENT: ubos_psu::Handle = ubos_psu::Handle::absent();
+
+/// The handle every task reads when no hashboard is attached. Every
+/// read of it answers `None`.
+pub fn absent() -> &'static ubos_psu::Handle {
+    &ABSENT
 }
 
 #[embassy_executor::task]

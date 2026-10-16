@@ -135,7 +135,7 @@ pub struct RestApiService {
     pub(crate) bounds: &'static ubos_config::MiningBounds,
     pub(crate) thermal: ThermalHandle,
     pub(crate) manager: ManagerHandle,
-    pub(crate) psu: ubos_psu::Handle,
+    pub(crate) psu_handle: &'static ubos_psu::Handle,
     pub(crate) stack: Stack<'static>,
 }
 
@@ -156,7 +156,7 @@ impl RestApiService {
         bounds: &'static ubos_config::MiningBounds,
         thermal: ThermalHandle,
         manager: ManagerHandle,
-        psu: ubos_psu::Handle,
+        psu_handle: &'static ubos_psu::Handle,
         stack: Stack<'static>,
     ) -> Self {
         Self {
@@ -166,7 +166,7 @@ impl RestApiService {
             bounds,
             thermal,
             manager,
-            psu,
+            psu_handle,
             stack,
         }
     }
@@ -178,7 +178,7 @@ impl RestApiService {
         let chain_stats = ubos_metrics::chain::handle();
         let thermal_reading = self.thermal.current();
         let fan = ubos_cooling::handle().current();
-        let psu_reading = self.psu.current();
+        let psu_reading = self.psu_handle.current();
         let pause_reasons = self.manager.pause_reasons();
         let mining_state = ubos_mining::handle().state();
         let ota = crate::ota::ota_info().map(|info| {
@@ -420,7 +420,7 @@ impl Service for RestApiService {
                 body,
                 self.board_name,
                 self.build,
-                self.psu,
+                self.psu_handle,
                 self.mining_info,
                 self.thermal,
                 self.manager,
