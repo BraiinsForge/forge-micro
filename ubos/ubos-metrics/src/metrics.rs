@@ -381,37 +381,6 @@ macro_rules! metrics_statics {
     };
 }
 
-/// Push a metric into the exposition channel. Awaits if the channel is full.
-pub async fn push(metric: Metric) {
-    METRICS.send(metric).await;
-}
-
-/// Push one metric carrying one `<label>="<index>"` tag per entry of
-/// `indices`, in the order given.
-///
-/// Delegates to [`Metric::indexed`] so the callers still on this function
-/// keep one label shape until they move to the method.
-pub async fn push_indexed_metrics(
-    name: &'static str,
-    indices: &[(&'static str, usize)],
-    value: Value,
-) {
-    Metric::indexed(name, indices, value).push().await;
-}
-
-/// Push one metric carrying a single `<label>="<index>"` tag.
-///
-/// `stratum-client`, `ubos-mining`, and `ubos-thermal` each had their
-/// own copy of this loop until it moved here.
-pub async fn push_indexed_metric(
-    name: &'static str,
-    label: &'static str,
-    index: usize,
-    value: Value,
-) {
-    push_indexed_metrics(name, &[(label, index)], value).await;
-}
-
 /// Consume pushed metrics into the shared map.
 ///
 /// The sole writer of `statics`' map. `ubos_firmware::serve_all!` wraps
