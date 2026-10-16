@@ -17,9 +17,9 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Coverage for `ChainHandle::bring_up` and `bring_up_all`: the presence
+//! Coverage for `ChainHandle::bring_up` and the miner's `BringUp` state: the presence
 //! decisions they drive the enumeration loop to, the reset pulse
-//! between retries, and the whole-machine `Done` / `NonePresent` split.
+//! between retries, and the whole-machine `StartWork` / `Recover` split.
 //!
 //! Each test runs a real [`Serial`] actor concurrently with the
 //! bring-up call, the same way `tests/serial.rs` drives `Serial::run`:
@@ -29,10 +29,11 @@
 //! `configure` hand back; `LoggingResetPin` records the reset-pin call
 //! sequence a chain's hardware reset produces.
 
-use super::{Choose, Either, Miner, PsuError, STOP_MINING, select};
+use super::{BringUp, Choose, Miner, MinerState, PsuError, STOP_MINING};
 use crate::tuner::MachineTuner;
 use core::cell::{Cell, RefCell};
 use core::convert::Infallible;
+use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::{Mutex, raw::CriticalSectionRawMutex};
 use embassy_time::Instant;
 use embassy_time::{Duration, Timer};
@@ -56,7 +57,6 @@ use crate::serial::Serial;
 
 use stratum_client::AsicSession;
 
-use super::{BringUpOutcome, bring_up_all};
 use crate::chain::presence::ENUMERATE_ATTEMPTS;
 
 /// Reset-pin call recorded by [`LoggingResetPin`].
@@ -507,7 +507,7 @@ fn between_two_attempts_the_chains_reset_is_pulsed_enter_then_exit() {
 }
 
 #[test]
-fn bring_up_all_returns_none_present_when_no_chain_comes_up() {
+fn a_bring_up_with_no_chain_present_recovers() {
     // See the doc comment on `run_bring_up_chain`: the two actors
     // driven here must not overlap another test's `Serial::run`.
     critical_section::with(|_| {
@@ -516,24 +516,24 @@ fn bring_up_all_returns_none_present_when_no_chain_comes_up() {
         static SESSION: AsicSession<1, 2> = AsicSession::new();
         static STATS: [ChainStats; 2] = [ChainStats::new(), ChainStats::new()];
         static ACTIVE: AtomicU8 = AtomicU8::new(2);
-
-        const EXPECTED: u8 = 4;
+        static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
+        let psu = TestPsu {
+            log: &LOG,
+            disable_fails: false,
+            behavior: Cell::new(VoltageWrite::Succeed),
+        };
         let stats_handle = ChainStatsHandle::new(&STATS, &ACTIVE);
-        let mut chains = [
-            ChainHandle {
-                serial: &ACTOR_A,
-                stats: stats_handle.chain(0),
-                reset: LoggingResetPin::new(),
-            },
-            ChainHandle {
-                serial: &ACTOR_B,
-                stats: stats_handle.chain(1),
-                reset: LoggingResetPin::new(),
-            },
-        ];
+        let mut miner = test_miner::<crate::tuner::Tuners, 2>(
+            &psu,
+            [&ACTOR_A, &ACTOR_B],
+            [stats_handle.chain(0), stats_handle.chain(1)],
+        );
+        let mut subscription = test_config().0;
 
         let bring_up = async {
-            let bring_up_outcome = bring_up_all(&mut chains, EXPECTED).await;
+            let bring_up_outcome = miner
+                .advance(MinerState::BringUp(BringUp), &mut subscription)
+                .await;
             let terminate_a = ACTOR_A.terminate().await;
             let terminate_b = ACTOR_B.terminate().await;
             assert!(matches!(terminate_a, Ok(())));
@@ -561,7 +561,7 @@ fn bring_up_all_returns_none_present_when_no_chain_comes_up() {
             block_on(join3(bring_up, run_a, run_b));
         assert!(matches!(primary_run, Ok(())));
         assert!(matches!(secondary_run, Ok(())));
-        assert!(matches!(bring_up_outcome, BringUpOutcome::NonePresent));
+        assert!(matches!(bring_up_outcome, Some(MinerState::Recover(_))));
     });
 }
 
@@ -604,7 +604,7 @@ fn empty_cycles_spend_the_outer_budget_and_a_good_cycle_starts_it_again() {
 }
 
 #[test]
-fn bring_up_all_returns_done_when_at_least_one_chain_comes_up_present() {
+fn a_bring_up_with_one_chain_present_starts_work() {
     // See the doc comment on `run_bring_up_chain`.
     critical_section::with(|_| {
         static ACTOR_A: Serial = Serial::new(0, 2);
@@ -612,24 +612,25 @@ fn bring_up_all_returns_done_when_at_least_one_chain_comes_up_present() {
         static SESSION: AsicSession<1, 2> = AsicSession::new();
         static STATS: [ChainStats; 2] = [ChainStats::new(), ChainStats::new()];
         static ACTIVE: AtomicU8 = AtomicU8::new(2);
-
-        const EXPECTED: u8 = 4;
+        static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
+        const EXPECTED: u8 = BMM101_HASHBOARD.num_chips;
+        let psu = TestPsu {
+            log: &LOG,
+            disable_fails: false,
+            behavior: Cell::new(VoltageWrite::Succeed),
+        };
         let stats_handle = ChainStatsHandle::new(&STATS, &ACTIVE);
-        let mut chains = [
-            ChainHandle {
-                serial: &ACTOR_A,
-                stats: stats_handle.chain(0),
-                reset: LoggingResetPin::new(),
-            },
-            ChainHandle {
-                serial: &ACTOR_B,
-                stats: stats_handle.chain(1),
-                reset: LoggingResetPin::new(),
-            },
-        ];
+        let mut miner = test_miner::<crate::tuner::Tuners, 2>(
+            &psu,
+            [&ACTOR_A, &ACTOR_B],
+            [stats_handle.chain(0), stats_handle.chain(1)],
+        );
+        let mut subscription = test_config().0;
 
         let bring_up = async {
-            let bring_up_outcome = bring_up_all(&mut chains, EXPECTED).await;
+            let bring_up_outcome = miner
+                .advance(MinerState::BringUp(BringUp), &mut subscription)
+                .await;
             let terminate_a = ACTOR_A.terminate().await;
             let terminate_b = ACTOR_B.terminate().await;
             assert!(matches!(terminate_a, Ok(())));
@@ -658,7 +659,7 @@ fn bring_up_all_returns_done_when_at_least_one_chain_comes_up_present() {
             block_on(join3(bring_up, run_a, run_b));
         assert!(matches!(primary_run, Ok(())));
         assert!(matches!(secondary_run, Ok(())));
-        assert!(matches!(bring_up_outcome, BringUpOutcome::Done));
+        assert!(matches!(bring_up_outcome, Some(MinerState::StartWork(_))));
         assert_eq!(
             stats_handle.chain(0).presence(),
             ChainPresence::Present { chips: EXPECTED }
