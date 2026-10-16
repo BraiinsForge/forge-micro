@@ -53,11 +53,15 @@ refuses, what it covers and how to read the table is `docs/GATE.md`. The
 same commands also run one at a time:
 
 ```sh
-nix build .#ci-format                  # cargo fmt + nixfmt
-nix build .#ci-clippy                  # per-crate clippy
-nix build .#ci-check                   # builds, tests, static gates
-nix build .#checks.<system>.<name>     # one check in isolation
-nix flake check                        # everything
+# Cargo plans the host and ARM checks during evaluation, through
+# nix/units.nix, and nix allows that only when told so. The gate and
+# CI say it themselves; a flake cannot.
+plan='--option allow-unsafe-native-code-during-evaluation true'
+nix build $plan .#ci-format                  # cargo fmt + nixfmt
+nix build $plan .#ci-clippy                  # per-crate clippy
+nix build $plan .#ci-check                   # builds, tests, static gates
+nix build $plan .#checks.<system>.<name>     # one check in isolation
+nix flake check $plan                        # everything
 ```
 
 A gate that cannot run, for a full store or a host fault, is reported
