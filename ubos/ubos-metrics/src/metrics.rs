@@ -86,9 +86,10 @@ pub type Labels = heapless::Vec<Label, { Metrics::MAX_LABELS }>;
 
 /// A single metric observation to push into the exposition channel.
 ///
-/// Fields are private; construct through [`Metric::with_no_labels`] or
-/// [`Metric::with_labels`]. Both constructors stamp the metric with the
-/// current monotonic time.
+/// Fields are private; construct through [`Metric::with_no_labels`],
+/// [`Metric::with_labels`] or [`Metric::indexed`], each of which stamps
+/// the metric with the current monotonic time, and push it with
+/// [`Metric::push`].
 ///
 /// The stored timestamp is **monotonic milliseconds since boot**
 /// (`embassy_time::Instant::now().as_millis()`). The exposition path
@@ -124,6 +125,35 @@ impl Metric {
             value,
             timestamp_ms: Instant::now().as_millis(),
         }
+    }
+
+    /// Build a metric carrying one `<label>="<index>"` tag per entry of
+    /// `indices`, in the order given, stamped with the current monotonic
+    /// time.
+    ///
+    /// The shape every index-tagged series in this tree uses: a pool slot,
+    /// a hashboard chain, or both on one series. Each index renders
+    /// through [`LabelValue::Short`], whose capacity bounds the rendered
+    /// text. An index cannot approach that bound. Entries beyond the label
+    /// capacity are dropped, as [`Labels`] drops them everywhere.
+    #[must_use]
+    pub fn indexed(name: &'static str, indices: &[(&'static str, usize)], value: Value) -> Self {
+        let mut labels = Labels::new();
+        for &(label, index) in indices {
+            let mut index_str = heapless::String::new();
+            let _ = write!(index_str, "{index}");
+            let _ = labels.push(Label {
+                name: label,
+                value: LabelValue::Short(index_str),
+            });
+        }
+        Self::with_labels(name, labels, value)
+    }
+
+    /// Push the metric into the exposition channel, waiting while the
+    /// channel is full.
+    pub async fn push(self) {
+        METRICS.send(self).await;
     }
 
     /// The metric's identifier as emitted in the Prometheus body.
@@ -347,31 +377,14 @@ pub async fn push(metric: Metric) {
 /// Push one metric carrying one `<label>="<index>"` tag per entry of
 /// `indices`, in the order given.
 ///
-/// The shape every index-tagged series in this tree uses: a pool slot, a
-/// hashboard chain, or both on one series. Each index renders through
-/// [`LabelValue::Short`], whose capacity bounds the rendered text. An
-/// index cannot approach that bound. Entries beyond the label capacity
-/// are dropped, as [`Labels`] drops them everywhere.
+/// Delegates to [`Metric::indexed`] so the callers still on this function
+/// keep one label shape until they move to the method.
 pub async fn push_indexed_metrics(
     name: &'static str,
     indices: &[(&'static str, usize)],
     value: Value,
 ) {
-    let mut labels = Labels::new();
-    for &(label, index) in indices {
-        let _ = labels.push(Label {
-            name: label,
-            value: index_value(index),
-        });
-    }
-    push(Metric::with_labels(name, labels, value)).await;
-}
-
-/// An index as a label value.
-fn index_value(index: usize) -> LabelValue {
-    let mut text = heapless::String::new();
-    let _ = write!(text, "{index}");
-    LabelValue::Short(text)
+    Metric::indexed(name, indices, value).push().await;
 }
 
 /// Push one metric carrying a single `<label>="<index>"` tag.
