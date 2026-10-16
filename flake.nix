@@ -225,20 +225,17 @@
             ;
         };
 
-        # Shared dependency artifacts for the clippy, test, and build
-        # checks. See nix/deps.nix for the bag-splitting rationale.
+        # Shared dependency artifacts for the two checks cargo builds as
+        # a whole; see nix/deps.nix.
         deps = import ./nix/deps.nix {
           inherit
-            pkgs
             src
-            craneLib
             helpers
             bmmCraneLib
             espCraneLib
             espCargoVendorDir
             xtensaEspToolchain
             bmmCc
-            members
             ;
         };
 
