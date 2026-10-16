@@ -676,6 +676,7 @@ fn a_bring_up_with_one_chain_present_starts_work() {
 enum Write {
     Frequency(usize, Frequency),
     Voltage(Voltage),
+    Enable,
     Disable,
 }
 
@@ -702,6 +703,11 @@ struct TestPsu {
 impl Psu for TestPsu {
     type BusError = Infallible;
     async fn enable(&self) -> Result<(), PsuError<Infallible>> {
+        self.log.lock(|log| {
+            log.borrow_mut()
+                .push(Write::Enable)
+                .expect("write log capacity");
+        });
         Ok(())
     }
     async fn disable(&self) -> Result<(), PsuError<Infallible>> {
@@ -1383,16 +1389,27 @@ fn a_configuration_naming_no_available_tuner_holds_with_the_rail_off() {
             efficiency_mj_per_th: core::num::NonZeroU32::MIN,
         });
         // The fixed tuner does not serve a power target, which is what
-        // puts the loop in the hold.
+        // puts the machine in the hold.
         assert!(
             <crate::tuner::fixed::FixedTuner as MachineTuner<1>>::select(&power, &BMM101_HASHBOARD)
                 .is_none()
         );
         let (mut subscription, publish) = test_config();
-        // Take the subscription up to date first, so the hold waits for a
-        // publication rather than returning on the one already queued.
-        block_on(subscription.get());
-        let hold = miner.await_another_tuner(&mut subscription, core::mem::discriminant(&power));
+        publish(ubos_config::Config {
+            miner: ubos_config::MinerConfig { tuning: power },
+            ..ubos_config::Config::default()
+        });
+        let halted = Cell::new(false);
+        let machine = async {
+            let mut state = MinerState::Choose(Choose);
+            loop {
+                state = miner
+                    .advance(state, &mut subscription)
+                    .await
+                    .expect("no stop is signalled");
+                halted.set(matches!(state, MinerState::Halted(_)));
+            }
+        };
         // More halt and resume edges than the command channel can hold.
         // A hold that never reads them blocks the manager task that
         // sends them, which is the whole of the pause aggregation.
@@ -1401,14 +1418,11 @@ fn a_configuration_naming_no_available_tuner_holds_with_the_rail_off() {
                 crate::handle().halt().await;
                 crate::handle().resume().await;
             }
-            // The last edge before the hold ends is a halt, and the
-            // machine has to come out of the hold still halted. Let the
-            // hold read it before the tuning changes: a message still
-            // queued is one the next bring-up reads instead, which is a
-            // different path from the one under test.
+            // The last edge is a halt, and a usable tuning that arrives
+            // after it must find the machine still halted.
             crate::handle().halt().await;
             core::future::poll_fn(|_| {
-                if crate::control::COMMAND_CHANNEL.is_empty() {
+                if crate::control::COMMAND_CHANNEL.is_empty() && halted.get() {
                     core::task::Poll::Ready(())
                 } else {
                     core::task::Poll::Pending
@@ -1416,21 +1430,24 @@ fn a_configuration_naming_no_available_tuner_holds_with_the_rail_off() {
             })
             .await;
             publish(fixed_config(500, 1200));
+            Timer::after(Duration::from_millis(10)).await;
         };
-        let Either::First((outcome, ())) = block_on(select(
-            join(hold, pause_the_machine),
-            Timer::after(Duration::from_millis(500)),
+        let Either::Second(Either::First(())) = block_on(select(
+            machine,
+            select(pause_the_machine, Timer::after(Duration::from_millis(500))),
         )) else {
             panic!("the hold stopped reading the command channel")
         };
-        assert!(!outcome.is_stop(), "a new tuning resumes the outer loop");
         assert!(
-            miner.halted,
+            halted.get(),
             "a halt raised during the hold was read and thrown away"
         );
-        // The hold cuts the rail rather than trusting that an earlier
-        // step left it down.
+        // Entry to the hold cuts the rail rather than trusting that an
+        // earlier state left it down.
         LOG.lock(|log| assert!(log.borrow().contains(&Write::Disable)));
+        // The hold is entered with the rail off, and a halted machine
+        // does not bring it up for a new tuning.
+        LOG.lock(|log| assert!(!log.borrow().contains(&Write::Enable)));
         while crate::control::COMMAND_CHANNEL.try_receive().is_ok() {}
     });
 }
