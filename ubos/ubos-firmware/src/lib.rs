@@ -45,11 +45,6 @@ pub use stratum::{MAX_POOLS, StratumShared, init_stratum, run_stratum_session};
 /// protocol crate never reads the hardware descriptor.
 pub type AsicSession<const N: usize> =
     stratum_client::AsicSession<N, { ubos_metrics::chain::MAX_CHAINS }>;
-/// Re-exported for the same reason, and because
-/// [`stratum_metrics_task`](crate::stratum_metrics_task) expands to a call
-/// on it. Reaching it through this crate is what lets a board spawn the
-/// publisher without naming `stratum-client` in its own manifest.
-pub use stratum_client::publishers::run_stratum_metrics_publisher;
 /// Re-exported for the same reason: `serve_all` names the merged
 /// listener's port, buffer sizes and timeouts through this path.
 pub use ubos_http::consts as http_consts;

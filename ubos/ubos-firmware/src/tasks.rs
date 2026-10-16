@@ -30,7 +30,7 @@
 //! that function, so the two move together. `ubos_core::watchdog_task!`
 //! sits next to `ubos_core::watchdog::run_watchdog`, and a board reaches
 //! each shell through the crate whose work it does. This module holds
-//! only the three that have no such crate.
+//! only the two that have no such crate.
 //!
 //! Each macro expands at the call site, so `#[embassy_executor::task]`
 //! resolves against the board's own `embassy-executor` and the spawned
@@ -53,27 +53,6 @@
 //! per-board const, `mdns_task`, which names per-board consts, and
 //! `stratum_client_task`, which needs the board's own session type and
 //! pool size.
-
-/// Publishes per-slot stratum session metrics. Takes the board's pool
-/// slot count, which is a per-board const.
-///
-/// This shell stays here rather than moving to `stratum-client`, because
-/// the publisher is reached through `$crate` rather than named directly,
-/// so a board spawning it needs no `stratum-client` dependency of its
-/// own. It was the only thing the boards used that crate for, and once
-/// this shell became a macro they had no source reference left to it, so
-/// `cargo-machete` was correct to call the dependency unused. Moving the
-/// macro to `stratum-client` would put that dependency back on eight
-/// boards.
-#[macro_export]
-macro_rules! stratum_metrics_task {
-    ($pool_slots:expr) => {
-        #[embassy_executor::task]
-        async fn stratum_metrics_task() -> ! {
-            $crate::run_stratum_metrics_publisher($pool_slots).await
-        }
-    };
-}
 
 /// Drives the embassy-net stack. Takes the board's `embassy-net` driver
 /// type; the `Runner` around it is the same on every board.

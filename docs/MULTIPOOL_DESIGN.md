@@ -348,8 +348,9 @@ prometheus exposition and the logs:
 - `stratum-client` counts accepted shares, rejected shares, and
   reconnect attempts in per-slot arrays sized by
   `POOL_INDEX_SPACE = 8` (the alive-bitmap index space). The
-  existing metric names carry a `pool` label — one series per board
-  slot: `board_shares_accepted_total{pool="0"}`,
+  existing metric names carry a `pool` label — one series per
+  configured slot, pushed by the session of that slot:
+  `board_shares_accepted_total{pool="0"}`,
   `board_shares_rejected_total{pool="0"}`,
   `board_stratum_reconnects_total{pool="0"}`. No unlabelled
   duplicates are emitted; the REST `system_info` totals sum the
@@ -468,7 +469,7 @@ pub async fn run_pool_weights_watcher() -> ! {
   delegating everything else to `handle_command`, whose parameter
   list is unchanged.
 - Each board (and host-runner) spawns the watcher through the same
-  one-line task-shell pattern as the metrics publishers.
+  one-line task-shell pattern as the ingest task.
 - The watcher consumes the `GENERATION_WATCH` spare receiver, so
   the capacity bumps from `MAX_POOLS + 1` to `MAX_POOLS + 2` to
   keep one spare. The fee slot later made it `POOL_SLOTS + 2`.

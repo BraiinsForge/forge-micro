@@ -42,7 +42,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use embassy_executor::{Executor, Spawner};
-use embassy_futures::select::{Either, select};
+use embassy_futures::select::{Either3, select, select3};
 use embassy_net::{Runner, Stack, StackResources};
 use embassy_time::{Duration, Timer};
 use log::{info, warn};
@@ -297,6 +297,8 @@ async fn stratum_client_task(stack: Stack<'static>) -> ! {
 
     let config_handle = ubos_config::handle();
     let mut config_generation = config_handle.subscribe_generation();
+    // Set once the slot has had a pool, as in the firmware session loop.
+    let mut had_pool = false;
 
     loop {
         // Teardown boundary, mirroring the firmware session loop: never
@@ -309,9 +311,18 @@ async fn stratum_client_task(stack: Stack<'static>) -> ! {
         let snapshot = config_handle.current();
         let Some(entry) = snapshot.pool.first() else {
             warn!("stratum-client: pool list empty, awaiting config update");
-            config_generation.changed().await;
+            if had_pool {
+                select(
+                    config_generation.changed(),
+                    ASIC_SESSION.pool_handle(0).push_counters_periodically(),
+                )
+                .await;
+            } else {
+                config_generation.changed().await;
+            }
             continue;
         };
+        had_pool = true;
 
         let one_session = async {
             ASIC_SESSION.pool_handle(0).record_reconnect_attempt();
@@ -375,17 +386,17 @@ async fn stratum_client_task(stack: Stack<'static>) -> ! {
             Timer::after(delay).await;
         };
         if matches!(
-            select(one_session, config_generation.changed()).await,
-            Either::Second(_)
+            select3(
+                one_session,
+                config_generation.changed(),
+                ASIC_SESSION.pool_handle(0).push_counters_periodically(),
+            )
+            .await,
+            Either3::Second(_)
         ) {
             info!("stratum-client: pool config changed, reconnecting");
         }
     }
-}
-
-#[embassy_executor::task]
-async fn stratum_metrics_task() -> ! {
-    stratum_client::publishers::run_stratum_metrics_publisher(1).await
 }
 
 #[embassy_executor::task]
@@ -448,7 +459,6 @@ fn main() {
         spawner.spawn(metrics_ingest_task().expect("BUG: metrics_ingest_task token"));
         spawner.spawn(mdns_task(stack).expect("BUG: mdns_task token"));
         spawner.spawn(miner_metrics_task(mining_handle).expect("BUG: miner_metrics_task token"));
-        spawner.spawn(stratum_metrics_task().expect("BUG: stratum_metrics_task token"));
         spawner.spawn(pool_weights_task().expect("BUG: pool_weights_task token"));
         let config_storage = FileStorage::new(
             std::env::var_os("UBOS_CONFIG_DIR")

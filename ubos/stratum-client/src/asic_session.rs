@@ -36,8 +36,11 @@
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::watch::{DynReceiver, Watch};
+use embassy_time::Ticker;
 
+use crate::metrics::PoolMetricsSnapshot;
 use crate::work::{Solution, WorkAssignment};
+use ubos_metrics::metrics::{Metric, Value};
 
 #[cfg(test)]
 #[path = "tests/asic_session.rs"]
@@ -148,6 +151,59 @@ impl<const N: usize, const CHAINS: usize> PoolHandle<'_, N, CHAINS> {
         self.slot
     }
 
+    /// The slot's counters as they stand now, or `None` for a slot past
+    /// the counter table.
+    pub(crate) fn counters(&self) -> Option<PoolMetricsSnapshot> {
+        crate::metrics::for_slot(self.slot).map(crate::metrics::PoolMetrics::snapshot)
+    }
+
+    /// Push the slot's three counters to the metrics exposition, each
+    /// labelled `pool="<slot>"`, and return the snapshot that was pushed.
+    ///
+    /// The session loop of the slot calls this on each change, because
+    /// that loop is where the counters move, and
+    /// [`Self::push_counters_periodically`] calls it on a ticker, so a
+    /// counter that holds still has a current sample and a dropped one is
+    /// replaced. Every push drops its sample on a full channel rather than
+    /// waiting, so the session future holds no metric across an await.
+    pub(crate) fn push_counters(&self) -> Option<PoolMetricsSnapshot> {
+        let snapshot = self.counters()?;
+        Metric::indexed(
+            "board_shares_accepted_total",
+            &[("pool", self.slot)],
+            Value::Uint(snapshot.shares_accepted),
+        )
+        .try_push();
+        Metric::indexed(
+            "board_shares_rejected_total",
+            &[("pool", self.slot)],
+            Value::Uint(snapshot.shares_rejected),
+        )
+        .try_push();
+        Metric::indexed(
+            "board_stratum_reconnects_total",
+            &[("pool", self.slot)],
+            Value::Uint(u64::from(snapshot.reconnects)),
+        )
+        .try_push();
+        Some(snapshot)
+    }
+
+    /// Push the slot's counters every
+    /// [`PUSH_PERIOD`](crate::metrics::PUSH_PERIOD), forever.
+    ///
+    /// The pool session task selects this beside each session, its
+    /// connect and its backoff included, because a pool that never
+    /// answers never reaches the session loop, and its reconnect count is
+    /// the series that matters then.
+    pub async fn push_counters_periodically(&self) -> ! {
+        let mut ticker = Ticker::every(crate::metrics::PUSH_PERIOD);
+        loop {
+            ticker.next().await;
+            self.push_counters();
+        }
+    }
+
     /// Publish a new `WorkAssignment` into this slot's cell.
     /// Latest-wins, and unconditional: whether it reaches the ASIC is
     /// the dispatcher's decision, not the session's.
@@ -182,11 +238,17 @@ impl<const N: usize, const CHAINS: usize> PoolHandle<'_, N, CHAINS> {
     }
 
     /// Increment this slot's reconnect counter on every call past the
-    /// first. The pool session task calls this at the top of its
-    /// outer reconnect loop; see [`crate::metrics::PoolMetrics::record_reconnect_attempt`].
+    /// first, then push the counters of the slot. The pool session task
+    /// calls this at the top of its outer reconnect loop; see
+    /// [`crate::metrics::PoolMetrics::record_reconnect_attempt`].
+    ///
+    /// The push sits with the reconnect, because a connect that fails
+    /// never reaches the session loop, and the reconnect count matters
+    /// most for a pool that does not answer.
     pub fn record_reconnect_attempt(&self) {
         if let Some(metrics) = crate::metrics::for_slot(self.slot) {
             metrics.record_reconnect_attempt();
         }
+        self.push_counters();
     }
 }

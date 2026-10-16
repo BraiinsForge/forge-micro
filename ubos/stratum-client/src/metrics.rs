@@ -26,9 +26,13 @@
 //! `StratumState` already carries. Readers take a [`PoolMetricsSnapshot`]
 //! rather than the atomics themselves.
 
+use embassy_time::Duration;
 use portable_atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 use crate::run::POOL_INDEX_SPACE;
+
+/// Period of the counter pushes from the pool session task.
+pub(crate) const PUSH_PERIOD: Duration = Duration::from_secs(2);
 
 /// One pool slot's lifetime counters.
 pub struct PoolMetrics {
@@ -104,6 +108,7 @@ impl PoolMetrics {
 }
 
 /// A consistent read of one slot's counters at one point in time.
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct PoolMetricsSnapshot {
     pub shares_accepted: u64,
     pub shares_rejected: u64,

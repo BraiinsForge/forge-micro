@@ -35,7 +35,6 @@ pub mod asic_session;
 pub mod connector;
 pub mod job_ring;
 pub mod metrics;
-pub mod publishers;
 pub mod run;
 pub mod state;
 pub mod work;

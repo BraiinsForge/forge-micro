@@ -162,8 +162,6 @@ ubos_config::config_task!(
 
 ubos_cooling::cooling_task!(ubos_rp::fan::BoardFan, ubos_rp::fan::BoardTach);
 
-ubos_firmware::stratum_metrics_task!(POOL_SLOTS);
-
 ubos_mining::pool_weights_task!(&mining::CHAINS);
 
 ubos_mining::miner_metrics_task!(POOL_SLOTS);
@@ -436,7 +434,6 @@ async fn main(spawner: Spawner) {
     spawner.spawn(unwrap!(mdns_task(stack, mdns_hostname)));
 
     spawner.spawn(unwrap!(miner_metrics_task(mining_handle)));
-    spawner.spawn(unwrap!(stratum_metrics_task()));
     spawner.spawn(unwrap!(pool_weights_task()));
 
     // SH1106 OLED on SPI1: reset pulse, then async TX-only SPI with DMA.

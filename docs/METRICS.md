@@ -203,12 +203,19 @@ resolution without soft-float.
 
 ## Per-pool series
 
-Code: `ubos/stratum-client/src/publishers.rs`,
+Code: `ubos/stratum-client/src/asic_session.rs`,
 `ubos/ubos-mining/src/publishers.rs`.
 
-Boards run one stratum session per configured pool slot, and the
-share counters are per-slot. The publishers emit one series per
-board pool slot, labelled `pool="0"`, `pool="1"`, ...:
+A board runs one stratum session for each configured pool slot. Every
+series here carries the slot in a label, `pool="0"`, `pool="1"`, and
+more.
+
+The session of a slot pushes three counters. It pushes them at each
+reconnect attempt, after each pool message that moved a counter, and
+every 2 s while the slot has a pool, through connect and backoff too.
+A slot that has never had a pool in the config has no session, so it
+has none of these three series. A slot whose pool is removed keeps
+pushing its last counts every 2 s.
 
 - `board_shares_accepted_total{pool=...}` — pool-accepted shares.
 - `board_shares_rejected_total{pool=...}` — pool-rejected shares.

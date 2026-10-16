@@ -33,7 +33,7 @@
 //! per-slot tasks as a [`StratumShared`] value.
 
 use crate::AsicSession;
-use embassy_futures::select::{Either, select};
+use embassy_futures::select::{Either3, select, select3};
 use embassy_time::Timer;
 use rand_chacha::ChaCha20Rng;
 use rand_chacha::rand_core::{RngCore, SeedableRng};
@@ -227,6 +227,9 @@ pub async fn run_stratum_session<const N: usize>(
 
     let config_handle = ubos_config::handle();
     let mut config_generation = config_handle.subscribe_generation();
+    // Set once the slot has had a pool, so a slot whose pool is removed
+    // keeps its counter series current instead of leaving a stale sample.
+    let mut had_pool = false;
 
     loop {
         // Teardown boundary: whether the last iteration ended in a
@@ -247,9 +250,18 @@ pub async fn run_stratum_session<const N: usize>(
             if slot == 0 {
                 warn!("stratum-client: pool list empty, awaiting config update");
             }
-            config_generation.changed().await;
+            if had_pool {
+                select(
+                    config_generation.changed(),
+                    handle.push_counters_periodically(),
+                )
+                .await;
+            } else {
+                config_generation.changed().await;
+            }
             continue;
         };
+        had_pool = true;
 
         let one_session = async {
             handle.record_reconnect_attempt();
@@ -324,8 +336,13 @@ pub async fn run_stratum_session<const N: usize>(
             Timer::after(delay).await;
         };
         if matches!(
-            select(one_session, config_generation.changed()).await,
-            Either::Second(_)
+            select3(
+                one_session,
+                config_generation.changed(),
+                handle.push_counters_periodically(),
+            )
+            .await,
+            Either3::Second(_)
         ) {
             info!("stratum-client: pool {} config changed, reconnecting", slot);
         }

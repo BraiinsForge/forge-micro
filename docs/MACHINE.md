@@ -120,7 +120,7 @@ The task shells are part of that residue, and most of them are not. A
 board takes each shell from a macro. That macro lives in the crate that
 owns the loop the shell calls, beside the loop itself:
 `ubos_core::watchdog_task!` sits next to
-`ubos_core::watchdog::run_watchdog`. Three shells belong to no such
+`ubos_core::watchdog::run_watchdog`. Two shells belong to no such
 crate and stay in `ubos/ubos-firmware/src/tasks.rs`.
 
 Four names are the exception, and a board can still declare them by hand:

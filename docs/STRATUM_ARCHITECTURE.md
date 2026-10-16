@@ -253,6 +253,7 @@ pool job never has the key it is still echoing retired under it.
 | Pool I/O | event-driven | network bytes arriving / Solution arriving in `select3` |
 | Stratum visitor dispatch | per frame | inside `accept()` |
 | Work publish | 1 Hz with `NtimeRoll::Host`, once per job with `Chip` | `work_ticker` arm of the same `select3` loop |
+| Pool counter push | 2 s | `PoolHandle::push_counters_periodically`, selected beside each session by the pool session task |
 | ASIC poll for work change | ~100 ms | yield boundary in CPU mock; polling cadence in real driver |
 | ASIC produces solutions | as found | non-blocking `try_send` into the channel |
 | Pool switch takes effect | next work tick | `dispatch_work` asks the scheduler before each dispatch |

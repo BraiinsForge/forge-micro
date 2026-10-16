@@ -182,8 +182,6 @@ async fn cpu_load_task() -> ! {
     ubos_metrics::cpu_load::run_cpu_load::<2>().await
 }
 
-ubos_firmware::stratum_metrics_task!(POOL_SLOTS);
-
 ubos_mining::miner_metrics_task!(POOL_SLOTS);
 
 #[cfg(feature = "display")]
@@ -537,7 +535,6 @@ async fn boot(spawner: Spawner) {
     spawner.spawn(unwrap!(mdns_task(stack, mdns_hostname)));
 
     spawner.spawn(unwrap!(miner_metrics_task(mining_handle)));
-    spawner.spawn(unwrap!(stratum_metrics_task()));
 
     info!("waiting for dhcp");
     let config = net::wait_for_config(stack).await;

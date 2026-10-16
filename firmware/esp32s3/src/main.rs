@@ -125,8 +125,6 @@ async fn cpu_load_task() -> ! {
     ubos_metrics::cpu_load::run_cpu_load::<2>().await
 }
 
-ubos_firmware::stratum_metrics_task!(POOL_SLOTS);
-
 ubos_mining::pool_weights_task!(&mining::CHAINS);
 
 ubos_mining::miner_metrics_task!(POOL_SLOTS);
@@ -441,7 +439,6 @@ async fn boot(spawner: Spawner) {
     spawner.spawn(unwrap!(mdns_task(stack, mdns_hostname)));
 
     spawner.spawn(unwrap!(cpu_load_task()));
-    spawner.spawn(unwrap!(stratum_metrics_task()));
     spawner.spawn(unwrap!(pool_weights_task()));
     // No LED blink task: board wiring does not include an accessible LED.
     let tsens = esp32s3_tsens::Tsens::new(hw.sens, esp32s3_tsens::Range::Standard).await;

@@ -22,8 +22,8 @@
 //! The pool-alive bitmap and the reconnect counter below are free
 //! functions over private statics in this module. There is one of each
 //! per firmware image, so a handle owning them would promise an instance
-//! no caller can choose, and the API and the metrics publisher both read
-//! them from tasks that hold nothing else.
+//! no caller can choose, and the API reads them from tasks that hold
+//! nothing else.
 //!
 //! One async function that owns the protocol-side `MiningClient`
 //! adapter, the `StratumState` (visitor + rings), and a work generator
@@ -162,6 +162,9 @@ where
     C: MiningClient,
     T: Read + Write,
 {
+    // `PoolHandle::record_reconnect_attempt` pushed the counters as they
+    // stand now, so only a later change needs a push from this loop.
+    let mut pushed = asic.counters();
     client.connect(transport).await?;
 
     // A caller passing `Some(0)` most likely means "publish as fast as
@@ -189,6 +192,9 @@ where
                 drive_result?;
                 client.accept(state);
                 asic.set_alive(state.job_ring.current().is_some());
+                if asic.counters() != pushed {
+                    pushed = asic.push_counters();
+                }
                 if work_ticker.is_none()
                     && let Some(current_job_id) = state.job_ring.current().map(|slot| slot.job_id)
                     && last_published != Some(current_job_id)
