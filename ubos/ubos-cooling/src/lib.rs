@@ -72,7 +72,7 @@ use ubos_config::Handle as ConfigHandle;
 use ubos_config::{Config, CoolingConfig, FanMode};
 use ubos_core::units::{FanPwm, FanRpm, Temperature};
 use ubos_logging::{error, info};
-use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value, push};
+use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value};
 use ubos_thermal::Handle as ThermalHandle;
 
 use crate::pid::TempControl;
@@ -481,11 +481,9 @@ async fn publish_state<const N: usize>(
         .unwrap_or(FanRpm::from_rpm(0));
     STATE_WATCH.sender().send(FanState { pwm, rpm: fastest });
 
-    push(Metric::with_no_labels(
-        METRIC_FAN_PWM,
-        Value::Uint(u64::from(pwm.percent())),
-    ))
-    .await;
+    Metric::with_no_labels(METRIC_FAN_PWM, Value::Uint(u64::from(pwm.percent())))
+        .push()
+        .await;
     for (label, reading) in tach_labels.iter().zip(rpms.iter()) {
         let value = Value::Uint(u64::from(reading.rpm()));
         let metric = match *label {
@@ -499,7 +497,7 @@ async fn publish_state<const N: usize>(
                 Metric::with_labels(METRIC_FAN_RPM, labels, value)
             }
         };
-        push(metric).await;
+        metric.push().await;
     }
 }
 
