@@ -25,7 +25,7 @@
 //! `#[embassy_executor::task]` wrapper.
 
 use embassy_time::{Duration, Ticker};
-use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value, push};
+use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value};
 
 use crate::{Handle as MiningHandle, MiningState};
 use ubos_metrics::chain as stats;
@@ -39,54 +39,45 @@ pub async fn run_miner_metrics_publisher(mining: MiningHandle, pool_slots: usize
         ticker.next().await;
         let stats_handle = stats::handle();
         for (chain, stats) in stats_handle.chains().enumerate() {
-            push_chain_metric(
-                "board_uart_desync_bytes_total",
-                chain,
-                Value::Uint(u64::from(stats.desync_bytes())),
-            )
-            .await;
-            push_chain_metric(
-                "board_chain_chips",
-                chain,
-                Value::Uint(u64::from(stats.chips())),
-            )
-            .await;
-            push_chain_metric(
-                "board_chain_present",
-                chain,
-                Value::Uint(u64::from(stats.presence().is_present())),
-            )
-            .await;
-            push_chain_metric(
-                "board_chain_frequency_khz",
-                chain,
-                Value::Uint(u64::from(stats.frequency().khz())),
-            )
-            .await;
-            push_chain_metric("board_hashrate_hps", chain, Value::Uint(stats.hashrate())).await;
-            push_chain_metric(
-                "board_shares_total",
-                chain,
-                Value::Uint(stats.share_count()),
-            )
-            .await;
+            let by_chain = [("chain", chain)];
+            let gauges = [
+                (
+                    "board_uart_desync_bytes_total",
+                    u64::from(stats.desync_bytes()),
+                ),
+                ("board_chain_chips", u64::from(stats.chips())),
+                (
+                    "board_chain_present",
+                    u64::from(stats.presence().is_present()),
+                ),
+                (
+                    "board_chain_frequency_khz",
+                    u64::from(stats.frequency().khz()),
+                ),
+                ("board_hashrate_hps", stats.hashrate()),
+                ("board_shares_total", stats.share_count()),
+            ];
+            for (name, value) in gauges {
+                Metric::indexed(name, &by_chain, Value::Uint(value))
+                    .push()
+                    .await;
+            }
             let limit = pool_slots.min(crate::consts::MAX_POOL_SLOTS);
             for slot in 0..limit {
-                ubos_metrics::metrics::push_indexed_metrics(
+                Metric::indexed(
                     "board_pool_work_shares_total",
                     &[("chain", chain), ("pool", slot)],
                     Value::Uint(stats.pool_shares(slot)),
                 )
+                .push()
                 .await;
             }
         }
         let state = mining.state();
         let running = u64::from(matches!(state, Some(MiningState::Running)));
-        push(Metric::with_no_labels(
-            "board_miner_running",
-            Value::Uint(running),
-        ))
-        .await;
+        Metric::with_no_labels("board_miner_running", Value::Uint(running))
+            .push()
+            .await;
         // One series per state, 1 on the current one, so a panel can
         // show which phase the miner is in rather than only whether it
         // hashes. Every series is 0 before the first publish.
@@ -96,19 +87,15 @@ pub async fn run_miner_metrics_publisher(mining: MiningHandle, pool_slots: usize
                 name: "state",
                 value: LabelValue::Static(candidate.as_api_str()),
             });
-            push(Metric::with_labels(
+            Metric::with_labels(
                 "board_miner_state",
                 labels,
                 Value::Uint(u64::from(state == Some(candidate))),
-            ))
+            )
+            .push()
             .await;
         }
     }
-}
-
-/// Push one metric labeled `chain="<chain>"`.
-async fn push_chain_metric(name: &'static str, chain: usize, value: Value) {
-    ubos_metrics::metrics::push_indexed_metric(name, "chain", chain, value).await;
 }
 
 /// Task shell around [`run_miner_metrics_publisher`]. Takes the board's
