@@ -71,6 +71,11 @@ message_lines=20
 # added to, so it cannot be confused with either.
 eval_failed=3
 
+# What every evaluation of a tree needs: the per-unit builds of
+# nix/units.nix plan with cargo during evaluation, which nix allows only
+# when told so. A flake cannot say it for itself.
+unsafe_eval=(--option allow-unsafe-native-code-during-evaluation true)
+
 die() {
   printf '%s\n' "$@" >&2
   exit 1
@@ -213,7 +218,7 @@ gated_trees() {
 # nothing.
 eval_tree() {
   local tree=$1 prefix=$2
-  nix eval --json "path:$tree#checks.$nix_system" \
+  nix eval --json "path:$tree#checks.$nix_system" "${unsafe_eval[@]}" \
     --apply 'checks:
       builtins.mapAttrs (_: check: {
         drv = builtins.unsafeDiscardStringContext check.drvPath;
@@ -233,7 +238,7 @@ eval_tree() {
 # this and was still found by the developer who entered it.
 eval_shells() {
   local tree=$1
-  nix eval "path:$tree#devShells.$nix_system" \
+  nix eval "path:$tree#devShells.$nix_system" "${unsafe_eval[@]}" \
     --apply 'shells: builtins.mapAttrs (_: shell: shell.drvPath) shells' \
     > /dev/null
 }
@@ -657,7 +662,7 @@ run() {
   # --keep-going because the run is observable: a failure lands in
   # the table while the rest of the gate continues, so one broken
   # check no longer hides the next one and costs a second run.
-  nix build "${targets[@]}" \
+  nix build "${targets[@]}" "${unsafe_eval[@]}" \
     --no-link \
     --keep-going \
     --max-jobs "$jobs" \

@@ -204,6 +204,27 @@
             ;
         };
 
+        # The build-script environment of ubos-webui: the hermetic dist
+        # and the brand, the one a board ships or the default for a host
+        # build. Every site that compiles ubos-webui goes through one of
+        # these, so a new site cannot forget the brand.
+        webuiEnv = name: helpers.webuiDistEnv // brands.envFor name;
+        webuiHostEnv = helpers.webuiDistEnv // brands.defaultEnv;
+
+        # Every cargo unit as one derivation, for the host and ARM checks.
+        # See nix/units.nix.
+        units = import ./nix/units.nix {
+          inherit (toolchains) hostRustToolchain rustToolchain;
+          inherit
+            pkgs
+            nixpkgs
+            rostnix
+            src
+            webuiEnv
+            webuiHostEnv
+            ;
+        };
+
         # Shared dependency artifacts for the clippy, test, and build
         # checks. See nix/deps.nix for the bag-splitting rationale.
         deps = import ./nix/deps.nix {
@@ -286,6 +307,9 @@
         checks =
           import ./nix/checks.nix {
             inherit
+              units
+              webuiEnv
+              webuiHostEnv
               pkgs
               src
               srcFor

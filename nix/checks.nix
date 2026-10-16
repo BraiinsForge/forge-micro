@@ -44,6 +44,13 @@
   srcFor,
   deps,
   craneLib,
+  # Every cargo unit as one derivation; see nix/units.nix. The host
+  # checks, the ARM checks and the images build through it.
+  units,
+  # The build-script environment of ubos-webui, per board and for a
+  # host build; see flake.nix.
+  webuiEnv,
+  webuiHostEnv,
   bmmCraneLib,
   espCraneLib,
   bmmCc,
@@ -77,7 +84,6 @@
 let
   inherit (pkgs) lib;
   inherit (helpers)
-    armCc
     webuiDist
     webuiDistEnv
     espCrossEnv
@@ -94,23 +100,9 @@ let
   # the tree ever holds fewer.
   minInstructionFiles = 5;
 
-  # The webui build environment for one board: the hermetic dist, plus
-  # the brand that board ships. Every site that compiles ubos-webui goes
-  # through this or through webuiHostEnv below, so a new site cannot
-  # forget the brand.
-  webuiEnv = name: webuiDistEnv // brands.envFor name;
-
-  # The same for a build that compiles ubos-webui without being a board.
-  # It ships no pages, so the brand is arbitrary: the page tests assert
-  # that no brand token survives, not that one brand's words are on the
-  # page. Spelling it this way rather than passing a crate name to
-  # webuiEnv keeps that function meaning "the brand this board ships",
-  # so a name no board table matches cannot pass for one of these.
-  webuiHostEnv = webuiDistEnv // brands.defaultEnv;
-
   # The fee switch, from nix/fee.nix. The host gates run with it on:
   # that is the wider state, the one the fee-slot tests and the config
-  # body pin in ubos-api measure. A row that states `env = fee.off`
+  # body pin in ubos-api measure. A row that states `fee = fee.off`
   # gates the other state. A board gate takes the state its image
   # ships, read from the board's own cargo config.
   fee = import ./fee.nix;
@@ -122,52 +114,39 @@ let
   # `members` arg.
   hasCrate = name: builtins.elem name members;
 
-  # Host-side clippy: one row per check. `crate` is the cargo package;
-  # `artifacts` defaults to the shared host bag; `allTargets` is off for
-  # crates whose tests or examples do not build on the host feature set;
-  # `args` appends feature flags; `env` is the fee state, on unless the
-  # row says `fee.off`; `webuiDist` points ubos-webui's
-  # build.rs at the hermetic dist. No gate takes the build id: it changes
-  # with every commit, and a gate stamped with it would rebuild on every
-  # commit for an id nothing reads. Only the images in nix/images.nix
-  # carry it.
+  # Host-side clippy: one row per check, one plan per row, as `cargo
+  # clippy -p` planned it. `crate` is the cargo package; `features` and
+  # `noDefaultFeatures` are its command line; `tests` is off for crates
+  # whose tests do not build on the host feature set, which is what
+  # `--all-targets` was left off for, and for crates whose tests link
+  # only under the features their test row names, which `cargo clippy`
+  # never linked. `fee` is the fee switch, on unless the row says
+  # `fee.off`. The check holds the crate's units
+  # of the plan: its library, binaries and, with `tests`, test
+  # executables. No gate takes the build id: it changes with every
+  # commit, and a gate stamped with it would rebuild on every commit for
+  # an id nothing reads. Only the images in nix/images.nix carry it.
   mkHostClippy =
-    spec:
-    craneLib.cargoClippy (
-      {
-        src = srcFor [ spec.crate ];
-        cargoArtifacts = spec.artifacts or deps.hostArtifacts;
-        cargoExtraArgs = "-p ${spec.crate}${spec.args or ""}";
-        cargoClippyExtraArgs = "${
-          lib.optionalString (spec.allTargets or true) "--all-targets "
-        }-- -D warnings";
-        doInstallCargoArtifacts = false;
-      }
-      // (spec.env or fee.on)
-      // lib.optionalAttrs (spec.webuiDist or false) webuiHostEnv
-    );
+    name: row:
+    pkgs.linkFarmFromDrvs name (units.unitsOf (units.hostPlan ({ fee = fee.on; } // row)) row.crate);
 
-  # Host-side unit tests, dev profile so debug_assert! and
-  # overflow-checks fire in CI.
+  # Host-side unit tests: the crate's test runs of its plan, in the dev
+  # profile so debug_assert! and overflow-checks fire in CI.
   mkHostTest =
-    spec:
-    craneLib.cargoTest (
-      {
-        src = srcFor [ spec.crate ];
-        cargoArtifacts = spec.artifacts or deps.hostArtifactsDev;
-        CARGO_PROFILE = "";
-        cargoExtraArgs = "-p ${spec.crate}${spec.args or ""}";
-        doInstallCargoArtifacts = false;
-      }
-      // (spec.env or fee.on)
-      // lib.optionalAttrs (spec.webuiDist or false) webuiHostEnv
-    );
+    name: row:
+    pkgs.linkFarmFromDrvs name (units.testsOf (units.hostPlan ({ fee = fee.on; } // row)) row.crate);
 
-  hostClippyChecks = builtins.mapAttrs (_: mkHostClippy) {
+  hostClippyChecks = builtins.mapAttrs mkHostClippy {
     clippy-ubos-core.crate = "ubos-core";
     clippy-ubos-led.crate = "ubos-led";
-    clippy-ubos-http.crate = "ubos-http";
-    clippy-ubos-api.crate = "ubos-api";
+    clippy-ubos-http = {
+      crate = "ubos-http";
+      tests = false;
+    };
+    clippy-ubos-api = {
+      crate = "ubos-api";
+      tests = false;
+    };
     clippy-ubos-auth.crate = "ubos-auth";
     clippy-ubos-build.crate = "ubos-build";
     clippy-ubos-metrics.crate = "ubos-metrics";
@@ -187,79 +166,59 @@ let
     clippy-ubos-temperature.crate = "ubos-temperature";
     clippy-ubos-display = {
       crate = "ubos-display";
-      allTargets = false;
+      tests = false;
     };
     clippy-ubos-logging = {
       crate = "ubos-logging";
-      allTargets = false;
+      tests = false;
     };
     clippy-embassy-net-afpacket = {
       crate = "embassy-net-afpacket";
-      allTargets = false;
+      tests = false;
     };
     clippy-embedded-serial-unix = {
       crate = "embedded-serial-unix";
-      allTargets = false;
+      tests = false;
     };
     clippy-serial-baudrate = {
       crate = "serial-baudrate";
-      allTargets = false;
+      tests = false;
     };
     clippy-ubos-machine = {
       crate = "ubos-machine";
-      allTargets = false;
+      tests = false;
     };
     clippy-ubos-main-host = {
       crate = "ubos-main-host";
-      allTargets = false;
+      tests = false;
     };
-    clippy-ubos-webui = {
-      crate = "ubos-webui";
-      # build.rs reads the prebuilt Rsbuild pages from UBOS_WEBUI_DIST
-      # and gzips them, so the sandbox needs no npm.
-      webuiDist = true;
-    };
+    clippy-ubos-webui.crate = "ubos-webui";
     clippy-ubos-thermal = {
       crate = "ubos-thermal";
-      artifacts = deps.ubosThermalArtifacts;
+      tests = false;
     };
     clippy-ubos-cooling = {
       crate = "ubos-cooling";
-      artifacts = deps.ubosCoolingArtifacts;
+      tests = false;
     };
-    clippy-ubos-manager = {
-      crate = "ubos-manager";
-      artifacts = deps.ubosManagerArtifacts;
-    };
-    clippy-ubos-config = {
-      crate = "ubos-config";
-      artifacts = deps.ubosConfigArtifacts;
-    };
+    clippy-ubos-manager.crate = "ubos-manager";
+    clippy-ubos-config.crate = "ubos-config";
     clippy-ubos-config-std = {
       crate = "ubos-config";
-      args = " --features std";
-      artifacts = deps.ubosConfigStdArtifacts;
+      features = [ "std" ];
     };
     clippy-ubos-events = {
       crate = "ubos-events";
-      allTargets = false;
-      artifacts = deps.ubosEventsArtifacts;
+      tests = false;
     };
     clippy-ubos-events-std = {
       crate = "ubos-events";
-      args = " --features std";
-      artifacts = deps.ubosEventsStdArtifacts;
+      features = [ "std" ];
     };
-    clippy-host-runner = {
-      crate = "host-runner";
-      artifacts = deps.hostRunnerArtifacts;
-      # ubos-webui's build.rs runs as part of host-runner's dependency
-      # closure, so it needs the hermetic dist too.
-      webuiDist = true;
-    };
+    clippy-host-runner.crate = "host-runner";
   };
 
-  hostTestChecks = builtins.mapAttrs (_: mkHostTest) {
+  hostTestChecks = builtins.mapAttrs mkHostTest {
     test-ubos-core.crate = "ubos-core";
     test-ubos-mdns.crate = "ubos-mdns";
     test-ubos-net.crate = "ubos-net";
@@ -278,86 +237,46 @@ let
     test-ubos-tuner.crate = "ubos-tuner";
     test-ubos-machine.crate = "ubos-machine";
     test-ubos-temperature.crate = "ubos-temperature";
-    # Host tests build with defmt off; see the test-ubos-api comment
-    # below. The router test drives a real edge-http `Connection` over a
-    # mock socket, and edge-http's own `defmt` calls hit the same
-    # undefined `_defmt_*` symbols once defmt is on.
     test-ubos-http = {
       crate = "ubos-http";
-      args = " --no-default-features";
-      artifacts = deps.ubosHttpArtifactsDev;
+      noDefaultFeatures = true;
     };
-    # Host tests build with defmt off. ubos-api's default `defmt`
-    # feature routes its `ubos_logging` calls through `defmt::*`
-    # macros, which reference `_defmt_acquire`/`_defmt_timestamp` and
-    # friends. A host test binary links no `defmt::global_logger`, so
-    # those symbols are undefined and the test fails to link.
     test-ubos-api = {
       crate = "ubos-api";
-      args = " --no-default-features";
-      artifacts = deps.ubosApiArtifactsDev;
+      noDefaultFeatures = true;
     };
-    test-ubos-webui = {
-      crate = "ubos-webui";
-      # build.rs reads the prebuilt Rsbuild pages from UBOS_WEBUI_DIST
-      # and gzips them, so the sandbox needs no npm.
-      webuiDist = true;
-    };
-    test-host-runner = {
-      crate = "host-runner";
-      artifacts = deps.hostRunnerArtifactsDev;
-      # ubos-webui's build.rs runs as part of host-runner's dependency
-      # closure, so it needs the hermetic dist too.
-      webuiDist = true;
-    };
-    # Host tests build with defmt off, as ubos-cooling's do: the chain
-    # sensor's tests link `ubos_logging` calls that have no `_defmt_*`
-    # provider on the host.
+    test-ubos-webui.crate = "ubos-webui";
+    test-host-runner.crate = "host-runner";
     test-ubos-thermal = {
       crate = "ubos-thermal";
-      args = " --no-default-features";
-      artifacts = deps.ubosThermalArtifactsDev;
+      noDefaultFeatures = true;
     };
-    # Host tests build with defmt off; see the test-ubos-api comment
-    # above. The staleness-failsafe test drives the real `run_cooling`
-    # task, whose `ubos_logging` calls hit the same undefined
-    # `_defmt_*` symbols once defmt is on.
     test-ubos-cooling = {
       crate = "ubos-cooling";
-      args = " --no-default-features";
-      artifacts = deps.ubosCoolingArtifactsDev;
+      noDefaultFeatures = true;
     };
-    test-ubos-manager = {
-      crate = "ubos-manager";
-      artifacts = deps.ubosManagerArtifactsDev;
-    };
-    test-ubos-config = {
-      crate = "ubos-config";
-      artifacts = deps.ubosConfigArtifactsDev;
-    };
+    test-ubos-manager.crate = "ubos-manager";
+    test-ubos-config.crate = "ubos-config";
     # The one host gate with the fee switch off, so an off image's
     # pool stack is tested too; see `fee` above.
     test-ubos-config-off = {
       crate = "ubos-config";
-      env = fee.off;
-      artifacts = deps.ubosConfigArtifactsDev;
+      fee = fee.off;
     };
     test-ubos-config-std = {
       crate = "ubos-config";
-      args = " --features std";
-      artifacts = deps.ubosConfigStdArtifactsDev;
+      features = [ "std" ];
     };
     test-ubos-events = {
       crate = "ubos-events";
-      args = " --features std";
-      artifacts = deps.ubosEventsStdArtifactsDev;
+      features = [ "std" ];
     };
   };
 
   # One row per ARM/STM board. Generates clippy-<name> and
   # build-<name>, both with the default feature set. `guard`
-  # selects the postBuild image guard: "slot" objcopies the ELF and
-  # enforces the OTA slot budget, "elf" greps the ELF for the pool
+  # selects the image guard run over the linked ELF: "slot" objcopies
+  # it and enforces the OTA slot budget, "elf" greps it for the pool
   # worker only; boards that are not OTA targets have no slot budget.
   #
   # `boardTable` is this table before `hasCrate` filters it, and
@@ -367,37 +286,30 @@ let
   # is looking for.
   boardTable = {
     forge-axe = {
-      artifacts = deps.rp235xbArtifacts;
       target = "thumbv8m.main-none-eabihf";
       guard = "slot";
     };
     bmm-pico = {
-      artifacts = deps.thumbv8mArtifacts;
       target = "thumbv8m.main-none-eabihf";
       guard = "slot";
     };
     rp2040 = {
-      artifacts = deps.thumbv6mArtifacts;
       target = "thumbv6m-none-eabi";
       guard = "slot";
     };
     rp2350 = {
-      artifacts = deps.thumbv8mArtifacts;
       target = "thumbv8m.main-none-eabihf";
       guard = "slot";
     };
     hashnode = {
-      artifacts = deps.rp235xbArtifacts;
       target = "thumbv8m.main-none-eabihf";
       guard = "slot";
     };
     stm32f407 = {
-      artifacts = deps.stm32f407Artifacts;
       target = "thumbv7em-none-eabihf";
       guard = "elf";
     };
     stm32f439 = {
-      artifacts = deps.stm32f439Artifacts;
       target = "thumbv7em-none-eabihf";
       guard = "elf";
     };
@@ -416,104 +328,64 @@ let
     "rp2350-bootloader"
   ];
 
-  # Slot-size guard plus pool-worker guard for OTA boards. See
-  # docs/OTA.md for the flash layout and slot budget; the guard text
-  # itself renders from nix/guards.nix.
-  slotGuard =
-    name: target:
-    ''
-      elf=target/${target}/release/${name}
-      bin=$(mktemp --suffix=.bin)
-      arm-none-eabi-objcopy -O binary "$elf" "$bin"
-    ''
-    + guards.imageGuard {
-      inherit name;
-      bin = ''"$bin"'';
-      maxBytes = slotMaxBytes;
-      cleanup = ''rm -f "$bin"; '';
-    }
-    + ''
-      rm -f "$bin"
-    '';
+  # The image guards, one per `guard` of the board table, each a check
+  # over the ELF a board plan links. cargo check and cargo clippy stop
+  # short of linking the final ELF for binary crates, so they miss
+  # .bss / flash overflows; the linked image is what fails CI on a RAM
+  # or flash budget regression, at the same gate as a missing trait
+  # bound. The Footprint section of docs/STRUCTURE.md records the
+  # per-board RAM snapshot this gate protects; docs/OTA.md the flash
+  # layout and slot budget. The guard text renders from nix/guards.nix.
+  imageGuards = {
+    slot =
+      name: plan:
+      pkgs.runCommand "build-${name}" { nativeBuildInputs = [ pkgs.gcc-arm-embedded ]; } (
+        ''
+          bin=$(mktemp --suffix=.bin)
+          arm-none-eabi-objcopy -O binary ${plan}/bin/${name} "$bin"
+        ''
+        + guards.imageGuard {
+          inherit name;
+          bin = ''"$bin"'';
+          maxBytes = slotMaxBytes;
+          cleanup = ''rm -f "$bin"; '';
+        }
+        + ''
+          rm -f "$bin"
+          touch "$out"
+        ''
+      );
+    elf =
+      name: plan:
+      pkgs.runCommand "build-${name}" { } (
+        guards.imageGuard {
+          inherit name;
+          bin = "${plan}/bin/${name}";
+        }
+        + ''
+          touch "$out"
+        ''
+      );
+  };
 
-  # Pool-worker guard for boards that are not OTA targets: no slot
-  # budget, so the guard greps the ELF directly rather than objcopying
-  # a slot-sized binary.
-  elfGuard =
-    name: target:
-    ''
-      elf=target/${target}/release/${name}
-    ''
-    + guards.imageGuard {
-      inherit name;
-      bin = ''"$elf"'';
+  # A board's clippy and build checks in one fee state, under names
+  # that end in `suffix`. The plan is one graph, so the build is its
+  # image guarded, and clippy the same plan.
+  mkBoardChecks =
+    suffix: fee: name: board:
+    let
+      plan = units.boardPlan {
+        inherit name fee;
+        inherit (board) target;
+      };
+    in
+    {
+      "clippy-${name}${suffix}" = plan;
+      "build-${name}${suffix}" = imageGuards.${board.guard} name plan;
     };
 
-  # `secp256k1-sys` is an unconditional dep via `ii-sv2` and its C
-  # build script requires a cross compiler; `cc-rs` otherwise falls
-  # back to host `gcc` and fails on the thumb-specific flags, so every
-  # board check points it at arm-none-eabi-gcc. The hermetic webui
-  # dist covers ubos-webui's build.rs in each board's dependency
-  # closure.
-  mkBoardClippyIn =
-    env: name: board:
-    craneLib.cargoClippy (
-      {
-        src = srcFor [ name ];
-        cargoArtifacts = board.artifacts;
-        cargoExtraArgs = "-p ${name} --target ${board.target}";
-        cargoClippyExtraArgs = "-- -D warnings";
-        doInstallCargoArtifacts = false;
-        nativeBuildInputs = [
-          pkgs.gcc-arm-embedded
-        ];
-      }
-      // armCc board.target
-      // webuiEnv name
-      // env
-    );
-
-  # Clippy in the fee state the board's image ships.
-  mkBoardClippy = name: board: mkBoardClippyIn (feeEnv name) name board;
-
-  # Release build of each firmware binary. cargo check and cargo
-  # clippy stop short of linking the final ELF for binary crates, so
-  # they miss .bss / flash overflows. This derivation invokes the full
-  # linker pass so any RAM or flash budget regression fails CI at the
-  # same gate as a missing trait bound. The Footprint section of
-  # docs/STRUCTURE.md records the per-board RAM snapshot this gate
-  # protects.
-  mkBoardBuildIn =
-    env: name: board:
-    craneLib.cargoBuild (
-      {
-        src = srcFor [ name ];
-        cargoArtifacts = board.artifacts;
-        doInstallCargoArtifacts = false;
-        cargoBuildCommand = "cargo build --release";
-        cargoExtraArgs = "-p ${name} --target ${board.target}";
-        nativeBuildInputs = [
-          pkgs.gcc-arm-embedded
-        ];
-      }
-      // armCc board.target
-      // webuiEnv name
-      // env
-      // lib.optionalAttrs (board.guard == "slot") {
-        postBuild = slotGuard name board.target;
-      }
-      // lib.optionalAttrs (board.guard == "elf") {
-        postBuild = elfGuard name board.target;
-      }
-    );
-
-  # The release build in the fee state the board's image ships.
-  mkBoardBuild = name: board: mkBoardBuildIn (feeEnv name) name board;
-
-  boardChecks = lib.concatMapAttrs (name: board: {
-    "clippy-${name}" = mkBoardClippy name board;
-    "build-${name}" = mkBoardBuild name board;
-  }) boards;
+  # Each board in the fee state its image ships.
+  boardChecks = lib.concatMapAttrs (name: mkBoardChecks "" (feeEnv name) name) boards;
 
   # The other state of the fee switch, one board per ARM target that
   # can carry the fee, so the on path of the board crates cannot rot
@@ -525,40 +397,27 @@ let
     "rp2040"
     "rp2350"
   ];
-  feeOnChecks = lib.concatMapAttrs (name: board: {
-    "clippy-${name}-on" = mkBoardClippyIn fee.on name board;
-    "build-${name}-on" = mkBoardBuildIn fee.on name board;
-  }) (lib.filterAttrs (name: _: lib.elem name feeOnBoards) boards);
+  feeOnChecks = lib.concatMapAttrs (mkBoardChecks "-on" fee.on) (
+    lib.filterAttrs (name: _: lib.elem name feeOnBoards) boards
+  );
 
-  # Bootloader crates: same clippy/build pair as the boards, but no
-  # webui env or dist, since ubos-webui is not in the closure, and
-  # no image guard, since the bootloader carries no pool worker and
-  # has its own flash region.
+  # A library crate's board check: the crate's units of its plan. The
+  # plan's own result holds only what it installs, which for a library
+  # is nothing, so a check that took it would build none of the crate.
+  mkLibraryCheck =
+    name: args: pkgs.linkFarmFromDrvs name (units.unitsOf (units.boardPlan args) args.name);
+
+  # Bootloader crates: the same clippy/build pair as the boards, with
+  # no image guard, since the bootloader carries no pool worker and has
+  # its own flash region.
   mkBootloaderChecks =
-    name: bag: target:
+    name: target:
     let
-      common = {
-        src = srcFor [ name ];
-        cargoArtifacts = bag;
-        cargoExtraArgs = "-p ${name} --target ${target}";
-        doInstallCargoArtifacts = false;
-        nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
-      }
-      // armCc target;
+      plan = units.boardPlan { inherit name target; };
     in
     {
-      "clippy-${name}" = craneLib.cargoClippy (
-        common
-        // {
-          cargoClippyExtraArgs = "-- -D warnings";
-        }
-      );
-      "build-${name}" = craneLib.cargoBuild (
-        common
-        // {
-          cargoBuildCommand = "cargo build --release";
-        }
-      );
+      "clippy-${name}" = plan;
+      "build-${name}" = plan;
     };
 
   # Common attrs for every xtensa esp32s3 crane invocation: the shared
@@ -573,12 +432,8 @@ let
     ];
   };
 
-  rp2350BootloaderChecks =
-    mkBootloaderChecks "rp2350-bootloader" deps.thumbv8mBootloaderArtifacts
-      "thumbv8m.main-none-eabihf";
-  rp2040BootloaderChecks =
-    mkBootloaderChecks "rp2040-bootloader" deps.thumbv6mBootloaderArtifacts
-      "thumbv6m-none-eabi";
+  rp2350BootloaderChecks = mkBootloaderChecks "rp2350-bootloader" "thumbv8m.main-none-eabihf";
+  rp2040BootloaderChecks = mkBootloaderChecks "rp2040-bootloader" "thumbv6m-none-eabi";
 
   # esp32s3 firmware gates, grouped so they can be dropped as a unit when
   # the board is not a member. They share the esp toolchain and the
@@ -707,96 +562,60 @@ hostClippyChecks
 // lib.optionalAttrs (hasCrate "rp2040-bootloader") rp2040BootloaderChecks
 // lib.optionalAttrs (hasCrate "esp32s3") espChecks
 // rec {
-  clippy-rp235x-sha256 = craneLib.cargoClippy {
-    src = srcFor [ "rp235x-sha256" ];
-    cargoArtifacts = deps.thumbv8mArtifacts;
-    cargoExtraArgs = "-p rp235x-sha256 --target thumbv8m.main-none-eabihf";
-    cargoClippyExtraArgs = "-- -D warnings";
-    doInstallCargoArtifacts = false;
+  clippy-rp235x-sha256 = mkLibraryCheck "clippy-rp235x-sha256" {
+    name = "rp235x-sha256";
+    target = "thumbv8m.main-none-eabihf";
   };
 
-  build-rp235x-sha256 = craneLib.cargoBuild {
-    src = srcFor [ "rp235x-sha256" ];
-    cargoArtifacts = deps.thumbv8mArtifacts;
-    cargoBuildCommand = "cargo build --release";
-    cargoExtraArgs = "-p rp235x-sha256 --target thumbv8m.main-none-eabihf";
-    doInstallCargoArtifacts = false;
+  build-rp235x-sha256 = mkLibraryCheck "build-rp235x-sha256" {
+    name = "rp235x-sha256";
+    target = "thumbv8m.main-none-eabihf";
   };
 
-  # ubos-ota is linted per backend here but has no standalone build
-  # derivation: every firmware board depends on it, so each board build
-  # compiles it transitively and a real breakage still fails the gate.
-  # clippy-ubos-ota lints the rp backend; clippy-ubos-ota-esp below
-  # lints the esp backend, since clippy only lints the top crate.
-  clippy-ubos-ota = craneLib.cargoClippy {
-    src = srcFor [ "ubos-ota" ];
-    cargoArtifacts = deps.ubosOtaArtifacts;
-    cargoExtraArgs = "-p ubos-ota --target thumbv8m.main-none-eabihf --features rp,embassy-rp/rp235xa,embassy-rp/imagedef-none";
-    cargoClippyExtraArgs = "-- -D warnings";
-    doInstallCargoArtifacts = false;
-    CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+  clippy-ubos-ota = mkLibraryCheck "clippy-ubos-ota" {
+    name = "ubos-ota";
+    target = "thumbv8m.main-none-eabihf";
+    features = [
+      "rp"
+      "embassy-rp/rp235xa"
+      "embassy-rp/imagedef-none"
+    ];
   };
 
-  # ubos-rp is linted here and, like ubos-ota, has no standalone build
-  # derivation: every RP board depends on it, so each board build compiles it
-  # transitively. clippy selects a chip on the CLI because the crate pins none.
-  # Only the rp235xa half is linted: the rp2040 half is compiled by the rp2040
-  # board builds, which run without `-D warnings`.
-  clippy-ubos-rp = craneLib.cargoClippy {
-    src = srcFor [ "ubos-rp" ];
-    cargoArtifacts = deps.ubosOtaArtifacts;
-    cargoExtraArgs = "-p ubos-rp --target thumbv8m.main-none-eabihf --features rp235x,embassy-rp/rp235xa,embassy-rp/imagedef-none";
-    cargoClippyExtraArgs = "-- -D warnings";
-    doInstallCargoArtifacts = false;
-    CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+  clippy-ubos-rp = mkLibraryCheck "clippy-ubos-rp" {
+    name = "ubos-rp";
+    target = "thumbv8m.main-none-eabihf";
+    features = [
+      "rp235x"
+      "embassy-rp/rp235xa"
+      "embassy-rp/imagedef-none"
+    ];
   };
 
-  # rp-bootloader is linted here for the same reason as ubos-rp: both
-  # bootloader crates depend on it and each build compiles it
-  # transitively, so it has no standalone build derivation of its own.
-  # clippy selects a chip on the CLI because the crate pins none. Only the
-  # rp235xa half is linted; the rp2040 bootloader build compiles the other
-  # without `-D warnings`.
-  clippy-rp-bootloader = craneLib.cargoClippy {
-    src = srcFor [ "rp-bootloader" ];
-    cargoArtifacts = deps.thumbv8mBootloaderArtifacts;
-    cargoExtraArgs = "-p rp-bootloader --target thumbv8m.main-none-eabihf --features embassy-rp/rp235xa";
-    cargoClippyExtraArgs = "-- -D warnings";
-    doInstallCargoArtifacts = false;
-    CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+  clippy-rp-bootloader = mkLibraryCheck "clippy-rp-bootloader" {
+    name = "rp-bootloader";
+    target = "thumbv8m.main-none-eabihf";
+    features = [
+      "embassy-rp/rp235xa"
+    ];
   };
 
-  # ubos-stm32 is linted here for the same reason as ubos-rp: both STM32
-  # boards depend on it, so each board build compiles it transitively.
-  # clippy selects a chip on the CLI because the crate pins none, so the
-  # same source builds under both stm32f407 and stm32f439.
-  clippy-ubos-stm32 = craneLib.cargoClippy {
-    src = srcFor [ "ubos-stm32" ];
-    cargoArtifacts = deps.stm32f439Artifacts;
-    cargoExtraArgs = "-p ubos-stm32 --target thumbv7em-none-eabihf --features embassy-stm32/stm32f439zi";
-    cargoClippyExtraArgs = "-- -D warnings";
-    doInstallCargoArtifacts = false;
-    CC_thumbv7em_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+  clippy-ubos-stm32 = mkLibraryCheck "clippy-ubos-stm32" {
+    name = "ubos-stm32";
+    target = "thumbv7em-none-eabihf";
+    features = [
+      "embassy-stm32/stm32f439zi"
+    ];
   };
 
-  build-ubos-firmware = craneLib.cargoBuild {
-    src = srcFor [ "ubos-firmware" ];
-    cargoArtifacts = deps.ubosFirmwareArtifacts;
-    cargoBuildCommand = "cargo build --release";
-    cargoExtraArgs = "-p ubos-firmware --target thumbv8m.main-none-eabihf";
-    doInstallCargoArtifacts = false;
-    nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
-    CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+  build-ubos-firmware = mkLibraryCheck "build-ubos-firmware" {
+    name = "ubos-firmware";
+    target = "thumbv8m.main-none-eabihf";
   };
 
-  clippy-ubos-firmware = craneLib.cargoClippy {
-    src = srcFor [ "ubos-firmware" ];
-    cargoArtifacts = deps.ubosFirmwareArtifacts;
-    cargoExtraArgs = "-p ubos-firmware --target thumbv8m.main-none-eabihf";
-    cargoClippyExtraArgs = "-- -D warnings";
-    doInstallCargoArtifacts = false;
-    nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
-    CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+  clippy-ubos-firmware = mkLibraryCheck "clippy-ubos-firmware" {
+    name = "ubos-firmware";
+    target = "thumbv8m.main-none-eabihf";
   };
 
   clippy-host-runner-bmm = bmmCraneLib.cargoClippy (
@@ -824,6 +643,30 @@ hostClippyChecks
     inherit src;
     doInstallCargoArtifacts = false;
   };
+
+  # The doc tests of every crate whose docs hold a runnable example, in
+  # the dev profile. The per-unit plan of nix/units.nix leaves doc tests
+  # out, because rustdoc compiles and runs them, so they build through
+  # crane in one derivation, and a crate that gains a runnable example
+  # joins the list.
+  doctest-host =
+    let
+      args = {
+        CARGO_PROFILE = "";
+        cargoExtraArgs = "-p ubos-tuner -p ubos-events --features ubos-events/std";
+      };
+    in
+    craneLib.cargoDocTest (
+      args
+      // {
+        src = srcFor [
+          "ubos-tuner"
+          "ubos-events"
+        ];
+        cargoArtifacts = craneLib.buildDepsOnly (args // { inherit src; });
+        doInstallCargoArtifacts = false;
+      }
+    );
 
   # Aggregate over every host-testable crate check, so one build forces
   # them all; derived from the test table, a new test row joins

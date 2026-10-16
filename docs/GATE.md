@@ -103,7 +103,10 @@ does not stop the others. A table that you read in the middle of a run
 tells you what is already broken.
 
 There is no table during the evaluation, which is the phase before the
-build. The gate counts no check until the evaluation ends. If you ask
+build. In that phase cargo plans the host and ARM checks, one derivation
+per compile step, which is why the gate passes nix the option that
+allows a program to run during evaluation; `nix/units.nix` holds the
+reason. The gate counts no check until the evaluation ends. If you ask
 for the status in that time, `-- status` tells you that the run is in
 the evaluation. This is not an error, and you must not start a second
 run: the gate refuses one for the same worktree.

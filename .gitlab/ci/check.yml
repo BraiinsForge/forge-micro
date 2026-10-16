@@ -44,7 +44,7 @@ clippy:
   extends:
     - .rust-rules
   script:
-    - nix build --no-link --print-build-logs .#ci-clippy
+    - nix build --no-link --print-build-logs --option allow-unsafe-native-code-during-evaluation true .#ci-clippy
 
 # Stage 3: everything else `nix flake check` covers - host tests,
 # firmware release builds with their flash-size and pool-worker guards,
@@ -55,7 +55,7 @@ check:
   extends:
     - .rust-rules
   script:
-    - nix build --no-link --print-build-logs .#ci-check
+    - nix build --no-link --print-build-logs --option allow-unsafe-native-code-during-evaluation true .#ci-check
 
 # Flashable hashnode and forge-axe BOOTSEL images for every commit
 # that lands on the default branch. The `nix run` app copies the UF2

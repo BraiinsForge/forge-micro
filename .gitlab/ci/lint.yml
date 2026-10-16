@@ -20,7 +20,7 @@ commits:
 format:
   stage: lint
   script:
-    - nix build --no-link --print-build-logs .#ci-format
+    - nix build --no-link --print-build-logs --option allow-unsafe-native-code-during-evaluation true .#ci-format
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
@@ -40,7 +40,7 @@ format:
 instructions:
   stage: lint
   script:
-    - nix build --no-link --print-build-logs
+    - nix build --no-link --print-build-logs --option allow-unsafe-native-code-during-evaluation true
       .#checks.x86_64-linux.claude-md-limit
       .#checks.x86_64-linux.instruction-paths
   rules:
