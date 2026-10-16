@@ -26,7 +26,7 @@ use core::num::NonZeroU64;
 use embassy_time::{Duration, Instant, Ticker};
 use portable_atomic::{AtomicU64, Ordering};
 
-use crate::metrics::{Label, LabelValue, Labels, Metric, Value, push};
+use crate::metrics::{Label, LabelValue, Labels, Metric, Value};
 
 /// Maximum number of cores tracked by [`record_idle`]. Each board
 /// declares how many of these slots it populates by passing `N_CPUS`
@@ -90,12 +90,9 @@ pub async fn run_cpu_load<const N_CPUS: usize>() -> ! {
                 name: "cpu",
                 value: LabelValue::Static(CPU_LABELS[cpu_index]),
             });
-            push(Metric::with_labels(
-                "board_cpu_busy_ratio",
-                labels,
-                Value::Float(busy),
-            ))
-            .await;
+            Metric::with_labels("board_cpu_busy_ratio", labels, Value::Float(busy))
+                .push()
+                .await;
 
             prev_idle[cpu_index] = now_idle[cpu_index];
         }
