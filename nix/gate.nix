@@ -95,18 +95,26 @@ let
   # the derivation path, and the matching stop carries only the id.
   buildActivity = 105;
 
-  # How often the run prints a line of its own. Each one queries the
-  # store for every check and reads the event stream as far as it has
-  # grown since the last tick, so a tick per second would cost more than
-  # it tells, and a tick per minute leaves a reader wondering. Only the
-  # store query scales with the size of the gate; the stream is read
-  # once from a cursor however long the run lasts.
+  # The activity type nix gives a download from a binary cache. A start
+  # names the path and the cache, so the run can say which downloads
+  # are open, which on a cold store is the whole of its first minutes.
+  substituteActivity = 108;
+
+  # The activity type of the one activity that counts every build of the
+  # run. Its progress results carry the builds done and the builds nix
+  # expects, which is the run's count of units out of its total.
+  buildsActivity = 104;
+
+  # How often the run reads the state of every check, and how long the
+  # run's log can stay silent before it names what is still building.
+  # The state costs a store query for every check, so a read per second
+  # would cost more than it tells, and the log itself follows the event
+  # stream at every poll.
   progressSeconds = 20;
 
-  # How often the run tests whether the build has ended. It costs one
-  # signal and no store query, so it is short: it decides only how long
-  # a finished run waits before it reports, and a whole print interval
-  # there put a floor under a gate the store already held.
+  # How often the run tests whether the build has ended and prints the
+  # events that landed since the last poll. It costs one signal and a
+  # read of the stream from a cursor, so it is short.
   pollSeconds = 2;
 
   gate = pkgs.writeShellApplication {
@@ -127,7 +135,7 @@ let
       pkgs.gnutar
       pkgs.jq
     ];
-    # The script itself is nix/gate.sh. Nix owns six values and
+    # The script itself is nix/gate.sh. Nix owns eight values and
     # contributes nothing else, so the preamble below is the whole of
     # the boundary: the script reads each by name and states none of
     # them twice.
@@ -135,6 +143,8 @@ let
       readonly cores_per_job=${toString coresPerJob}
       readonly event_prefix=${pkgs.lib.escapeShellArg eventPrefix}
       readonly build_activity=${toString buildActivity}
+      readonly substitute_activity=${toString substituteActivity}
+      readonly builds_activity=${toString buildsActivity}
       readonly progress_seconds=${toString progressSeconds}
       readonly poll_seconds=${toString pollSeconds}
       readonly nix_system=${pkgs.lib.escapeShellArg system}

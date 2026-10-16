@@ -22,10 +22,11 @@
 # editor, syntax highlighting and a readable diff, and the module gives
 # up nothing by holding the wrapper alone.
 #
-# Six values belong to nix and are set by the preamble that module
+# Eight values belong to nix and are set by the preamble that module
 # prepends: `cores_per_job`, `event_prefix`, `build_activity`,
-# `progress_seconds`, `poll_seconds` and `nix_system`. They are assigned
-# nowhere here, which is the point: each has one source.
+# `substitute_activity`, `builds_activity`, `progress_seconds`,
+# `poll_seconds` and `nix_system`. They are assigned nowhere here, which
+# is the point: each has one source.
 # shellcheck shell=bash
 # shellcheck disable=SC2154
 # Resolved once. This form is correct from either half of a pair,
@@ -49,6 +50,11 @@ meta="$state/meta.tsv"
 folded="$state/builds.tsv"
 cursor="$state/events.offset"
 
+# The derivations whose build failed in this run, one to a line, written
+# by `unit_ended` below. A check is a graph of units and most of them
+# fail inside a unit, so this is what names a check's failure.
+failed_units="$state/failed.txt"
+
 # The tree the checks are evaluated against, written by
 # `materialize` below. It hangs off the state directory, so it is
 # per worktree and invisible to `git status` like everything else
@@ -57,6 +63,15 @@ src="$state/src"
 
 jobs="${GATE_MAX_JOBS:-$(nproc)}"
 cores="${GATE_CORES:-$cores_per_job}"
+
+# How far back from the end of the event stream the run looks for the
+# last count of builds. Nix sends one with every build that starts or
+# ends, so the last megabyte holds one however many log lines arrived
+# beside it.
+progress_tail_bytes=1000000
+
+# How many of the open units a quiet interval names, one to a line.
+heartbeat_units=4
 
 # How many of nix's own messages the summary carries when the build
 # stopped and no check failed. Enough to hold a substituter error or a
@@ -81,7 +96,7 @@ die() {
 }
 
 # One line about what the run is doing now. It goes to stdout, beside
-# the progress lines and the table, because a reader watching the run
+# the run's log and the table, because a reader watching the run
 # is watching one stream and not two.
 say() {
   printf '%s\n' "$*"
@@ -376,35 +391,70 @@ fold_events() {
     return 0
   fi
   tail -c "+$((offset + 1))" "$events" \
-  | { grep -E "\"action\":\"start\".*\"type\":$build_activity\}|\"action\":\"stop\"" || true; } \
+  | { grep -E "\"action\":\"start\".*\"type\":($build_activity|$substitute_activity|$builds_activity)\}|\"action\":\"stop\"" || true; } \
   | sed "s/^$event_prefix//" \
-  | jq -r '[.id, .action, (.fields[0] // "")] | @tsv' \
+  | jq -r '[.id, .action, (.fields[0] // ""), (.type // "")] | @tsv' \
   >> "$folded"
   printf '%s\n' "$size" > "$cursor"
 }
 
-# A derivation that the event stream reports as started was built
-# by this run. Everything else that is valid in the store was
-# already there, which is the difference between a cache hit and a
-# rebuild, and the one number that says whether the gate is fast
-# for the right reason.
-started_drvs() {
+# The paths of one activity kind that the stream reports as started,
+# derivations for a build and store paths for a download. A derivation
+# started by this run was built by it, and everything else that is valid
+# in the store was already there, which is the difference between a
+# cache hit and a rebuild, and the one number that says whether the gate
+# is fast for the right reason.
+started_of() {
   if [ ! -s "$folded" ]; then
     return 0
   fi
-  awk -F'\t' '$2 == "start" && $3 != "" { print $3 }' "$folded" | sort -u
+  awk -F'\t' -v kind="$1" \
+    '$2 == "start" && $4 == kind && $3 != "" { print $3 }' "$folded" | sort -u
+}
+
+running_of() {
+  if [ ! -s "$folded" ]; then
+    return 0
+  fi
+  awk -F'\t' -v kind="$1" '
+    $2 == "stop"                { stopped[$1] = 1 }
+    $2 == "start" && $4 == kind { path[$1] = $3 }
+    END {
+      for (id in path) if (!(id in stopped) && path[id] != "") print path[id];
+    }' "$folded" | sort -u
+}
+
+started_drvs() {
+  started_of "$build_activity"
 }
 
 running_drvs() {
-  if [ ! -s "$folded" ]; then
+  running_of "$build_activity"
+}
+
+# What nix is doing beside the builds: the cache downloads the stream
+# reports, with the first names of the open ones, and when no derivation
+# builds and no download is open, the activity nix started last. A cold
+# store spends its first minutes asking the caches and downloading the
+# toolchains, and a line that counted builds alone read as a stalled run
+# for all of that time.
+activity() {
+  local open running ended names last
+  open="$(running_of "$substitute_activity")"
+  running="$(printf '%s' "$open" | grep -c . || true)"
+  ended="$(( $(started_of "$substitute_activity" | grep -c . || true) - running ))"
+  if [ "$running" -gt 0 ] || [ -n "$(running_drvs)" ]; then
+    names="$(printf '%s\n' "$open" | sed -E 's#^/nix/store/[a-z0-9]+-##' | head -n 3 | paste -sd ' ')"
+    printf 'downloads done %d  open %d  %s' "$ended" "$running" "$names"
     return 0
   fi
-  awk -F'\t' '
-    $2 == "stop"  { stopped[$1] = 1 }
-    $2 == "start" { drv[$1] = $3 }
-    END {
-      for (id in drv) if (!(id in stopped) && drv[id] != "") print drv[id];
-    }' "$folded" | sort -u
+  last="$(tail -n 50 "$events" 2>/dev/null \
+    | { grep -F '"action":"start"' || true; } \
+    | tail -n 1 \
+    | sed "s/^$event_prefix//" \
+    | jq -r '.text // empty' \
+    | sed -E 's#/nix/store/[a-z0-9]+-##g')"
+  printf 'now %s' "$last"
 }
 
 # Nix's own messages, which are the other thing the stream carries. A
@@ -441,8 +491,8 @@ run_ended() {
 }
 
 # One pass over the plan, the store and the event stream, emitting
-# `state<TAB>name` for every check. The table and the progress line
-# are both formatted from this, so the two can never disagree about
+# `state<TAB>name` for every check. The table and the run's log are
+# both formatted from this, so the two can never disagree about
 # what the run is doing.
 #
 # It asks the store which paths are missing rather than which are
@@ -455,9 +505,11 @@ run_ended() {
 # report it as queued for as long as the run lasts, which is the
 # whole of what `--keep-going` is for. A check that never started
 # and has no output is one whose dependency failed, so nix never
-# built it; that is only knowable once the run has ended.
+# built it. That is knowable as soon as a unit in its graph fails,
+# from the derivations that refer to the failed unit, and of any other
+# dependency only once the run has ended.
 #
-# The three lists reach awk as files, not as arguments: a check is a
+# The four lists reach awk as files, not as arguments: a check is a
 # graph of hundreds of derivations, each started and stopped in the
 # stream, and a list of them all is longer than one argument may be.
 # Each call writes them to a directory of its own, because `gate status`
@@ -465,30 +517,37 @@ run_ended() {
 # list one of them empties while the other reads it shows every check
 # as built.
 summarize() {
-  local lists invalid started running
+  local lists invalid started running blocked
   fold_events
   lists="$(mktemp -d "$state/lists.XXXXXX")"
   invalid="$lists/invalid"
   started="$lists/started"
   running="$lists/running"
+  blocked="$lists/blocked"
   cut -f3 "$plan" | xargs nix-store --check-validity --print-invalid > "$invalid"
   started_drvs > "$started"
   running_drvs > "$running"
+  : > "$blocked"
+  if [ -s "$failed_units" ]; then
+    xargs nix-store -q --referrers-closure < "$failed_units" > "$blocked"
+  fi
 
   awk -F'\t' \
     -v ended="$(run_ended && echo 1 || echo 0)" '
     FILENAME == ARGV[1] { if ($0 != "") isMissing[$0] = 1; next }
     FILENAME == ARGV[2] { if ($0 != "") wasStarted[$0] = 1; next }
     FILENAME == ARGV[3] { if ($0 != "") isRunning[$0] = 1; next }
+    FILENAME == ARGV[4] { if ($0 != "") isBlocked[$0] = 1; next }
     {
       name = $1; drv = $2; out = $3;
       if (isRunning[drv])        state = "building";
       else if (!isMissing[out])  state = wasStarted[drv] ? "built" : "cached";
       else if (wasStarted[drv])  state = "FAILED";
+      else if (isBlocked[drv])   state = "FAILED";
       else if (ended == 1)       state = "FAILED";
       else                       state = "queued";
       printf "%s\t%s\n", state, name;
-    }' "$invalid" "$started" "$running" "$plan"
+    }' "$invalid" "$started" "$running" "$blocked" "$plan"
   rm -r "$lists"
 }
 
@@ -530,40 +589,239 @@ status() {
         count["queued"], count["FAILED"];
     }'
 
+  if ! run_ended; then
+    printf '%s\n' "$(activity)"
+  fi
+
   if [ -s "$summary" ]; then
     printf '\n'
     cat "$summary"
   fi
 }
 
-# One line, for the terminal the run itself is in. A gate that
-# prints nothing until it ends is not observable in the place a
-# reader is already looking, whatever `gate status` can answer
-# from somewhere else.
-progress() {
-  local elapsed=$1
-  summarize | awk -F'\t' -v elapsed="$elapsed" '
-    {
-      count[$1]++;
-      if ($1 == "building") building = building (building ? " " : "") $2;
-    }
-    END {
-      printf "[%3d:%02d] built %d  building %d  queued %d  failed %d  |  %s\n",
-        elapsed / 60, elapsed % 60,
-        count["built"], count["building"], count["queued"],
-        count["FAILED"], building;
-    }'
+# The run's own log, for the terminal the run itself is in: a line for
+# every build and download that ends, a line for every check that
+# passes or fails, and a line naming what still builds when nothing
+# has ended for a while. It follows the folded stream from a line
+# cursor of its own, so each event is printed once and as it lands. A
+# line sampled on a timer showed whichever two units were building at
+# that moment and lost the dozens that ended between two lines.
+#
+# The builds and downloads that are open live in a file, carried from
+# one call to the next, because a build that starts in one poll ends in
+# another. Most stop events in the stream belong to activities that are
+# neither, and one awk pass matches them all against that file, so the
+# shell sees only what ended.
+declare -A check_state=()
+open_units="$state/open.tsv"
+streamed=0
+last_line=0
+run_start=0
+builds_id=""
+builds_done=0
+builds_expected=0
+
+elapsed() {
+  printf '%d' "$(( $(date +%s) - run_start ))"
 }
 
-# `nix log` wants a derivation, and a caller has a check name.
+log_line() {
+  local now
+  now="$(elapsed)"
+  printf '[%3d:%02d] %s\n' "$((now / 60))" "$((now % 60))" "$1"
+  last_line=$now
+}
+
+short() {
+  printf '%s' "$1" | sed -E 's#^/nix/store/[a-z0-9]+-##; s/\.drv$//'
+}
+
+# The platform a rostnix unit compiles for, which its derivation names
+# and its name does not: one crate is a unit per target, and a log of
+# names alone repeats it with nothing to tell the lines apart. A unit
+# with no target compiles for this machine. Other derivations print
+# nothing here.
+target_of() {
+  local found
+  found="$(grep -o '\\"target\\":[^,]*' "$1" 2>/dev/null | head -n 1 || true)"
+  case "$found" in
+    '') ;;
+    *null) printf 'host' ;;
+    *) printf '%s' "$found" | sed -E 's/.*:\\"([^\\]*)\\".*/\1/' ;;
+  esac
+}
+
+# The run's count of builds: the last progress nix gave its builds
+# activity. Nix revises the total as it learns the graph, so the count is
+# read again at every poll instead of being kept here.
+read_builds() {
+  local fields
+  if [ -z "$builds_id" ]; then
+    builds_id="$(awk -F'\t' -v kind="$builds_activity" \
+      '$2 == "start" && $4 == kind { print $1; exit }' "$folded")"
+  fi
+  if [ -z "$builds_id" ]; then
+    return 0
+  fi
+  fields="$(tail -c "$progress_tail_bytes" "$events" \
+    | { grep -F "\"id\":$builds_id,\"type\":$build_activity}" || true; } \
+    | tail -n 1 \
+    | sed "s/^$event_prefix//" \
+    | jq -r '.fields | "\(.[0]) \(.[1])"')"
+  if [ -n "$fields" ]; then
+    read -r builds_done builds_expected <<< "$fields"
+  fi
+}
+
+# One unit as every line of the log names it: the name without the
+# platform suffix a cross package set appends, which the target column
+# says for every unit alike, and the target.
+unit_label() {
+  printf '%-44s %-26s' \
+    "$(short "$1" | sed -E 's/-(arm|riscv64|x86_64|aarch64)-[a-z0-9_-]*$//')" \
+    "$(target_of "$1")"
+}
+
+# How long a unit took, at the resolution the run sees: a start and a
+# stop land in the run's view at a poll, so a unit that began and ended
+# inside one poll reads as shorter than a poll rather than as no time.
+duration() {
+  if [ "$1" -lt "$poll_seconds" ]; then
+    printf '<%ss' "$poll_seconds"
+    return 0
+  fi
+  printf '%ss' "$1"
+}
+
+# A build that stopped either left its outputs in the store or failed.
+# The stop event says neither, so the store answers, and a failure
+# carries the first errors of its log, which is what a reader would
+# otherwise run `nix log` for.
+unit_ended() {
+  local path=$1 kind=$2 took=$3 outputs=()
+  if [ "$kind" = "$substitute_activity" ]; then
+    log_line "fetched $(printf '%11s' '')  $(short "$path")"
+    return 0
+  fi
+  mapfile -t outputs < <(nix-store -q --outputs "$path" 2>/dev/null || true)
+  if [ "${#outputs[@]}" -gt 0 ] && nix-store --check-validity "${outputs[@]}" 2>/dev/null; then
+    builds_done=$((builds_done + 1))
+    log_line "$(printf 'built   %11s  %s %6s' \
+      "$builds_done/$builds_expected" "$(unit_label "$path")" "$(duration "$took")")"
+    return 0
+  fi
+  printf '%s\n' "$path" >> "$failed_units"
+  log_line "$(printf 'FAIL    %11s  %s %6s' '' "$(unit_label "$path")" "$(duration "$took")")"
+  { nix log "$path" 2>/dev/null || true; } \
+  | { grep -m 3 -E '^error' || true; } \
+  | sed 's/^/          /'
+  printf '          log: nix log %s\n' "$path"
+}
+
+stream() {
+  local total path kind took
+  fold_events
+  if [ ! -s "$folded" ]; then
+    return 0
+  fi
+  total="$(wc -l < "$folded")"
+  touch "$open_units"
+  while IFS=$'\t' read -r path kind took; do
+    unit_ended "$path" "$kind" "$took"
+  done < <(
+    tail -n "+$((streamed + 1))" "$folded" \
+    | awk -F'\t' -v OFS='\t' -v now="$(elapsed)" -v next_open="$open_units.next" \
+        -v build="$build_activity" -v fetch="$substitute_activity" '
+      FILENAME == ARGV[1] { path[$1] = $2; kind[$1] = $3; since[$1] = $4; next }
+      $2 == "start" && $3 != "" && ($4 == build || $4 == fetch) {
+        path[$1] = $3; kind[$1] = $4; since[$1] = now; next
+      }
+      $2 == "stop" && ($1 in path) {
+        print path[$1], kind[$1], now - since[$1];
+        delete path[$1];
+      }
+      END {
+        for (id in path) print id, path[id], kind[id], since[id] > next_open;
+        close(next_open);
+      }' "$open_units" -
+  )
+  mv "$open_units.next" "$open_units" 2>/dev/null || : > "$open_units"
+  streamed=$total
+  read_builds
+}
+
+# The checks' states as the run starts, and how many the store already
+# held, so a warm run does not open with a line for every cached check.
+seed_states() {
+  local now name cached=0
+  while IFS=$'\t' read -r now name; do
+    check_state[$name]=$now
+    if [ "$now" = cached ]; then
+      cached=$((cached + 1))
+    fi
+  done < <(summarize)
+  log_line "$cached of ${#check_state[@]} checks are already in the store"
+}
+
+# The checks that passed or failed since the last call.
+check_states() {
+  local now name
+  while IFS=$'\t' read -r now name; do
+    if [ "${check_state[$name]:-}" = "$now" ]; then
+      continue
+    fi
+    check_state[$name]=$now
+    case "$now" in
+      built | cached) log_line "PASS    $name" ;;
+      FAILED) log_line "FAIL    $name" ;;
+    esac
+  done < <(summarize)
+}
+
+# What still builds, said only when nothing else was said for a whole
+# interval, so a long unit is not mistaken for a stalled run. Each open
+# unit gets the same columns a finished one does, so two units of one
+# crate read as two targets and not as one name printed twice.
+heartbeat() {
+  local count path
+  if [ $(( $(elapsed) - last_line )) -lt "$progress_seconds" ]; then
+    return 0
+  fi
+  count="$(grep -c . "$open_units" 2>/dev/null || true)"
+  if [ "${count:-0}" -eq 0 ]; then
+    log_line "...     $(activity)"
+    return 0
+  fi
+  log_line "...     $count open, nothing ended in ${progress_seconds}s"
+  while IFS= read -r path; do
+    printf '         open    %11s  %s\n' '' "$(unit_label "$path")"
+  done < <(cut -f2 "$open_units" | head -n "$heartbeat_units")
+}
+
+# `nix log` wants a derivation, and a caller has a check name. A check
+# whose unit failed never ran and has no log of its own, so the log is
+# then the failed units' in its graph, which hold the error.
 show_log() {
-  local name=$1 drv
+  local name=$1 drv unit units=()
   drv="$(awk -F'\t' -v n="$name" '$1 == n { print $2 }' "$plan")"
   if [ -z "$drv" ]; then
     die "No check is named $name in this run." \
         "List the names with: nix run .#gate -- status"
   fi
-  nix log "$drv"
+  if nix log "$drv" 2>/dev/null; then
+    return 0
+  fi
+  if [ -s "$failed_units" ]; then
+    mapfile -t units < <(nix-store -qR "$drv" | grep -Fx -f "$failed_units" || true)
+  fi
+  if [ "${#units[@]}" -eq 0 ]; then
+    die "The check $name has no build log." \
+        "No build in its graph failed in this run."
+  fi
+  for unit in "${units[@]}"; do
+    printf '==> %s\n' "$unit"
+    nix log "$unit"
+  done
 }
 
 # Two worktrees gate two branches and never meet here. Two callers
@@ -611,7 +869,7 @@ run() {
   # the previous commit's header. The clearing is after `claim`, because
   # until the claim holds this run is not the one writer of any of it.
   : > "$events"
-  rm -f "$summary" "$plan" "$meta" "$folded" "$cursor"
+  rm -f "$summary" "$plan" "$meta" "$folded" "$cursor" "$open_units" "$failed_units"
 
   # Every phase says that it started. The build is the observable part
   # of a run, but it is not the first part: a cold evaluation is about
@@ -671,31 +929,37 @@ run() {
   build_pid=$!
 
   # The build owns stderr, which is the event stream, so this
-  # terminal gets the progress line instead. A reader watching the
-  # run sees it here, and a reader anywhere else runs
-  # `gate status` against the same state.
+  # terminal gets the run's log instead. A reader watching the run
+  # sees it here, and a reader anywhere else runs `gate status`
+  # against the same state.
   #
-  # One line goes out before the first wait, so a run is never silent
-  # at the start, and the poll is shorter than the line so that a run
-  # ending between two lines is noticed when it ends. Waiting a whole
-  # print interval to notice put a floor under every run, including
-  # one the store already held.
+  # The stream is read every poll, so an event is printed within a
+  # poll of landing and a finished run is noticed as soon. The checks'
+  # states cost a store query over the whole plan, so they are read
+  # once an interval. The last read is after the build ends, so the
+  # final events are printed before the table.
   local waited=0
-  progress 0
+  run_start=$start
+  seed_states
   while kill -0 "$build_pid" 2>/dev/null; do
     sleep "$poll_seconds"
+    stream
     waited=$((waited + poll_seconds))
     if [ "$waited" -ge "$progress_seconds" ]; then
       waited=0
-      progress "$(( $(date +%s) - start ))"
+      check_states
+      heartbeat
     fi
   done
+  stream
+  check_states
   wait "$build_pid" || rc=$?
 
   # Counted before the summary is written, because writing it is what
   # makes a run read as ended, and an ended run reports the checks that
   # never started as failed too. What is wanted here is the narrower
-  # number: the checks that started and did not finish.
+  # number: the checks that started and did not finish, and the checks
+  # that a failed unit stopped.
   local failed
   failed="$(summarize | grep -c '^FAILED' || true)"
 

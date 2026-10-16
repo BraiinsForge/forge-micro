@@ -112,6 +112,27 @@ for the status in that time, `-- status` tells you that the run is in
 the evaluation. This is not an error, and you must not start a second
 run: the gate refuses one for the same worktree.
 
+While the build runs, the gate prints a log. Each line starts with the
+time since the build started. The first line says how many checks are
+already in the store. Then the gate prints one line for each build that
+ends, and one line for each download that ends. A build line gives the
+count of builds that ended and the count that nix expects, for example
+`235/892`. Nix changes the second count while it learns the graph. The
+line then gives the name, the target that the build compiles for, or
+`host` for this machine, and the duration. The gate reads the events
+every two seconds, so a build that took less time shows `<2s`. It
+prints `PASS` or `FAIL` and the name when a check ends. When a build
+fails, the gate also prints the first errors of its log and the command
+that shows the full log.
+
+If nothing ends for twenty seconds, the gate prints a line that starts
+with `...`. Under that line, the gate names the open builds, one on each
+line, with their targets. If no build is
+open, it says what nix does beside the builds, for example a query to
+the binary caches. On a cold store that query can take minutes. The run
+is not stalled in that time. `-- status` prints the same information
+under its table while the run lasts.
+
 The last line is the verdict, `gate: PASS` or `gate: FAIL`. Lead with
 it. If the verdict is `gate: FAIL`, name the failed checks from the
 table. Then read one log with `nix run .#gate -- log <check>`.
