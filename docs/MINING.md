@@ -155,7 +155,7 @@ Other configuration changes do not restart mining.
 
 One `Miner` owns the PSU rail and every chain of the machine.
 
-`Miner::run` first attempts to disable the rail before the first reset.
+`Miner::run` first cuts the rail: it puts every chain in reset and disables the PSU.
 If the PSU-disable command fails, it logs the error and continues with bring-up.
 
 Then `Miner::run` repeats:

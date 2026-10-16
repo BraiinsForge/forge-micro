@@ -325,17 +325,12 @@ where
         // the latest target again before every policy step.
         config_subscription.changed().await;
 
-        // Park the rail off before the first reset, so every board
-        // begins bring-up from a known-off supply regardless of what
-        // the previous boot cycle left it in. A failure is logged and
-        // bring-up goes on: the enable that follows the reset sets the
-        // rail either way.
-        if let Err(error) = self.psu.disable().await {
-            warn!(
-                "psu disable before the first reset failed: {:?}",
-                Debug2Format(&error)
-            );
-        }
+        // Cut the rail before the first bring-up, so every board begins
+        // with every chain in reset and a known-off supply, whatever the
+        // previous boot cycle left them in. A failure to disable the PSU
+        // is logged and bring-up goes on: the enable that follows the
+        // reset sets the rail either way.
+        cut_rail(self.psu, &mut self.chains).await;
 
         loop {
             let tuning = config_handle.current().miner.tuning;
