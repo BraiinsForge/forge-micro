@@ -30,8 +30,8 @@
 //! sequence a chain's hardware reset produces.
 
 use super::{
-    BringUp, Choose, Halted, Miner, MinerState, PoolWatch, PsuError, Run, STOP_MINING, Selected,
-    Step,
+    BringUp, Choose, Halted, Miner, MinerState, Pause, PoolWatch, PsuError, Run, STOP_MINING,
+    Selected, Step,
 };
 use crate::control::Message;
 use crate::tuner::MachineTuner;
@@ -1649,6 +1649,45 @@ fn stop_during_plan_delay_does_not_wait_or_issue_another_plan() {
                 &[Write::Voltage(voltage), Write::Disable,]
             );
         });
+    });
+}
+
+#[test]
+fn a_tuner_change_during_the_plan_delay_cuts_the_rail_and_chooses_again() {
+    critical_section::with(|_| {
+        static ACTOR: Serial = Serial::new(0, 1);
+        static STATS: ChainStats = ChainStats::new();
+        static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
+        let psu = TestPsu {
+            log: &LOG,
+            behavior: Cell::new(VoltageWrite::Succeed),
+            disable_fails: false,
+        };
+        let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
+        let (mut subscription, publish) = test_config();
+        block_on(subscription.get());
+        let state = MinerState::Pause(Pause {
+            run: run(OnePlanTuner(Plan {
+                rail: None,
+                frequencies: [None],
+                delay: Duration::from_secs(1),
+            })),
+            until: Instant::now() + Duration::from_secs(1),
+        });
+        publish(ubos_config::Config {
+            miner: ubos_config::MinerConfig {
+                tuning: ubos_config::Tuning::Power(ubos_config::PowerTarget {
+                    input_power_mw: 3_000_000,
+                    efficiency_mj_per_th: core::num::NonZeroU32::MIN,
+                }),
+            },
+            ..ubos_config::Config::default()
+        });
+        assert!(matches!(
+            block_on(miner.advance(state, &mut subscription)),
+            Some(MinerState::Choose(_))
+        ));
+        LOG.lock(|log| assert_eq!(log.borrow().as_slice(), &[Write::Disable]));
     });
 }
 
