@@ -108,7 +108,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::{Receiver, Watch};
 use portable_atomic::{AtomicU32, Ordering as AtomicOrdering};
 use ubos_core::units::{Power, Voltage};
-use ubos_metrics::metrics::{Metric, Value, push};
+use ubos_metrics::metrics::{Metric, Value};
 
 type CSMutex = CriticalSectionRawMutex;
 
@@ -178,11 +178,9 @@ pub fn record_set_voltage(voltage: Voltage) {
 /// awake.
 pub async fn publish_set_voltage(voltage: Voltage) {
     record_set_voltage(voltage);
-    push(Metric::with_no_labels(
-        SET_VOLTAGE_METRIC,
-        Value::Uint(u64::from(voltage.mv())),
-    ))
-    .await;
+    Metric::with_no_labels(SET_VOLTAGE_METRIC, Value::Uint(u64::from(voltage.mv())))
+        .push()
+        .await;
 }
 
 /// Per-task subscription returned by [`Handle::subscribe`].
@@ -275,14 +273,12 @@ pub const POWER_STATS_INTERVAL: embassy_time::Duration = embassy_time::Duration:
 /// SIC's `READ_VOUT` and a separate INA230) keeps them as distinct series
 /// under one metric name.
 async fn publish_measured_voltage(voltage: Voltage, source: Option<&'static str>) {
-    use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value, push};
+    use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value};
     let value = Value::Uint(u64::from(voltage.mv()));
     let Some(source) = source else {
-        push(Metric::with_no_labels(
-            "board_psu_output_voltage_measured_mv",
-            value,
-        ))
-        .await;
+        Metric::with_no_labels("board_psu_output_voltage_measured_mv", value)
+            .push()
+            .await;
         return;
     };
     let mut labels = Labels::new();
@@ -290,12 +286,9 @@ async fn publish_measured_voltage(voltage: Voltage, source: Option<&'static str>
         name: "source",
         value: LabelValue::Static(source),
     });
-    push(Metric::with_labels(
-        "board_psu_output_voltage_measured_mv",
-        labels,
-        value,
-    ))
-    .await;
+    Metric::with_labels("board_psu_output_voltage_measured_mv", labels, value)
+        .push()
+        .await;
 }
 
 /// Periodic publisher for INA230 power and voltage readings. Runs forever.
@@ -341,15 +334,17 @@ where
                     input.mw(),
                     output.mw()
                 );
-                push(Metric::with_no_labels(
+                Metric::with_no_labels(
                     "board_psu_input_power_mw",
                     Value::Uint(u64::from(input.mw())),
-                ))
+                )
+                .push()
                 .await;
-                push(Metric::with_no_labels(
+                Metric::with_no_labels(
                     "board_psu_output_power_mw",
                     Value::Uint(u64::from(output.mw())),
-                ))
+                )
+                .push()
                 .await;
             }
             (Err(error), Ok(_)) | (Ok(_), Err(error)) => {
@@ -390,11 +385,9 @@ where
             }
         }
         if set_voltage.mv() != 0 {
-            push(Metric::with_no_labels(
-                SET_VOLTAGE_METRIC,
-                Value::Uint(u64::from(set_voltage.mv())),
-            ))
-            .await;
+            Metric::with_no_labels(SET_VOLTAGE_METRIC, Value::Uint(u64::from(set_voltage.mv())))
+                .push()
+                .await;
         }
 
         match (input_result, output_result, voltage_result) {
@@ -425,25 +418,29 @@ where
 
         match psu.read_status().await {
             Ok(flags) => {
-                push(Metric::with_no_labels(
+                Metric::with_no_labels(
                     "board_psu_status_current_limit",
                     Value::Uint(u64::from(flags.current_limit)),
-                ))
+                )
+                .push()
                 .await;
-                push(Metric::with_no_labels(
+                Metric::with_no_labels(
                     "board_psu_status_thermal_shutdown",
                     Value::Uint(u64::from(flags.thermal_shutdown)),
-                ))
+                )
+                .push()
                 .await;
-                push(Metric::with_no_labels(
+                Metric::with_no_labels(
                     "board_psu_status_overvoltage",
                     Value::Uint(u64::from(flags.overvoltage)),
-                ))
+                )
+                .push()
                 .await;
-                push(Metric::with_no_labels(
+                Metric::with_no_labels(
                     "board_psu_status_undervoltage",
                     Value::Uint(u64::from(flags.undervoltage)),
-                ))
+                )
+                .push()
                 .await;
                 let fault_now = flags.current_limit
                     || flags.thermal_shutdown
