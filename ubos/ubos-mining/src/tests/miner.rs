@@ -785,7 +785,6 @@ fn test_miner<'a, T: MachineTuner<CHAINS, PlatformReadings = ()>, const CHAINS: 
             stats: stats[index],
             reset: LoggingResetPin::new(),
         }),
-        halted: false,
         read_platform: || (),
         mining: crate::handle(),
         empty_cycles: 0,
