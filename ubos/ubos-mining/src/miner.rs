@@ -504,7 +504,7 @@ where
     /// Anchor the shared rail and start every present chain before tuning.
     async fn start_work_phase(&mut self) -> InitPhase {
         info!("mining: running work initialization");
-        let init_result = select3(STOP_MINING.wait(), wait_for_halt(), self.start_work()).await;
+        let init_result = select3(STOP_MINING.wait(), wait_for_halt(), self.start_chains()).await;
         match init_result {
             Either3::Third(Ok(())) => {
                 crate::events::work_initialized();
@@ -739,7 +739,7 @@ where
     }
 
     /// Set the open-core rail and start work only on configured chains.
-    async fn start_work(&self) -> Result<(), MinerError> {
+    async fn start_chains(&self) -> Result<(), MinerError> {
         const WORK_PERIOD: Duration = Duration::from_secs(1);
         self.psu
             .set_voltage(self.board.max_rail_voltage())
@@ -753,7 +753,7 @@ where
 
     /// Collect each present chain's accounting and the PSU's confirmed setpoint.
     ///
-    /// The setpoint is present by construction. `start_work` commands the
+    /// The setpoint is present by construction. `start_chains` commands the
     /// open-core rail and `bring_up_cycle` reaches `mine_phase` only after
     /// that command succeeded, and `Psu::set_voltage` records a successful
     /// write before it returns.

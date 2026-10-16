@@ -811,7 +811,7 @@ fn plans_order_shared_rail_writes_and_preserve_successful_partial_progress() {
         };
         let exercise = async {
             // No actor runs for the absent connector: touching it would time out.
-            miner.start_work().await.expect("work starts");
+            miner.start_chains().await.expect("work starts");
             LOG.lock(|log| log.borrow_mut().clear());
             let lower = Frequency::from_mhz(500);
             let higher = Frequency::from_mhz(200);
