@@ -202,11 +202,16 @@ static MODEL_WATCH: Watch<CSMutex, ModelString, 1> = Watch::new();
 /// pass it to multiple tasks.
 #[must_use]
 pub fn handle() -> Handle {
-    Handle {
-        state: &STATE_WATCH,
-        model: &MODEL_WATCH,
-    }
+    HANDLE
 }
+
+/// The handle over the module statics, which every board's
+/// [`PowerSupply::handle`] hands out until the readings move into the
+/// supply.
+static HANDLE: Handle = Handle {
+    state: &STATE_WATCH,
+    model: &MODEL_WATCH,
+};
 
 /// Consumer-side handle for the PSU metrics.
 ///
@@ -219,6 +224,16 @@ pub struct Handle {
 }
 
 impl Handle {
+    /// The handle a board holds when it has no supply. Every read
+    /// answers `None`.
+    #[must_use]
+    pub const fn absent() -> Self {
+        Self {
+            state: &STATE_WATCH,
+            model: &MODEL_WATCH,
+        }
+    }
+
     /// Last successful voltage command, available before the next metrics poll.
     /// NOTE: This setpoint does not indicate whether the rail is enabled.
     #[must_use]
@@ -281,6 +296,12 @@ impl<P: Psu> PowerSupply<P> {
     #[must_use]
     pub const fn new(driver: &'static P) -> Self {
         Self { driver }
+    }
+
+    /// The handle the board passes to every task that reaches the PSU.
+    #[must_use]
+    pub fn handle(&'static self) -> &'static Handle {
+        &HANDLE
     }
 
     /// Run the PSU forever: every [`POWER_STATS_INTERVAL`] read the
