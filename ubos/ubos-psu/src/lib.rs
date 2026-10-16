@@ -255,34 +255,6 @@ impl Handle {
     }
 }
 
-/// Cadence at which [`run_power_stats`] reads PSU input/output power.
-/// Matches the host-runner cadence so the prometheus series rates are
-/// comparable across firmware targets.
-pub const POWER_STATS_INTERVAL: embassy_time::Duration = embassy_time::Duration::from_secs(2);
-
-/// Publish a measured output-rail voltage, optionally tagged with a `source`
-/// label so a board that reads the rail from more than one sensor (e.g. the
-/// SIC's `READ_VOUT` and a separate INA230) keeps them as distinct series
-/// under one metric name.
-async fn publish_measured_voltage(voltage: Voltage, source: Option<&'static str>) {
-    use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value};
-    let value = Value::Uint(u64::from(voltage.mv()));
-    let Some(source) = source else {
-        Metric::with_no_labels("board_psu_output_voltage_measured_mv", value)
-            .push()
-            .await;
-        return;
-    };
-    let mut labels = Labels::new();
-    let _ = labels.push(Label {
-        name: "source",
-        value: LabelValue::Static(source),
-    });
-    Metric::with_labels("board_psu_output_voltage_measured_mv", labels, value)
-        .push()
-        .await;
-}
-
 /// Periodic publisher for INA230 power and voltage readings. Runs forever.
 ///
 /// Reads input power, output power, and the output-rail bus voltage at
@@ -476,6 +448,34 @@ where
             MODEL_WATCH.sender().send(model);
         }
     }
+}
+
+/// Cadence at which [`run_power_stats`] reads PSU input/output power.
+/// Matches the host-runner cadence so the prometheus series rates are
+/// comparable across firmware targets.
+pub const POWER_STATS_INTERVAL: embassy_time::Duration = embassy_time::Duration::from_secs(2);
+
+/// Publish a measured output-rail voltage, optionally tagged with a `source`
+/// label so a board that reads the rail from more than one sensor (e.g. the
+/// SIC's `READ_VOUT` and a separate INA230) keeps them as distinct series
+/// under one metric name.
+async fn publish_measured_voltage(voltage: Voltage, source: Option<&'static str>) {
+    use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value};
+    let value = Value::Uint(u64::from(voltage.mv()));
+    let Some(source) = source else {
+        Metric::with_no_labels("board_psu_output_voltage_measured_mv", value)
+            .push()
+            .await;
+        return;
+    };
+    let mut labels = Labels::new();
+    let _ = labels.push(Label {
+        name: "source",
+        value: LabelValue::Static(source),
+    });
+    Metric::with_labels("board_psu_output_voltage_measured_mv", labels, value)
+        .push()
+        .await;
 }
 
 pub trait Psu {
