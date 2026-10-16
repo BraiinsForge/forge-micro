@@ -186,9 +186,7 @@ fn a_measurement_releases_the_halt_and_the_budget_starts_over() {
 fn a_dangerous_measurement_halts_once_and_a_cool_one_under_the_halt_resumes() {
     let config = ubos_config::Config::default().thermal;
     // One degree above the hashboard threshold the default config sets.
-    #[allow(clippy::cast_possible_truncation)]
-    let hot =
-        Temperature::from_millicelsius((config.dangerous_hashboard_temp_c * 1000.0) as i32 + 1000);
+    let hot = Temperature::from_millicelsius(config.dangerous_hashboard_temp.millicelsius() + 1000);
     let mut thermal = Thermal::default();
 
     let step = judge(
@@ -207,8 +205,7 @@ fn a_dangerous_measurement_halts_once_and_a_cool_one_under_the_halt_resumes() {
     // stands on it; one degree below that threshold releases it.
     let step = judge(&mut thermal, cool_reading(), halted);
     assert_eq!(step.dangerous, None);
-    #[allow(clippy::cast_possible_truncation)]
-    let cooled = Temperature::from_millicelsius((config.cooldown_temp_c * 1000.0) as i32 - 1000);
+    let cooled = Temperature::from_millicelsius(config.cooldown_temp.millicelsius() - 1000);
     let step = judge(&mut thermal, Reading::Measured(hashboard(cooled)), halted);
     assert_eq!(step.dangerous, Some(Note::Cooled(cooled)));
 }

@@ -131,9 +131,9 @@ type CSMutex = CriticalSectionRawMutex;
 /// threshold, and `metrics` turns it into the `source` label.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Source {
-    /// A hashboard reading. Selects `dangerous_hashboard_temp_c`.
+    /// A hashboard reading. Selects `dangerous_hashboard_temp`.
     Hashboard,
-    /// A chip's own die reading. Selects `dangerous_chip_temp_c`.
+    /// A chip's own die reading. Selects `dangerous_chip_temp`.
     Chip,
 }
 
@@ -708,16 +708,16 @@ macro_rules! thermal_task {
 /// for ever after, with `evaluate` answering `Ok` at any temperature.
 fn judge_dangerous(sample: &Sample, config: &ThermalConfig, held: PauseReasons) -> Option<Note> {
     let dangerous = match sample.safety_source {
-        Source::Chip => config.dangerous_chip_temp_c,
-        Source::Hashboard => config.dangerous_hashboard_temp_c,
+        Source::Chip => config.dangerous_chip_temp,
+        Source::Hashboard => config.dangerous_hashboard_temp,
     };
     let halted = held.contains(PauseReason::DangerousTemperature);
     let temp = sample.safety;
     match evaluate(
         temp.celsius_f32(),
         halted,
-        dangerous,
-        config.cooldown_temp_c,
+        dangerous.celsius_f32(),
+        config.cooldown_temp.celsius_f32(),
     ) {
         Action::Ok => None,
         Action::EnterHalt => Some(Note::Dangerous(temp)),

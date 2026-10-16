@@ -151,9 +151,9 @@ board that reports a chip reading and a hashboard reading publishes one
 series for each:
 
 - `source="chip"` is the hottest chip reading. This series selects the
-  `dangerous_chip_temp_c` threshold.
+  `dangerous_chip_temp` threshold.
 - `source="hashboard"` is the hottest hashboard reading. This series
-  selects the `dangerous_hashboard_temp_c` threshold.
+  selects the `dangerous_hashboard_temp` threshold.
 
 ### Reading series
 

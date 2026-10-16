@@ -147,9 +147,9 @@ async fn mdns_task(stack: embassy_net::Stack<'static>, hostname: &'static str) -
 // two TMP102 PCB sensors, from the `ubos_machine::HASHNODE` sensor table.
 //
 // The safety gate therefore reads the real die temperature while the
-// remote channel answers, and halts on `dangerous_chip_temp_c`. It falls
+// remote channel answers, and halts on `dangerous_chip_temp`. It falls
 // back to the PCB sensors when that channel goes quiet, and halts on the
-// lower `dangerous_hashboard_temp_c` for as long as it does.
+// lower `dangerous_hashboard_temp` for as long as it does.
 ubos_thermal::thermal_task!(
     ubos_thermal::SensorArray<{ config::MACHINE.temp.len() }, psu::Device>,
     ubos_thermal::NoAmbient

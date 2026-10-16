@@ -100,12 +100,12 @@ pub struct HashboardDescriptor {
     /// Per-board cooling profile (PID setpoint and fan floor).
     pub cooling: BoardCooling,
     /// Die-temperature halt threshold, read by
-    /// `Config::for_board` into `ThermalConfig::dangerous_chip_temp_c`.
+    /// `Config::for_board` into `ThermalConfig::dangerous_chip_temp`.
     /// Travels with the board because a chip family's safe junction
     /// ceiling is a property of the silicon, not a runtime tuning knob.
     pub dangerous_chip_temp: Temperature,
     /// Hashboard halt threshold, read by `Config::for_board` into
-    /// `ThermalConfig::dangerous_hashboard_temp_c`. Travels with the
+    /// `ThermalConfig::dangerous_hashboard_temp`. Travels with the
     /// board because the temperature a hashboard may reach is a property of
     /// the board, as the chip ceiling is a property of the silicon.
     pub dangerous_hashboard_temp: Temperature,

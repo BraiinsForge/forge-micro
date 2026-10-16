@@ -71,9 +71,9 @@ impl TemperatureSensor for ScriptedSensor {
     }
 }
 
-/// A measured reading of 90 °C, above the `dangerous_hashboard_temp_c` of the
+/// A measured reading of 90 °C, above the `dangerous_hashboard_temp` of the
 /// BMM101 that `Config::default` describes. Well above the 45 °C default
-/// `cooldown_temp_c`, so a tick taken while the halt stands evaluates to
+/// `cooldown_temp`, so a tick taken while the halt stands evaluates to
 /// `Ok` and not to a resume.
 fn hot_reading() -> Reading {
     Reading::Measured(Sample {
@@ -311,7 +311,7 @@ fn dangerous_temperature_re_arms_after_an_acknowledged_halt_clears_the_mask() {
     );
 
     // Tick 2: the halt stands in the mask the drain published, so a
-    // sample still above the threshold and far above `cooldown_temp_c`
+    // sample still above the threshold and far above `cooldown_temp`
     // evaluates to `Ok` and asks for nothing. This is the half that
     // proves the loop reads the mask at all: with no halt state anywhere,
     // this tick would trip a second time.

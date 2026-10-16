@@ -82,7 +82,7 @@ const CONFIG_ACK_BODY: &[u8] = b"{\"ok\":true}";
 /// and user strings and an
 /// SV1 password, a static `network` mode with three resolvers and a
 /// 32-byte hostname, a 32-byte `api` username and password, and every
-/// numeric field at its longest decimal form — serializes to 2601
+/// numeric field at its longest decimal form — serializes to 2573
 /// bytes. The SV1 password is what makes a pool slot
 /// widest: 128 bytes of string outruns the SV2 key, which travels as a
 /// base58check string rather than as a JSON number array. That total

@@ -255,7 +255,7 @@ impl TempControl {
             config.pid.input_smoother_half_decay_secs,
             config.pid.min_fan_pwm,
         );
-        control.set_target(config.target_temp_c);
+        control.set_target(config.target_temp.celsius_f32());
         control
     }
 

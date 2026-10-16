@@ -25,6 +25,8 @@
 
 use core::ops::RangeInclusive;
 
+use ubos_core::units::Temperature;
+
 /// Tunable parameters for the thermal monitor loop.
 ///
 /// `sample_interval_ms` is stored as milliseconds for serde
@@ -36,27 +38,26 @@ use core::ops::RangeInclusive;
 pub struct ThermalConfig {
     /// Poll interval in milliseconds.
     pub sample_interval_ms: u32,
-    /// Temperature in Celsius above which mining is halted when the safety
-    /// reading is a hashboard reading. `Config::for_board` takes it from the
-    /// board descriptor, and [`validate`](Self::validate) holds it at or below
-    /// `dangerous_chip_temp_c`.
-    pub dangerous_hashboard_temp_c: f32,
-    /// Temperature in Celsius above which mining is halted when the safety
-    /// reading is a real die temperature. This is the junction ceiling of
-    /// the chip family, which `Config::for_board` takes from the board
-    /// descriptor.
-    pub dangerous_chip_temp_c: f32,
-    /// Temperature in Celsius below which a halted miner may resume.
-    pub cooldown_temp_c: f32,
+    /// Temperature above which mining is halted when the safety reading is
+    /// a hashboard reading. `Config::for_board` takes it from the board
+    /// descriptor, and [`validate`](Self::validate) holds it at or below
+    /// `dangerous_chip_temp`.
+    pub dangerous_hashboard_temp: Temperature,
+    /// Temperature above which mining is halted when the safety reading is
+    /// a real die temperature. This is the junction ceiling of the chip
+    /// family, which `Config::for_board` takes from the board descriptor.
+    pub dangerous_chip_temp: Temperature,
+    /// Temperature below which a halted miner may resume.
+    pub cooldown_temp: Temperature,
 }
 
 /// Poll interval in milliseconds a board starts with. It is the same on
 /// every board, so it lives here rather than on the board descriptor.
 pub(crate) const DEFAULT_SAMPLE_INTERVAL_MS: u32 = 1000;
 
-/// Resume threshold in Celsius a board starts with. It is the same on
-/// every board, so it lives here rather than on the board descriptor.
-pub(crate) const DEFAULT_COOLDOWN_TEMP_C: f32 = 45.0;
+/// Resume threshold a board starts with. It is the same on every board,
+/// so it lives here rather than on the board descriptor.
+pub(crate) const DEFAULT_COOLDOWN_TEMP: Temperature = Temperature::from_celsius(45);
 
 impl ThermalConfig {
     /// Validate all fields against [`BOUNDS`].
@@ -66,45 +67,34 @@ impl ThermalConfig {
     /// # Errors
     ///
     /// Returns `Err` when any field is out of range or any ordering invariant
-    /// is violated: `cooldown_temp_c < dangerous_hashboard_temp_c`,
-    /// `dangerous_hashboard_temp_c <= dangerous_chip_temp_c`.
+    /// is violated: `cooldown_temp < dangerous_hashboard_temp`,
+    /// `dangerous_hashboard_temp <= dangerous_chip_temp`.
     pub fn validate(&self) -> Result<(), &'static str> {
         if !BOUNDS.sample_interval_ms.contains(&self.sample_interval_ms) {
             return Err("thermal.sample_interval_ms must be between 100 and 60000");
         }
-        if !self.dangerous_hashboard_temp_c.is_finite() {
-            return Err("thermal.dangerous_hashboard_temp_c must be a finite number");
+        if !BOUNDS
+            .dangerous_hashboard_temp
+            .contains(&self.dangerous_hashboard_temp)
+        {
+            return Err("thermal.dangerous_hashboard_temp must be between 50000 and 110000");
         }
         if !BOUNDS
-            .dangerous_hashboard_temp_c
-            .contains(&self.dangerous_hashboard_temp_c)
+            .dangerous_chip_temp
+            .contains(&self.dangerous_chip_temp)
         {
-            return Err("thermal.dangerous_hashboard_temp_c must be between 50 and 110");
+            return Err("thermal.dangerous_chip_temp must be between 50000 and 115000");
         }
-        if !self.dangerous_chip_temp_c.is_finite() {
-            return Err("thermal.dangerous_chip_temp_c must be a finite number");
-        }
-        if !BOUNDS
-            .dangerous_chip_temp_c
-            .contains(&self.dangerous_chip_temp_c)
-        {
-            return Err("thermal.dangerous_chip_temp_c must be between 50 and 115");
-        }
-        if self.dangerous_hashboard_temp_c > self.dangerous_chip_temp_c {
+        if self.dangerous_hashboard_temp > self.dangerous_chip_temp {
             return Err(
-                "thermal.dangerous_hashboard_temp_c must not exceed thermal.dangerous_chip_temp_c",
+                "thermal.dangerous_hashboard_temp must not exceed thermal.dangerous_chip_temp",
             );
         }
-        if !self.cooldown_temp_c.is_finite() {
-            return Err("thermal.cooldown_temp_c must be a finite number");
+        if !BOUNDS.cooldown_temp.contains(&self.cooldown_temp) {
+            return Err("thermal.cooldown_temp must be between 20000 and 90000");
         }
-        if !BOUNDS.cooldown_temp_c.contains(&self.cooldown_temp_c) {
-            return Err("thermal.cooldown_temp_c must be between 20 and 90");
-        }
-        if self.cooldown_temp_c >= self.dangerous_hashboard_temp_c {
-            return Err(
-                "thermal.cooldown_temp_c must be less than thermal.dangerous_hashboard_temp_c",
-            );
+        if self.cooldown_temp >= self.dangerous_hashboard_temp {
+            return Err("thermal.cooldown_temp must be less than thermal.dangerous_hashboard_temp");
         }
         Ok(())
     }
@@ -120,20 +110,20 @@ impl ThermalConfig {
 pub struct ThermalBounds {
     /// Accepted range for `sample_interval_ms` in milliseconds.
     pub sample_interval_ms: RangeInclusive<u32>,
-    /// Accepted range for `dangerous_hashboard_temp_c` in Celsius.
-    pub dangerous_hashboard_temp_c: RangeInclusive<f32>,
-    /// Accepted range for `dangerous_chip_temp_c` in Celsius.
-    pub dangerous_chip_temp_c: RangeInclusive<f32>,
-    /// Accepted range for `cooldown_temp_c` in Celsius.
-    pub cooldown_temp_c: RangeInclusive<f32>,
+    /// Accepted range for `dangerous_hashboard_temp`.
+    pub dangerous_hashboard_temp: RangeInclusive<Temperature>,
+    /// Accepted range for `dangerous_chip_temp`.
+    pub dangerous_chip_temp: RangeInclusive<Temperature>,
+    /// Accepted range for `cooldown_temp`.
+    pub cooldown_temp: RangeInclusive<Temperature>,
 }
 
 /// Accepted value ranges for [`ThermalConfig`] fields.
 pub const BOUNDS: ThermalBounds = ThermalBounds {
     sample_interval_ms: 100..=60_000,
-    dangerous_hashboard_temp_c: 50.0..=110.0,
-    dangerous_chip_temp_c: 50.0..=115.0,
-    cooldown_temp_c: 20.0..=90.0,
+    dangerous_hashboard_temp: Temperature::from_celsius(50)..=Temperature::from_celsius(110),
+    dangerous_chip_temp: Temperature::from_celsius(50)..=Temperature::from_celsius(115),
+    cooldown_temp: Temperature::from_celsius(20)..=Temperature::from_celsius(90),
 };
 
 /// Static bounds metadata for the thermal config section.

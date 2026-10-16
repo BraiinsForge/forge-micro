@@ -120,7 +120,7 @@ Anonymous `GET /` is rewritten to `302 Found → /login`.
 | Method | Path           | Auth        | Description                                                       |
 |--------|----------------|-------------|-------------------------------------------------------------------|
 | GET    | `/api/info`    | any         | Telemetry blob consumed by the SPA poll, including the `build` id the firmware was built with, `product_name`, which is `null` on a board that does not report the name of the machine, `nominal_hashrate`, the hashrate in hashes per second that the maker rates the machine at, which is `null` on a board that does not report it, and a `chains` array with one entry per hashboard chain (`chain`, `state`, `chips`, `frequency_khz`, `hashrate`, `hottest_c`, and `pool`, the slot whose work the chain was last given, or `null` when it has none) |
-| GET    | `/api/config`  | any         | `ConfigUpdate` snapshot: `pool`, `thermal`, `cooling` (`mode`, `target_temp_c`, `fixed_fan_pwm`, `min_fan_pwm`), `miner`, `api` (password blanked), `network` |
+| GET    | `/api/config`  | any         | `ConfigUpdate` snapshot: `pool`, `thermal`, `cooling` (`mode`, `target_temp`, `fixed_fan_pwm`, `min_fan_pwm`), `miner`, `api` (password blanked), `network` |
 | POST   | `/api/config`  | any +CSRF   | Partial `ConfigUpdate` (any subset of those fields); returns `{"ok":true}` |
 
 `/api/info` keeps PSU and chip-derived voltage separate.
@@ -223,15 +223,16 @@ so a `POST` of the `GET` body leaves the list as it was.
 The `cooling` section carries `mode`, either `"auto"` or `"fixed"`,
 alongside `fixed_fan_pwm` and `min_fan_pwm`, both 0-100. Each duty is
 validated on its own, independently of the mode, so one can be edited
-while the other governs the fan. `target_temp_c` is validated under
-both modes: it must stay below `thermal.dangerous_hashboard_temp_c`,
+while the other governs the fan. The thermal thresholds and
+`target_temp` are integers in millicelsius, so `67000` is 67 °C.
+`target_temp` is validated under both modes: it must stay below `thermal.dangerous_hashboard_temp`,
 the lower of the two halt thresholds, and that rule is what bounds how
-low `dangerous_hashboard_temp_c` can be set. A fixed duty of 0 is
+low `dangerous_hashboard_temp` can be set. A fixed duty of 0 is
 accepted. The mining halt protects the board.
 
 Under `"fixed"` the fan holds `fixed_fan_pwm`. No PID runs, so
 `min_fan_pwm`, which bounds PID output, does not apply, and
-`target_temp_c`, the PID setpoint, does not steer the fan. It steers the
+`target_temp`, the PID setpoint, does not steer the fan. It steers the
 fan again from the first thermal reading after the mode returns to
 `"auto"`. Until that reading lands, the control tick raises the duty to
 `min_fan_pwm` but never lowers it. A fixed duty below the floor does not

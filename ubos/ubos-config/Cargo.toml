@@ -12,6 +12,7 @@ default  = ["defmt"]
 defmt    = [
     "dep:defmt",
     "heapless/defmt",
+    "ubos-core/defmt",
     "ubos-events/defmt",
     "ubos-logging/defmt",
 ]

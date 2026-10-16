@@ -220,7 +220,7 @@ fn refresh_control(control: &mut TempControl, old: &CoolingConfig, new: &Cooling
     if rebuild {
         control.reconfigure(new);
     } else {
-        control.set_target(new.target_temp_c);
+        control.set_target(new.target_temp.celsius_f32());
     }
     log_cooling("cooling: updated", new);
 }
@@ -234,7 +234,7 @@ fn log_cooling(prefix: &str, config: &CoolingConfig) {
         "{} (mode={}, target={}°C, floor={}%, fixed={}%)",
         prefix,
         config.mode.as_str(),
-        config.target_temp_c,
+        config.target_temp.celsius_f32(),
         config.pid.min_fan_pwm,
         config.fixed_fan_pwm
     );

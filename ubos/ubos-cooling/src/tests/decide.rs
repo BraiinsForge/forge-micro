@@ -91,7 +91,7 @@ fn a_measurement_after_a_hold_reaches_the_pid_unsmoothed() {
     // A proportional-only PID whose duty reads back the temperature it
     // saw, behind a smoother that would otherwise blend 80 into 40.
     let mut config = Config::default();
-    config.cooling.target_temp_c = 0.0;
+    config.cooling.target_temp = Temperature::from_millicelsius(0);
     config.cooling.pid.p_gain = -1.0;
     config.cooling.pid.i_gain = 0.0;
     config.cooling.pid.d_gain = 0.0;

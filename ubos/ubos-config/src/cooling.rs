@@ -24,9 +24,11 @@
 
 use core::ops::RangeInclusive;
 
+use ubos_core::units::Temperature;
+
 /// How the cooling loop decides the fan duty.
 ///
-/// [`FanMode::Auto`] runs the PID against [`CoolingConfig::target_temp_c`];
+/// [`FanMode::Auto`] runs the PID against [`CoolingConfig::target_temp`];
 /// [`FanMode::Fixed`] holds the fan at [`CoolingConfig::fixed_fan_pwm`] and
 /// ignores the temperature. Neither mode disables the cooling failsafes: a
 /// sensor fault and a stalled thermal task force the fan to full in both.
@@ -104,8 +106,8 @@ impl Default for PidConfig {
 pub struct CoolingConfig {
     /// Whether the loop runs the PID or holds a fixed duty.
     pub mode: FanMode,
-    /// PID setpoint temperature in Celsius. Ignored in [`FanMode::Fixed`].
-    pub target_temp_c: f32,
+    /// PID setpoint temperature. Ignored in [`FanMode::Fixed`].
+    pub target_temp: Temperature,
     /// Duty cycle held in [`FanMode::Fixed`], 0-100. Not floored by
     /// [`PidConfig::min_fan_pwm`]: the floor is a bound on PID output, and a
     /// fixed duty is what the operator asked for. A board whose hardware
@@ -120,7 +122,7 @@ impl Default for CoolingConfig {
     fn default() -> Self {
         Self {
             mode: FanMode::Auto,
-            target_temp_c: 67.0,
+            target_temp: Temperature::from_celsius(67),
             fixed_fan_pwm: DEFAULT_FIXED_FAN_PWM,
             pid: PidConfig::default(),
         }
@@ -129,30 +131,26 @@ impl Default for CoolingConfig {
 
 impl CoolingConfig {
     /// Validate the proposed `target` temperature against [`BOUNDS`] and
-    /// `dangerous_hashboard_temp_c`.
+    /// `dangerous_hashboard_temp`.
     ///
-    /// `dangerous_hashboard_temp_c` is resolved by the caller to either the
+    /// `dangerous_hashboard_temp` is resolved by the caller to either the
     /// value being set in the same update or the current live config's
     /// value. It is the lower of the two halt thresholds, so a target below
     /// it stays below both.
     ///
     /// # Errors
     ///
-    /// Returns `Err` when `target` is non-finite, outside
-    /// `BOUNDS.target_temp_c`, or not strictly less than
-    /// `dangerous_hashboard_temp_c`.
+    /// Returns `Err` when `target` is outside `BOUNDS.target_temp`, or
+    /// not strictly less than `dangerous_hashboard_temp`.
     pub fn validate_target_temp(
-        target: f32,
-        dangerous_hashboard_temp_c: f32,
+        target: Temperature,
+        dangerous_hashboard_temp: Temperature,
     ) -> Result<(), &'static str> {
-        if !target.is_finite() {
-            return Err("cooling.target_temp_c must be a finite number");
+        if !BOUNDS.target_temp.contains(&target) {
+            return Err("cooling.target_temp must be between 30000 and 85000");
         }
-        if !BOUNDS.target_temp_c.contains(&target) {
-            return Err("cooling.target_temp_c must be between 30 and 85");
-        }
-        if target >= dangerous_hashboard_temp_c {
-            return Err("cooling.target_temp_c must be less than dangerous_hashboard_temp_c");
+        if target >= dangerous_hashboard_temp {
+            return Err("cooling.target_temp must be less than dangerous_hashboard_temp");
         }
         Ok(())
     }
@@ -211,8 +209,8 @@ pub(crate) const DEFAULT_FIXED_FAN_PWM: u8 = 50;
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CoolingBounds {
-    /// Accepted range for `target_temp_c` in Celsius.
-    pub target_temp_c: RangeInclusive<f32>,
+    /// Accepted range for `target_temp`.
+    pub target_temp: RangeInclusive<Temperature>,
     /// Accepted range for `pid.min_fan_pwm` as a duty percent.
     pub min_fan_pwm: RangeInclusive<u8>,
     /// Accepted range for `fixed_fan_pwm` as a duty percent.
@@ -221,7 +219,7 @@ pub struct CoolingBounds {
 
 /// Accepted value ranges for [`CoolingConfig`] fields.
 pub const BOUNDS: CoolingBounds = CoolingBounds {
-    target_temp_c: 30.0..=85.0,
+    target_temp: Temperature::from_celsius(30)..=Temperature::from_celsius(85),
     min_fan_pwm: 0..=100,
     fixed_fan_pwm: 0..=100,
 };

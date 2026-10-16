@@ -26,6 +26,8 @@ extern crate std;
 
 use core::fmt::Write as _;
 
+use ubos_core::units::Temperature;
+
 use crate::ota::{MAX_BUILD_ID_LEN, OtaPhase, OtaWritePhase, ResetReason};
 use crate::rest::{API_INFO_BODY_BUFFER_SIZE, CONFIG_RESPONSE_BUFFER_SIZE};
 use crate::schema::info::{ApiInfo, ApiInfoChain, ApiInfoOta};
@@ -305,15 +307,6 @@ fn filled<const N: usize>() -> heapless::String<N> {
     string
 }
 
-/// Widest decimal form `serde-json-core` emits for an `f32`, at 16 bytes.
-///
-/// The serializer formats floats with ryu, which switches from scientific to
-/// fixed notation for small exponents, so the worst case is a long fixed form
-/// rather than either extreme of the range: `f32::MIN` costs only 13 bytes.
-/// This value is the widest over every `f32` bit pattern, found by
-/// serializing all of them.
-const WIDEST_F32: f32 = -0.000_001_000_000_1;
-
 /// Measured length of the worst-case body.
 ///
 /// Pinned exactly rather than merely bounded by `CONFIG_RESPONSE_BUFFER_SIZE`,
@@ -321,7 +314,7 @@ const WIDEST_F32: f32 = -0.000_001_000_000_1;
 /// addition that still fits the buffer fails here, and updating this constant
 /// is the prompt to update that comment. The probe carries the `fee` entry
 /// whatever the build's switch, so the pin is the same in both states.
-const WORST_CASE_BODY_LEN: usize = 2601;
+const WORST_CASE_BODY_LEN: usize = 2573;
 
 /// The `GET /api/config` handler serializes a `ConfigUpdate` into a fixed
 /// `[u8; CONFIG_RESPONSE_BUFFER_SIZE]`. `serde_json_core::to_slice` returns
@@ -344,9 +337,8 @@ const WORST_CASE_BODY_LEN: usize = 2601;
 ///   which is SV2 carrying a key rather than SV1 carrying a password: a
 ///   `[u8; 32]` serializes as a JSON number array costing up to four bytes an
 ///   element, which outruns the password string;
-/// - every `f32` at [`WIDEST_F32`], the widest decimal form the serializer
-///   emits;
-/// - every `u32` at `u32::MAX` and every `u8` at `u8::MAX`;
+/// - every `i32` at `i32::MIN`, every `u32` at `u32::MAX` and every `u8` at
+///   `u8::MAX`;
 /// - `miner.tuning` as `Power`, the wider of the two `Tuning` variants;
 /// - `api.username` and `api.password` at capacity, which is wider than the
 ///   live body: `ConfigUpdate::from_config` blanks the password so the stored
@@ -355,16 +347,6 @@ const WORST_CASE_BODY_LEN: usize = 2601;
 ///   with the DNS list full and the hostname at capacity.
 #[test]
 fn config_response_body_fits_in_buffer() {
-    // The total below is a worst case only if the f32 fields really sit at
-    // the serializer's widest form, so pin that separately rather than leave
-    // it to the comment.
-    let mut probe = [0u8; 32];
-    let widest = serde_json_core::to_slice(&WIDEST_F32, &mut probe).expect("an f32 fits the probe");
-    assert_eq!(
-        widest, 16,
-        "WIDEST_F32 no longer serializes to the widest f32 form"
-    );
-
     // Which `ProtocolKind` variant is the wider one is likewise a premise of
     // the total, so pin it rather than leave it to the comment: the two
     // maxima are close enough that a capacity change could invert them.
@@ -415,13 +397,13 @@ fn config_response_body_fits_in_buffer() {
         fee_permille: Some(ubos_config::MAX_FEE_PERMILLE),
         thermal: Some(ubos_config::ThermalConfig {
             sample_interval_ms: u32::MAX,
-            dangerous_hashboard_temp_c: WIDEST_F32,
-            dangerous_chip_temp_c: WIDEST_F32,
-            cooldown_temp_c: WIDEST_F32,
+            dangerous_hashboard_temp: Temperature::from_millicelsius(i32::MIN),
+            dangerous_chip_temp: Temperature::from_millicelsius(i32::MIN),
+            cooldown_temp: Temperature::from_millicelsius(i32::MIN),
         }),
         cooling: Some(ubos_config::CoolingUpdate {
             mode: Some(ubos_config::FanMode::Fixed),
-            target_temp_c: Some(WIDEST_F32),
+            target_temp: Some(Temperature::from_millicelsius(i32::MIN)),
             fixed_fan_pwm: Some(u8::MAX),
             min_fan_pwm: Some(u8::MAX),
         }),

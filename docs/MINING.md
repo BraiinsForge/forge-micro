@@ -415,9 +415,9 @@ The hashboard carries a TMP461 sensor and two TMP102 sensors on the
 shared I2C1 bus. The TMP461 remote channel reads the ASIC die. The
 TMP461 local channel and the two TMP102 sensors read the hashboard.
 While the die reading is available, the safety gate uses it and halts
-above `dangerous_chip_temp_c`. If the die reading is not available, the
+above `dangerous_chip_temp`. If the die reading is not available, the
 safety gate uses the hottest hashboard reading and halts above
-`dangerous_hashboard_temp_c`. `BFMX4_HASHBOARD` in `ubos-asic` gives the
+`dangerous_hashboard_temp`. `BFMX4_HASHBOARD` in `ubos-asic` gives the
 factory value of both thresholds.
 
 ## Host parity
