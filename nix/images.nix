@@ -34,8 +34,9 @@
 {
   pkgs,
   srcFor,
-  deps,
-  craneLib,
+  # The per-unit builds of nix/units.nix, which the ARM images and
+  # bootloaders link from.
+  units,
   espCraneLib,
   espCargoVendorDir,
   xtensaEspToolchain,
@@ -63,7 +64,6 @@ let
   fee = import ./fee.nix;
   feeEnv = name: fee.envFor (../firmware + "/${name}");
   inherit (helpers)
-    armCc
     buildIdEnv
     buildId
     webuiDistEnv
@@ -76,14 +76,15 @@ let
   # running it show the same id.
   stem = name: "${name}-v${fwVersion}-${buildId}";
 
-  # Production ARM firmware image: build the board crate, objcopy the
-  # raw binary into $out, and run the slot-size and pool-worker guards
-  # on the artifact that ships. The guards mirror the build-<name>
-  # checks; the difference is that the bin is kept in $out instead of
-  # being deleted. The per-crate .cargo/config.toml, which bakes a
-  # test POOL_USER for dev flashing on some boards, is not read here:
-  # crane runs cargo from the flake root, so the default empty worker
-  # is used and the guard proves it stayed out.
+  # Production ARM firmware image: the board crate's release ELF, built
+  # one unit per derivation, objcopied into $out as the raw binary, with
+  # the slot-size and pool-worker guards run on the artifact that ships.
+  # The guards mirror the build-<name> checks; the difference is that
+  # the bin is kept in $out instead of being deleted, and that this
+  # build carries the version and the build id. The per-crate
+  # .cargo/config.toml, which bakes a test POOL_USER for dev flashing on
+  # some boards, is not read here: cargo plans from the flake root, so
+  # the default empty worker is used and the guard proves it stayed out.
   #
   # That same fact is why the brand arrives in the environment. A board
   # declares its brand in the file this build does not read, so nothing
@@ -92,39 +93,27 @@ let
   mkArmImage =
     {
       name,
-      artifacts,
       target,
     }:
-    craneLib.cargoBuild (
-      {
-        src = srcFor [ name ];
-        cargoArtifacts = artifacts;
-        cargoBuildCommand = "cargo build --release";
-        cargoExtraArgs = "-p ${name} --target ${target}";
-        nativeBuildInputs = [
-          pkgs.gcc-arm-embedded
-        ];
-        UBOS_FW_VERSION = fwVersion;
-        # Do not copy the cargo target directory into $out; we only
-        # want the raw binary image.
-        doInstallCargoArtifacts = false;
-        installPhaseCommand = ''
-          mkdir -p "$out"
-          arm-none-eabi-objcopy -O binary \
-            target/${target}/release/${name} \
-            "$out/${stem name}.bin"
-        ''
-        + guards.imageGuard {
-          inherit name;
-          bin = ''"$out/${stem name}.bin"'';
-          maxBytes = slotMaxBytes;
+    let
+      elf = units.boardPlan {
+        inherit name target;
+        fee = feeEnv name;
+        env = buildIdEnv // {
+          UBOS_FW_VERSION = fwVersion;
         };
+      };
+    in
+    pkgs.runCommand "${name}-image" { nativeBuildInputs = [ pkgs.gcc-arm-embedded ]; } (
+      ''
+        mkdir -p "$out"
+        arm-none-eabi-objcopy -O binary ${elf}/bin/${name} "$out/${stem name}.bin"
+      ''
+      + guards.imageGuard {
+        inherit name;
+        bin = ''"$out/${stem name}.bin"'';
+        maxBytes = slotMaxBytes;
       }
-      // armCc target
-      // buildIdEnv
-      // brands.envFor name
-      // feeEnv name
-      // webuiDistEnv
     );
 
   # Bootloader ELF builder. The bootloader occupies flash offset
@@ -135,24 +124,12 @@ let
   mkBootloaderElf =
     {
       name,
-      artifacts,
       target,
     }:
-    craneLib.cargoBuild (
-      {
-        src = srcFor [ name ];
-        cargoArtifacts = artifacts;
-        cargoBuildCommand = "cargo build --release";
-        cargoExtraArgs = "-p ${name} --target ${target}";
-        nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
-        doInstallCargoArtifacts = false;
-        installPhaseCommand = ''
-          mkdir -p "$out"
-          cp target/${target}/release/${name} "$out/boot.elf"
-        '';
-      }
-      // armCc target
-    );
+    pkgs.runCommand "${name}-elf" { } ''
+      mkdir -p "$out"
+      cp ${units.boardPlan { inherit name target; }}/bin/${name} "$out/boot.elf"
+    '';
 
   # Build a combined BOOTSEL UF2 image from a raw app binary and a
   # bootloader ELF. The bootloader covers offset 0x10000000, the
@@ -210,31 +187,26 @@ let
 
   rp2350Image = mkArmImage {
     name = "rp2350";
-    artifacts = deps.thumbv8mArtifacts;
     target = "thumbv8m.main-none-eabihf";
   };
 
   bmmPicoImage = mkArmImage {
     name = "bmm-pico";
-    artifacts = deps.thumbv8mArtifacts;
     target = "thumbv8m.main-none-eabihf";
   };
 
   rp2040Image = mkArmImage {
     name = "rp2040";
-    artifacts = deps.thumbv6mArtifacts;
     target = "thumbv6m-none-eabi";
   };
 
   hashnodeImage = mkArmImage {
     name = "hashnode";
-    artifacts = deps.rp235xbArtifacts;
     target = "thumbv8m.main-none-eabihf";
   };
 
   forgeAxeImage = mkArmImage {
     name = "forge-axe";
-    artifacts = deps.rp235xbArtifacts;
     target = "thumbv8m.main-none-eabihf";
   };
 
@@ -285,13 +257,11 @@ let
   # the RP2350B of the hashnode and the forge-axe.
   rp2350Bootloader = mkBootloaderElf {
     name = "rp2350-bootloader";
-    artifacts = deps.thumbv8mBootloaderArtifacts;
     target = "thumbv8m.main-none-eabihf";
   };
 
   rp2040Bootloader = mkBootloaderElf {
     name = "rp2040-bootloader";
-    artifacts = deps.thumbv6mBootloaderArtifacts;
     target = "thumbv6m-none-eabi";
   };
 

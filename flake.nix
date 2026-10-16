@@ -211,8 +211,8 @@
         webuiEnv = name: helpers.webuiDistEnv // brands.envFor name;
         webuiHostEnv = helpers.webuiDistEnv // brands.defaultEnv;
 
-        # Every cargo unit as one derivation, for the host and ARM checks.
-        # See nix/units.nix.
+        # Every cargo unit as one derivation, for the host and ARM checks
+        # and the ARM images. See nix/units.nix.
         units = import ./nix/units.nix {
           inherit (toolchains) hostRustToolchain rustToolchain;
           inherit
@@ -284,8 +284,7 @@
           inherit
             pkgs
             srcFor
-            deps
-            craneLib
+            units
             espCraneLib
             espCargoVendorDir
             xtensaEspToolchain

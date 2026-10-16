@@ -65,7 +65,7 @@ check:
 hashnode-uf2:
   stage: check
   script:
-    - nix run --print-build-logs .#hashnode-uf2
+    - nix run --print-build-logs --option allow-unsafe-native-code-during-evaluation true .#hashnode-uf2
   artifacts:
     name: "hashnode-uf2-${CI_COMMIT_SHORT_SHA}"
     paths:
@@ -76,7 +76,7 @@ hashnode-uf2:
 forge-axe-uf2:
   stage: check
   script:
-    - nix run --print-build-logs .#forge-axe-uf2
+    - nix run --print-build-logs --option allow-unsafe-native-code-during-evaluation true .#forge-axe-uf2
   artifacts:
     name: "forge-axe-uf2-${CI_COMMIT_SHORT_SHA}"
     paths:
