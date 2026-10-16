@@ -28,7 +28,7 @@ use ubos_core::units::{Power, Voltage};
 
 use crate::state::{Device, Shared};
 use crate::tps53647::{self, Tps53647Config};
-use crate::{Error, Psu};
+use crate::{Error, ModelString, Psu};
 
 #[cfg(test)]
 #[path = "tests/forge_axe.rs"]
@@ -59,8 +59,12 @@ impl<I: I2c> Device for ForgeAxeDevice<I> {
     type BusError = I::Error;
 
     /// Initialization sequence for the TPS53647 VRM.
-    async fn init(i2c: &mut I, config: &mut ForgeAxePsuDescriptor) -> Result<(), Error<I::Error>> {
-        tps53647::init(i2c, &config.tps).await
+    async fn init(
+        i2c: &mut I,
+        config: &mut ForgeAxePsuDescriptor,
+    ) -> Result<Option<ModelString>, Error<I::Error>> {
+        tps53647::init(i2c, &config.tps).await?;
+        Ok(None)
     }
 }
 

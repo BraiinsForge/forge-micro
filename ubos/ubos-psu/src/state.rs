@@ -49,7 +49,7 @@ use embassy_sync::mutex::{Mutex, MutexGuard};
 use embedded_hal_async::i2c::ErrorKind;
 use portable_atomic::{AtomicBool, Ordering};
 
-use crate::Error;
+use crate::{Error, ModelString};
 
 /// The raw mutex every PSU driver in this crate locks with.
 ///
@@ -87,6 +87,9 @@ pub struct State<I, C> {
     // `InitStatus` stays crate-private, so every driver observes init
     // state through [`Self::is_initialized`] and [`Self::cached_init`].
     pub(crate) init: InitStatus,
+    // The model the device init identified, read through
+    // [`Shared::model`].
+    pub(crate) model: Option<ModelString>,
 }
 
 impl<I, C> State<I, C> {
@@ -95,6 +98,7 @@ impl<I, C> State<I, C> {
             i2c,
             config,
             init: InitStatus::NotInit,
+            model: None,
         }
     }
 
@@ -152,11 +156,16 @@ pub trait Device {
     /// lock, and the outcome is cached for every later caller.
     ///
     /// The config is mutable because device identification can discover a
-    /// value the driver stores back, such as a scaling constant.
+    /// value the driver stores back, such as a scaling constant. The model
+    /// string the identification found, if any, is returned, and
+    /// [`Shared::model`] serves it once the whole init has succeeded. A
+    /// driver whose model has to outlast an init that fails after the
+    /// identification stores it through the config and serves it from its
+    /// own [`crate::Psu::model`].
     async fn init(
         bus: &mut Self::Bus,
         config: &mut Self::Config,
-    ) -> Result<(), Error<Self::BusError>>;
+    ) -> Result<Option<ModelString>, Error<Self::BusError>>;
 }
 
 /// The lock, the termination flag and the guarded state of one PSU
@@ -228,8 +237,10 @@ impl<D: Device> Shared<D> {
             cached?;
         } else {
             let result = {
-                let State { i2c, config, .. } = &mut *guard;
-                D::init(i2c, config).await
+                let State {
+                    i2c, config, model, ..
+                } = &mut *guard;
+                D::init(i2c, config).await.map(|found| *model = found)
             };
             guard.record_init(&result);
             result?;
@@ -258,6 +269,13 @@ impl<D: Device> Shared<D> {
         } else {
             None
         }
+    }
+
+    /// The model the device init identified, or `None` before a successful
+    /// init and for a device that reports none. Reads under the lock what
+    /// the init left there.
+    pub async fn model(&self) -> Option<ModelString> {
+        self.state.lock().await.model.clone()
     }
 
     /// Read from the driver config under the lock, without running init.

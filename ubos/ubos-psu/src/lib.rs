@@ -190,19 +190,13 @@ pub type PsuSubscription = Receiver<'static, CSMutex, PsuReading, WATCH_CAPACITY
 /// API's hardware-identity string width.
 pub const MODEL_LEN: usize = 40;
 
-/// The PSU model string a driver detects during its one-shot init.
+/// The PSU model string a driver identifies during its one-shot init.
 pub type ModelString = heapless::String<MODEL_LEN>;
 
-/// Module-internal model watch. Written at most once, from a PSU
-/// driver's first successful init; read via [`Handle::model`].
+/// Module-internal model watch. Written at most once, by
+/// [`run_power_stats`] once the driver identified a model; read via
+/// [`Handle::model`].
 static MODEL_WATCH: Watch<CSMutex, ModelString, 1> = Watch::new();
-
-/// Publishes the detected PSU model. Drivers, including the out-of-tree
-/// PSU crates layered on this one, call this at most once, from their
-/// first successful init.
-pub fn publish_model(model: ModelString) {
-    MODEL_WATCH.sender().send(model);
-}
 
 /// Obtain a handle to the PSU metrics module. `Copy`; callers freely
 /// pass it to multiple tasks.
@@ -255,8 +249,7 @@ impl Handle {
             .expect("BUG: Handle receiver slots exhausted; raise WATCH_CAPACITY")
     }
 
-    /// Detected PSU model, or `None` before the driver's first
-    /// successful init publishes one.
+    /// Detected PSU model, or `None` before the driver identified one.
     #[must_use]
     pub fn model(&self) -> Option<ModelString> {
         self.model.try_get()
@@ -478,6 +471,11 @@ where
                 );
             }
         }
+        if MODEL_WATCH.try_get().is_none()
+            && let Some(model) = psu.model().await
+        {
+            MODEL_WATCH.sender().send(model);
+        }
     }
 }
 
@@ -517,6 +515,11 @@ pub trait Psu {
     }
     /// Read the PSU STATUS register and decode the four fault flags.
     async fn read_status(&self) -> Result<StatusFlags, Error<Self::BusError>>;
+    /// The model string the driver identified, or `None` before it has
+    /// and for a supply that reports none.
+    async fn model(&self) -> Option<ModelString> {
+        None
+    }
     async fn terminate(&self);
 }
 

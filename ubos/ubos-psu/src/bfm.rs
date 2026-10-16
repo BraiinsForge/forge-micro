@@ -28,7 +28,7 @@ use embedded_hal_async::i2c::I2c;
 use ubos_core::units::{Current, Power, Voltage};
 
 use crate::state::{Device, Shared};
-use crate::{Error, Psu, ina230, sic45x};
+use crate::{Error, ModelString, Psu, ina230, sic45x};
 
 #[cfg(test)]
 #[path = "tests/bfm.rs"]
@@ -74,7 +74,10 @@ impl<I: I2c> Device for BfmDevice<I> {
 
     /// Initialization sequence for the BFM power stage: INA230 monitor,
     /// then the `SIC45x` converter.
-    async fn init(i2c: &mut I, config: &mut BfmPsuDescriptor) -> Result<(), Error<I::Error>> {
+    async fn init(
+        i2c: &mut I,
+        config: &mut BfmPsuDescriptor,
+    ) -> Result<Option<ModelString>, Error<I::Error>> {
         // Why: the INA230's VS pin is powered by the SIC output rail.
         // The rail is off during init, so the INA is below its operating
         // voltage (~2.7 V). We attempt init optimistically and continue on
@@ -92,24 +95,18 @@ impl<I: I2c> Device for BfmDevice<I> {
             ubos_logging::warn!("BFM INA230 init failed (rail not up yet?)");
         }
 
-        let result = sic45x::init(i2c, &config.sic).await;
-        if result.is_ok() {
-            // Identity probe: reads the IC_DEVICE_ID word for the
-            // published model string. The register's NVM default is
-            // 0x0000 and catalog parts may ship unprogrammed, so only a
-            // real value is published; a blank or unreadable ID leaves
-            // the API model null. Does not affect the init outcome.
-            if let Some(id) = sic45x::read_device_id(i2c, config.sic.address).await
-                && id != 0x0000
-                && id != 0xFFFF
-            {
-                let mut model = crate::ModelString::new();
-                if write!(model, "SIC450 id={id:#06x}").is_ok() {
-                    crate::publish_model(model);
-                }
-            }
-        }
-        result
+        sic45x::init(i2c, &config.sic).await?;
+        // Identity probe: reads the IC_DEVICE_ID word for the model
+        // string. The register's NVM default is 0x0000 and catalog parts
+        // may ship unprogrammed, so only a real value is reported; a blank
+        // or unreadable ID leaves the API model null. Does not affect the
+        // init outcome.
+        let mut model = ModelString::new();
+        let identified = sic45x::read_device_id(i2c, config.sic.address)
+            .await
+            .filter(|&id| id != 0x0000 && id != 0xFFFF)
+            .is_some_and(|id| write!(model, "SIC450 id={id:#06x}").is_ok());
+        Ok(identified.then_some(model))
     }
 }
 
@@ -223,6 +220,10 @@ impl<I: I2c + 'static> Psu for BfmPsu<I> {
         let mut psu = self.shared.acquire().await?;
         let (i2c, config) = psu.split();
         sic45x::read_status(i2c, &config.sic).await
+    }
+
+    async fn model(&self) -> Option<ModelString> {
+        self.shared.model().await
     }
 
     async fn terminate(&self) {

@@ -28,7 +28,7 @@ use ubos_logging::{info, warn};
 use ubos_core::units::{Power, Voltage};
 
 use crate::state::{Device, Shared};
-use crate::{BmmPsuDescriptor, Error, Psu, ina230, tps6287x, watchdog};
+use crate::{BmmPsuDescriptor, Error, ModelString, Psu, ina230, tps6287x, watchdog};
 
 #[cfg(test)]
 #[path = "tests/bmm.rs"]
@@ -46,7 +46,10 @@ impl<I: I2c> Device for BmmDevice<I> {
 
     /// Initialization sequence for the BMM power stage: SLG46826G
     /// watchdog, both INA230 monitors, then the `TPS6287x` converter.
-    async fn init(i2c: &mut I, config: &mut BmmPsuDescriptor) -> Result<(), Error<I::Error>> {
+    async fn init(
+        i2c: &mut I,
+        config: &mut BmmPsuDescriptor,
+    ) -> Result<Option<ModelString>, Error<I::Error>> {
         watchdog::init(i2c, config.watchdog_address)
             .await
             .map_err(Error::Bus)?;
@@ -69,7 +72,8 @@ impl<I: I2c> Device for BmmDevice<I> {
         tps6287x::init(i2c, config).await?;
         watchdog::heartbeat(i2c, config.watchdog_address)
             .await
-            .map_err(Error::Bus)
+            .map_err(Error::Bus)?;
+        Ok(None)
     }
 }
 
