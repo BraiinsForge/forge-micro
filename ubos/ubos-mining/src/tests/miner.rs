@@ -741,7 +741,7 @@ impl Psu for TestPsu {
             Ok(())
         }
     }
-    async fn set_voltage(&self, voltage: Voltage) -> Result<(), PsuError<Infallible>> {
+    async fn set_voltage(&self, voltage: Voltage) -> Result<Voltage, PsuError<Infallible>> {
         self.log.lock(|log| {
             log.borrow_mut()
                 .push(Write::Voltage(voltage))
@@ -772,7 +772,7 @@ impl Psu for TestPsu {
             }
         }
         ubos_psu::record_set_voltage(voltage);
-        Ok(())
+        Ok(voltage)
     }
     async fn read_input_power(&self) -> Result<Power, PsuError<Infallible>> {
         panic!("unexpected read")

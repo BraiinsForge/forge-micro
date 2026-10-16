@@ -184,7 +184,10 @@ fn set_voltage_writes_the_vid_and_rejects_out_of_range() {
         config.address,
         vec![VOUT_COMMAND, 0xBF, 0x00],
     )]);
-    run(set_voltage(&mut bus, &config, Voltage::from_mv(1200))).expect("in-range voltage");
+    // A request between two steps answers the step the code stands for.
+    let set =
+        run(set_voltage(&mut bus, &config, Voltage::from_mv(1202))).expect("in-range voltage");
+    assert_eq!(set, Voltage::from_mv(1200));
     bus.done();
 
     let mut bus = Mock::new(&[]);

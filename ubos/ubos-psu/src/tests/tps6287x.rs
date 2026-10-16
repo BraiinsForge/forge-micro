@@ -213,14 +213,16 @@ mod bus_tests {
         let address = config.dcdc_address;
         let dac = config
             .dcdc_voltage_range
-            .voltage_to_dac(Voltage::from_mv(700))
-            .expect("BUG: 700 mv must be in vrange2");
+            .voltage_to_dac(Voltage::from_mv(702))
+            .expect("BUG: 702 mv must be in vrange2");
 
         let expectations = [Transaction::write(address, encode_vset(dac).to_vec())];
 
         let mut bus = Mock::new(&expectations);
-        run(set_voltage(&mut bus, &config, Voltage::from_mv(700)))
+        let set = run(set_voltage(&mut bus, &config, Voltage::from_mv(702)))
             .expect("BUG: set_voltage failed");
+        // The range steps by 5 mV, so 702 mV lands on the step below.
+        assert_eq!(set, Voltage::from_mv(700));
         bus.done();
     }
 

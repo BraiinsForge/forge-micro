@@ -450,7 +450,8 @@ where
         .map_err(Error::Bus)
 }
 
-/// Program a new output voltage.
+/// Program a new output voltage and return the voltage of the word
+/// written, which is the nearest step to `voltage`.
 ///
 /// # Errors
 ///
@@ -461,7 +462,7 @@ pub async fn set_voltage<I, E>(
     i2c: &mut I,
     config: &Sic45xConfig,
     voltage: Voltage,
-) -> Result<(), Error<E>>
+) -> Result<Voltage, Error<E>>
 where
     I: I2c<Error = E>,
     E: embedded_hal_async::i2c::Error,
@@ -469,10 +470,12 @@ where
     if voltage < config.voltage_min || voltage > config.voltage_max {
         return Err(Error::OutOfRange);
     }
-    let bytes = encode_vout(voltage).to_le_bytes();
+    let word = encode_vout(voltage);
+    let bytes = word.to_le_bytes();
     i2c.write(config.address, &[VOUT_COMMAND, bytes[0], bytes[1]])
         .await
-        .map_err(Error::Bus)
+        .map_err(Error::Bus)?;
+    Ok(RawVout(word).into())
 }
 
 /// Read the output power via `READ_POUT`.

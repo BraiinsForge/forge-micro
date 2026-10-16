@@ -349,7 +349,7 @@ mod bus_tests {
     fn set_voltage_in_range_writes_vout_command() {
         let config = &Sic45xConfig::DEFAULT;
         let address = config.address;
-        let bytes = encode_vout(Voltage::from_mv(1000)).to_le_bytes();
+        let bytes = encode_vout(Voltage::from_mv(601)).to_le_bytes();
 
         let expectations = [Transaction::write(
             address,
@@ -357,8 +357,10 @@ mod bus_tests {
         )];
 
         let mut bus = Mock::new(&expectations);
-        run(set_voltage(&mut bus, config, Voltage::from_mv(1000)))
+        let set = run(set_voltage(&mut bus, config, Voltage::from_mv(601)))
             .expect("BUG: set_voltage failed");
+        // 601 mV rounds to word 308, which stands for 601.56 mV.
+        assert_eq!(set, Voltage::from_mv(602));
         bus.done();
     }
 

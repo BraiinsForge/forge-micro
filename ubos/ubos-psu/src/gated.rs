@@ -145,7 +145,7 @@ where
         result
     }
 
-    async fn set_voltage(&self, voltage: Voltage) -> Result<(), Error<D::BusError>> {
+    async fn set_voltage(&self, voltage: Voltage) -> Result<Voltage, Error<D::BusError>> {
         self.inner.set_voltage(voltage).await
     }
 

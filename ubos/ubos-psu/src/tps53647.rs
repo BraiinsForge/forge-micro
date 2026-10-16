@@ -316,7 +316,8 @@ where
         .map_err(Error::Bus)
 }
 
-/// Command an output voltage.
+/// Command an output voltage and return the voltage of the VID code
+/// written, which is the nearest step to `voltage`.
 ///
 /// # Errors
 ///
@@ -326,7 +327,7 @@ pub async fn set_voltage<I, E>(
     i2c: &mut I,
     config: &Tps53647Config,
     voltage: Voltage,
-) -> Result<(), Error<E>>
+) -> Result<Voltage, Error<E>>
 where
     I: I2c<Error = E>,
     E: embedded_hal_async::i2c::Error,
@@ -334,13 +335,9 @@ where
     if voltage < config.voltage_min || voltage > config.voltage_max {
         return Err(Error::OutOfRange);
     }
-    write_word(
-        i2c,
-        config.address,
-        VOUT_COMMAND,
-        u16::from(encode_vid(voltage)),
-    )
-    .await
+    let vid = encode_vid(voltage);
+    write_word(i2c, config.address, VOUT_COMMAND, u16::from(vid)).await?;
+    Ok(RawVid(vid).into())
 }
 
 /// Read the measured output voltage.

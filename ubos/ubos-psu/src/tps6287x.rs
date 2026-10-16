@@ -144,6 +144,17 @@ impl VoltageRange {
         Some(dac as u8)
     }
 
+    /// The voltage a DAC value produces, rounded to the nearest
+    /// millivolt.
+    pub const fn dac_to_voltage(self, dac: u8) -> Voltage {
+        const MICROVOLTS_PER_MILLIVOLT: u32 = 1_000;
+        let microvolts_above = dac as u32 * self.step_microvolts();
+        Voltage::from_mv(
+            self.start().mv()
+                + (microvolts_above + MICROVOLTS_PER_MILLIVOLT / 2) / MICROVOLTS_PER_MILLIVOLT,
+        )
+    }
+
     const fn bits(self) -> u8 {
         match self {
             VoltageRange::VRange0 => 0b00,
@@ -338,7 +349,7 @@ pub(crate) async fn set_voltage<I, E>(
     i2c: &mut I,
     config: &BmmPsuDescriptor,
     voltage: Voltage,
-) -> Result<(), Error<E>>
+) -> Result<Voltage, Error<E>>
 where
     I: I2c<Error = E>,
     E: embedded_hal_async::i2c::Error,
@@ -349,7 +360,8 @@ where
         .ok_or(Error::OutOfRange)?;
     i2c.write(config.dcdc_address, &encode_vset(dac))
         .await
-        .map_err(Error::Bus)
+        .map_err(Error::Bus)?;
+    Ok(config.dcdc_voltage_range.dac_to_voltage(dac))
 }
 
 /// Read the STATUS register and decode the four shared fault flags.

@@ -489,7 +489,8 @@ pub trait Psu {
     async fn disable(&self) -> Result<(), Error<Self::BusError>>;
     /// Program the rail and call [`record_set_voltage`] before returning success.
     /// Consumers use that record immediately, independently of metrics polling.
-    async fn set_voltage(&self, voltage: Voltage) -> Result<(), Error<Self::BusError>>;
+    /// Returns the voltage the rail was set to.
+    async fn set_voltage(&self, voltage: Voltage) -> Result<Voltage, Error<Self::BusError>>;
     async fn read_input_power(&self) -> Result<Power, Error<Self::BusError>>;
     async fn read_output_power(&self) -> Result<Power, Error<Self::BusError>>;
     /// Read the actual output rail voltage. Used to compare the commanded
