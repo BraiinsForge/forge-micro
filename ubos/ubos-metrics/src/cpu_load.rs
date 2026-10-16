@@ -106,12 +106,12 @@ pub async fn run_cpu_load<const N_CPUS: usize>() -> ! {
 
 /// Convert idle and elapsed tick counts into a clamped 0..=1 busy
 /// ratio. Returns 0.0 when no time has elapsed since the last sample.
-fn busy_ratio(idle: u64, elapsed: u64) -> f32 {
+fn busy_ratio(idle: u64, elapsed: u64) -> f64 {
     let Some(elapsed) = NonZeroU64::new(elapsed) else {
         return 0.0;
     };
     #[allow(clippy::cast_precision_loss)]
-    let ratio = idle as f32 / elapsed.get() as f32;
+    let ratio = idle as f64 / elapsed.get() as f64;
     (1.0 - ratio).clamp(0.0, 1.0)
 }
 

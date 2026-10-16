@@ -51,7 +51,7 @@ pub enum Value {
     /// Unsigned integer value.
     Uint(u64),
     /// Floating-point value.
-    Float(f32),
+    Float(f64),
 }
 
 /// A label value, either a static string or an owned inline string for
@@ -700,7 +700,7 @@ fn render_scalar<T: core::fmt::Display>(
 }
 
 /// Render a float value, handling NaN and infinity per Prometheus spec.
-fn render_float_value(writer: &mut BufferWriter<'_>, value: f32) {
+fn render_float_value(writer: &mut BufferWriter<'_>, value: f64) {
     if value.is_nan() {
         let _ = write!(writer, "NaN");
     } else if value.is_infinite() {
