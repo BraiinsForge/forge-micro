@@ -21,8 +21,8 @@
 //!
 //! Activated by `UBOS_I2C_BUS=/dev/i2c-N`; without the env var set
 //! `open()` returns `None` and the runner skips the miner spawn. The
-//! `'static` reference [`open`] returns is handed to the watchdog and
-//! miner tasks by `main.rs`.
+//! driver [`open`] returns is handed to the watchdog and miner tasks by
+//! `main.rs`, and the `PowerSupply` over it to the PSU task.
 //!
 //! The host harness is not one of the boards and has no
 //! `MachineDescriptor`; it initializes from `BmmPsuDescriptor::DEFAULT`,
@@ -42,13 +42,15 @@ pub const I2C_BUS_ENV: &str = "UBOS_I2C_BUS";
 pub type HostPsu = BmmPsu<HostI2c>;
 
 static SHARED: StaticCell<BmmShared<HostI2c>> = StaticCell::new();
-static PSU: StaticCell<HostPsu> = StaticCell::new();
+static DRIVER: StaticCell<HostPsu> = StaticCell::new();
+static PSU: StaticCell<PowerSupply<HostPsu>> = StaticCell::new();
 
 /// Open the I2C bus from `UBOS_I2C_BUS`, stand up the PSU state, and
-/// return the `'static` handle the miner / watchdog tasks need.
+/// return the driver the miner and watchdog tasks take and the
+/// `PowerSupply` over it.
 /// Returns `None` if the env var is unset/empty or the bus cannot be
 /// opened.
-pub fn open() -> Option<&'static HostPsu> {
+pub fn open() -> Option<(&'static HostPsu, &'static PowerSupply<HostPsu>)> {
     let env_path = std::env::var(I2C_BUS_ENV);
     let path = env_path.as_deref().unwrap_or("/dev/i2c-0");
     if path.is_empty() {
@@ -63,15 +65,13 @@ pub fn open() -> Option<&'static HostPsu> {
     };
     info!("psu: opened {path}");
     let shared: &'static _ = SHARED.init(BmmShared::new(i2c, BmmPsuDescriptor::DEFAULT));
-    Some(PSU.init(BmmPsu::new(shared)))
+    let driver: &'static HostPsu = DRIVER.init(BmmPsu::new(shared));
+    Some((driver, PSU.init(PowerSupply::new(driver))))
 }
 
 #[embassy_executor::task]
-pub async fn watchdog_task(psu: &'static HostPsu) {
-    psu.run_watchdog().await;
+pub async fn watchdog_task(driver: &'static HostPsu) {
+    driver.run_watchdog().await;
 }
 
-#[embassy_executor::task]
-pub async fn power_stats_task(psu: &'static HostPsu) -> ! {
-    PowerSupply::new(psu).run().await
-}
+ubos_psu::psu_task!(HostPsu);

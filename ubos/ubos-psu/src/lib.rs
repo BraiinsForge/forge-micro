@@ -285,7 +285,7 @@ impl<P: Psu> PowerSupply<P> {
 
     /// Run the PSU forever: every [`POWER_STATS_INTERVAL`] read the
     /// power, the voltage and the status and publish them. Boards spawn
-    /// it through [`power_stats_task`].
+    /// it through [`psu_task`].
     pub async fn run(&self) -> ! {
         let mut ticker = embassy_time::Ticker::every(POWER_STATS_INTERVAL);
         let mut poll = Poll::default();
@@ -538,19 +538,14 @@ pub trait Psu {
     async fn terminate(&self);
 }
 
-/// Task shell around [`PowerSupply::run`]. Takes the board's PSU type.
-///
-/// Every board that reads a PSU spawns this. A board on a [`BmmPsu`]
-/// gets it from [`bmm_psu`]; a board whose power stage is its own
-/// wrapper invokes it directly, or from a macro of its own that plays
-/// the same role for that wrapper.
+/// Task shell around [`PowerSupply::run`]. Takes the board's driver
+/// type, because a task cannot be generic.
 #[macro_export]
-macro_rules! power_stats_task {
+macro_rules! psu_task {
     ($psu:ty) => {
         #[embassy_executor::task]
-        pub async fn power_stats_task(psu: &'static $psu) -> ! {
-            let supply = ubos_psu::PowerSupply::new(psu);
-            supply.run().await
+        pub async fn psu_task(psu: &'static ubos_psu::PowerSupply<$psu>) -> ! {
+            psu.run().await
         }
     };
 }

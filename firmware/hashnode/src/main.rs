@@ -385,14 +385,14 @@ async fn boot(spawner: Spawner) {
     }
 
     // SIC_EN starts low; the rail stays off until the miner task enables it.
-    let board_psu = psu::init(bus, Output::new(hw.sic_en, Level::Low));
-    spawner.spawn(unwrap!(psu::power_stats_task(board_psu)));
+    let (psu_driver, psu) = psu::init(bus, Output::new(hw.sic_en, Level::Low));
+    spawner.spawn(unwrap!(psu::psu_task(psu)));
 
     // GPIO32: HIGH = enabled/out-of-reset; start LOW (in reset) until the
     // miner task is ready to bring up the hashboard.
     let reset = mining::BoardResetPin::new(Output::new(hw.hb_rst, Level::Low));
     spawner.spawn(unwrap!(mining::miner_task(
-        board_psu,
+        psu_driver,
         ubos_mining::serial::Serial::wire(&mining::CHAINS, [reset])
     )));
 

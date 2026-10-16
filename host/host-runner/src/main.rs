@@ -604,16 +604,15 @@ fn main() {
             }
         }
         match psu::open() {
-            Some(miner_psu) => {
-                spawner.spawn(psu::watchdog_task(miner_psu).expect("BUG: psu watchdog token"));
-                spawner
-                    .spawn(psu::power_stats_task(miner_psu).expect("BUG: psu power_stats token"));
+            Some((psu_driver, psu)) => {
+                spawner.spawn(psu::watchdog_task(psu_driver).expect("BUG: psu watchdog token"));
+                spawner.spawn(psu::psu_task(psu).expect("BUG: psu_task token"));
                 spawner
                     .spawn(
                         miner_serial::miner_serial_task(&PARK)
                             .expect("BUG: miner_serial_task token"),
                     );
-                spawner.spawn(miner::miner_task(miner_psu).expect("BUG: miner_task token"));
+                spawner.spawn(miner::miner_task(psu_driver).expect("BUG: miner_task token"));
             }
             None => {
                 warn!(

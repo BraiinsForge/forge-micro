@@ -368,12 +368,12 @@ async fn boot(spawner: Spawner) {
             ubos_api::publish_hashboard_id(serial);
         }
 
-        let board_psu = psu::init(bus);
-        spawner.spawn(unwrap!(psu::watchdog_task(board_psu)));
-        spawner.spawn(unwrap!(psu::power_stats_task(board_psu)));
+        let (psu_driver, psu) = psu::init(bus);
+        spawner.spawn(unwrap!(psu::watchdog_task(psu_driver)));
+        spawner.spawn(unwrap!(psu::psu_task(psu)));
         let reset = mining::BoardResetPin::new(Output::new(hw.hb_rst, Level::Low));
         spawner.spawn(unwrap!(mining::miner_task(
-            board_psu,
+            psu_driver,
             ubos_mining::serial::Serial::wire(&mining::CHAINS, [reset])
         )));
 

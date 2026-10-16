@@ -30,7 +30,7 @@ use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_rp::gpio::{Input, Output};
 use static_cell::StaticCell;
 use ubos_machine::FORGE_AXE as MACHINE;
-use ubos_psu::{ForgeAxePsu, ForgeAxeShared, GatedPsu, InnerGate};
+use ubos_psu::{ForgeAxePsu, ForgeAxeShared, GatedPsu, InnerGate, PowerSupply};
 use ubos_rp::i2c::{Bus, Device};
 
 /// The shared TPS53647 `PMBus` driver instantiated for this board's bus.
@@ -42,7 +42,8 @@ type InnerPsu = ForgeAxePsu<Device>;
 pub type BoardPsu = GatedPsu<InnerPsu, Output<'static>, Input<'static>, 1>;
 
 static SHARED: StaticCell<ForgeAxeShared<Device>> = StaticCell::new();
-static PSU: StaticCell<BoardPsu> = StaticCell::new();
+static DRIVER: StaticCell<BoardPsu> = StaticCell::new();
+static PSU: StaticCell<PowerSupply<BoardPsu>> = StaticCell::new();
 
 /// How long after raising the enable pins and setting `OPERATION` before
 /// sampling `VR_RDY`. Covers the soft-start ramp; the exact timing is a
@@ -51,23 +52,23 @@ const VR_RDY_SETTLE: embassy_time::Duration = embassy_time::Duration::from_milli
 
 /// Construct the `BoardPsu` over an `I2cDevice` carved from `bus`,
 /// taking ownership of `PWR_EN` (passed in already driven low), and
-/// return the `'static` reference the miner
-/// and power-stats tasks need.
+/// return it, which the miner task takes, and the `PowerSupply` over it.
 pub fn init(
     bus: &'static Bus,
     pwr_en: Output<'static>,
     vr_rdy: Input<'static>,
-) -> &'static BoardPsu {
+) -> (&'static BoardPsu, &'static PowerSupply<BoardPsu>) {
     let device = I2cDevice::new(bus);
     let shared: &'static _ = SHARED.init(ForgeAxeShared::new(device, MACHINE.psu));
     let inner = ForgeAxePsu::new(shared);
-    PSU.init(GatedPsu::new(
+    let driver: &'static BoardPsu = DRIVER.init(GatedPsu::new(
         inner,
         [pwr_en],
         Some(vr_rdy),
         Some(VR_RDY_SETTLE),
         InnerGate::DriveOperation,
-    ))
+    ));
+    (driver, PSU.init(PowerSupply::new(driver)))
 }
 
-ubos_psu::power_stats_task!(BoardPsu);
+ubos_psu::psu_task!(BoardPsu);

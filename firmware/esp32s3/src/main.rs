@@ -532,16 +532,16 @@ async fn boot(spawner: Spawner) {
             ubos_api::publish_hashboard_id(serial);
         }
 
-        let board_psu = psu::init(bus);
-        spawner.spawn(unwrap!(psu::watchdog_task(board_psu)));
-        spawner.spawn(unwrap!(psu::power_stats_task(board_psu)));
+        let (psu_driver, psu) = psu::init(bus);
+        spawner.spawn(unwrap!(psu::watchdog_task(psu_driver)));
+        spawner.spawn(unwrap!(psu::psu_task(psu)));
 
         // Hashboard reset: active-low, driven through the carrier TCA9554
         // expander on EXIO5. Asserted (held low) here until the miner
         // task sequences the release during bring-up.
         let reset = ubos_esp32::expander::ExpanderResetPin::new(bus, mining::RESET_BIT).await;
         spawner.spawn(unwrap!(mining::miner_task(
-            board_psu,
+            psu_driver,
             ubos_mining::serial::Serial::wire(&mining::CHAINS, [reset])
         )));
 

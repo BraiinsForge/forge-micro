@@ -195,6 +195,10 @@ impl<I: I2c + 'static> Psu for BmmPsu<I> {
 /// [`BmmPsu`] on a shared I2C bus: the `'static` storage, the
 /// constructor, and the two long-running tasks.
 ///
+/// `init` answers the driver, which the watchdog and miner tasks take,
+/// and the [`PowerSupply`](crate::PowerSupply) over it, which the PSU
+/// task runs.
+///
 /// Takes the board's bus mutex type, the `I2cDevice` handle carved from
 /// it, and the machine descriptor's PSU entry. The board keeps those two
 /// aliases, because they name its own HAL I2C peripheral; everything
@@ -202,7 +206,7 @@ impl<I: I2c + 'static> Psu for BmmPsu<I> {
 /// stage.
 ///
 /// A board whose power stage is its own wrapper rather than a [`BmmPsu`]
-/// keeps its module and invokes `ubos_psu::power_stats_task!` alone.
+/// keeps its module and invokes `ubos_psu::psu_task!` alone.
 #[macro_export]
 macro_rules! bmm_psu {
     ($bus:ty, $device:ty, $descriptor:expr) => {
@@ -212,23 +216,27 @@ macro_rules! bmm_psu {
 
         static SHARED: static_cell::StaticCell<ubos_psu::BmmShared<$device>> =
             static_cell::StaticCell::new();
-        static PSU: static_cell::StaticCell<BoardPsu> = static_cell::StaticCell::new();
+        static DRIVER: static_cell::StaticCell<BoardPsu> = static_cell::StaticCell::new();
+        static PSU: static_cell::StaticCell<ubos_psu::PowerSupply<BoardPsu>> =
+            static_cell::StaticCell::new();
 
-        /// Construct the `BmmPsu` over an `I2cDevice` carved from `bus`
-        /// and return the `'static` handle the watchdog, miner and
-        /// sensor tasks share.
+        /// Construct the `BmmPsu` over an `I2cDevice` carved from `bus`,
+        /// and the `PowerSupply` over it.
         #[must_use]
-        pub fn init(bus: &'static $bus) -> &'static BoardPsu {
+        pub fn init(
+            bus: &'static $bus,
+        ) -> (&'static BoardPsu, &'static ubos_psu::PowerSupply<BoardPsu>) {
             let device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
             let shared: &'static _ = SHARED.init(ubos_psu::BmmShared::new(device, $descriptor));
-            PSU.init(ubos_psu::BmmPsu::new(shared))
+            let driver: &'static BoardPsu = DRIVER.init(ubos_psu::BmmPsu::new(shared));
+            (driver, PSU.init(ubos_psu::PowerSupply::new(driver)))
         }
 
         #[embassy_executor::task]
-        pub async fn watchdog_task(psu: &'static BoardPsu) {
-            psu.run_watchdog().await;
+        pub async fn watchdog_task(driver: &'static BoardPsu) {
+            driver.run_watchdog().await;
         }
 
-        ubos_psu::power_stats_task!(BoardPsu);
+        ubos_psu::psu_task!(BoardPsu);
     };
 }

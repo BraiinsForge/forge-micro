@@ -32,7 +32,7 @@ use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_rp::gpio::{Input, Output};
 use static_cell::StaticCell;
 use ubos_machine::HASHNODE as MACHINE;
-use ubos_psu::{BfmPsu, BfmShared, GatedPsu, InnerGate};
+use ubos_psu::{BfmPsu, BfmShared, GatedPsu, InnerGate, PowerSupply};
 use ubos_rp::i2c::{Bus, Device};
 
 /// The shared `SIC45x` `PMBus` driver instantiated for this board's bus.
@@ -44,22 +44,27 @@ type InnerPsu = BfmPsu<Device>;
 pub type BoardPsu = GatedPsu<InnerPsu, Output<'static>, Input<'static>, 1>;
 
 static SHARED: StaticCell<BfmShared<Device>> = StaticCell::new();
-static PSU: StaticCell<BoardPsu> = StaticCell::new();
+static DRIVER: StaticCell<BoardPsu> = StaticCell::new();
+static PSU: StaticCell<PowerSupply<BoardPsu>> = StaticCell::new();
 
 /// Construct the `BoardPsu` over an `I2cDevice` carved from `bus`, taking
 /// ownership of the `SIC_EN` pin (passed in already driven low), and return
-/// the `'static` reference the miner and power-stats tasks need.
-pub fn init(bus: &'static Bus, sic_enable: Output<'static>) -> &'static BoardPsu {
+/// it, which the miner task takes, and the `PowerSupply` over it.
+pub fn init(
+    bus: &'static Bus,
+    sic_enable: Output<'static>,
+) -> (&'static BoardPsu, &'static PowerSupply<BoardPsu>) {
     let device = I2cDevice::new(bus);
     let shared: &'static _ = SHARED.init(BfmShared::new(device, MACHINE.psu));
     let inner = BfmPsu::new(shared);
-    PSU.init(GatedPsu::new(
+    let driver: &'static BoardPsu = DRIVER.init(GatedPsu::new(
         inner,
         [sic_enable],
         None,
         None,
         InnerGate::PinsOnly,
-    ))
+    ));
+    (driver, PSU.init(PowerSupply::new(driver)))
 }
 
-ubos_psu::power_stats_task!(BoardPsu);
+ubos_psu::psu_task!(BoardPsu);

@@ -15,7 +15,7 @@ board wires the driver up.
 |                      |    I2C1 (SIC45x PSU + sensors)        | BM1370       |
 | serial_task  (core1) |<------------------------------------->| hashboard    |
 | miner_task   (core0) |    GPIO32 (hashboard reset)           |              |
-| power_stats_task     |<------------------------------------->|              |
+| psu_task             |<------------------------------------->|              |
 +----------------------+    GPIO30 (SIC_EN rail gate)          +--------------+
 ```
 
@@ -32,7 +32,7 @@ driver is exercised without a hashboard on the bench.
 |------|-------|------|
 | `serial_task` | `mining.rs` | Drives one entry of the board's static `mining::CHAINS` array through `Serial::run(...)`. One actor per hashboard chain: command dispatch, parser, in-flight work registry, baud-rate switch, and that chain's own `ChainStats`. Pinned to Core 1 so embassy-net on Core 0 stays responsive. |
 | `miner_task` | `mining.rs` | Drives `Miner::<_, _, T, CHAINS>::new(psu, BOARD, chains, platform).run()` against the tuner `MinerConfig::tuning` selects from the firmware's tuner set `T`. Bring-up / teardown state machine: reset assert, wait until the scheduler would dispatch work, PSU up, reset release, per-chain enumeration, per-chain safe-boot configuration, start work, apply tuner plans, PSU off. |
-| `power_stats_task` | `psu.rs` | Drives `ubos_psu::run_power_stats`. Polls the SIC45x input/output power every `POWER_STATS_INTERVAL` (two seconds) and publishes them. |
+| `psu_task` | `psu.rs` | Drives `ubos_psu::PowerSupply::run`. Polls the SIC45x input/output power every `POWER_STATS_INTERVAL` (two seconds) and publishes it. |
 
 The SIC45x rail is gated by the `SIC_EN` GPIO the `BoardPsu` owns, not by
 a PMBus register, so there is no separate PSU-watchdog task; only
