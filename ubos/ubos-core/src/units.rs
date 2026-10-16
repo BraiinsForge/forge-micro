@@ -211,8 +211,25 @@ impl Efficiency {
 /// unchanged. The PID loop in `ubos-cooling` consumes
 /// [`celsius_f32`](Self::celsius_f32) to operate in floating-point
 /// degrees Celsius; that is the only sanctioned lossy conversion.
+///
+/// It serializes as its integer millicelsius, so a config that holds it
+/// stores and exchanges the same number the type holds.
 #[repr(transparent)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    serde::Serialize,
+    serde::Deserialize,
+    postcard_schema::Schema,
+)]
+#[serde(transparent)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Temperature(i32);
 
 impl Temperature {

@@ -9,8 +9,12 @@ workspace = true
 
 [features]
 ccmram-bss = []
+defmt      = ["dep:defmt"]
 
 [dependencies]
+defmt           = { workspace = true, optional = true }
 embassy-sync    = { workspace = true }
 embassy-time    = { workspace = true }
 embedded-hal    = { workspace = true }
+postcard-schema = { workspace = true }
+serde           = { workspace = true }
