@@ -11,6 +11,7 @@ workspace = true
 [dependencies]
 embedded-hal       = { workspace = true }
 embedded-hal-async = { workspace = true }
+embassy-futures    = { workspace = true }
 embassy-sync       = { workspace = true }
 embassy-time       = { workspace = true }
 heapless           = { workspace = true }
@@ -23,7 +24,6 @@ ubos-metrics       = { workspace = true, default-features = false }
 
 [dev-dependencies]
 embedded-hal-mock  = { version = "0.11", default-features = false, features = ["embedded-hal-async", "eh1"] }
-embassy-futures    = { workspace = true }
 embassy-time       = { workspace = true, features = ["std", "generic-queue-8"] }
 static_cell        = { workspace = true }
 critical-section   = { version = "1.2", features = ["std"] }
