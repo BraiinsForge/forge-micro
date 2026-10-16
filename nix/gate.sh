@@ -322,6 +322,11 @@ write_plan() {
 # prefix goes before jq reads it, and the grep drops the build log lines
 # that make up most of the stream.
 #
+# Only start events are matched on their type. A result event carries a
+# type of its own, and nix's progress results share their number with a
+# build start, so a filter on the type alone kept every one of them and
+# grew the fold by a line per progress update.
+#
 # A stop event carries an id and nothing else, no type among it, so it
 # has to be matched on its action or every build looks like one that
 # never finished. Stops of other activities come through with it and are
@@ -367,7 +372,7 @@ fold_events() {
     return 0
   fi
   tail -c "+$((offset + 1))" "$events" \
-  | { grep -E "\"type\":$build_activity|\"action\":\"stop\"" || true; } \
+  | { grep -E "\"action\":\"start\".*\"type\":$build_activity\}|\"action\":\"stop\"" || true; } \
   | sed "s/^$event_prefix//" \
   | jq -r '[.id, .action, (.fields[0] // "")] | @tsv' \
   >> "$folded"
