@@ -30,10 +30,10 @@
 //! sequence a chain's hardware reset produces.
 
 use super::{
-    BringUp, Choose, Halted, Miner, MinerState, Pause, PoolWatch, PsuError, Run, STOP_MINING,
-    Selected, Step,
+    BringUp, Choose, Enable, ExitReset, Halted, Miner, MinerState, Pause, PoolWatch, PsuError,
+    Recover, Reset, Run, STOP_MINING, Selected, StartWork, Step, WaitForPool,
 };
-use crate::control::Message;
+use crate::control::{COMMAND_CHANNEL, Message};
 use crate::tuner::MachineTuner;
 use core::cell::{Cell, RefCell};
 use core::convert::Infallible;
@@ -1523,12 +1523,11 @@ fn stop_before_work_initialization_prevents_voltage_commands() {
             disable_fails: false,
             behavior: Cell::new(VoltageWrite::Succeed),
         };
-        let mut miner = test_miner::<crate::tuner::Tuners, 1>(&psu, [&ACTOR], [&STATS]);
+        let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
+        let mut subscription = test_config().0;
         STOP_MINING.signal(());
-        assert!(matches!(
-            block_on(miner.start_work_phase()),
-            super::InitPhase::Stop
-        ));
+        let state = MinerState::<OnePlanTuner>::StartWork(StartWork);
+        assert!(block_on(miner.advance(state, &mut subscription)).is_none());
         LOG.lock(|log| assert_eq!(log.borrow().as_slice(), &[Write::Disable]));
     });
 }
@@ -1546,37 +1545,25 @@ fn settling_ignores_resume_and_preserves_a_resume_queued_after_halt() {
             disable_fails: false,
             behavior: Cell::new(VoltageWrite::Succeed),
         };
-        let mut miner = test_miner::<crate::tuner::Tuners, 1>(&psu, [&ACTOR], [&STATS]);
-        let mut wait = core::pin::pin!(super::settle_or_abort(
-            Duration::from_millis(500),
-            &psu,
-            &mut miner.chains
-        ));
-        let mut context = Context::from_waker(Waker::noop());
-        assert!(
-            crate::control::COMMAND_CHANNEL
-                .try_send(super::Message::Resume)
-                .is_ok()
-        );
-        assert!(wait.as_mut().poll(&mut context).is_pending());
-        LOG.lock(|log| assert!(log.borrow().is_empty()));
-        assert!(
-            crate::control::COMMAND_CHANNEL
-                .try_send(super::Message::Halt)
-                .is_ok()
-        );
-        assert!(
-            crate::control::COMMAND_CHANNEL
-                .try_send(super::Message::Resume)
-                .is_ok()
-        );
+        let mut miner = test_miner::<OnePlanTuner, 1>(&psu, [&ACTOR], [&STATS]);
+        let mut subscription = test_config().0;
+        {
+            let mut settle =
+                core::pin::pin!(miner.advance(MinerState::Enable(Enable), &mut subscription));
+            let mut context = Context::from_waker(Waker::noop());
+            assert!(COMMAND_CHANNEL.try_send(Message::Resume).is_ok());
+            assert!(settle.as_mut().poll(&mut context).is_pending());
+            LOG.lock(|log| assert!(log.borrow().is_empty()));
+            assert!(COMMAND_CHANNEL.try_send(Message::Halt).is_ok());
+            assert!(COMMAND_CHANNEL.try_send(Message::Resume).is_ok());
+            assert!(matches!(
+                settle.as_mut().poll(&mut context),
+                Poll::Ready(Some(MinerState::Halted(_)))
+            ));
+        }
         assert!(matches!(
-            wait.as_mut().poll(&mut context),
-            Poll::Ready(super::InitPhase::Halted)
-        ));
-        assert!(matches!(
-            block_on(super::wait_halt_clear_or_stop()),
-            super::Resumed::Cleared
+            block_on(miner.advance(MinerState::Halted(Halted), &mut subscription)),
+            Some(MinerState::Choose(_))
         ));
         LOG.lock(|log| assert_eq!(log.borrow().as_slice(), &[Write::Disable]));
     });
@@ -1800,6 +1787,32 @@ fn halt_during_stop_grace_period_keeps_stop_and_queued_resume() {
     });
 }
 
+/// A halt queued before the first [`Choose`] cuts the rail again, because
+/// the boot cut only logs a failed disable and [`Halted`] holds until a
+/// resume.
+#[test]
+fn a_halt_read_in_the_first_choose_cuts_the_rail_again() {
+    critical_section::with(|_| {
+        static ACTOR: Serial = Serial::new(0, 1);
+        static STATS: ChainStats = ChainStats::new();
+        static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
+        let psu = TestPsu {
+            log: &LOG,
+            behavior: Cell::new(VoltageWrite::Succeed),
+            disable_fails: false,
+        };
+        let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
+        let mut subscription = test_config().0;
+        block_on(crate::handle().halt());
+        let state = MinerState::<OnePlanTuner>::Choose(Choose);
+        assert!(matches!(
+            block_on(miner.advance(state, &mut subscription)),
+            Some(MinerState::Halted(_))
+        ));
+        LOG.lock(|log| assert_eq!(log.borrow().as_slice(), &[Write::Disable]));
+    });
+}
+
 #[test]
 fn halt_publishes_stopped_after_reset_even_if_psu_disable_fails() {
     use crate::MiningState;
@@ -1809,7 +1822,8 @@ fn halt_publishes_stopped_after_reset_even_if_psu_disable_fails() {
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
         let mining = crate::handle();
-        let mut subscription = mining.subscribe();
+        let mut states = mining.subscribe();
+        let mut subscription = test_config().0;
         for disable_fails in [false, true] {
             LOG.lock(|log| log.borrow_mut().clear());
             let psu = TestPsu {
@@ -1817,21 +1831,18 @@ fn halt_publishes_stopped_after_reset_even_if_psu_disable_fails() {
                 behavior: Cell::new(VoltageWrite::Succeed),
                 disable_fails,
             };
-            let mut miner = test_miner::<crate::tuner::Tuners, 1>(&psu, [&ACTOR], [&STATS]);
-            crate::handle().publish(MiningState::Starting);
+            let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
+            mining.publish(MiningState::Starting);
             block_on(mining.halt());
-            assert_eq!(block_on(subscription.changed()), MiningState::Starting);
+            assert_eq!(block_on(states.changed()), MiningState::Starting);
+            let state = MinerState::<OnePlanTuner>::Reset(Reset);
             assert!(matches!(
-                block_on(super::settle_or_abort(
-                    Duration::from_millis(500),
-                    &psu,
-                    &mut miner.chains,
-                )),
-                super::InitPhase::Halted
+                block_on(miner.advance(state, &mut subscription)),
+                Some(MinerState::Halted(_))
             ));
             assert_eq!(miner.chains[0].reset.log.as_slice(), &[ResetCall::Enter]);
             LOG.lock(|log| assert_eq!(log.borrow().as_slice(), &[Write::Disable]));
-            assert_eq!(block_on(subscription.changed()), MiningState::Stopped);
+            assert_eq!(block_on(states.changed()), MiningState::Stopped);
         }
     });
 }
@@ -1971,7 +1982,7 @@ fn live_frequency_and_voltage_edits_do_not_cut_power() {
 }
 
 #[test]
-fn stop_has_priority_over_halt_during_initialization_and_settling() {
+fn stop_has_priority_over_halt_in_every_state() {
     critical_section::with(|_| {
         static ACTOR: Serial = Serial::new(0, 1);
         static STATS: ChainStats = ChainStats::new();
@@ -1981,23 +1992,25 @@ fn stop_has_priority_over_halt_during_initialization_and_settling() {
             behavior: Cell::new(VoltageWrite::Succeed),
             disable_fails: false,
         };
-        let mut miner = test_miner::<crate::tuner::Tuners, 1>(&psu, [&ACTOR], [&STATS]);
-        for phase in 0..4 {
+        let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
+        let mut subscription = test_config().0;
+        let states: [MinerState<OnePlanTuner>; 7] = [
+            MinerState::Reset(Reset),
+            MinerState::WaitForPool(WaitForPool),
+            MinerState::Enable(Enable),
+            MinerState::ExitReset(ExitReset),
+            MinerState::BringUp(BringUp),
+            MinerState::StartWork(StartWork),
+            MinerState::Recover(Recover),
+        ];
+        for state in states {
             STOP_MINING.signal(());
             block_on(crate::handle().halt());
-            let outcome = match phase {
-                0 => block_on(miner.bring_up_chains_phase()),
-                1 => block_on(miner.start_work_phase()),
-                2 => block_on(miner.cut_rail_and_settle()),
-                3 => block_on(super::settle_or_abort(
-                    Duration::from_millis(0),
-                    &psu,
-                    &mut miner.chains,
-                )),
-                _ => unreachable!(),
-            };
-            assert!(matches!(outcome, super::InitPhase::Stop));
-            block_on(super::wait_for_halt());
+            assert!(block_on(miner.advance(state, &mut subscription)).is_none());
+            assert!(matches!(
+                block_on(crate::handle().next_message()),
+                Message::Halt
+            ));
         }
     });
 }
@@ -2042,11 +2055,13 @@ fn the_pool_wait_holds_until_a_slot_holds_a_job_and_cuts_the_rail_on_halt() {
             behavior: Cell::new(VoltageWrite::Succeed),
             disable_fails: false,
         };
-        let mut miner = test_miner::<crate::tuner::Tuners, 1>(&psu, [&ACTOR], [&STATS]);
+        let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
+        let mut subscription = test_config().0;
+        let waiting = || MinerState::<OnePlanTuner>::WaitForPool(WaitForPool);
         let exercise = async {
             // No job: the wait is still pending after several polls.
             let pending = select(
-                super::wait_for_pool_or_abort(&psu, &ACTOR, &mut miner.chains),
+                miner.advance(waiting(), &mut subscription),
                 Timer::after(super::POOL_POLL_PERIOD * 3),
             )
             .await;
@@ -2054,14 +2069,14 @@ fn the_pool_wait_holds_until_a_slot_holds_a_job_and_cuts_the_rail_on_halt() {
             LOG.lock(|log| assert!(log.borrow().is_empty()));
 
             SESSION.pool_handle(0).publish_work(a_job());
-            let outcome = super::wait_for_pool_or_abort(&psu, &ACTOR, &mut miner.chains).await;
-            assert!(matches!(outcome, super::InitPhase::Done));
+            let outcome = miner.advance(waiting(), &mut subscription).await;
+            assert!(matches!(outcome, Some(MinerState::Enable(_))));
             LOG.lock(|log| assert!(log.borrow().is_empty()));
 
             SESSION.pool_handle(0).clear_work();
-            block_on(crate::handle().halt());
-            let outcome = super::wait_for_pool_or_abort(&psu, &ACTOR, &mut miner.chains).await;
-            assert!(matches!(outcome, super::InitPhase::Halted));
+            crate::handle().halt().await;
+            let outcome = miner.advance(waiting(), &mut subscription).await;
+            assert!(matches!(outcome, Some(MinerState::Halted(_))));
             assert_eq!(miner.chains[0].reset.log.as_slice(), &[ResetCall::Enter]);
             LOG.lock(|log| assert_eq!(log.borrow().as_slice(), &[Write::Disable]));
 
