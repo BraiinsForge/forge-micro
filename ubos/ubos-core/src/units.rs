@@ -108,13 +108,11 @@ impl Frequency {
         }
     }
 
-    /// Convert to megahertz as `f32`. The tuner's V^2*f curve walk
-    /// needs fractional MHz to compute the next step's voltage from
-    /// the constant-power invariant; the integer `mhz()` rounds.
+    /// Convert to megahertz as `f64`, for a caller that needs the
+    /// fraction of a megahertz that the integer `mhz()` drops.
     #[must_use]
-    #[allow(clippy::cast_precision_loss)]
-    pub fn as_mhz(self) -> f32 {
-        self.0 as f32 / 1000.0
+    pub fn as_mhz(self) -> f64 {
+        f64::from(self.0) / 1000.0
     }
 }
 
@@ -164,14 +162,11 @@ impl Voltage {
         self.0
     }
 
-    /// Convert to volts as `f32`. The tuner's V^2*f curve walk needs
-    /// fractional volts to compute the next voltage step from the
-    /// constant-power invariant; integer millivolts cannot represent
-    /// the square-root output without truncation.
+    /// Convert to volts as `f64`, for a caller that computes in volts
+    /// rather than in integer millivolts.
     #[must_use]
-    #[allow(clippy::cast_precision_loss)]
-    pub fn as_volts(self) -> f32 {
-        self.0 as f32 / 1000.0
+    pub fn as_volts(self) -> f64 {
+        f64::from(self.0) / 1000.0
     }
 }
 

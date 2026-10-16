@@ -35,7 +35,7 @@
 //! policy does not regulate power after the ramp ends.
 
 use embassy_time::{Duration, Instant};
-use libm::sqrtf;
+use libm::sqrt;
 use ubos_asic::HashboardDescriptor;
 use ubos_config::{TunerInfo, Tuning};
 use ubos_core::units::{Frequency, Power, Voltage};
@@ -510,19 +510,14 @@ impl<const CHAINS: usize> Tuner<CHAINS> for PowerRampTuner {
 }
 
 /// Estimate the coefficient in `P = alpha * V^2 * f` from measured input power.
-#[allow(clippy::cast_precision_loss)]
-fn power_alpha(input_power: Power, voltage: Voltage, frequency: Frequency) -> f32 {
-    input_power.mw() as f32 / (voltage.as_volts() * voltage.as_volts() * frequency.as_mhz())
+fn power_alpha(input_power: Power, voltage: Voltage, frequency: Frequency) -> f64 {
+    f64::from(input_power.mw()) / (voltage.as_volts() * voltage.as_volts() * frequency.as_mhz())
 }
 
 /// Estimate the rail voltage needed for the target power at a candidate frequency.
-#[allow(
-    clippy::cast_possible_truncation,
-    clippy::cast_precision_loss,
-    clippy::cast_sign_loss
-)]
-fn predicted_voltage(target: Power, alpha: f32, frequency: Frequency) -> Voltage {
-    let volts = sqrtf(target.mw() as f32 / (alpha * frequency.as_mhz()));
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn predicted_voltage(target: Power, alpha: f64, frequency: Frequency) -> Voltage {
+    let volts = sqrt(f64::from(target.mw()) / (alpha * frequency.as_mhz()));
     Voltage::from_mv((volts * 1000.0) as u32)
 }
 
