@@ -39,8 +39,7 @@ use ubos_rp::i2c::{Bus, Device};
 type InnerPsu = BfmPsu<Device>;
 
 /// Board power stage: the `SIC45x` driver gated by the `SIC_EN` pin
-/// alone. Public so the `mining` module can spell it in `miner_task`'s
-/// signature.
+/// alone.
 pub type BoardPsu = GatedPsu<InnerPsu, Output<'static>, Input<'static>, 1>;
 
 static SHARED: StaticCell<BfmShared<Device>> = StaticCell::new();
@@ -49,11 +48,8 @@ static PSU: StaticCell<PowerSupply<BoardPsu>> = StaticCell::new();
 
 /// Construct the `BoardPsu` over an `I2cDevice` carved from `bus`, taking
 /// ownership of the `SIC_EN` pin (passed in already driven low), and return
-/// it, which the miner task takes, and the `PowerSupply` over it.
-pub fn init(
-    bus: &'static Bus,
-    sic_enable: Output<'static>,
-) -> (&'static BoardPsu, &'static PowerSupply<BoardPsu>) {
+/// the `PowerSupply` over it, whose handle every other task takes.
+pub fn init(bus: &'static Bus, sic_enable: Output<'static>) -> &'static PowerSupply<BoardPsu> {
     let device = I2cDevice::new(bus);
     let shared: &'static _ = SHARED.init(BfmShared::new(device, MACHINE.psu));
     let inner = BfmPsu::new(shared);
@@ -64,7 +60,7 @@ pub fn init(
         None,
         InnerGate::PinsOnly,
     ));
-    (driver, PSU.init(PowerSupply::new(driver)))
+    PSU.init(PowerSupply::new(driver))
 }
 
 ubos_psu::psu_task!(BoardPsu);

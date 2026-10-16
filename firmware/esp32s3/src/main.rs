@@ -542,7 +542,6 @@ async fn boot(spawner: Spawner) {
         // task sequences the release during bring-up.
         let reset = ubos_esp32::expander::ExpanderResetPin::new(bus, mining::RESET_BIT).await;
         spawner.spawn(unwrap!(mining::miner_task(
-            psu_driver,
             psu_handle,
             ubos_mining::serial::Serial::wire(&mining::CHAINS, [reset])
         )));

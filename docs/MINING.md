@@ -239,7 +239,7 @@ Each serial actor records its chain's frequency after a successful command.
 The PSU task records the voltage a successful PSU command sets.
 The plan executor first lowers frequencies, then changes the rail, then raises frequencies.
 
-The firmware names the tuner set as the `T` of `Miner` and the fifth argument of `miner_task!`.
+The firmware names the tuner set as the `T` of `Miner` and the fourth argument of `miner_task!`.
 The miniminer boards and the host runner name `Tuners`, which serves both the fixed and the power-ramp policy.
 The hashnode and the Forge Axe name `FixedTuner` alone: nobody has measured what they may draw, so they offer no power target.
 The loop drives all connectors through `MachineTuner<CHAINS>`.
@@ -250,9 +250,9 @@ The miner also supplies the PSU snapshot and the last confirmed voltage command.
 Telemetry can lag or show voltage droop.
 
 What the platform reports beyond `Readings` arrives as the set's `PlatformReadings`.
-The firmware passes the function that reads them as the sixth argument of `miner_task!`.
+The firmware passes the function that reads them as the fifth argument of `miner_task!`.
 The miner calls it once per step and passes the result to the tuner, which reads nothing itself.
-Both shared policies take `()`, and the five-argument form of the macro supplies it.
+Both shared policies take `()`, and the four-argument form of the macro supplies it.
 
 The set lists the tuners it offers in `MachineTuner::TUNERS`: each one's name, the `Tuning` variant it reads, and whether a power tuner reads the efficiency.
 The firmware passes the list to `ubos_config::bounds`, so the config accepts only a tuning one of these tuners reads, and the mining form shows only these tuners and the fields they read.

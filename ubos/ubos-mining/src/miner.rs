@@ -333,23 +333,22 @@ where
         Ok(true)
     }
 }
-/// Task shell that runs the [`Miner`]. Takes the board's PSU and reset-pin
-/// types, the descriptor whose chip facts drive the tuner, the machine's
-/// chain count, its tuner set and, when that set reads platform readings,
-/// the function that reads them.
+/// Task shell that runs the [`Miner`]. Takes the board's reset-pin type,
+/// the descriptor whose chip facts drive the tuner, the machine's chain
+/// count, its tuner set and, when that set reads platform readings, the
+/// function that reads them.
 ///
 /// [`Miner::run`] returns only when [`Handle::stop`] fires, which on bare
 /// metal never happens. The shell parks afterwards for the same reason
 /// `ubos_mining::serial_task` does.
 #[macro_export]
 macro_rules! miner_task {
-    ($psu:ty, $reset:ty, $board:expr, $chains:expr, $tuner:ty) => {
-        ubos_mining::miner_task!($psu, $reset, $board, $chains, $tuner, || ());
+    ($reset:ty, $board:expr, $chains:expr, $tuner:ty) => {
+        ubos_mining::miner_task!($reset, $board, $chains, $tuner, || ());
     };
-    ($psu:ty, $reset:ty, $board:expr, $chains:expr, $tuner:ty, $platform:expr) => {
+    ($reset:ty, $board:expr, $chains:expr, $tuner:ty, $platform:expr) => {
         #[embassy_executor::task]
         pub async fn miner_task(
-            _psu: &'static $psu,
             psu_handle: &'static ubos_psu::Handle,
             chains: [(&'static ubos_mining::serial::Serial, $reset); $chains],
         ) -> ! {

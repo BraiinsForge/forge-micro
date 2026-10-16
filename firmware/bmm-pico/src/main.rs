@@ -360,7 +360,6 @@ async fn main(spawner: Spawner) {
         let psu_handle = psu.handle();
         let reset = mining::BoardResetPin::new(Output::new(hw.hb_rst, Level::Low));
         spawner.spawn(unwrap!(mining::miner_task(
-            psu_driver,
             psu_handle,
             ubos_mining::serial::Serial::wire(&mining::CHAINS, [reset])
         )));

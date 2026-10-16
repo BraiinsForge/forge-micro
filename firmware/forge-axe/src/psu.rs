@@ -37,8 +37,7 @@ use ubos_rp::i2c::{Bus, Device};
 type InnerPsu = ForgeAxePsu<Device>;
 
 /// Board power stage: the TPS53647 driver gated by `PWR_EN` with a
-/// `VR_RDY` power-good check. Public so the `mining` module can spell it
-/// in `miner_task`'s signature.
+/// `VR_RDY` power-good check.
 pub type BoardPsu = GatedPsu<InnerPsu, Output<'static>, Input<'static>, 1>;
 
 static SHARED: StaticCell<ForgeAxeShared<Device>> = StaticCell::new();
@@ -52,12 +51,12 @@ const VR_RDY_SETTLE: embassy_time::Duration = embassy_time::Duration::from_milli
 
 /// Construct the `BoardPsu` over an `I2cDevice` carved from `bus`,
 /// taking ownership of `PWR_EN` (passed in already driven low), and
-/// return it, which the miner task takes, and the `PowerSupply` over it.
+/// return the `PowerSupply` over it, whose handle every other task takes.
 pub fn init(
     bus: &'static Bus,
     pwr_en: Output<'static>,
     vr_rdy: Input<'static>,
-) -> (&'static BoardPsu, &'static PowerSupply<BoardPsu>) {
+) -> &'static PowerSupply<BoardPsu> {
     let device = I2cDevice::new(bus);
     let shared: &'static _ = SHARED.init(ForgeAxeShared::new(device, MACHINE.psu));
     let inner = ForgeAxePsu::new(shared);
@@ -68,7 +67,7 @@ pub fn init(
         Some(VR_RDY_SETTLE),
         InnerGate::DriveOperation,
     ));
-    (driver, PSU.init(PowerSupply::new(driver)))
+    PSU.init(PowerSupply::new(driver))
 }
 
 ubos_psu::psu_task!(BoardPsu);

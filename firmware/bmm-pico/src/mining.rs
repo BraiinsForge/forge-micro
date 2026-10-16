@@ -40,7 +40,6 @@ ubos_mining::serial_task!(
 pub type BoardResetPin = ubos_mining::reset::OutputResetPin<embassy_rp::gpio::Output<'static>>;
 
 ubos_mining::miner_task!(
-    crate::psu::BoardPsu,
     BoardResetPin,
     crate::config::BOARD,
     crate::config::CHAINS,

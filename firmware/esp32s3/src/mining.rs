@@ -50,7 +50,6 @@ ubos_mining::serial_task!(
 );
 
 ubos_mining::miner_task!(
-    crate::psu::BoardPsu,
     ubos_esp32::expander::ExpanderResetPin,
     crate::config::BOARD,
     crate::config::CHAINS,

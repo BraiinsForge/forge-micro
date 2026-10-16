@@ -195,9 +195,9 @@ impl<I: I2c + 'static> Psu for BmmPsu<I> {
 /// [`BmmPsu`] on a shared I2C bus: the `'static` storage, the
 /// constructor, and the two long-running tasks.
 ///
-/// `init` answers the driver, which the watchdog and miner tasks take,
-/// and the [`PowerSupply`](crate::PowerSupply) over it, which the PSU
-/// task runs.
+/// `init` answers the driver, which only the watchdog task takes, and
+/// the [`PowerSupply`](crate::PowerSupply) over it, whose handle every
+/// other task takes.
 ///
 /// Takes the board's bus mutex type, the `I2cDevice` handle carved from
 /// it, and the machine descriptor's PSU entry. The board keeps those two
@@ -210,8 +210,7 @@ impl<I: I2c + 'static> Psu for BmmPsu<I> {
 #[macro_export]
 macro_rules! bmm_psu {
     ($bus:ty, $device:ty, $descriptor:expr) => {
-        /// Concrete `BmmPsu` for this board. Public so the `mining`
-        /// module can spell it in `miner_task`'s signature.
+        /// Concrete `BmmPsu` for this board.
         pub type BoardPsu = ubos_psu::BmmPsu<$device>;
 
         static SHARED: static_cell::StaticCell<ubos_psu::BmmShared<$device>> =
