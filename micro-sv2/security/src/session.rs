@@ -375,7 +375,8 @@ mod tests {
         let open = OpenStandardMiningChannel {
             request_id: 1,
             user: Str0_255::try_from("user.worker1").unwrap(),
-            nominal_hashrate: 1.0e12,
+            // 2^40 h/s, which the single on the wire holds exactly.
+            nominal_hashrate: 1_099_511_627_776.0,
             max_target: Uint256::from_le_bytes(&TARGET_PATTERN),
         };
         {

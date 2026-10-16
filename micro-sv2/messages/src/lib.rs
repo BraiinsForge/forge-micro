@@ -233,8 +233,10 @@ pub struct OpenStandardMiningChannel<'a> {
     pub request_id: u32,
     /// Worker / pool identity (e.g. "user.worker1").
     pub user: Str0_255<'a>,
-    /// Expected hashrate in h/s. Proxies with no devices yet send 0.0.
-    pub nominal_hashrate: f32,
+    /// Expected hashrate in h/s. The protocol puts it on the wire as an
+    /// IEEE-754 single, which the codec narrows to and widens from.
+    /// Proxies with no devices yet send 0.0.
+    pub nominal_hashrate: f64,
     pub max_target: Uint256<'a>,
 }
 
@@ -242,7 +244,7 @@ impl<'a> Encode for OpenStandardMiningChannel<'a> {
     fn encoded_len(&self) -> usize {
         self.request_id.encoded_len()
             + self.user.encoded_len()
-            + self.nominal_hashrate.encoded_len()
+            + (self.nominal_hashrate as f32).encoded_len()
             + self.max_target.encoded_len()
     }
 
@@ -250,7 +252,7 @@ impl<'a> Encode for OpenStandardMiningChannel<'a> {
         let mut n = 0;
         n += self.request_id.encode_to(&mut out[n..])?;
         n += self.user.encode_to(&mut out[n..])?;
-        n += self.nominal_hashrate.encode_to(&mut out[n..])?;
+        n += (self.nominal_hashrate as f32).encode_to(&mut out[n..])?;
         n += self.max_target.encode_to(&mut out[n..])?;
         Ok(n)
     }
@@ -261,7 +263,7 @@ impl<'de> Decode<'de> for OpenStandardMiningChannel<'de> {
         Ok(Self {
             request_id: u32::decode(input)?,
             user: Str0_255::decode(input)?,
-            nominal_hashrate: f32::decode(input)?,
+            nominal_hashrate: f64::from(f32::decode(input)?),
             max_target: Uint256::decode(input)?,
         })
     }
@@ -644,7 +646,7 @@ use ii_sv2_framing::{FrameView, FramingError, MessageGroup, frame_to_message};
 /// this crate.
 ///
 /// Note: no `Eq`/`Hash` because `OpenStandardMiningChannel` carries an
-/// `f32` field.
+/// `f64` field.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MiningMessages<'a> {
     SetupConnection(SetupConnection<'a>),
@@ -720,7 +722,8 @@ mod tests {
         let original = OpenStandardMiningChannel {
             request_id: 1,
             user: Str0_255::try_from("user.worker1").unwrap(),
-            nominal_hashrate: 1.0e12,
+            // 2^40 h/s, which the single on the wire holds exactly.
+            nominal_hashrate: 1_099_511_627_776.0,
             max_target: Uint256::from_le_bytes(&TARGET_PATTERN),
         };
         let mut codec = PlaintextCodec;
