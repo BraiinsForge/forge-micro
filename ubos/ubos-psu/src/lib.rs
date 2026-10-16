@@ -129,8 +129,8 @@ pub struct PsuReading {
     pub input_power: Power,
     /// Output-side power (hashboard rail).
     pub output_power: Power,
-    /// Voltage last commanded via [`Psu::set_voltage`]. Zero before
-    /// the first successful command.
+    /// Voltage the rail was last set to. Zero before the first
+    /// successful command.
     pub output_voltage_set: Voltage,
     /// Voltage observed on the output rail. Comparing against
     /// `output_voltage_set` exposes droop or sense-line loss.
@@ -147,41 +147,9 @@ pub struct PsuReading {
 /// does not consume a slot.
 const WATCH_CAPACITY: usize = 4;
 
-/// Most recent voltage commanded via [`Psu::set_voltage`], in
-/// millivolts. Zero means no `set_voltage` call has succeeded yet on
-/// this boot. Written by [`record_set_voltage`], read by
-/// [`PowerSupply::run`].
-static SET_VOLTAGE_MV: AtomicU32 = AtomicU32::new(0);
-
-/// Gauge carrying the last voltage commanded, published from the two
-/// places below.
+/// Gauge carrying the voltage the rail was last set to, published on
+/// every poll once a command has set it.
 const SET_VOLTAGE_METRIC: &str = "board_psu_output_voltage_set_mv";
-
-/// Record the voltage a successful [`Psu::set_voltage`] set the rail to,
-/// so the metrics publisher can include it in the next [`PsuReading`].
-///
-/// The task that commands the rail calls this with the voltage the
-/// driver answered, so [`PowerSupply::run`] reports the set voltage
-/// alongside the measured one.
-pub fn record_set_voltage(voltage: Voltage) {
-    SET_VOLTAGE_MV.store(voltage.mv(), Ordering::Relaxed);
-}
-
-/// Record a successful `set_voltage` write and publish its gauge, for a
-/// driver whose board runs no [`PowerSupply::run`].
-///
-/// A supply with nothing to measure has no reason to be polled, but the
-/// voltage it was commanded to is still worth exposing, and that gauge
-/// otherwise rides the poll loop. One push per setpoint suffices: the
-/// metric map holds the last value pushed until it is overwritten, and
-/// [`PowerSupply::run`] republishes every poll only because it is already
-/// awake.
-pub async fn publish_set_voltage(voltage: Voltage) {
-    record_set_voltage(voltage);
-    Metric::with_no_labels(SET_VOLTAGE_METRIC, Value::Uint(u64::from(voltage.mv())))
-        .push()
-        .await;
-}
 
 /// Per-task subscription returned by [`Handle::subscribe`].
 pub type PsuSubscription = Receiver<'static, CSMutex, PsuReading, WATCH_CAPACITY>;
@@ -203,6 +171,14 @@ enum Command {
     Enable,
     Disable,
     SetVoltage(Voltage),
+}
+
+/// The voltage a successful command asked for and the voltage the supply
+/// landed on, which differ by up to one step of the supply.
+#[derive(Clone, Copy)]
+struct Setpoint {
+    requested: Voltage,
+    landed: Voltage,
 }
 
 /// Ends a caller's turn on the handle when the caller returns or is
@@ -244,6 +220,7 @@ pub struct Handle {
     /// number while the first still waits on it.
     caller: Mutex<CSMutex, ()>,
     reading: Watch<CSMutex, PsuReading, WATCH_CAPACITY>,
+    setpoint: Watch<CSMutex, Setpoint, 1>,
     model: Watch<CSMutex, ModelString, 1>,
 }
 
@@ -263,6 +240,7 @@ impl Handle {
             awaited: AtomicU32::new(0),
             caller: Mutex::new(()),
             reading: Watch::new(),
+            setpoint: Watch::new(),
             model: Watch::new(),
         }
     }
@@ -315,7 +293,9 @@ impl Handle {
     }
 
     /// Set the rail to `voltage`, or to the nearest value the supply can
-    /// produce.
+    /// produce. [`Handle::commanded_voltage`] answers `voltage` from then
+    /// on, and [`PsuReading::output_voltage_set`] carries the value the
+    /// supply landed on.
     ///
     /// # Errors
     ///
@@ -324,14 +304,13 @@ impl Handle {
         self.command(Command::SetVoltage(voltage)).await
     }
 
-    /// Last successful voltage command, available before the next metrics poll.
-    /// NOTE: This setpoint does not indicate whether the rail is enabled.
+    /// The voltage the last successful [`Handle::set_voltage`] asked for,
+    /// or `None` before one. A caller compares its next request with this
+    /// value, because the supply can land a request on a nearby step. The
+    /// value stays as it is while the rail is disabled.
     #[must_use]
     pub fn commanded_voltage(&self) -> Option<Voltage> {
-        match SET_VOLTAGE_MV.load(Ordering::Relaxed) {
-            0 => None,
-            mv => Some(Voltage::from_mv(mv)),
-        }
+        self.setpoint.try_get().map(|setpoint| setpoint.requested)
     }
 
     /// Most recent published reading, or `None` if the PSU task has not
@@ -468,7 +447,10 @@ impl<P: Psu> PowerSupply<P> {
                     .set_voltage(requested)
                     .await
                     .map_err(Error::reduce)?;
-                record_set_voltage(landed);
+                self.handle
+                    .setpoint
+                    .sender()
+                    .send(Setpoint { requested, landed });
                 Ok(())
             }
         }
@@ -528,7 +510,8 @@ impl<P: Psu> PowerSupply<P> {
             }
         }
         let status_result = self.step(self.driver.read_status()).await?;
-        let set_voltage = Voltage::from_mv(SET_VOLTAGE_MV.load(Ordering::Relaxed));
+        let setpoint = self.handle.setpoint.try_get();
+        let set_voltage = setpoint.map_or(Voltage::from_mv(0), |setpoint| setpoint.landed);
         let now_ms = embassy_time::Instant::now().as_millis();
 
         match (&input_result, &output_result) {
@@ -586,7 +569,7 @@ impl<P: Psu> PowerSupply<P> {
                 }
             }
         }
-        if set_voltage.mv() != 0 {
+        if setpoint.is_some() {
             Metric::with_no_labels(SET_VOLTAGE_METRIC, Value::Uint(u64::from(set_voltage.mv())))
                 .try_push();
         }

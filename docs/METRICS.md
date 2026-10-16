@@ -92,7 +92,9 @@ Code: `ubos/ubos-psu/src/lib.rs`,
 `ubos/ubos-mining/src/publishers.rs`,
 `ubos/ubos-thermal/src/chain.rs`.
 
-`board_psu_output_voltage_set_mv` is the commanded hashboard rail.
+`board_psu_output_voltage_set_mv` is the voltage the supply landed the last
+commanded hashboard rail on, which is the request rounded to the supply's
+step.
 `board_psu_output_voltage_measured_mv` is a physical reading of that rail;
 a zero value on a board without a voltage sensor means unavailable.
 `hashboard_chain_voltage_microvolts` is different:

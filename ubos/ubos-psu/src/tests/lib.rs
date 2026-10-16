@@ -146,13 +146,23 @@ async fn poll_until(future: impl Future, done: impl Fn() -> bool) {
 }
 
 #[test]
-fn set_voltage_records_the_voltage_the_driver_answered() {
+fn set_voltage_records_the_request_and_the_voltage_the_driver_answered() {
     let (_, psu) = fake_supply();
     let handle = psu.handle();
+    let requested = Voltage::from_mv(1203);
     assert_eq!(handle.commanded_voltage(), None);
-    let set = beside(psu, handle.set_voltage(Voltage::from_mv(1203)));
+    let set = beside(psu, handle.set_voltage(requested));
     assert!(set.is_ok());
-    assert_eq!(handle.commanded_voltage(), Some(LANDED));
+    assert_eq!(handle.commanded_voltage(), Some(requested));
+    let reading = beside(psu, async {
+        loop {
+            if let Some(reading) = handle.current() {
+                return reading;
+            }
+            yield_now().await;
+        }
+    });
+    assert_eq!(reading.output_voltage_set, LANDED);
 }
 
 #[test]
