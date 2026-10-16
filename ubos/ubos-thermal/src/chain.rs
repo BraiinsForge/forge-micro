@@ -59,7 +59,7 @@ use ubos_asic::{ChainPvt, ChipIndex};
 use ubos_core::units::Temperature;
 use ubos_logging::{debug, warn};
 use ubos_metrics::chain::ChainStatsHandle;
-use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value, push, push_indexed_metric};
+use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value};
 
 #[cfg(test)]
 #[path = "tests/chain.rs"]
@@ -245,12 +245,12 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
             warn!("chain {} pvt: no chip has reported a voltage", chain);
             return;
         };
-        push_indexed_metric(
+        Metric::indexed(
             CHAIN_VOLTAGE_METRIC,
-            "chain",
-            chain,
+            &[("chain", chain)],
             Value::Int(i64::from(voltage.total_microvolts)),
         )
+        .push()
         .await;
         debug!(
             "chain {} pvt: string {} mV, chips {} to {} mV",
@@ -269,18 +269,19 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
             name: "stat",
             value: LabelValue::Static(stat),
         });
-        push(Metric::with_labels(
+        Metric::with_labels(
             CHAIN_TEMPERATURE_METRIC,
             labels,
             Value::Int(i64::from(millicelsius)),
-        ))
+        )
+        .push()
         .await;
     }
 }
 
 /// The `chain="<n>"` label, for the one metric that carries it alongside
 /// a second label: the die-temperature spread also tags a `stat`, so it
-/// cannot go through [`push_indexed_metric`] alone. Since a board can own
+/// cannot go through [`Metric::indexed`] alone. Since a board can own
 /// more than one chain, the series would otherwise collide.
 pub(crate) fn chain_labels(chain: usize) -> Labels {
     let mut chain_str = heapless::String::new();

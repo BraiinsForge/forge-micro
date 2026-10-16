@@ -29,11 +29,11 @@ use core::fmt::Write as _;
 
 use embedded_hal_async::i2c::SevenBitAddress;
 use ubos_core::units::Temperature;
-use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value, push};
+use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value};
 use ubos_temperature::{ChipId, Reading, TempSource};
 
-use crate::Source;
 use crate::chain::chain_labels;
+use crate::{Sample, Source};
 
 /// Every reading a sensor takes, under the `source` it measures. A
 /// hashboard or chip reading also carries the `chain` it comes from, a
@@ -68,7 +68,7 @@ const METRIC_NAME: &str = "board_chip_temperature_millicelsius";
 /// The ambient temperature around the board, where the board measures it.
 /// Carries no label: a board reports one ambient reading or none. Integer
 /// millicelsius for the reason [`METRIC_NAME`] gives.
-const AMBIENT_METRIC_NAME: &str = "board_ambient_temperature_millicelsius";
+pub(crate) const AMBIENT_METRIC_NAME: &str = "board_ambient_temperature_millicelsius";
 
 /// The temperature of the MCU die on the control board. Carries no
 /// label: a board has one MCU. Integer millicelsius for the reason
@@ -84,18 +84,22 @@ const fn source_label(source: Source) -> &'static str {
     }
 }
 
-/// Push a chip-temperature reading, tagged with a `source` label so a
-/// board that reports both a hashboard and a chip reading keeps them as
-/// distinct series under one metric name.
-pub(crate) async fn publish_chip_temperature(temp: Temperature, source: Source) {
-    let value = Value::Int(i64::from(temp.millicelsius()));
-    let source = source_label(source);
-    let mut labels = Labels::new();
-    let _ = labels.push(Label {
-        name: "source",
-        value: LabelValue::Static(source),
-    });
-    push(Metric::with_labels(METRIC_NAME, labels, value)).await;
+/// Push the safety reading, and the cooling-PID reading too when the
+/// board reports a second one, each tagged with a `source` label so a
+/// board that reports both keeps them as distinct series under one
+/// metric name.
+pub(crate) async fn publish_chip_temperatures(sample: &Sample) {
+    let safety = Some((sample.safety, sample.safety_source));
+    let pid = sample.pid.map(|temp| (temp, Source::Hashboard));
+    for (temp, source) in [safety, pid].into_iter().flatten() {
+        let mut labels = Labels::new();
+        let _ = labels.push(Label {
+            name: "source",
+            value: LabelValue::Static(source_label(source)),
+        });
+        let value = Value::Int(i64::from(temp.millicelsius()));
+        Metric::with_labels(METRIC_NAME, labels, value).push().await;
+    }
 }
 
 /// Push one reading that the I2C sensor at `address` on `chain` took.
@@ -121,7 +125,9 @@ async fn publish_hashboard_reading(chain: usize, address: SevenBitAddress, value
     let mut labels = reading_labels(HASHBOARD_SOURCE, chain);
     let _ = labels.push(address_label(address));
     let value = Value::Int(i64::from(value.millicelsius()));
-    push(Metric::with_labels(READING_METRIC_NAME, labels, value)).await;
+    Metric::with_labels(READING_METRIC_NAME, labels, value)
+        .push()
+        .await;
 }
 
 /// Push one reading of something on no chain under the I2C address of the
@@ -131,7 +137,9 @@ async fn publish_board_reading(source: &'static str, address: SevenBitAddress, v
     let _ = labels.push(reading_source_label(source));
     let _ = labels.push(address_label(address));
     let value = Value::Int(i64::from(value.millicelsius()));
-    push(Metric::with_labels(READING_METRIC_NAME, labels, value)).await;
+    Metric::with_labels(READING_METRIC_NAME, labels, value)
+        .push()
+        .await;
 }
 
 /// Push one chip's reading under its index on `chain`.
@@ -148,7 +156,9 @@ pub(crate) async fn publish_chip_reading(chain: usize, chip: ChipId, value: Temp
         value: LabelValue::Short(chip_str),
     });
     let value = Value::Int(i64::from(value.millicelsius()));
-    push(Metric::with_labels(READING_METRIC_NAME, labels, value)).await;
+    Metric::with_labels(READING_METRIC_NAME, labels, value)
+        .push()
+        .await;
 }
 
 /// The `source` label that every reading carries.
@@ -174,14 +184,4 @@ fn address_label(address: SevenBitAddress) -> Label {
         name: "addr",
         value: LabelValue::Short(address_str),
     }
-}
-
-/// Push the ambient temperature around the board. What the reading is
-/// and is not for: [`crate::AmbientSensor`].
-pub(crate) async fn publish_ambient_temperature(temp: Temperature) {
-    push(Metric::with_no_labels(
-        AMBIENT_METRIC_NAME,
-        Value::Int(i64::from(temp.millicelsius())),
-    ))
-    .await;
 }

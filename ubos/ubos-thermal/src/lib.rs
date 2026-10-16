@@ -100,7 +100,7 @@ fn measured(reading: Reading) -> Sample {
     }
 }
 
-use crate::metrics::{MCU_METRIC_NAME, publish_ambient_temperature, publish_chip_temperature};
+use crate::metrics::{AMBIENT_METRIC_NAME, MCU_METRIC_NAME, publish_chip_temperatures};
 use crate::threshold::{Action, evaluate};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::{Receiver, Watch};
@@ -383,15 +383,6 @@ impl Handle {
 /// Lowering that margin fails the cooling crate's build.
 pub const SENSOR_FAULT_TICKS: u32 = 5;
 
-/// Publish the safety reading, and the cooling-PID reading too when the
-/// board reports a second one, each tagged with its source.
-async fn publish_chip_temperatures(sample: &Sample) {
-    publish_chip_temperature(sample.safety, sample.safety_source).await;
-    if let Some(hashboard) = sample.pid {
-        publish_chip_temperature(hashboard, Source::Hashboard).await;
-    }
-}
-
 /// Consecutive [`Reading::Unreadable`] answers, and the halt this loop
 /// owes the manager once they run past [`SENSOR_FAULT_TICKS`].
 ///
@@ -612,7 +603,10 @@ impl Thermal {
 async fn read_ambient<A: AmbientSensor>(ambient: &mut A) -> Option<Temperature> {
     let reading = ambient.ambient().await;
     if let Some(reading) = reading {
-        publish_ambient_temperature(reading).await;
+        let value = Value::Int(i64::from(reading.millicelsius()));
+        Metric::with_no_labels(AMBIENT_METRIC_NAME, value)
+            .push()
+            .await;
     }
     reading
 }
