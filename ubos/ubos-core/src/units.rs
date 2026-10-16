@@ -221,9 +221,23 @@ impl Temperature {
         Self(millicelsius)
     }
 
+    /// Construct from whole degrees Celsius, for a value stated in degrees,
+    /// such as a board's setpoint or halt threshold.
+    #[must_use]
+    pub const fn from_celsius(celsius: i32) -> Self {
+        Self(celsius.saturating_mul(1000))
+    }
+
     #[must_use]
     pub const fn millicelsius(self) -> i32 {
         self.0
+    }
+
+    /// Whole degrees Celsius, truncated toward zero, for a caller that
+    /// reports a temperature in whole degrees.
+    #[must_use]
+    pub const fn celsius_i32(self) -> i32 {
+        self.0 / 1000
     }
 
     /// Convert to degrees Celsius as `f32`. Lossy: callers that need
