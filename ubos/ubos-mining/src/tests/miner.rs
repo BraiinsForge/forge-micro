@@ -30,8 +30,10 @@
 //! sequence a chain's hardware reset produces.
 
 use super::{
-    BringUp, Choose, Miner, MinerState, PoolWatch, PsuError, Run, STOP_MINING, Selected, Step,
+    BringUp, Choose, Halted, Miner, MinerState, PoolWatch, PsuError, Run, STOP_MINING, Selected,
+    Step,
 };
+use crate::control::Message;
 use crate::tuner::MachineTuner;
 use core::cell::{Cell, RefCell};
 use core::convert::Infallible;
@@ -882,7 +884,7 @@ fn plans_order_shared_rail_writes_and_preserve_successful_partial_progress() {
 fn run<M>(tuner: M) -> Run<M> {
     Run {
         tuner,
-        selected: Selected::of(&ubos_config::Config::default().miner.tuning),
+        selected: fixed_selection(),
         failures: 0,
         pool: PoolWatch::default(),
     }
@@ -1581,9 +1583,34 @@ fn settling_ignores_resume_and_preserves_a_resume_queued_after_halt() {
 }
 
 #[test]
+fn stop_ready_before_a_step_cuts_the_rail_without_a_plan() {
+    critical_section::with(|_| {
+        static ACTOR: Serial = Serial::new(0, 1);
+        static STATS: ChainStats = ChainStats::new();
+        static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
+        let psu = TestPsu {
+            log: &LOG,
+            behavior: Cell::new(VoltageWrite::Succeed),
+            disable_fails: false,
+        };
+        let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
+        ubos_psu::record_set_voltage(Voltage::from_mv(1000));
+        let state = MinerState::Step(Step {
+            run: run(OnePlanTuner(Plan {
+                rail: Some(Voltage::from_mv(1150)),
+                frequencies: [None],
+                delay: Duration::from_millis(500),
+            })),
+        });
+        let mut subscription = test_config().0;
+        STOP_MINING.signal(());
+        assert!(block_on(miner.advance(state, &mut subscription)).is_none());
+        LOG.lock(|log| assert_eq!(log.borrow().as_slice(), &[Write::Disable]));
+    });
+}
+
+#[test]
 fn stop_during_plan_delay_does_not_wait_or_issue_another_plan() {
-    use core::future::Future;
-    use core::task::{Context, Poll, Waker};
     critical_section::with(|_| {
         static ACTOR: Serial = Serial::new(0, 1);
         static STATS: ChainStats = ChainStats::new();
@@ -1596,23 +1623,26 @@ fn stop_during_plan_delay_does_not_wait_or_issue_another_plan() {
         let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
         let voltage = Voltage::from_mv(1150);
         ubos_psu::record_set_voltage(Voltage::from_mv(1000));
-        let mut tuner = OnePlanTuner(Plan {
-            rail: Some(voltage),
-            frequencies: [None],
-            delay: Duration::from_millis(500),
+        let delay = Duration::from_millis(500);
+        let state = MinerState::Step(Step {
+            run: run(OnePlanTuner(Plan {
+                rail: Some(voltage),
+                frequencies: [None],
+                delay,
+            })),
         });
         let mut subscription = test_config().0;
-        let mut run =
-            core::pin::pin!(miner.mine_phase(&mut tuner, &mut subscription, fixed_selection()));
-        let mut context = Context::from_waker(Waker::noop());
-        // The initial zero-duration timer yields before the first plan.
-        assert!(run.as_mut().poll(&mut context).is_pending());
-        assert!(run.as_mut().poll(&mut context).is_pending());
+        let paused =
+            block_on(miner.advance(state, &mut subscription)).expect("no stop is signalled");
+        assert!(matches!(paused, MinerState::Pause(_)));
         STOP_MINING.signal(());
-        assert!(matches!(
-            run.as_mut().poll(&mut context),
-            Poll::Ready(super::CycleOutcome::Stop)
-        ));
+        let Either::First(outcome) = block_on(select(
+            miner.advance(paused, &mut subscription),
+            Timer::after(delay / 2),
+        )) else {
+            panic!("the stop waited for the plan delay")
+        };
+        assert!(outcome.is_none());
         LOG.lock(|log| {
             assert_eq!(
                 log.borrow().as_slice(),
@@ -1638,27 +1668,26 @@ fn halt_finishes_the_pending_voltage_write_before_cutting_the_rail() {
         let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
         let voltage = Voltage::from_mv(1100);
         ubos_psu::record_set_voltage(Voltage::from_mv(1000));
-        let mut tuner = OnePlanTuner(Plan {
-            rail: Some(voltage),
-            frequencies: [None],
-            delay: Duration::from_millis(500),
+        let state = MinerState::Step(Step {
+            run: run(OnePlanTuner(Plan {
+                rail: Some(voltage),
+                frequencies: [None],
+                delay: Duration::from_millis(500),
+            })),
         });
         let mut subscription = test_config().0;
         {
-            let mut phase =
-                core::pin::pin!(miner.mine_phase(&mut tuner, &mut subscription, fixed_selection()));
+            let mut step = core::pin::pin!(miner.advance(state, &mut subscription));
             let mut context = Context::from_waker(Waker::noop());
-            // The initial zero-duration timer yields before the first plan.
-            assert!(phase.as_mut().poll(&mut context).is_pending());
-            assert!(phase.as_mut().poll(&mut context).is_pending());
+            // The voltage write yields once before it completes.
+            assert!(step.as_mut().poll(&mut context).is_pending());
             block_on(crate::handle().halt());
             block_on(crate::handle().resume());
             assert!(matches!(
-                phase.as_mut().poll(&mut context),
-                Poll::Ready(super::CycleOutcome::Continue)
+                step.as_mut().poll(&mut context),
+                Poll::Ready(Some(MinerState::Halted(_)))
             ));
         }
-        assert!(miner.halted);
         assert_eq!(ubos_psu::handle().commanded_voltage(), Some(voltage));
         LOG.lock(|log| {
             assert_eq!(
@@ -1667,8 +1696,8 @@ fn halt_finishes_the_pending_voltage_write_before_cutting_the_rail() {
             );
         });
         assert!(matches!(
-            block_on(super::wait_halt_clear_or_stop()),
-            super::Resumed::Cleared
+            block_on(miner.advance(MinerState::Halted(Halted), &mut subscription)),
+            Some(MinerState::Choose(_))
         ));
     });
 }
@@ -1688,30 +1717,30 @@ fn halt_during_stop_grace_period_keeps_stop_and_queued_resume() {
         };
         let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
         ubos_psu::record_set_voltage(Voltage::from_mv(1000));
-        let mut tuner = OnePlanTuner(Plan {
-            rail: Some(Voltage::from_mv(1100)),
-            frequencies: [None],
-            delay: Duration::from_millis(500),
+        let state = MinerState::Step(Step {
+            run: run(OnePlanTuner(Plan {
+                rail: Some(Voltage::from_mv(1100)),
+                frequencies: [None],
+                delay: Duration::from_millis(500),
+            })),
         });
         let mut subscription = test_config().0;
         let mut context = Context::from_waker(Waker::noop());
         {
-            let mut phase =
-                core::pin::pin!(miner.mine_phase(&mut tuner, &mut subscription, fixed_selection()));
-            // The initial zero-duration timer yields before the first plan.
-            assert!(phase.as_mut().poll(&mut context).is_pending());
-            assert!(phase.as_mut().poll(&mut context).is_pending());
-            // Consume STOP and enter the grace period with the voltage write pending.
-            assert!(phase.as_mut().poll(&mut context).is_pending());
+            let mut step = core::pin::pin!(miner.advance(state, &mut subscription));
+            // The voltage write signals STOP and never completes.
+            assert!(step.as_mut().poll(&mut context).is_pending());
+            // Consume STOP and enter the grace period with the write pending.
+            assert!(step.as_mut().poll(&mut context).is_pending());
             block_on(crate::handle().halt());
             block_on(crate::handle().resume());
-            assert!(phase.as_mut().poll(&mut context).is_pending());
+            assert!(step.as_mut().poll(&mut context).is_pending());
             assert!(matches!(
                 block_on(select(
-                    phase.as_mut(),
+                    step.as_mut(),
                     Timer::after(Duration::from_millis(200)),
                 )),
-                Either::First(super::CycleOutcome::Stop)
+                Either::First(None)
             ));
         }
         LOG.lock(|log| {
@@ -1720,10 +1749,14 @@ fn halt_during_stop_grace_period_keeps_stop_and_queued_resume() {
                 &[Write::Voltage(Voltage::from_mv(1100)), Write::Disable,]
             );
         });
-        block_on(super::wait_for_halt());
+        // The halt and the resume sent during the grace are still queued.
         assert!(matches!(
-            block_on(super::wait_halt_clear_or_stop()),
-            super::Resumed::Cleared
+            block_on(crate::handle().next_message()),
+            Message::Halt
+        ));
+        assert!(matches!(
+            block_on(crate::handle().next_message()),
+            Message::Resume
         ));
     });
 }
@@ -1799,8 +1832,8 @@ impl MachineTuner<1> for LiveTuner {
 
 /// The tuner the default configuration selects, as the mining loop
 /// records it. Every tuner in this file serves that variant.
-fn fixed_selection() -> core::mem::Discriminant<ubos_config::Tuning> {
-    core::mem::discriminant(&ubos_config::Config::default().miner.tuning)
+fn fixed_selection() -> Selected {
+    Selected::of(&ubos_config::Config::default().miner.tuning)
 }
 
 /// A configuration whose fixed target is `frequency_khz` at `voltage_mv`.
