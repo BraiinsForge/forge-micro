@@ -77,14 +77,15 @@
   system,
 }:
 let
-  # How many derivations build at once, and how many cores each takes.
-  # The product is a typical build host's core count: more jobs than
-  # that oversubscribes, and fewer leaves the machine idle whenever one
-  # build is single-threaded, which a linker usually is. Both are
-  # overridable per run, because the measured best pair differs between
-  # a build host and a developer's laptop.
-  maxJobs = 4;
-  coresPerJob = 3;
+  # How many cores each derivation takes. The gate builds as many
+  # derivations at once as the machine has cores, which it reads when it
+  # runs. A check is one derivation per rustc unit, and most units use
+  # one core for most of their build, so many jobs with few cores each
+  # keep the machine busy where a few wide jobs leave it idle. Two
+  # cores let the large units at the end of a graph, which build alone,
+  # run faster. Both counts are overridable per run, because the
+  # measured best pair differs between a build host and a laptop.
+  coresPerJob = 2;
 
   # nix's own machine-readable event stream. Every line of it starts with
   # this, and `gate status` reads what follows.
@@ -126,12 +127,11 @@ let
       pkgs.gnutar
       pkgs.jq
     ];
-    # The script itself is nix/gate.sh. Nix owns seven values and
+    # The script itself is nix/gate.sh. Nix owns six values and
     # contributes nothing else, so the preamble below is the whole of
     # the boundary: the script reads each by name and states none of
     # them twice.
     text = ''
-      readonly max_jobs=${toString maxJobs}
       readonly cores_per_job=${toString coresPerJob}
       readonly event_prefix=${pkgs.lib.escapeShellArg eventPrefix}
       readonly build_activity=${toString buildActivity}

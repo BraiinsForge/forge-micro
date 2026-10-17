@@ -42,9 +42,10 @@ The messages that the gate prints name the first reference, because the
 gate cannot know which directory you started it from.
 
 Two things can stand around the command. `GATE_MAX_JOBS=<number>` and
-`GATE_CORES=<number>` go before `nix run`. Each one replaces a count
-that the gate was built with. If the best pair of values for your
-machine is different, use them. A `2>&1` goes after the command. It is a
+`GATE_CORES=<number>` go before `nix run`. By default, the gate builds
+as many derivations at the same time as the machine has cores, and each
+derivation uses two cores. If the best pair of values for your machine
+is different, use them. A `2>&1` goes after the command. It is a
 redirection and not a pipe, so the exit status stays the gate's own.
 
 CAUTION: Do not add a pipe, a redirect to a file, or a trailing

@@ -22,11 +22,10 @@
 # editor, syntax highlighting and a readable diff, and the module gives
 # up nothing by holding the wrapper alone.
 #
-# Seven values belong to nix and are set by the preamble that module
-# prepends: `max_jobs`, `cores_per_job`, `event_prefix`,
-# `build_activity`, `progress_seconds`, `poll_seconds` and
-# `nix_system`. They are assigned nowhere here, which is the point:
-# each has one source.
+# Six values belong to nix and are set by the preamble that module
+# prepends: `cores_per_job`, `event_prefix`, `build_activity`,
+# `progress_seconds`, `poll_seconds` and `nix_system`. They are assigned
+# nowhere here, which is the point: each has one source.
 # shellcheck shell=bash
 # shellcheck disable=SC2154
 # Resolved once. This form is correct from either half of a pair,
@@ -56,7 +55,7 @@ cursor="$state/events.offset"
 # the gate writes.
 src="$state/src"
 
-jobs="${GATE_MAX_JOBS:-$max_jobs}"
+jobs="${GATE_MAX_JOBS:-$(nproc)}"
 cores="${GATE_CORES:-$cores_per_job}"
 
 # How many of nix's own messages the summary carries when the build
