@@ -30,6 +30,7 @@
 mod client;
 pub mod difficulty;
 mod error;
+mod extension;
 pub mod hashing;
 pub mod hex;
 mod job;
@@ -41,6 +42,7 @@ mod share;
 
 pub use crate::client::{MiningClient, MiningClientVisitor};
 pub use crate::error::{Error, SessionRejection};
+pub use crate::extension::ExtensionFrame;
 pub use crate::job::MiningJob;
 pub use crate::job_id::JobId;
 pub use crate::job_id_ring::JobIdRing;

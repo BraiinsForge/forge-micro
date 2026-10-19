@@ -27,14 +27,15 @@
 //!
 //! Sync vs async split:
 //!
-//! - `submit` and `accept` are sync. They encode/queue or
-//!   dispatch but do not touch the network.
+//! - `submit`, `send_extension` and `accept` are sync. They
+//!   encode/queue or dispatch but do not touch the network.
 //! - `connect` and `drive` are async and own the only I/O paths.
 //!   `drive` must be cancellation-safe — see the doc comment.
 
 use embedded_io_async::{Read, Write};
 
 use crate::error::Error;
+use crate::extension::ExtensionFrame;
 use crate::job::MiningJob;
 use crate::session::{SessionUpdate, SubmitResult};
 use crate::share::Share;
@@ -79,6 +80,23 @@ pub trait MiningClient {
     /// `share.id`. Returns `Err(Error::BufferTooSmall)` if the
     /// adapter's outbound buffer is full.
     fn submit(&mut self, share: &Share<'_>) -> Result<(), Error>;
+
+    /// Encode and queue one frame of another extension. Synchronous:
+    /// no I/O. The bytes are flushed by the next `drive` call, after
+    /// any share queued before them. An adapter whose protocol carries
+    /// no extensions keeps this default.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(Error::NotImplemented)` from the default body.
+    /// Returns `Err(Error::BufferTooSmall)` while a queued frame is
+    /// still waiting to be flushed, and `Err(Error::Adapter)` before
+    /// `connect` completes or when the payload exceeds what the
+    /// adapter's outbound buffer holds.
+    fn send_extension(&mut self, frame: &ExtensionFrame<'_>) -> Result<(), Error> {
+        let _ = frame;
+        Err(Error::NotImplemented)
+    }
 
     /// Drive one frame's worth of network I/O.
     ///
@@ -133,4 +151,11 @@ pub trait MiningClientVisitor {
     /// Pool changed a session-level parameter (target, extranonce,
     /// version mask, or reconnect request).
     fn visit_session_update(&mut self, update: SessionUpdate<'_>);
+
+    /// A frame of an extension other than mining arrived. A visitor
+    /// that carries no extension keeps this default and the frame is
+    /// dropped.
+    fn visit_extension_frame(&mut self, frame: ExtensionFrame<'_>) {
+        let _ = frame;
+    }
 }

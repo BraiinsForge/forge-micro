@@ -41,7 +41,8 @@ pub enum Error {
     AuthFailed,
     /// `submit` referenced a `JobId` the adapter no longer tracks.
     UnknownJobId,
-    /// Operation is not yet implemented (V2 share submission today).
+    /// The adapter does not implement the operation. V1 carries no
+    /// extension frames.
     NotImplemented,
     /// Catch-all for adapter-internal protocol violations.
     Adapter,
