@@ -80,7 +80,7 @@ impl BoardFan {
 }
 
 impl FanOutput for BoardFan {
-    fn set_pwm(&mut self, pwm: FanPwm) {
+    async fn set_pwm(&mut self, pwm: FanPwm) {
         let percent = pwm.percent();
         // A low-side BSS138 stage drives the fan PWM input, inverting the
         // GPIO duty like the hashnode's buffer does. Invert here so the

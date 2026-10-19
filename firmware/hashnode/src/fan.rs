@@ -95,7 +95,7 @@ impl BoardFan {
 }
 
 impl FanOutput for BoardFan {
-    fn set_pwm(&mut self, pwm: FanPwm) {
+    async fn set_pwm(&mut self, pwm: FanPwm) {
         let percent = pwm.percent();
         // An inverting buffer drives the fans, so a higher duty on the GPIO
         // runs the fan slower. Invert the duty here so the commanded percent

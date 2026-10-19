@@ -66,7 +66,7 @@ impl BoardFan {
 }
 
 impl FanOutput for BoardFan {
-    fn set_pwm(&mut self, pwm: FanPwm) {
+    async fn set_pwm(&mut self, pwm: FanPwm) {
         let percent = pwm.percent();
         let compare = u32::from(self.top) * u32::from(percent) / 100;
         let mut config = PwmConfig::default();

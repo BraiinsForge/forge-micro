@@ -81,8 +81,14 @@ type CSMutex = CriticalSectionRawMutex;
 
 /// Board-supplied fan PWM sink. Boards translate the [`FanPwm`] duty
 /// cycle to whatever counter top their PWM peripheral uses.
+///
+/// `set_pwm` is async for the reason [`TachReader::read_rpms`] is: a board
+/// whose fan controller sits behind a bus has to await the write. Unlike the
+/// tach read, the write carries the duty itself, so one that never returns
+/// stalls [`run_cooling`] with its failsafes.
+#[allow(async_fn_in_trait)]
 pub trait FanOutput {
-    fn set_pwm(&mut self, pwm: FanPwm);
+    async fn set_pwm(&mut self, pwm: FanPwm);
 }
 
 /// Board-supplied tachometer reader for `N` fans. `run_cooling` calls
@@ -546,7 +552,7 @@ where
 
     // Command the starting duty and publish immediately so the display
     // shows fan state from boot.
-    fan.set_pwm(cooling.pwm);
+    fan.set_pwm(cooling.pwm).await;
 
     // Sample the tach once up front so boot telemetry is not a blank line; the
     // control tick refreshes it every CONTROL_INTERVAL thereafter.
@@ -578,7 +584,9 @@ where
         // Command the fan before the tach read: read_rpms can await a bus
         // transfer that never completes, and this tick's duty, the
         // staleness failsafe included, must not wait on it.
-        fan.set_pwm(step.pwm);
+        // TODO: Is it safe to await this write with no timeout? Currently
+        // there is no continuous watchdog.
+        fan.set_pwm(step.pwm).await;
         // Sample the tach once per control tick, so the edge count has a
         // nominally fixed CONTROL_INTERVAL window independent of the
         // thermal-reading cadence: delayed, not skipped, if thermal

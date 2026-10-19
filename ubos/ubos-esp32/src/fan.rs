@@ -113,7 +113,7 @@ impl BoardFan {
 }
 
 impl FanOutput for BoardFan {
-    fn set_pwm(&mut self, pwm: FanPwm) {
+    async fn set_pwm(&mut self, pwm: FanPwm) {
         let percent = pwm.percent();
         // LEDC set_duty takes a percentage; it is clamp-safe here.
         // Valid timer attached; set_duty cannot return Error::Channel.

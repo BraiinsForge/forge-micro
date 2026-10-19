@@ -164,7 +164,7 @@ fn find_pwmfan_devices(dir: &Path, depth: usize) -> Vec<PathBuf> {
 }
 
 impl FanOutput for FanHwmonController {
-    fn set_pwm(&mut self, pwm: FanPwm) {
+    async fn set_pwm(&mut self, pwm: FanPwm) {
         self.set_speed(pwm.percent());
     }
 }

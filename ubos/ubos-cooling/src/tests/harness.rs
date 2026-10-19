@@ -147,7 +147,7 @@ const POLL_BUDGET: usize = 64;
 pub(crate) struct RecordingFan<'a>(pub(crate) &'a Cell<Option<FanPwm>>);
 
 impl FanOutput for RecordingFan<'_> {
-    fn set_pwm(&mut self, pwm: FanPwm) {
+    async fn set_pwm(&mut self, pwm: FanPwm) {
         if self.0.get().is_none() {
             self.0.set(Some(pwm));
         }

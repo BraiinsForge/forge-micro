@@ -174,7 +174,7 @@ impl BoardFan {
 }
 
 impl FanOutput for BoardFan {
-    fn set_pwm(&mut self, pwm: FanPwm) {
+    async fn set_pwm(&mut self, pwm: FanPwm) {
         let percent = pwm.percent();
         let compare = u32::from(percent) * self.arr / 100;
         // compare ≤ arr ≤ 65 535 (TIM4 is a 16-bit timer); truncation is safe.
