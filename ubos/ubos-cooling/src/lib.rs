@@ -22,7 +22,9 @@
 //! `TachReader`, and publishes the resulting `FanState` as the sole
 //! writer. Generic over the thermal source, fan output, and tach reader
 //! to stay portable across boards. A board may carry several fans; each
-//! tachometer publishes its own labeled `board_fan_rpm` series.
+//! tachometer publishes its own labeled `board_fan_rpm` series. A board
+//! whose fans sit behind a fan controller chip takes its driver from
+//! here: [`emc2302_1`] drives the EMC2302-1.
 //!
 //! The duty comes from the PID under `FanMode::Auto` and from the
 //! configured constant under `FanMode::Fixed`. The failsafes below are
@@ -34,6 +36,7 @@
 #![allow(clippy::missing_panics_doc)]
 #![allow(clippy::module_name_repetitions)]
 
+pub mod emc2302_1;
 mod pid;
 
 #[cfg(test)]

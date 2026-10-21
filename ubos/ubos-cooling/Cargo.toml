@@ -20,6 +20,8 @@ defmt   = [
 embassy-sync    = { workspace = true }
 embassy-time    = { workspace = true }
 embassy-futures = { workspace = true }
+bitfield-struct = { workspace = true }
+embedded-hal-async = { workspace = true }
 defmt           = { workspace = true, optional = true }
 ubos-config     = { workspace = true, default-features = false }
 ubos-core       = { workspace = true }
