@@ -37,13 +37,14 @@
 use core::cell::RefCell;
 use defmt::{info, unwrap};
 use defmt_rtt as _;
+use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_executor::Spawner;
 use embassy_net::StackResources;
 use embassy_net_wiznet::chip::W5500;
 use embassy_net_wiznet::{Device, Runner, State};
 use embassy_rp::flash::{Blocking as FlashBlocking, Flash};
 use embassy_rp::gpio::{Input, Level, Output, Pull};
-use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, DMA_CH3, I2C1, PIO0, PIO1, SPI0, TRNG, UART1};
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, DMA_CH3, I2C1, PIO1, SPI0, TRNG, UART1};
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, SPI1};
 use embassy_rp::pio::{InterruptHandler as PioInterruptHandler, Pio};
@@ -61,6 +62,7 @@ use embassy_time::{Duration, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use static_cell::{ConstStaticCell, StaticCell};
 use ubos_config::{FlashStorage, SyncFlash};
+use ubos_cooling::emc2302_1;
 #[cfg(feature = "display")]
 use ubos_display::sh1106::{Rotation, Sh1106};
 use ubos_eeprom::HashboardEeprom as _;
@@ -70,7 +72,6 @@ use ubos_rp::rgb::Ws2812Ring;
 use ubos_net::net;
 
 mod config;
-mod fan;
 mod mining;
 mod psu;
 mod rgb;
@@ -107,7 +108,6 @@ bind_interrupts!(struct Irqs {
     I2C1_IRQ => embassy_rp::i2c::InterruptHandler<I2C1>;
     UART1_IRQ => BufferedInterruptHandler<UART1>;
     TRNG_IRQ => trng::InterruptHandler<TRNG>;
-    PIO0_IRQ_0 => PioInterruptHandler<PIO0>;
     PIO1_IRQ_0 => PioInterruptHandler<PIO1>;
 });
 
@@ -177,7 +177,7 @@ ubos_config::config_task!(
     FEE_SLOT
 );
 
-ubos_cooling::cooling_task!(fan::BoardFan, fan::BoardTach);
+ubos_cooling::cooling_task!(emc2302_1::Fan<i2c::Device>, emc2302_1::Tach<i2c::Device>);
 
 #[embassy_executor::task]
 async fn cpu_load_task() -> ! {
@@ -354,7 +354,7 @@ async fn boot(spawner: Spawner) {
     let manager_handle = ubos_manager::handle();
     let mining_handle = ubos_mining::handle();
 
-    // I2C1 bus + PSU + mining + sensors.
+    // I2C1 bus + PSU + mining + sensors + fans.
     // The TPS53647 rail is gated by PWR_EN (GPIO33, ENABLE pin) plus the
     // OPERATION on-bit. The BoardPsu owns that pin; only the miner task
     // raises it, during bring-up, and drops it again when mining halts, so
@@ -368,7 +368,7 @@ async fn boot(spawner: Spawner) {
     // Read the hashboard EEPROM once, before powering anything up, so its
     // identity is in the log even if bring-up later fails.
     if let Some(address) = config::BOARD.eeprom_i2c_address {
-        let mut device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
+        let mut device = I2cDevice::new(bus);
         ubos_eeprom::i2c::I2cEeprom::new(address, &mut device)
             .log_identity()
             .await;
@@ -394,20 +394,11 @@ async fn boot(spawner: Spawner) {
     // Temperature and fan monitor via shared I2C bus.
     let hashboard_temp =
         ubos_thermal::SensorArray::new(const { config::MACHINE.temp.as_array().unwrap() }, || {
-            embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus)
+            I2cDevice::new(bus)
         });
-    let board_fan = fan::BoardFan::new(hw.fan_pwm_slice, hw.fan_pwm_pin, hw.fan_pwm_pin_b);
-    // Each connector's tachometer is measured by a PIO0 state machine; the
-    // cooling loop drains the latest period per fan and publishes one
-    // labeled board_fan_rpm series each.
-    let Pio {
-        mut common,
-        sm0,
-        sm1,
-        ..
-    } = Pio::new(hw.pio, Irqs);
-    let board_tach =
-        fan::BoardTach::new(&mut common, sm0, sm1, hw.fan_tach_pin_a, hw.fan_tach_pin_b);
+    // Both fan connectors hang off the EMC2302-1 on the same bus.
+    let (board_fan, board_tach) =
+        emc2302_1::new_with_range(emc2302_1::Range::RpmMin500, || I2cDevice::new(bus)).await;
     spawner.spawn(unwrap!(thermal_task(
         hashboard_temp,
         ubos_thermal::NoAmbient,
@@ -417,10 +408,9 @@ async fn boot(spawner: Spawner) {
     spawner.spawn(unwrap!(manager_task(mining_handle)));
     spawner.spawn(unwrap!(cooling_task(board_fan, board_tach, thermal)));
 
-    // The 16-LED ARGB ring breathes a fixed color; see rgb.rs for why
-    // the ring runs on PIO1 rather than sharing PIO0 with the tachs.
-    // The WS2812 program object only parameterizes state machine setup,
-    // so it can drop at the end of boot().
+    // The 16-LED ARGB ring breathes a fixed color. The WS2812 program
+    // object only parameterizes state machine setup, so it can drop at
+    // the end of boot().
     let Pio {
         common: mut rgb_common,
         sm0: rgb_sm,

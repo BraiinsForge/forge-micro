@@ -39,8 +39,8 @@ pub const CHAINS: usize = MACHINE.chains;
 use embassy_rp::Peri;
 use embassy_rp::peripherals::{
     CORE1, DMA_CH0, DMA_CH1, DMA_CH3, FLASH, I2C1, PIN_2, PIN_3, PIN_4, PIN_5, PIN_6, PIN_7, PIN_8,
-    PIN_9, PIN_10, PIN_11, PIN_16, PIN_17, PIN_18, PIN_19, PIN_20, PIN_21, PIN_24, PIN_25, PIN_30,
-    PIN_32, PIN_33, PIN_45, PIO0, PIO1, PWM_SLICE5, SPI0, TRNG, UART1, WATCHDOG,
+    PIN_9, PIN_16, PIN_17, PIN_18, PIN_19, PIN_20, PIN_24, PIN_30, PIN_32, PIN_33, PIN_45, PIO1,
+    SPI0, TRNG, UART1, WATCHDOG,
 };
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, PIN_15, PIN_26, PIN_27, PIN_28, PIN_29, SPI1};
@@ -75,7 +75,7 @@ pub struct Board {
     pub uart_tx: Peri<'static, PIN_4>,
     pub uart_rx: Peri<'static, PIN_5>,
     /// Power I2C1 bus: SDA=GPIO2, SCL=GPIO3. Devices: TPS53647
-    /// `PMBus`, TMP464, two TMP102.
+    /// `PMBus`, TMP464, two TMP102, EMC2302 fan controller.
     pub i2c: Peri<'static, I2C1>,
     pub sda: Peri<'static, PIN_2>,
     pub scl: Peri<'static, PIN_3>,
@@ -89,25 +89,7 @@ pub struct Board {
     /// TPS53647 `VR_RDY` power-good (GPIO30, input). Logged after enable;
     /// no gating logic until hardware behavior is known.
     pub vr_rdy: Peri<'static, PIN_30>,
-    // TODO: The final board sets fan PWM over I2C, not GPIO. GPIO10
-    // becomes SLG_MCU_IN and GPIO11 becomes eFUSE_FAULT.
-    /// Fan PWM outputs (25 kHz). `PWM_SLICE5` channel A = GPIO10,
-    /// channel B = GPIO11. Both run at the same duty so the two fans
-    /// track together.
-    pub fan_pwm_slice: Peri<'static, PWM_SLICE5>,
-    pub fan_pwm_pin: Peri<'static, PIN_10>,
-    pub fan_pwm_pin_b: Peri<'static, PIN_11>,
-    // TODO: The final board reads fan tach over I2C, not GPIO. GPIO21
-    // becomes LCD_PWM or the LED matrix FAULT, GPIO25 becomes eFUSE_EN.
-    /// Fan tachometer inputs: GPIO21 (fan 1), GPIO25 (fan 2). Each is
-    /// measured by a `PIO0` state machine.
-    pub fan_tach_pin_a: Peri<'static, PIN_21>,
-    pub fan_tach_pin_b: Peri<'static, PIN_25>,
-    /// PIO block driving the two tachometer period counters.
-    pub pio: Peri<'static, PIO0>,
-    /// PIO block clocking the WS2812 status ring. The ring cannot share
-    /// PIO0: the tach program plus the WS2812 program overflow the
-    /// 32-instruction memory by one.
+    /// PIO block clocking the WS2812 status ring.
     pub pio1: Peri<'static, PIO1>,
     /// ARGB header data line (GPIO45).
     pub rgb_data: Peri<'static, PIN_45>,
@@ -220,12 +202,6 @@ impl Board {
             hb_rst: peripherals.PIN_32,
             pwr_en: peripherals.PIN_33,
             vr_rdy: peripherals.PIN_30,
-            fan_pwm_slice: peripherals.PWM_SLICE5,
-            fan_pwm_pin: peripherals.PIN_10,
-            fan_pwm_pin_b: peripherals.PIN_11,
-            fan_tach_pin_a: peripherals.PIN_21,
-            fan_tach_pin_b: peripherals.PIN_25,
-            pio: peripherals.PIO0,
             pio1: peripherals.PIO1,
             rgb_data: peripherals.PIN_45,
             rgb_dma: peripherals.DMA_CH3,
@@ -265,15 +241,6 @@ impl DisplaySpi {
 pub struct Watchdog;
 impl Watchdog {
     pub const TIMEOUT: Duration = Duration::from_secs(2);
-}
-
-/// Fan PWM and tachometer parameters. Default `clk_sys` on the RP2350 is
-/// 150 MHz, so `(PWM_TOP + 1) × divider = 6000` cycles per period puts
-/// the PWM frequency at exactly 25 kHz (the Intel 4-wire fan spec).
-pub struct Fan;
-impl Fan {
-    pub const PWM_TOP: u16 = 5999;
-    pub const TACH_PULSES_PER_REV: u64 = 2;
 }
 
 pub struct Core1;

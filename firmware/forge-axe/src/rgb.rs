@@ -32,9 +32,7 @@ use ubos_rp::rgb::Ws2812Ring;
 /// Number of LEDs on the ring.
 pub const LED_COUNT: usize = 16;
 
-/// The ring's state machine on `PIO1`. The ring cannot share `PIO0`:
-/// the fan tach program is 28 instructions and the WS2812 program is 5,
-/// one over the block's 32-slot instruction memory.
+/// The ring's state machine on `PIO1`.
 pub const STATE_MACHINE: usize = 0;
 
 /// WS2812 driver instantiated for this board: PIO1 SM0, GRB order.
