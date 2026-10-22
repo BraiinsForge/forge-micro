@@ -54,9 +54,11 @@ pub mod chain;
 pub use chain::ChainTemperature;
 mod array;
 mod metrics;
+mod stats;
 mod threshold;
 
 pub use array::SensorArray;
+pub use stats::{Accumulator, TempStats};
 
 #[cfg(test)]
 #[path = "tests/threshold.rs"]
