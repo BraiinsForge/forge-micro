@@ -132,8 +132,9 @@ back to the best available slot (see the work-scheduler section).
 ### `run_stratum_client` / `run_stratum_session` (stratum-client)
 
 Both take a `PoolHandle` instead of `&'static AsicSession`, plus the
-slot index. The session loop shape (select3) is unchanged —
-switching added nothing to it:
+slot index. The session loop shape, a `select4` over the drive, the
+solution, the work tick and the session extension's wake, is
+unchanged by switching, which added nothing to it:
 
 - `set_pool_alive(slot, ...)` replaces the hardcoded
   `PRIMARY_POOL_INDEX`.
@@ -156,10 +157,12 @@ public API is
 
 ### `ubos-firmware`: per-slot session loop
 
-`run_stratum_session(stack, slot, session, shared)` stays a plain
-`async fn` (the esp32s3 executor-version constraint is unchanged);
-`shared: StratumShared` is the `Copy` fan-out of the boot singletons
-returned by `init_stratum(seed)`. Per-slot loop:
+`run_stratum_session(stack, slot, session, shared, extension)` stays
+a plain `async fn` (the esp32s3 executor-version constraint is
+unchanged); `shared: StratumShared` is the `Copy` fan-out of the boot
+singletons returned by `init_stratum(seed)`, and `extension` is the
+protocol the slot carries beside the mining traffic, `NoExtension` on
+an operator slot. Per-slot loop:
 
 1. Resolve the slot through the handle, `config.pool_slot(slot)`,
    which reads the current config. `None` → await the
@@ -582,6 +585,9 @@ and state a code each. How to build with it and how to read it is
 - `run_stratum_session` resolves its slot through
   `Handle::pool_slot`, so the fee slot is a normal session. The
   generation watch budget counts `POOL_SLOTS` sessions.
+- The fee session carries the product's `SessionExtension`, and every
+  operator slot runs `NoExtension`. `DEVFEE.md` says how a board
+  attaches one.
 - `ConfigUpdate::fee` is the fee entry and `ConfigUpdate::fee_permille`
   its share, beside the `MAX_POOLS`-wide `pool` list. `GET` serves
   both and leaves them out on a board that runs no fee slot. `apply`
@@ -694,7 +700,7 @@ pools are configured.
   packed into the id's top bits, activation signal + republish select
   arm so a switch takes effect under `ntime_roll_period = None`):
   consumer-side selection makes all of that machinery unnecessary —
-  sessions stay policy-free, the session loop keeps its select3, and
+  sessions stay policy-free, the session loop keeps its select4, and
   no bits are packed into ids. Costs one watch per slot and a
   slot-aware dispatch path in `ubos-mining`, which is where the
   decision belongs anyway.

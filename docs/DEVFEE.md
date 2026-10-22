@@ -366,6 +366,11 @@ rejected, and the teardown on a config change.
 - The fee slot never serves as a backup. A board with no working
   operator pool idles, so the fee is a share of the operator's work
   and not a pool of its own.
+- The fee session can carry a second protocol. `run_stratum_session`
+  takes a `SessionExtension`, and a product hands its fee slot the
+  protocol it speaks to its own server, with `NoExtension` on every
+  operator slot. The open tree carries the frames and reads none of
+  them.
 - A fee pool outage is repaid when it returns, up to a cap of 1000
   fee shares. That is the bound the ratio scheduler puts on an
   operator pool's repayment. A longer outage is forgiven past the

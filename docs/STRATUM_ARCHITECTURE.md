@@ -38,24 +38,28 @@ disagree, the code wins and this file needs a patch.
    │   accept(v)   :  AEAD-open payload, parse, translate to MiningJob,  │
    │                  call visitor    ◄── borrow scope ENDS at return    │
    │   submit(s)   :  encode Share → wire bytes → t.write_all            │
+   │   send_extension(f): seal a foreign frame into the same slot        │
    └─────────────────────────────────────────────────────────────────────┘
         ▲                                 │
         │ submit(&Share)                  │ visit_new_job(MiningJob<'_>)
-        │                                 │ visit_session_update(...)
+        │ send_extension(&ExtensionFrame) │ visit_session_update(...)
         │                                 │ visit_submit_result(...)
+        │                                 │ visit_extension_frame(...)
         │                                 ▼
    ┌─────────────────────────────────────────────────────────────────────┐
    │                       stratum-client                                │
    │      [crate: stratum-client — protocol-agnostic from here on]       │
    │                                                                     │
    │   ┌─────────────────────────────────────────────────────────┐       │
-   │   │ run_stratum_client — one loop per pool session, three   │       │
+   │   │ run_stratum_client — one loop per pool session, four    │       │
    │   │ wake sources (asic = PoolHandle for this pool's slot)   │       │
    │   │   loop {                                                │       │
-   │   │     select3(                                            │       │
-   │   │       client.drive(t)       → client.accept(state)      │       │
+   │   │     offer extension.outbound() → client.send_extension  │       │
+   │   │     select4(                                            │       │
+   │   │       client.drive(t)       → client.accept(state, ext) │       │
    │   │       asic.take_solution()  → handle_solution(state)    │       │
    │   │       work_ticker → state.publish_work(asic, step)      │       │
+   │   │       wake (ext deadline / retry) → extension.tick()    │       │
    │   │     )                                                   │       │
    │   │   }                                                     │       │
    │   └─────────────────────────────────────────────────────────┘       │
@@ -250,9 +254,10 @@ pool job never has the key it is still echoing retired under it.
 
 | Loop | Period | Driver |
 |------|--------|--------|
-| Pool I/O | event-driven | network bytes arriving / Solution arriving in `select3` |
+| Pool I/O | event-driven | network bytes arriving / Solution arriving in `select4` |
 | Stratum visitor dispatch | per frame | inside `accept()` |
-| Work publish | 1 Hz with `NtimeRoll::Host`, once per job with `Chip` | `work_ticker` arm of the same `select3` loop |
+| Work publish | 1 Hz with `NtimeRoll::Host`, once per job with `Chip` | `work_ticker` arm of the same `select4` loop |
+| Extension wake | the extension's deadline, or 200 ms while a frame waits for the outbound slot | fourth arm of `select4` |
 | Pool counter push | 2 s | `PoolHandle::push_counters_periodically`, selected beside each session by the pool session task |
 | ASIC poll for work change | ~100 ms | yield boundary in CPU mock; polling cadence in real driver |
 | ASIC produces solutions | as found | non-blocking `try_send` into the channel |
@@ -293,9 +298,21 @@ pool job never has the key it is still echoing retired under it.
 The two adapters are the only code in the system that knows about
 JSON-RPC vs binary, hex vs binary, V1 byte-swap, noise crypto,
 channel_id, etc. From the visitor downward (stratum-client →
-AsicSession → ASIC mock) the only protocol-aware thing is
-`MiningClient::submit(&Share)`, which routes back into the adapter
-for encoding.
+AsicSession → ASIC mock) the only protocol-aware calls are
+`MiningClient::submit(&Share)` and `send_extension(&ExtensionFrame)`,
+which route back into the adapter for encoding.
+
+A second protocol can ride the same session. The seam carries it as
+opaque frames: `MiningClient::send_extension` seals one frame of any
+other extension into the outbound slot, and `accept` hands every
+frame of another extension to `visit_extension_frame` instead of the
+mining dispatch. `SessionExtension` in `stratum-client` is the hook
+the loop drives. The loop tells it when the session connects, hands
+it each foreign frame, offers the frame it holds to the adapter at
+the top of every iteration, and wakes it at its own deadline through
+the fourth arm of `select4`. A session that carries nothing names
+`NoExtension`. The adapter never reads a frame it carries, so the
+protocol stays with the code that owns it.
 
 ## Lifetime and ownership boundary
 
