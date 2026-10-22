@@ -22,8 +22,10 @@
 //!
 //! Adapters (`stratum-v1::StratumV1Client`, `stratum-v2::StratumV2Client`)
 //! implement `MiningClient`. The integration layer
-//! (`stratum-client::stratum_task`) drives the adapter and supplies a
-//! `MiningClientVisitor` that owns the job ring and work ring.
+//! (`stratum-client::run_stratum_client`) drives the adapter and
+//! supplies a `MiningClientVisitor` that routes mining events to the
+//! state owning the job ring and work ring, and frames of another
+//! extension to the session extension.
 //!
 //! Sync vs async split:
 //!

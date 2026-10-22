@@ -33,14 +33,18 @@
 //! up in the `WorkRing`, validated against the `JobRing`, and
 //! submitted via the same `MiningClient`.
 //!
-//! Single-task design: drive / accept / submit / work-generation
-//! all multiplex through `embassy_futures::select3`. No mutex over
-//! `StratumState` because nothing else holds a borrow.
+//! Single-task design: drive / accept / submit / work-generation and
+//! the session extension's wake all multiplex through
+//! `embassy_futures::select4`. No mutex over `StratumState` because
+//! nothing else holds a borrow.
 
-use embassy_futures::select::{Either3, select3};
-use embassy_time::{Duration, Ticker};
+use embassy_futures::select::{Either4, select4};
+use embassy_time::{Duration, Instant, Ticker, Timer};
 use embedded_io_async::{Read, Write};
-use mining_protocol::{Error, JobId, MiningClient, Share};
+use mining_protocol::{
+    Error, ExtensionFrame, JobId, MiningClient, MiningClientVisitor, MiningJob, SessionUpdate,
+    Share, SubmitResult,
+};
 use ubos_logging::{info, warn};
 
 /// Pool-index space shared by every per-pool counter keyed by pool
@@ -50,6 +54,7 @@ use ubos_logging::{info, warn};
 pub(crate) const POOL_INDEX_SPACE: usize = 8;
 
 use crate::asic_session::PoolHandle;
+use crate::extension::{OUTBOUND_RETRY, SessionExtension};
 use crate::state::StratumState;
 use crate::work::Solution;
 
@@ -117,6 +122,12 @@ pub const NTIME_ROLL_MAX_SECS: u32 = 7_200;
 /// rolling `ntime` for an uninterrupted sweep. See
 /// [`crate::state::StratumState::publish_work`] for the offset math.
 ///
+/// `extension` is the protocol riding the session beside the mining
+/// traffic, [`crate::NoExtension`] when there is none. It is told when
+/// the session connects, handed every frame of another extension, and
+/// woken at its own deadline; the frame it holds is offered to the
+/// adapter at the top of every iteration until the adapter takes it.
+///
 /// # Errors
 ///
 /// Surfaces any `Error` returned from `client.connect()` or
@@ -129,13 +140,21 @@ pub async fn run_stratum_client<C, T, const N: usize, const CHAINS: usize>(
     asic: PoolHandle<'_, N, CHAINS>,
     state: &mut StratumState,
     ntime_roll_period_secs: Option<u32>,
+    extension: &mut dyn SessionExtension,
 ) -> Result<(), Error>
 where
     C: MiningClient,
     T: Read + Write,
 {
-    let result =
-        run_stratum_client_inner(client, transport, asic, state, ntime_roll_period_secs).await;
+    let result = run_stratum_client_inner(
+        client,
+        transport,
+        asic,
+        state,
+        ntime_roll_period_secs,
+        extension,
+    )
+    .await;
     asic.set_alive(false);
     asic.clear_work();
     result
@@ -148,15 +167,17 @@ where
 /// cell. Returning from here by any route leaves that bookkeeping to the
 /// wrapper, so a new `return` added inside cannot forget it.
 ///
-/// The five parameters are peers. The client is the protocol adapter,
-/// the transport is the socket, the ASIC handle is where work goes, and
-/// the state is the visitor. `main` owns all of them separately.
+/// The six parameters are peers. The client is the protocol adapter,
+/// the transport is the socket, the ASIC handle is where work goes, the
+/// state is the visitor, and the extension is the protocol riding the
+/// session, if any. `main` owns all of them separately.
 async fn run_stratum_client_inner<C, T, const N: usize, const CHAINS: usize>(
     client: &mut C,
     transport: &mut T,
     asic: PoolHandle<'_, N, CHAINS>,
     state: &mut StratumState,
     ntime_roll_period_secs: Option<u32>,
+    extension: &mut dyn SessionExtension,
 ) -> Result<(), Error>
 where
     C: MiningClient,
@@ -166,6 +187,7 @@ where
     // stand now, so only a later change needs a push from this loop.
     let mut pushed = asic.counters();
     client.connect(transport).await?;
+    extension.connected();
 
     // A caller passing `Some(0)` most likely means "publish as fast as
     // possible", not "don't roll" — that's what `None` is for.
@@ -180,17 +202,33 @@ where
     let mut last_published: Option<JobId> = None;
 
     loop {
+        offer_outbound(client, extension);
+        // A frame the adapter refused waits for the next flush, so the
+        // wake is the retry; otherwise it is the extension's own clock.
+        let waiting = extension.outbound().is_some();
+        let wake_at = if waiting {
+            Some(Instant::now() + OUTBOUND_RETRY)
+        } else {
+            extension.deadline()
+        };
+
         let tick = async {
             match work_ticker.as_mut() {
                 Some(ticker) => ticker.next().await,
                 None => core::future::pending::<()>().await,
             }
         };
+        let wake = async {
+            match wake_at {
+                Some(at) => Timer::at(at).await,
+                None => core::future::pending::<()>().await,
+            }
+        };
 
-        match select3(client.drive(transport), asic.take_solution(), tick).await {
-            Either3::First(drive_result) => {
+        match select4(client.drive(transport), asic.take_solution(), tick, wake).await {
+            Either4::First(drive_result) => {
                 drive_result?;
-                client.accept(state);
+                client.accept(&mut SessionVisitor { state, extension });
                 asic.set_alive(state.job_ring.current().is_some());
                 if asic.counters() != pushed {
                     pushed = asic.push_counters();
@@ -209,7 +247,7 @@ where
                     last_published = Some(current_job_id);
                 }
             }
-            Either3::Second(solution) => {
+            Either4::Second(solution) => {
                 if let Err(error) = handle_solution(client, state, solution) {
                     warn!(
                         "stratum-client: pool {} submit dropped error={:?}",
@@ -217,14 +255,72 @@ where
                     );
                 }
             }
-            Either3::Third(()) => {
+            Either4::Third(()) => {
                 // Each publish is one ntime step regardless of how far
                 // apart the ticker spaces them; a period above one
                 // second therefore rolls ntime slower than wall clock,
                 // never faster.
                 state.publish_work(asic, 1);
             }
+            Either4::Fourth(()) => {
+                // A retry wake has nothing to do here: the top of the
+                // loop offers the waiting frame again.
+                if !waiting {
+                    extension.tick();
+                }
+            }
         }
+    }
+}
+
+/// Offer the frame the extension holds to the adapter's outbound slot.
+/// A slot in use keeps the frame waiting for the next flush; a frame
+/// the adapter can never take, because its protocol carries none or
+/// the payload is too large, is dropped so the loop does not retry it
+/// forever.
+fn offer_outbound<C: MiningClient>(client: &mut C, extension: &mut dyn SessionExtension) {
+    let Some(frame) = extension.outbound() else {
+        return;
+    };
+    match client.send_extension(&frame) {
+        Ok(()) => extension.sent(),
+        Err(Error::NotImplemented | Error::Adapter) => {
+            warn!(
+                "stratum-client: extension frame dropped ext={:#x} type={:#x} len={}",
+                frame.extension_type,
+                frame.msg_type,
+                frame.payload.len(),
+            );
+            extension.sent();
+        }
+        Err(_) => {}
+    }
+}
+
+/// The visitor the loop hands to `accept`: mining events reach the
+/// state, frames of another extension reach the extension. It exists
+/// because `accept` takes one visitor and the two receivers are
+/// separate objects.
+struct SessionVisitor<'a> {
+    state: &'a mut StratumState,
+    extension: &'a mut dyn SessionExtension,
+}
+
+impl MiningClientVisitor for SessionVisitor<'_> {
+    fn visit_new_job(&mut self, job: MiningJob<'_>) {
+        self.state.visit_new_job(job);
+    }
+
+    fn visit_submit_result(&mut self, result: SubmitResult<'_>) {
+        self.state.visit_submit_result(result);
+    }
+
+    fn visit_session_update(&mut self, update: SessionUpdate<'_>) {
+        self.state.visit_session_update(update);
+    }
+
+    fn visit_extension_frame(&mut self, frame: ExtensionFrame<'_>) {
+        self.extension.frame(frame);
     }
 }
 

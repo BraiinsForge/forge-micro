@@ -49,7 +49,7 @@ use log::{info, warn};
 use rand::rngs::OsRng;
 use rand_core::RngCore;
 use static_cell::{ConstStaticCell, StaticCell};
-use stratum_client::AsicSession;
+use stratum_client::{AsicSession, NoExtension};
 use stratum_client::{
     NtimeRoll, PoolConnector, RECONNECT_DELAY, SESSION_REJECTED_DELAY, SOCKET_TIMEOUT,
     STRATUM_TCP_BUFFER_SIZE, SessionError, run_stratum_session,
@@ -351,6 +351,7 @@ async fn stratum_client_task(stack: Stack<'static>) -> ! {
                         ASIC_SESSION.pool_handle(0),
                         &mut state,
                         ntime_roll.period_secs(),
+                        &mut NoExtension,
                     )
                     .await
                 }
@@ -365,6 +366,7 @@ async fn stratum_client_task(stack: Stack<'static>) -> ! {
                         ASIC_SESSION.pool_handle(0),
                         &mut state,
                         ntime_roll.period_secs(),
+                        &mut NoExtension,
                     )
                     .await
                 }

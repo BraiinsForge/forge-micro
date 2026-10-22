@@ -34,8 +34,9 @@
 use super::*;
 
 use crate::asic_session::AsicSession;
+use crate::extension::{NoExtension, SessionExtension};
 use crate::state::StratumState;
-use mining_protocol::{JobId, LazyMerkle, MiningClientVisitor, MiningJob};
+use mining_protocol::{ExtensionFrame, JobId, LazyMerkle, MiningClientVisitor, MiningJob};
 
 const SAMPLE_PREV_HASH: [u8; 32] = [0x11; 32];
 const SAMPLE_TARGET: [u8; 32] = [0x22; 32];
@@ -249,8 +250,76 @@ fn ended_session_clears_its_work() {
         asic.pool_handle(0),
         &mut state,
         None,
+        &mut NoExtension,
     ));
 
     assert_eq!(result, Err(Error::Transport));
     assert!(!receiver.contains_value());
+}
+
+/// An extension that records which foreign frames reached it.
+struct Recording {
+    frames: heapless::Vec<(u16, u8), 4>,
+}
+
+impl SessionExtension for Recording {
+    fn connected(&mut self) {}
+
+    fn frame(&mut self, frame: ExtensionFrame<'_>) {
+        self.frames
+            .push((frame.extension_type, frame.msg_type))
+            .expect("fits capacity");
+    }
+
+    fn deadline(&self) -> Option<Instant> {
+        None
+    }
+
+    fn tick(&mut self) {}
+
+    fn outbound(&self) -> Option<ExtensionFrame<'_>> {
+        None
+    }
+
+    fn sent(&mut self) {}
+}
+
+/// The loop's visitor hands mining events to the state and foreign
+/// frames to the extension, so neither sees the other's traffic.
+#[test]
+fn the_session_visitor_routes_extension_frames_and_mining_events_apart() {
+    let mut state = StratumState::new(0);
+    let mut recording = Recording {
+        frames: heapless::Vec::new(),
+    };
+    let mut visitor = SessionVisitor {
+        state: &mut state,
+        extension: &mut recording,
+    };
+    visitor.visit_extension_frame(ExtensionFrame {
+        is_channel_message: false,
+        extension_type: 0x1234,
+        msg_type: 7,
+        payload: b"",
+    });
+    visitor.visit_new_job(sample_job(1));
+    assert_eq!(recording.frames.as_slice(), &[(0x1234, 7)]);
+    assert!(state.job_ring.current().is_some());
+}
+
+/// A session that carries no extension never wakes for one and never
+/// has a frame to send, whatever reaches it.
+#[test]
+fn no_extension_has_no_deadline_and_nothing_to_send() {
+    let mut none = NoExtension;
+    none.connected();
+    none.frame(ExtensionFrame {
+        is_channel_message: false,
+        extension_type: 0x1234,
+        msg_type: 7,
+        payload: b"x",
+    });
+    none.tick();
+    assert_eq!(none.deadline(), None);
+    assert!(none.outbound().is_none());
 }

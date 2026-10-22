@@ -31,6 +31,7 @@ use embedded_io_async::{Read, Write};
 use mining_protocol::{Error, MiningClient};
 
 use crate::asic_session::PoolHandle;
+use crate::extension::SessionExtension;
 use crate::run::run_stratum_client;
 use crate::state::StratumState;
 
@@ -109,13 +110,21 @@ pub async fn run_stratum_session<P, C, const N: usize, const CHAINS: usize>(
     asic: PoolHandle<'_, N, CHAINS>,
     state: &mut StratumState,
     ntime_roll_period_secs: Option<u32>,
+    extension: &mut dyn SessionExtension,
 ) -> Result<(), SessionError<P::Error>>
 where
     P: PoolConnector,
     C: MiningClient,
 {
     let mut transport = connector.connect().await.map_err(SessionError::Connect)?;
-    run_stratum_client(client, &mut transport, asic, state, ntime_roll_period_secs)
-        .await
-        .map_err(SessionError::Session)
+    run_stratum_client(
+        client,
+        &mut transport,
+        asic,
+        state,
+        ntime_roll_period_secs,
+        extension,
+    )
+    .await
+    .map_err(SessionError::Session)
 }

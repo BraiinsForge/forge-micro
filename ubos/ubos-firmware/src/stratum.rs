@@ -40,7 +40,7 @@ use rand_chacha::rand_core::{RngCore, SeedableRng};
 use static_cell::{ConstStaticCell, StaticCell};
 use stratum_client::{
     NtimeRoll, PoolConnector, RECONNECT_DELAY, SESSION_REJECTED_DELAY, SOCKET_TIMEOUT,
-    STRATUM_TCP_BUFFER_SIZE, SessionError, StratumState,
+    STRATUM_TCP_BUFFER_SIZE, SessionError, SessionExtension, StratumState,
 };
 use ubos_logging::{Debug2Format, info, warn};
 
@@ -193,6 +193,10 @@ fn log_session_error(slot: usize, error: &SessionError<ubos_net::net::StratumCon
 /// RAM-constrained boards run fewer parallel sessions than the config
 /// persists.
 ///
+/// `extension` is the protocol the slot's sessions carry beside the
+/// mining traffic, `NoExtension` on an operator slot. It lives in the
+/// board's task and outlives every reconnect.
+///
 /// This is a plain `async fn`, not an `#[embassy_executor::task]`:
 /// esp32s3 pins a different `embassy-executor` version than the ARM
 /// boards, so the task shell that owns the pool must stay in each
@@ -208,6 +212,7 @@ pub async fn run_stratum_session<const N: usize>(
     slot: usize,
     session: &'static AsicSession<N>,
     shared: StratumShared,
+    extension: &mut dyn SessionExtension,
 ) -> ! {
     // This session's socket buffers. Locals held across `.await` live
     // in the task's statically allocated future, so each task instance
@@ -288,6 +293,7 @@ pub async fn run_stratum_session<const N: usize>(
                         handle,
                         &mut state,
                         shared.ntime_roll.period_secs(),
+                        extension,
                     )
                     .await
                 }
@@ -305,6 +311,7 @@ pub async fn run_stratum_session<const N: usize>(
                         handle,
                         &mut state,
                         shared.ntime_roll.period_secs(),
+                        extension,
                     )
                     .await
                 }

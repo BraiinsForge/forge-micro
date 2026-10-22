@@ -33,6 +33,7 @@ use embassy_time::Duration;
 
 pub mod asic_session;
 pub mod connector;
+pub mod extension;
 pub mod job_ring;
 pub mod metrics;
 pub mod run;
@@ -106,6 +107,7 @@ impl NtimeRoll {
 
 pub use asic_session::{AsicSession, PoolHandle, SOLUTION_QUEUE_DEPTH};
 pub use connector::{PoolConnector, SessionError, run_stratum_session};
+pub use extension::{NoExtension, OUTBOUND_RETRY, SessionExtension};
 pub use job_ring::{JOB_RING_DEPTH, JobRing, JobSlot, JobSlotError};
 pub use run::{NTIME_ROLL_MAX_SECS, pool_alive_bitmap, run_stratum_client};
 pub use state::StratumState;

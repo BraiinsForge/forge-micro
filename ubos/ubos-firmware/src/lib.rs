@@ -39,6 +39,9 @@ pub mod stratum;
 pub mod tasks;
 
 pub use stratum::{MAX_POOLS, StratumShared, init_stratum, run_stratum_session};
+/// Re-exported so a board names the protocol its sessions carry, or
+/// `NoExtension`, without a direct `stratum-client` dependency.
+pub use stratum_client::{NoExtension, SessionExtension};
 /// The session a board allocates, named `AsicSession<POOL_SLOTS>`
 /// without a direct `stratum-client` dependency. The alias fills in the
 /// work receiver budget, one per chain up to the machine ceiling, so the

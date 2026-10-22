@@ -238,7 +238,14 @@ async fn stratum_client_task(
     session: &'static ubos_firmware::AsicSession<POOL_SLOTS>,
     shared: ubos_firmware::StratumShared,
 ) -> ! {
-    ubos_firmware::run_stratum_session(stack, slot, session, shared).await
+    ubos_firmware::run_stratum_session(
+        stack,
+        slot,
+        session,
+        shared,
+        &mut ubos_firmware::NoExtension,
+    )
+    .await
 }
 
 #[cortex_m_rt::entry]
