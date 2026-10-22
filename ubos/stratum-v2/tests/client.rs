@@ -37,7 +37,7 @@ use std::vec::Vec;
 
 use embedded_io_adapters::tokio_1::FromTokio;
 use embedded_io_async::{ErrorType, Read, Write};
-use ii_sv2::framing::{FrameCodec, MessageGroup};
+use ii_sv2::framing::{FrameCodec, FrameView, Header, MessageDescriptor, MessageGroup};
 use ii_sv2::messages::{
     MiningMessages, NewMiningJob, OpenMiningChannelError, OpenStandardMiningChannelSuccess,
     SetNewPrevHash, SetupConnectionError, SetupConnectionSuccess, SubmitSharesError,
@@ -47,9 +47,9 @@ use ii_sv2::security::{
     CertificateWithPrivateKey, EncryptedCodec, EstablishedSession, Rng as Sv2Rng, accept, secp256k1,
 };
 use ii_sv2::types::{Bytes0_32, Str0_255, Uint256};
-use mining_protocol::{Error, JobId, MiningClient, SessionRejection, Share};
+use mining_protocol::{Error, ExtensionFrame, JobId, MiningClient, SessionRejection, Share};
 use rand::RngCore;
-use stratum_v2::{StratumV2Client, Sv2Config};
+use stratum_v2::{MAX_EXTENSION_PAYLOAD_BYTES, StratumV2Client, Sv2Config};
 use tokio::io::AsyncReadExt as _;
 
 mod common;
@@ -117,6 +117,35 @@ async fn pool_recv(
     let frame_view = ii_sv2::framing::FrameView::try_new(header, &slice_ref[..plaintext_len])
         .expect("BUG: pool_recv FrameView::try_new failed");
     MiningMessages::dispatch(frame_view).expect("BUG: pool_recv dispatch failed")
+}
+
+/// Read one SV2 frame from `reader` and decode it with `codec`, returning
+/// the header and the plaintext without dispatching it, for frames of an
+/// extension the mining message group does not know.
+async fn pool_recv_raw(
+    codec: &mut EncryptedCodec,
+    reader: &mut tokio::io::DuplexStream,
+) -> (Header, Vec<u8>) {
+    let mut header_bytes = [0u8; EncryptedCodec::HEADER_WIRE_SIZE];
+    reader
+        .read_exact(&mut header_bytes)
+        .await
+        .expect("BUG: pool_recv_raw header read_exact failed");
+    let header = codec
+        .decode_header(&mut header_bytes)
+        .expect("BUG: pool_recv_raw decode_header failed");
+
+    let payload_wire_size = EncryptedCodec::payload_wire_size(header.msg_length as usize);
+    let mut payload = vec![0u8; payload_wire_size];
+    reader
+        .read_exact(&mut payload)
+        .await
+        .expect("BUG: pool_recv_raw payload read_exact failed");
+    codec
+        .decode_frame(header, &mut payload)
+        .expect("BUG: pool_recv_raw decode_frame failed");
+    payload.truncate(header.msg_length as usize);
+    (header, payload)
 }
 
 // ── Slow / broken transports for Group 3 tests ───────────────────────────────────
@@ -1380,4 +1409,164 @@ async fn corrupted_payload_returns_decode_then_decode_again() {
         Error::Decode,
         "second drive after poisoned state must return Decode",
     );
+}
+
+// ── Extension frames ──────────────────────────────────────────────────────────────
+
+/// An extension the mining message group does not know, as a test would
+/// choose one.
+const FOREIGN_EXTENSION: u16 = 0x1234;
+const FOREIGN_MSG_TYPE: u8 = 7;
+const FOREIGN_PAYLOAD: &[u8] = b"hello";
+
+/// A frame of the foreign extension over `payload`, as the pool sends it.
+fn foreign_frame(payload: &[u8]) -> FrameView<'_> {
+    let descriptor = MessageDescriptor::new(FOREIGN_EXTENSION, FOREIGN_MSG_TYPE, false);
+    let length = u32::try_from(payload.len()).expect("BUG: test payload fits a frame");
+    FrameView::try_new(Header::for_descriptor(descriptor, length), payload)
+        .expect("BUG: test frame is well formed")
+}
+
+/// A frame of another extension is handed to the visitor whole instead
+/// of being dropped as an unknown mining message.
+#[tokio::test]
+async fn a_foreign_extension_frame_reaches_the_visitor() {
+    let mut session = Session::new().await;
+    let mut visitor = RecordingVisitor::default();
+
+    session.pool_send_msg(&foreign_frame(FOREIGN_PAYLOAD)).await;
+    session.drive_and_accept(&mut visitor).await;
+
+    assert_eq!(
+        visitor.extension_frames,
+        vec![(
+            FOREIGN_EXTENSION,
+            FOREIGN_MSG_TYPE,
+            false,
+            FOREIGN_PAYLOAD.to_vec()
+        )],
+    );
+    assert!(visitor.jobs.is_empty() && visitor.session_updates.is_empty());
+}
+
+/// `send_extension` seals the frame into the outbound slot and the next
+/// `drive` writes it, before it reads the pool's frame.
+#[tokio::test]
+async fn send_extension_seals_the_frame_for_the_next_drive() {
+    let mut session = Session::new().await;
+    let mut visitor = RecordingVisitor::default();
+
+    let frame = ExtensionFrame {
+        is_channel_message: false,
+        extension_type: FOREIGN_EXTENSION,
+        msg_type: FOREIGN_MSG_TYPE,
+        payload: FOREIGN_PAYLOAD,
+    };
+    session
+        .client
+        .send_extension(&frame)
+        .expect("BUG: send_extension must succeed on an idle outbound slot");
+
+    // An inbound frame so drive has something to read after the flush.
+    session.pool_send_msg(&foreign_frame(b"pong")).await;
+    session.drive_and_accept(&mut visitor).await;
+
+    let (header, payload) = pool_recv_raw(&mut session.pool_codec, &mut session.pool_end).await;
+    assert_eq!(header.extension_type, FOREIGN_EXTENSION);
+    assert_eq!(header.msg_type, FOREIGN_MSG_TYPE);
+    assert!(!header.is_channel_message);
+    assert_eq!(payload, FOREIGN_PAYLOAD);
+}
+
+/// The outbound slot holds one sealed frame; a second send before a
+/// drive is refused so the caller can retry after the flush.
+#[tokio::test]
+async fn send_extension_while_a_frame_waits_is_buffer_too_small() {
+    let mut session = Session::new().await;
+    let frame = ExtensionFrame {
+        is_channel_message: false,
+        extension_type: FOREIGN_EXTENSION,
+        msg_type: FOREIGN_MSG_TYPE,
+        payload: FOREIGN_PAYLOAD,
+    };
+    session
+        .client
+        .send_extension(&frame)
+        .expect("BUG: the first send must succeed");
+    assert_eq!(
+        session.client.send_extension(&frame),
+        Err(Error::BufferTooSmall),
+    );
+}
+
+#[tokio::test]
+async fn send_extension_before_connect_is_an_adapter_error() {
+    let config = default_config();
+    let mut client = StratumV2Client::new(&config, crypto_ctx(), OsRng);
+    let frame = ExtensionFrame {
+        is_channel_message: false,
+        extension_type: FOREIGN_EXTENSION,
+        msg_type: FOREIGN_MSG_TYPE,
+        payload: FOREIGN_PAYLOAD,
+    };
+    assert_eq!(client.send_extension(&frame), Err(Error::Adapter));
+}
+
+/// A payload past `MAX_EXTENSION_PAYLOAD_BYTES` can never be sealed into
+/// the outbound slot, so it is refused as a caller fault rather than as
+/// a slot that will free up.
+#[tokio::test]
+async fn an_oversized_extension_payload_is_an_adapter_error() {
+    let mut session = Session::new().await;
+    let oversized = vec![0xAB; MAX_EXTENSION_PAYLOAD_BYTES + 1];
+    let frame = ExtensionFrame {
+        is_channel_message: false,
+        extension_type: FOREIGN_EXTENSION,
+        msg_type: FOREIGN_MSG_TYPE,
+        payload: &oversized,
+    };
+    assert_eq!(session.client.send_extension(&frame), Err(Error::Adapter));
+
+    let largest = vec![0xAB; MAX_EXTENSION_PAYLOAD_BYTES];
+    let frame = ExtensionFrame {
+        is_channel_message: false,
+        payload: &largest,
+        ..frame
+    };
+    assert_eq!(session.client.send_extension(&frame), Ok(()));
+}
+
+/// The descriptor keeps the channel flag through both adapter boundaries.
+#[tokio::test]
+async fn extension_channel_flags_round_trip() {
+    let mut session = Session::new().await;
+    let mut visitor = RecordingVisitor::default();
+    let payload = FAKE_CHANNEL_ID.to_le_bytes();
+    for is_channel_message in [false, true] {
+        let header = Header::for_descriptor(
+            MessageDescriptor::new(FOREIGN_EXTENSION, FOREIGN_MSG_TYPE, is_channel_message),
+            u32::try_from(payload.len()).expect("payload fits"),
+        );
+        let incoming = FrameView::try_new(header, &payload).expect("valid frame");
+        session.pool_send_msg(&incoming).await;
+        session.drive_and_accept(&mut visitor).await;
+        let received = visitor.extension_frames.last().expect("frame received");
+        assert_eq!(received.2, is_channel_message);
+        assert_eq!(received.3, payload);
+
+        session
+            .client
+            .send_extension(&ExtensionFrame {
+                extension_type: received.0,
+                msg_type: received.1,
+                is_channel_message: received.2,
+                payload: &received.3,
+            })
+            .expect("slot free");
+        session.pool_send_msg(&foreign_frame(b"pong")).await;
+        session.drive_and_accept(&mut visitor).await;
+        let (outgoing, body) = pool_recv_raw(&mut session.pool_codec, &mut session.pool_end).await;
+        assert_eq!(outgoing, header);
+        assert_eq!(body, payload);
+    }
 }

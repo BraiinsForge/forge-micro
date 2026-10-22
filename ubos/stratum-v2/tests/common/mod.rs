@@ -35,7 +35,9 @@ use ii_sv2::security::{
     CertificateHeader, CertificateSigningRequest, CertificateWithPrivateKey, CryptoCtx,
     EncryptedCodec, PublicKey, Rng as Sv2Rng, Secp256k1KeyPair, SecretKey, secp256k1,
 };
-use mining_protocol::{JobId, MiningClientVisitor, MiningJob, SessionUpdate, SubmitResult};
+use mining_protocol::{
+    ExtensionFrame, JobId, MiningClientVisitor, MiningJob, SessionUpdate, SubmitResult,
+};
 use tokio::io::AsyncWriteExt as _;
 
 // ── Crypto context ──────────────────────────────────────────────────────────────
@@ -163,6 +165,8 @@ pub struct RecordingVisitor {
     pub session_updates: Vec<RecordedUpdate>,
     pub submit_results: Vec<RecordedSubmitResult>,
     pub jobs: Vec<RecordedJob>,
+    /// Every foreign extension frame as `(extension_type, msg_type, payload)`.
+    pub extension_frames: Vec<(u16, u8, bool, Vec<u8>)>,
 }
 
 impl MiningClientVisitor for RecordingVisitor {
@@ -196,5 +200,14 @@ impl MiningClientVisitor for RecordingVisitor {
             SessionUpdate::Reconnect { .. } => return,
         };
         self.session_updates.push(recorded);
+    }
+
+    fn visit_extension_frame(&mut self, frame: ExtensionFrame<'_>) {
+        self.extension_frames.push((
+            frame.extension_type,
+            frame.msg_type,
+            frame.is_channel_message,
+            frame.payload.to_vec(),
+        ));
     }
 }
