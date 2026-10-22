@@ -110,14 +110,16 @@ review: <from>...<to>
 ### Findings
 
 #### Important
-<LABEL> <file:line> -- <finding>
+1. <LABEL> <file:line> -- <finding>
 
 #### Nit
-<LABEL> <file:line> -- <finding>
+1. <LABEL> <file:line> -- <finding>
 
 #### Pre-existing
-<LABEL> <file:line> -- <finding>
+1. <LABEL> <file:line> -- <finding>
 ```
+
+Findings are numbered from 1 under each heading, so a reply can cite one by number.
 
 A heading with nothing under it is omitted. The label is the domain
 the finding lives in: `CODE` for logic and runtime behaviour, `DESIGN`
@@ -156,7 +158,7 @@ with it, so the rules it judges by are these:
 - A bug this branch did not introduce is **pre-existing**. Say so and
   do not count it against the branch; it is its own branch.
 - Report at most five nits. Past that, give a count and one line
-  saying what they were about.
+  each saying what it was about, continuing the numbering.
 - Do not report what a gate already enforces: formatting, commit
   message format, a dead path in an instruction file, the line budget
   of `CLAUDE.md`.
