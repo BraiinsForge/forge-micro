@@ -26,10 +26,11 @@
 //! one encrypted frame back, decrypting it in place. `accept`
 //! dispatches the most recently buffered frame to the visitor.
 //! `submit` encodes `SubmitSharesStandard` into the outbound slot
-//! for the next `drive` to flush.
+//! for the next `drive` to flush, and `send_extension` seals a frame
+//! of another extension into the same slot.
 
 use embedded_io_async::{Read, Write};
-use ii_sv2::framing::{FrameCodec, FrameView, Header, MessageGroup};
+use ii_sv2::framing::{FrameCodec, FrameView, Header, MessageDescriptor, MessageGroup};
 use ii_sv2::messages::{
     DeviceInfo, MiningMessages, OpenStandardMiningChannel, SetupConnection, SetupConnectionSuccess,
     SubmitSharesError, SubmitSharesStandard, SubmitSharesSuccess,
@@ -40,8 +41,8 @@ use ii_sv2::security::{
 };
 use ii_sv2::types::{Str0_255, Uint256};
 use mining_protocol::{
-    BIP320_VERSION_MASK, Error, MiningClient, MiningClientVisitor, SessionRejection, SessionUpdate,
-    Share, SubmitResult,
+    BIP320_VERSION_MASK, Error, ExtensionFrame, MiningClient, MiningClientVisitor,
+    SessionRejection, SessionUpdate, Share, SubmitResult,
 };
 use ubos_logging::{info, warn};
 
@@ -62,6 +63,12 @@ pub const WIRE_BUFFER_BYTES: usize = 1024;
 /// future `SubmitSharesStandard` (~24 B wire) all fit several
 /// times over.
 pub const ENCODE_BUFFER_BYTES: usize = 512;
+
+/// The largest payload `send_extension` seals: the outbound slot less
+/// the encrypted header and the MAC. A caller that builds frames into a
+/// buffer of this size can never be refused for their length.
+pub const MAX_EXTENSION_PAYLOAD_BYTES: usize =
+    ENCODE_BUFFER_BYTES - EncryptedCodec::HEADER_WIRE_SIZE - MAC_BYTES;
 
 /// Most-permissive 32-byte target — `OpenStandardMiningChannel` asks
 /// the pool to clamp its `SetTarget` value at this. The pool returns
@@ -383,6 +390,52 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
         Ok(())
     }
 
+    /// Seal `frame` into the outbound slot for the next `drive` to
+    /// flush. A busy slot is refused without a log line, because the
+    /// session loop offers the frame again after the next flush; a
+    /// payload past [`MAX_EXTENSION_PAYLOAD_BYTES`] is a caller fault
+    /// and is refused as `Adapter`.
+    fn send_extension(&mut self, frame: &ExtensionFrame<'_>) -> Result<(), Error> {
+        if let V2State::Rejected(cause) = self.state {
+            return Err(Error::SessionRejected(cause));
+        }
+        if self.outbound_len > 0 {
+            return Err(Error::BufferTooSmall);
+        }
+        let V2State::Connected { codec, .. } = &mut self.state else {
+            warn!("stratum-v2: extension frame dropped, session not connected");
+            return Err(Error::Adapter);
+        };
+        if frame.payload.len() > MAX_EXTENSION_PAYLOAD_BYTES {
+            warn!(
+                "stratum-v2: extension frame dropped, payload {}B > MAX={}B",
+                frame.payload.len(),
+                MAX_EXTENSION_PAYLOAD_BYTES,
+            );
+            return Err(Error::Adapter);
+        }
+        let descriptor = MessageDescriptor::new(
+            frame.extension_type,
+            frame.msg_type,
+            frame.is_channel_message,
+        );
+        let length = u32::try_from(frame.payload.len()).map_err(|_| Error::Adapter)?;
+        let header = Header::for_descriptor(descriptor, length);
+        let view = FrameView::try_new(header, frame.payload).map_err(|_| Error::Adapter)?;
+        let length = codec
+            .encode(&view, self.encode_buffer.as_mut_slice())
+            .map_err(|_| Error::BufferTooSmall)?;
+        self.outbound_len = length;
+        self.outbound_offset = 0;
+        info!(
+            "stratum-v2: extension frame queued ext={:#x} type={:#x} len={}",
+            frame.extension_type,
+            frame.msg_type,
+            frame.payload.len(),
+        );
+        Ok(())
+    }
+
     /// Flush any queued outbound bytes, then read one encrypted
     /// SV2 frame off the transport and decrypt it in place. The
     /// receive-side state machine drives in stages; each stage's
@@ -546,15 +599,24 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
             );
             return;
         };
+        // A rejected session dispatches nothing, foreign frames included.
+        let V2State::Connected { session, .. } = &mut self.state else {
+            return;
+        };
+        if header.extension_type != MiningMessages::EXTENSION_TYPE {
+            visitor.visit_extension_frame(ExtensionFrame {
+                extension_type: header.extension_type,
+                msg_type: header.msg_type,
+                is_channel_message: header.is_channel_message,
+                payload: frame.payload,
+            });
+            return;
+        }
         let Ok(message) = MiningMessages::dispatch(frame) else {
             warn!(
                 "stratum-v2: unknown message ext={:#x} type={:#x} channel={}",
                 header.extension_type, header.msg_type, header.is_channel_message,
             );
-            return;
-        };
-
-        let V2State::Connected { session, .. } = &mut self.state else {
             return;
         };
 

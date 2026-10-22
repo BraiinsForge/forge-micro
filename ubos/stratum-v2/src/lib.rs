@@ -30,5 +30,7 @@ mod client;
 mod config;
 mod state;
 
-pub use client::{ENCODE_BUFFER_BYTES, StratumV2Client, WIRE_BUFFER_BYTES};
+pub use client::{
+    ENCODE_BUFFER_BYTES, MAX_EXTENSION_PAYLOAD_BYTES, StratumV2Client, WIRE_BUFFER_BYTES,
+};
 pub use config::Sv2Config;
