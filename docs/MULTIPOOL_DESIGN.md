@@ -420,11 +420,12 @@ message is intercepted in `run`'s command arm so even
   (`weight_sum * (CLAMP_SHARES + 1)`) can never overflow `i32`
   even with every slot at the maximum — a bad POST earns a 4xx,
   never a firmware panic.
-- Adding the field shifts `Config::SCHEMA_HASH`, so the first boot
-  of the new firmware discards the stored config and starts from
-  defaults (the crate's designed fallback; there is no migration
-  machinery). Accepted: one-time re-POST per board, early-stage
-  project.
+- Adding the field shifts `Config::SCHEMA_HASH`. No version in
+  `ubos/ubos-config/src/versions/` has the schema from before the
+  change. Thus the first boot of the new firmware discards the stored
+  config and starts from the defaults. Accepted: one-time re-POST per
+  board, early-stage project. Each schema change after version 1 adds
+  a version there and keeps the config.
 
 ### Weight semantics
 
@@ -533,9 +534,11 @@ state over the operator's third entry.
 - **Shared weight atomics polled by dispatch**: splits the
   scheduler's source of truth and puts shared mutable state into
   the dispatch hot path.
-- **Schema migration**: versioned blobs or dual-decode to carry old
-  configs across the hash change; far larger than the feature, and
-  the one-time reset is acceptable at this stage.
+- **Schema migration**: versioned records to carry old configs
+  across the hash change. This was far larger than the feature, and
+  the one-time reset was acceptable at that stage. The versioned
+  records in `ubos/ubos-config/src/versions/` came later, for every
+  schema change after version 1.
 
 ### Testing
 

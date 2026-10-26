@@ -191,7 +191,10 @@ larger buffer (`CONFIG_RESPONSE_BUFFER_SIZE`, `ubos-api/src/rest.rs`),
 sized from a measured worst-case body.
 
 The old top-level `tuning` and `miner.algorithm` fields no longer apply.
-The configuration schema hash changes, so firmware loads defaults instead of old stored configurations.
+The configuration schema hash changes. No version in
+`ubos/ubos-config/src/versions/` has the schema from before this change, so
+the firmware cannot upgrade a configuration stored before it.
+The firmware loads the defaults instead.
 
 `miner.tuning` uses serde's externally tagged enum shape. A fixed target
 is `{"Fixed":{"frequency_khz":525000,"voltage_mv":1400}}`; a power target

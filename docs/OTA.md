@@ -200,7 +200,13 @@ Each chunk therefore costs one request rather than two.
    the STATE partition. It then clears the OTA breadcrumb (SCRATCH0 and SCRATCH2)
    and releases the core-1 park via `ubos_mining::release_core1_park()`.
 
-5. The handler writes the `{"ok":true}` ack and calls `ota.reboot_into_new()`,
+5. If `ota.staged_config()` gives a value other than `None`, the handler
+   calls `config.downgrade()` with it. The call waits up to five seconds for the
+   config task to write the record for the new image. If the wait exceeds five
+   seconds, the handler continues without the record. See
+   [The config across an update](#the-config-across-an-update).
+
+   The handler writes the `{"ok":true}` ack and calls `ota.reboot_into_new()`,
    which releases the core-1 park and calls `SCB::sys_reset()`. The ack write is
    attempted but its result is discarded: the reboot must happen regardless of
    whether the TCP write succeeds, because leaving mining stopped and the swap
@@ -279,6 +285,40 @@ as informational fields only. `hasPreviousImage` inspects the DFU slot's first
 vector-table words to determine whether a plausible image is staged there.
 `previousVersion` is always `null` because embassy-boot stores no per-image
 version metadata.
+
+## The config across an update
+
+The firmware stores the config as one record. The record starts with the
+schema hash of the firmware that wrote it. An update can change the schema.
+
+Each change to the schema adds a version. The list of versions and the steps
+between their schemas are in `ubos/ubos-config/src/versions/mod.rs`. The
+newest version in the list must have the schema of the firmware. If it does
+not, the build stops with an error.
+
+On boot, the firmware reads a record in its own schema directly. It upgrades a
+record in the schema of an older version in the list. If the record has
+another schema, the firmware starts from the defaults.
+
+The firmware cannot read the record of a version newer than its own. Before
+the reboot into the new image, both OTA handlers tell the config task which
+schema the new image reads. The task then writes at most one record, and no
+other record until the reboot.
+
+If the schema belongs to an older version in the list, the task writes the
+record in that schema. If not, the task writes no record. An image with the
+same schema reads the stored record, and a newer image upgrades it. Any other
+image starts from the defaults.
+
+The OTA target gives that schema through `OtaTarget::staged_config`. If it
+gives `None`, the handler tells the config task nothing. The RP and ESP boards
+give `None`, because their images declare no schema. On these boards, an OTA
+upgrade keeps the config, and an OTA downgrade to an older schema loses it.
+
+A target can also report that the new image is the firmware that the board
+replaced. The task then writes the record of the oldest version in the list.
+If the operator installs a ubos image after it, that image upgrades from that
+record.
 
 ## Diagnostics over HTTP
 
