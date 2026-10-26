@@ -47,7 +47,9 @@ use ii_sv2::security::{
     CertificateWithPrivateKey, EncryptedCodec, EstablishedSession, Rng as Sv2Rng, accept, secp256k1,
 };
 use ii_sv2::types::{Bytes0_32, Str0_255, Uint256};
-use mining_protocol::{Error, ExtensionFrame, JobId, MiningClient, SessionRejection, Share};
+use mining_protocol::{
+    DriveEvent, Error, ExtensionFrame, JobId, MiningClient, SessionRejection, Share,
+};
 use rand::RngCore;
 use stratum_v2::{MAX_EXTENSION_PAYLOAD_BYTES, StratumV2Client, Sv2Config};
 use tokio::io::AsyncReadExt as _;
@@ -1481,7 +1483,7 @@ async fn send_extension_seals_the_frame_for_the_next_drive() {
 /// The outbound slot holds one sealed frame; a second send before a
 /// drive is refused so the caller can retry after the flush.
 #[tokio::test]
-async fn send_extension_while_a_frame_waits_is_buffer_too_small() {
+async fn send_extension_while_a_frame_waits_is_busy() {
     let mut session = Session::new().await;
     let frame = ExtensionFrame {
         is_channel_message: false,
@@ -1493,10 +1495,56 @@ async fn send_extension_while_a_frame_waits_is_buffer_too_small() {
         .client
         .send_extension(&frame)
         .expect("BUG: the first send must succeed");
-    assert_eq!(
-        session.client.send_extension(&frame),
-        Err(Error::BufferTooSmall),
-    );
+    assert_eq!(session.client.send_extension(&frame), Err(Error::Busy),);
+}
+
+#[tokio::test]
+async fn empty_extension_frames_are_delivered_without_payload_reads() {
+    let mut session = Session::new().await;
+    let mut visitor = RecordingVisitor::default();
+    for payload in [&b""[..], b"", b"next", b"", b"last"] {
+        session.pool_send_msg(&foreign_frame(payload)).await;
+        // Only this frame is available. An empty frame must complete
+        // immediately without waiting for a payload MAC or the next header.
+        {
+            let mut context = Context::from_waker(std::task::Waker::noop());
+            let drive = core::pin::pin!(session.client.drive(&mut session.client_transport));
+            assert_eq!(
+                drive.poll(&mut context),
+                Poll::Ready(Ok(DriveEvent::FrameReceived))
+            );
+        }
+        session.client.accept(&mut visitor);
+        assert_eq!(
+            visitor.extension_frames.last(),
+            Some(&(FOREIGN_EXTENSION, FOREIGN_MSG_TYPE, false, payload.to_vec())),
+        );
+    }
+    assert_eq!(visitor.extension_frames.len(), 5);
+}
+
+#[tokio::test]
+async fn empty_extension_sends_preserve_the_following_frames() {
+    let mut session = Session::new().await;
+    for payload in [&b""[..], b"", b"next", b"", b"last"] {
+        session
+            .client
+            .send_extension(&ExtensionFrame {
+                extension_type: FOREIGN_EXTENSION,
+                msg_type: FOREIGN_MSG_TYPE,
+                is_channel_message: false,
+                payload,
+            })
+            .expect("slot free");
+        assert_eq!(
+            session.client.drive(&mut session.client_transport).await,
+            Ok(DriveEvent::OutboundFlushed),
+        );
+        let (header, received) =
+            pool_recv_raw(&mut session.pool_codec, &mut session.pool_end).await;
+        assert_eq!(header, foreign_frame(payload).header);
+        assert_eq!(received, payload);
+    }
 }
 
 #[tokio::test]
@@ -1516,7 +1564,7 @@ async fn send_extension_before_connect_is_an_adapter_error() {
 /// the outbound slot, so it is refused as a caller fault rather than as
 /// a slot that will free up.
 #[tokio::test]
-async fn an_oversized_extension_payload_is_an_adapter_error() {
+async fn an_oversized_extension_payload_is_buffer_too_small() {
     let mut session = Session::new().await;
     let oversized = vec![0xAB; MAX_EXTENSION_PAYLOAD_BYTES + 1];
     let frame = ExtensionFrame {
@@ -1525,7 +1573,10 @@ async fn an_oversized_extension_payload_is_an_adapter_error() {
         msg_type: FOREIGN_MSG_TYPE,
         payload: &oversized,
     };
-    assert_eq!(session.client.send_extension(&frame), Err(Error::Adapter));
+    assert_eq!(
+        session.client.send_extension(&frame),
+        Err(Error::BufferTooSmall)
+    );
 
     let largest = vec![0xAB; MAX_EXTENSION_PAYLOAD_BYTES];
     let frame = ExtensionFrame {
@@ -1569,4 +1620,89 @@ async fn extension_channel_flags_round_trip() {
         assert_eq!(outgoing, header);
         assert_eq!(body, payload);
     }
+}
+
+/// A completed write releases the slot even when the pool sends no reply.
+#[tokio::test]
+async fn an_extension_flush_wakes_the_caller_on_a_quiet_session() {
+    let mut session = Session::new().await;
+    let frame = ExtensionFrame {
+        extension_type: FOREIGN_EXTENSION,
+        msg_type: FOREIGN_MSG_TYPE,
+        is_channel_message: false,
+        payload: FOREIGN_PAYLOAD,
+    };
+    session.client.send_extension(&frame).expect("slot free");
+    let event = session
+        .client
+        .drive(&mut session.client_transport)
+        .await
+        .expect("flush");
+    assert_eq!(event, DriveEvent::OutboundFlushed);
+    session
+        .client
+        .send_extension(&frame)
+        .expect("slot released");
+    let (header, payload) = pool_recv_raw(&mut session.pool_codec, &mut session.pool_end).await;
+    assert_eq!(header.extension_type, frame.extension_type);
+    assert_eq!(payload, frame.payload);
+}
+
+/// A ready inbound frame wins over the write-completion notification.
+#[tokio::test]
+async fn outbound_traffic_still_services_ready_inbound_frames() {
+    let mut session = Session::new().await;
+    for _ in 0..3 {
+        session
+            .client
+            .send_extension(&ExtensionFrame {
+                extension_type: FOREIGN_EXTENSION,
+                msg_type: FOREIGN_MSG_TYPE,
+                is_channel_message: false,
+                payload: FOREIGN_PAYLOAD,
+            })
+            .expect("slot free");
+        session.pool_send_msg(&foreign_frame(FOREIGN_PAYLOAD)).await;
+        assert_eq!(
+            session.client.drive(&mut session.client_transport).await,
+            Ok(DriveEvent::FrameReceived)
+        );
+        let mut visitor = RecordingVisitor::default();
+        session.client.accept(&mut visitor);
+        assert_eq!(visitor.extension_frames.len(), 1);
+    }
+}
+
+/// Reporting write progress preserves a partially received encrypted frame.
+#[tokio::test]
+async fn a_flush_notification_preserves_a_partial_inbound_frame() {
+    let mut session = Session::new().await;
+    let mut wire = [0; POOL_WIRE_BUFFER_SIZE];
+    let length = session
+        .pool_codec
+        .encode(&foreign_frame(FOREIGN_PAYLOAD), &mut wire)
+        .expect("encode");
+    session
+        .client
+        .send_extension(&ExtensionFrame {
+            extension_type: FOREIGN_EXTENSION,
+            msg_type: FOREIGN_MSG_TYPE,
+            is_channel_message: false,
+            payload: FOREIGN_PAYLOAD,
+        })
+        .expect("slot free");
+    let mut partial = PendOnceTransport::new(wire[..MID_HEADER_SPLIT].to_vec());
+    assert_eq!(
+        session.client.drive(&mut partial).await,
+        Ok(DriveEvent::OutboundFlushed)
+    );
+    let mut remaining = SlowTransport::new(wire[MID_HEADER_SPLIT..length].to_vec());
+    assert_eq!(
+        session.client.drive(&mut remaining).await,
+        Ok(DriveEvent::FrameReceived)
+    );
+    let mut visitor = RecordingVisitor::default();
+    session.client.accept(&mut visitor);
+    assert_eq!(visitor.extension_frames.len(), 1);
+    assert_eq!(visitor.extension_frames[0].3, FOREIGN_PAYLOAD);
 }

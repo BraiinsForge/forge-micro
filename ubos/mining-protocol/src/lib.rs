@@ -40,7 +40,7 @@ mod lazy_merkle;
 mod session;
 mod share;
 
-pub use crate::client::{MiningClient, MiningClientVisitor};
+pub use crate::client::{DriveEvent, MiningClient, MiningClientVisitor};
 pub use crate::error::{Error, SessionRejection};
 pub use crate::extension::ExtensionFrame;
 pub use crate::job::MiningJob;

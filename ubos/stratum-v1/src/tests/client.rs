@@ -355,13 +355,14 @@ async fn submit_encodes_mining_submit_with_wire_job_id() {
         .submit(&share)
         .expect("submit must accept the known JobId");
 
-    // Drain the queued submit by driving once. drive() flushes the
-    // outbound slot before its read loop, so we pre-stage a single
-    // newline on the pool side that satisfies the read immediately.
+    // A completed submit wakes the caller without a pool reply.
     let (a, mut b) = tokio::io::duplex(4096);
     let mut a_io = FromTokio::new(a);
-    b.write_all(b"\n").await.expect("pre-stage newline");
-    let _ = client.drive(&mut a_io).await;
+    assert_eq!(client.submit(&share), Err(Error::Busy));
+    assert_eq!(
+        client.drive(&mut a_io).await,
+        Ok(DriveEvent::OutboundFlushed)
+    );
 
     let mut received = [0u8; 4096];
     let n = b.read(&mut received).await.expect("read");

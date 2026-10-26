@@ -34,11 +34,13 @@
 
 use core::fmt::Write as _;
 
+use core::future::{Future, poll_fn};
+use core::task::Poll;
 use embedded_io_async::{Read, Write};
 use heapless::String;
 
 use mining_protocol::{
-    Error, LazyMerkle, MAX_EXTRANONCE_2, MiningClient, MiningClientVisitor, MiningJob,
+    DriveEvent, Error, LazyMerkle, MAX_EXTRANONCE_2, MiningClient, MiningClientVisitor, MiningJob,
     SessionRejection, SessionUpdate, Share, SubmitResult,
 };
 use ubos_logging::{info, warn};
@@ -238,14 +240,14 @@ impl MiningClient for StratumV1Client<'_> {
     /// Encode a `mining.submit` request into the outbound slot.
     /// Returns `Err(Error::UnknownJobId)` if `share.id` no longer
     /// has a wire-form mapping (the `JobId` ring rotated past it),
-    /// `Err(Error::BufferTooSmall)` if the outbound slot is busy.
+    /// `Err(Error::Busy)` if the outbound slot is busy.
     /// The next `drive()` flushes the encoded bytes.
     fn submit(&mut self, share: &Share<'_>) -> Result<(), Error> {
         if let V1State::Rejected(cause) = self.state {
             return Err(Error::SessionRejected(cause));
         }
         if self.outbound_len > 0 {
-            return Err(Error::BufferTooSmall);
+            return Err(Error::Busy);
         }
 
         // Copy the wire-form job_id out of the ring so the immutable
@@ -307,38 +309,47 @@ impl MiningClient for StratumV1Client<'_> {
     /// Cancellation safety: `LineBuffer` accumulates incrementally,
     /// `outbound_offset` tracks partial writes, so a cancelled
     /// future leaves the adapter ready to resume.
-    async fn drive<T>(&mut self, transport: &mut T) -> Result<(), Error>
+    async fn drive<T>(&mut self, transport: &mut T) -> Result<DriveEvent, Error>
     where
         T: Read + Write,
     {
         if let V1State::Rejected(cause) = self.state {
             return Err(Error::SessionRejected(cause));
         }
+        let flushed = self.outbound_len > 0;
         self.flush_outbound(transport).await?;
 
-        loop {
-            let line_present = self
-                .wire_buffer
-                .next_line()
-                .map_err(|_| Error::Decode)?
-                .is_some();
-            if line_present {
-                return Ok(());
-            }
+        let receive = async {
+            loop {
+                let line_present = self
+                    .wire_buffer
+                    .next_line()
+                    .map_err(|_| Error::Decode)?
+                    .is_some();
+                if line_present {
+                    return Ok(DriveEvent::FrameReceived);
+                }
 
-            let writable = self.wire_buffer.writable();
-            if writable.is_empty() {
-                return Err(Error::Decode);
+                let writable = self.wire_buffer.writable();
+                if writable.is_empty() {
+                    return Err(Error::Decode);
+                }
+                let read_count = transport
+                    .read(writable)
+                    .await
+                    .map_err(|_| Error::Transport)?;
+                if read_count == 0 {
+                    return Err(Error::Transport);
+                }
+                self.wire_buffer.advance(read_count);
             }
-            let read_count = transport
-                .read(writable)
-                .await
-                .map_err(|_| Error::Transport)?;
-            if read_count == 0 {
-                return Err(Error::Transport);
-            }
-            self.wire_buffer.advance(read_count);
-        }
+        };
+        let mut receive = core::pin::pin!(receive);
+        poll_fn(|cx| match receive.as_mut().poll(cx) {
+            Poll::Pending if flushed => Poll::Ready(Ok(DriveEvent::OutboundFlushed)),
+            result => result,
+        })
+        .await
     }
 
     /// Dispatch the most recently buffered line to `visitor`.

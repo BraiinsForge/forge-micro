@@ -29,6 +29,9 @@
 pub enum Error {
     /// Underlying transport (TCP, TLS, Noise) failed.
     Transport,
+    /// A queued frame still occupies the outbound buffer. Retry after
+    /// `drive` makes progress.
+    Busy,
     /// Encoding failed because the supplied buffer is too small.
     BufferTooSmall,
     /// Wire data could not be parsed into a known message.

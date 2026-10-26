@@ -42,7 +42,7 @@ use embassy_futures::select::{Either4, select4};
 use embassy_time::{Duration, Instant, Ticker, Timer};
 use embedded_io_async::{Read, Write};
 use mining_protocol::{
-    Error, ExtensionFrame, JobId, MiningClient, MiningClientVisitor, MiningJob, SessionUpdate,
+    DriveEvent, Error, ExtensionFrame, JobId, MiningClient, MiningClientVisitor, MiningJob, SessionUpdate,
     Share, SubmitResult,
 };
 use ubos_logging::{info, warn};
@@ -227,7 +227,9 @@ where
 
         match select4(client.drive(transport), asic.take_solution(), tick, wake).await {
             Either4::First(drive_result) => {
-                drive_result?;
+                if drive_result? == DriveEvent::OutboundFlushed {
+                    continue;
+                }
                 client.accept(&mut SessionVisitor { state, extension });
                 asic.set_alive(state.job_ring.current().is_some());
                 if asic.counters() != pushed {
@@ -284,7 +286,7 @@ fn offer_outbound<C: MiningClient>(client: &mut C, extension: &mut dyn SessionEx
     };
     match client.send_extension(&frame) {
         Ok(()) => extension.sent(),
-        Err(Error::NotImplemented | Error::Adapter) => {
+        Err(Error::NotImplemented | Error::BufferTooSmall) => {
             warn!(
                 "stratum-client: extension frame dropped ext={:#x} type={:#x} len={}",
                 frame.extension_type,

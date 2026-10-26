@@ -42,6 +42,15 @@ use crate::job::MiningJob;
 use crate::session::{SessionUpdate, SubmitResult};
 use crate::share::Share;
 
+/// Progress made by one call to [`MiningClient::drive`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DriveEvent {
+    /// A received frame is ready for [`MiningClient::accept`].
+    FrameReceived,
+    /// The outbound slot is free and the receive path needs more bytes.
+    OutboundFlushed,
+}
+
 /// Protocol-side endpoint of a mining session.
 ///
 /// Implementations own the wire buffer, decode scratch (if any), and
@@ -56,12 +65,11 @@ use crate::share::Share;
 pub trait MiningClient {
     /// Kick off protocol-transport setup.
     ///
-    /// V1: no-op on the wire — the configure/subscribe/authorize
-    /// messages are queued for the next `drive` call.
+    /// V1: sends the configure, subscribe and authorize requests.
     ///
-    /// V2: performs the Noise NX handshake on `transport`, queues
-    /// `SetupConnection` and `OpenStandardMiningChannel` for the next
-    /// `drive` call.
+    /// V2: performs the Noise NX handshake on `transport`, then sends
+    /// `SetupConnection` and `OpenStandardMiningChannel`. Both adapters
+    /// receive their responses through `drive` and `accept`.
     ///
     /// # Errors
     ///
@@ -79,8 +87,9 @@ pub trait MiningClient {
     ///
     /// Returns `Err(Error::UnknownJobId)` if the adapter's
     /// `JobId`-to-wire-id map no longer holds an entry for
-    /// `share.id`. Returns `Err(Error::BufferTooSmall)` if the
-    /// adapter's outbound buffer is full.
+    /// `share.id`. Returns `Err(Error::Busy)` while the outbound buffer
+    /// holds a queued frame, or `Err(Error::BufferTooSmall)` when the
+    /// encoded share exceeds its capacity.
     fn submit(&mut self, share: &Share<'_>) -> Result<(), Error>;
 
     /// Encode and queue one frame of another extension. Synchronous:
@@ -91,28 +100,27 @@ pub trait MiningClient {
     /// # Errors
     ///
     /// Returns `Err(Error::NotImplemented)` from the default body.
-    /// Returns `Err(Error::BufferTooSmall)` while a queued frame is
-    /// still waiting to be flushed, and `Err(Error::Adapter)` before
-    /// `connect` completes or when the payload exceeds what the
-    /// adapter's outbound buffer holds.
+    /// Returns `Err(Error::Busy)` while a queued frame waits to be
+    /// flushed, `Err(Error::BufferTooSmall)` when the payload exceeds
+    /// the outbound capacity, and `Err(Error::Adapter)` before
+    /// `connect` completes.
     fn send_extension(&mut self, frame: &ExtensionFrame<'_>) -> Result<(), Error> {
         let _ = frame;
         Err(Error::NotImplemented)
     }
 
-    /// Drive one frame's worth of network I/O.
+    /// Flush queued bytes and receive a frame, reporting the progress.
     ///
     /// Reads bytes into the adapter's wire buffer, decrypts the
-    /// header (V2), and stages the frame for `accept` to dispatch.
-    /// Also flushes any queued outbound bytes (`submit`'d shares,
-    /// handshake messages).
+    /// frame (V2), and stages it for `accept` to dispatch. Returns
+    /// `FrameReceived` when a frame is ready. A completed outbound
+    /// write returns `OutboundFlushed` when the receive path would
+    /// otherwise wait, so the caller can queue more data at once.
+    /// Ready inbound frames take priority over that notification.
     ///
     /// **Cancellation-safe.** A `drive` future dropped before
-    /// completion must not advance crypto state (Noise nonces, AEAD
-    /// counters); the next call resumes the read cleanly.
-    /// Implementations achieve this by structuring each call as one
-    /// atomic header read; the payload AEAD-open happens inside
-    /// `accept`, after the full frame has been buffered.
+    /// completion preserves read and write cursors and the crypto
+    /// state reached at those cursors. The next call resumes there.
     ///
     /// # Errors
     ///
@@ -121,16 +129,15 @@ pub trait MiningClient {
     /// `Err(Error::SessionRejected(cause))` if the pool tore the
     /// session down with a fatal protocol-layer error. The `cause`
     /// identifies which wire-level message ended the session.
-    async fn drive<T>(&mut self, transport: &mut T) -> Result<(), Error>
+    async fn drive<T>(&mut self, transport: &mut T) -> Result<DriveEvent, Error>
     where
         T: Read + Write;
 
     /// Dispatch the most recently buffered frame to `visitor`.
     ///
-    /// Synchronous. Decodes the payload (AEAD-open for V2,
-    /// hex-decode for V1) into the adapter's decode scratch, builds
-    /// the borrowed `MiningJob` / `SessionUpdate` / `SubmitResult`
-    /// values, and calls the matching visitor method.
+    /// Synchronous. Parses the frame reported by `FrameReceived`,
+    /// decodes protocol fields into the adapter's scratch buffer,
+    /// builds borrowed values and calls the matching visitor methods.
     ///
     /// All borrows handed to the visitor are valid only for the
     /// duration of this call; the visitor must copy out anything it

@@ -29,6 +29,8 @@
 //! for the next `drive` to flush, and `send_extension` seals a frame
 //! of another extension into the same slot.
 
+use core::future::{Future, poll_fn};
+use core::task::Poll;
 use embedded_io_async::{Read, Write};
 use ii_sv2::framing::{FrameCodec, FrameView, Header, MessageDescriptor, MessageGroup};
 use ii_sv2::messages::{
@@ -41,7 +43,7 @@ use ii_sv2::security::{
 };
 use ii_sv2::types::{Str0_255, Uint256};
 use mining_protocol::{
-    BIP320_VERSION_MASK, Error, ExtensionFrame, MiningClient, MiningClientVisitor,
+    BIP320_VERSION_MASK, DriveEvent, Error, ExtensionFrame, MiningClient, MiningClientVisitor,
     SessionRejection, SessionUpdate, Share, SubmitResult,
 };
 use ubos_logging::{info, warn};
@@ -128,10 +130,12 @@ enum V2State {
 /// initial state (`received: 0`) is also "ready for the next
 /// frame" after `accept`. `ReadingPayload` — header has been
 /// decrypted (AEAD advanced by one chunk); `received` bytes of
-/// `header.msg_length + MAC_BYTES` are in the wire buffer.
+/// `EncryptedCodec::payload_wire_size(header.msg_length)` are in the
+/// wire buffer (zero for an empty payload).
 /// `PayloadReady` — payload decrypted (AEAD advanced by a second
-/// chunk); plaintext sits in the wire buffer waiting for `accept`
-/// to dispatch. `Broken` — terminal sink for any error path
+/// chunk only for a nonempty payload); plaintext sits in the wire
+/// buffer waiting for `accept` to dispatch.
+/// `Broken` — terminal sink for any error path
 /// (transport failure, decrypt failure, oversized payload); the
 /// next `drive` returns `Error::Decode` immediately without
 /// touching the wire, so a poisoned AEAD chain or dead transport
@@ -178,7 +182,7 @@ pub struct StratumV2Client<'a, R: Rng, C: secp256k1::Signing + secp256k1::Verifi
     encode_buffer: [u8; ENCODE_BUFFER_BYTES],
     /// Bytes pending flush in `encode_buffer`. `0` when nothing
     /// is queued. `submit` only encodes a fresh frame when this is
-    /// `0`; otherwise it returns `BufferTooSmall` and waits for the
+    /// `0`; otherwise it returns `Busy` and waits for the
     /// next `drive` to flush the previous one.
     outbound_len: usize,
     /// Cursor into `encode_buffer[..outbound_len]` for resuming a
@@ -337,13 +341,7 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
             return Err(Error::SessionRejected(cause));
         }
         if self.outbound_len > 0 {
-            // Previous submit hasn't flushed yet; the encrypted
-            // codec is single-chunk, so we don't pipeline.
-            warn!(
-                "stratum-v2: submit dropped, outbound buffer in use ({}B pending)",
-                self.outbound_len - self.outbound_offset,
-            );
-            return Err(Error::BufferTooSmall);
+            return Err(Error::Busy);
         }
         let V2State::Connected { codec, session } = &mut self.state else {
             warn!("stratum-v2: submit dropped, session not connected");
@@ -391,16 +389,15 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
     }
 
     /// Seal `frame` into the outbound slot for the next `drive` to
-    /// flush. A busy slot is refused without a log line, because the
-    /// session loop offers the frame again after the next flush; a
-    /// payload past [`MAX_EXTENSION_PAYLOAD_BYTES`] is a caller fault
-    /// and is refused as `Adapter`.
+    /// flush. A busy slot is refused as `Busy`, and the session loop
+    /// offers the frame again after the next flush; a payload past
+    /// [`MAX_EXTENSION_PAYLOAD_BYTES`] is refused as `BufferTooSmall`.
     fn send_extension(&mut self, frame: &ExtensionFrame<'_>) -> Result<(), Error> {
         if let V2State::Rejected(cause) = self.state {
             return Err(Error::SessionRejected(cause));
         }
         if self.outbound_len > 0 {
-            return Err(Error::BufferTooSmall);
+            return Err(Error::Busy);
         }
         let V2State::Connected { codec, .. } = &mut self.state else {
             warn!("stratum-v2: extension frame dropped, session not connected");
@@ -412,7 +409,7 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
                 frame.payload.len(),
                 MAX_EXTENSION_PAYLOAD_BYTES,
             );
-            return Err(Error::Adapter);
+            return Err(Error::BufferTooSmall);
         }
         let descriptor = MessageDescriptor::new(
             frame.extension_type,
@@ -445,7 +442,7 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
     /// Outbound flushing is similarly resumable via
     /// `outbound_offset`.
     #[allow(clippy::too_many_lines)]
-    async fn drive<T>(&mut self, transport: &mut T) -> Result<(), Error>
+    async fn drive<T>(&mut self, transport: &mut T) -> Result<DriveEvent, Error>
     where
         T: Read + Write,
     {
@@ -463,6 +460,7 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
         // are already AEAD-sealed, so a partial write is safe to
         // resume across cancellation; any transport error poisons
         // the state machine to match the read-side semantics.
+        let flushed = self.outbound_len > 0;
         while self.outbound_offset < self.outbound_len {
             let Ok(written) = transport
                 .write(&self.encode_buffer[self.outbound_offset..self.outbound_len])
@@ -487,83 +485,92 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
             return Err(Error::Adapter);
         };
 
-        loop {
-            match self.frame_state {
-                FrameState::ReadingHeader { ref mut received } => {
-                    while *received < EncryptedCodec::HEADER_WIRE_SIZE {
-                        let Ok(read_count) = transport
-                            .read(
-                                &mut self.header_buffer
-                                    [*received..EncryptedCodec::HEADER_WIRE_SIZE],
-                            )
-                            .await
-                        else {
-                            self.frame_state = FrameState::Broken;
-                            return Err(Error::Transport);
-                        };
-                        if read_count == 0 {
-                            self.frame_state = FrameState::Broken;
-                            return Err(Error::Transport);
+        let receive = async {
+            loop {
+                match self.frame_state {
+                    FrameState::ReadingHeader { ref mut received } => {
+                        while *received < EncryptedCodec::HEADER_WIRE_SIZE {
+                            let Ok(read_count) = transport
+                                .read(
+                                    &mut self.header_buffer
+                                        [*received..EncryptedCodec::HEADER_WIRE_SIZE],
+                                )
+                                .await
+                            else {
+                                self.frame_state = FrameState::Broken;
+                                return Err(Error::Transport);
+                            };
+                            if read_count == 0 {
+                                self.frame_state = FrameState::Broken;
+                                return Err(Error::Transport);
+                            }
+                            *received += read_count;
                         }
-                        *received += read_count;
-                    }
-                    // Whole encrypted header is in `header_buffer`.
-                    // Park state in `Broken` before the fallible
-                    // decrypt: on `?` the machine stays Broken; on
-                    // success we transition to `ReadingPayload`.
-                    self.frame_state = FrameState::Broken;
-                    let header = codec
-                        .decode_header(&mut self.header_buffer)
-                        .map_err(|_| Error::Decode)?;
-                    self.frame_state = FrameState::ReadingPayload {
-                        header,
-                        received: 0,
-                    };
-                }
-                FrameState::ReadingPayload {
-                    header,
-                    ref mut received,
-                } => {
-                    let payload_total = header.msg_length as usize + MAC_BYTES;
-                    if payload_total > self.wire_buffer.len() {
+                        // Whole encrypted header is in `header_buffer`.
+                        // Park state in `Broken` before the fallible
+                        // decrypt: on `?` the machine stays Broken; on
+                        // success we transition to `ReadingPayload`.
                         self.frame_state = FrameState::Broken;
+                        let header = codec
+                            .decode_header(&mut self.header_buffer)
+                            .map_err(|_| Error::Decode)?;
+                        self.frame_state = FrameState::ReadingPayload {
+                            header,
+                            received: 0,
+                        };
+                    }
+                    FrameState::ReadingPayload {
+                        header,
+                        ref mut received,
+                    } => {
+                        let payload_total =
+                            EncryptedCodec::payload_wire_size(header.msg_length as usize);
+                        if payload_total > self.wire_buffer.len() {
+                            self.frame_state = FrameState::Broken;
+                            return Err(Error::Decode);
+                        }
+                        while *received < payload_total {
+                            let Ok(read_count) = transport
+                                .read(&mut self.wire_buffer[*received..payload_total])
+                                .await
+                            else {
+                                self.frame_state = FrameState::Broken;
+                                return Err(Error::Transport);
+                            };
+                            if read_count == 0 {
+                                self.frame_state = FrameState::Broken;
+                                return Err(Error::Transport);
+                            }
+                            *received += read_count;
+                        }
+                        // Same Broken-park pattern as for the header.
+                        self.frame_state = FrameState::Broken;
+                        codec
+                            .decode_frame(header, &mut self.wire_buffer[..payload_total])
+                            .map_err(|_| Error::Decode)?;
+                        self.frame_state = FrameState::PayloadReady { header };
+                        return Ok(DriveEvent::FrameReceived);
+                    }
+                    FrameState::PayloadReady { .. } => {
+                        // Caller hasn't drained the previous frame
+                        // through `accept` yet — pairing is required
+                        // for AEAD alignment with the peer.
+                        return Err(Error::Adapter);
+                    }
+                    FrameState::Broken => {
+                        // Guarded at the top; unreachable in steady
+                        // state but keeps the match exhaustive.
                         return Err(Error::Decode);
                     }
-                    while *received < payload_total {
-                        let Ok(read_count) = transport
-                            .read(&mut self.wire_buffer[*received..payload_total])
-                            .await
-                        else {
-                            self.frame_state = FrameState::Broken;
-                            return Err(Error::Transport);
-                        };
-                        if read_count == 0 {
-                            self.frame_state = FrameState::Broken;
-                            return Err(Error::Transport);
-                        }
-                        *received += read_count;
-                    }
-                    // Same Broken-park pattern as for the header.
-                    self.frame_state = FrameState::Broken;
-                    codec
-                        .decode_frame(header, &mut self.wire_buffer[..payload_total])
-                        .map_err(|_| Error::Decode)?;
-                    self.frame_state = FrameState::PayloadReady { header };
-                    return Ok(());
-                }
-                FrameState::PayloadReady { .. } => {
-                    // Caller hasn't drained the previous frame
-                    // through `accept` yet — pairing is required
-                    // for AEAD alignment with the peer.
-                    return Err(Error::Adapter);
-                }
-                FrameState::Broken => {
-                    // Guarded at the top; unreachable in steady
-                    // state but keeps the match exhaustive.
-                    return Err(Error::Decode);
                 }
             }
-        }
+        };
+        let mut receive = core::pin::pin!(receive);
+        poll_fn(|cx| match receive.as_mut().poll(cx) {
+            Poll::Pending if flushed => Poll::Ready(Ok(DriveEvent::OutboundFlushed)),
+            result => result,
+        })
+        .await
     }
 
     /// Dispatch the most recently decrypted frame to `visitor`.

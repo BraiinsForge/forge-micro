@@ -19,7 +19,7 @@
 
 //! `EncryptedCodec` — a [`FrameCodec`] over [`ii_sv2_crypto::TransportState`].
 //!
-//! Hides the two-AEAD-chunks-per-frame wire layout behind the trait, so
+//! Hides the AEAD chunk wire layout behind the trait, so
 //! callers send and receive Stratum V2 frames without thinking about how
 //! the bytes are protected.
 //!
@@ -32,9 +32,12 @@
 //!  6 bytes plain            N = header.msg_length
 //! ```
 //!
+//! An empty payload has no body chunk or body MAC. The authenticated
+//! header carries its zero length, and only the header consumes a nonce.
+//!
 //! # Single-chunk MVP
 //!
-//! `encode` and `decode_frame` seal/open the payload as a *single* AEAD
+//! `encode` and `decode_frame` seal/open a nonempty payload as a *single* AEAD
 //! chunk, which is correct for `body_len <= 65 519` (every elementary
 //! mining message with margin to spare). Larger payloads return
 //! [`SessionError::ChunkingNotImplemented`] explicitly. The multi-chunk
@@ -76,8 +79,8 @@ impl From<FramingError> for SessionError {
     }
 }
 
-/// Stateful frame codec that protects every frame with two AEAD chunks
-/// (header chunk and body chunk).
+/// Stateful frame codec that protects the header and each nonempty body
+/// with separate AEAD chunks.
 pub struct EncryptedCodec {
     transport: TransportState,
 }
@@ -147,9 +150,12 @@ impl FrameCodec for EncryptedCodec {
         let body_end = body_start + body_len;
         frame.write_body(&mut out[body_start..body_end])?;
 
-        // 4. AEAD-seal out[22..22+body_len+MAC_SIZE] in place; MAC after the body.
-        self.transport
-            .write_message_inplace(&mut out[body_start..body_end + MAC_SIZE], body_len)?;
+        // 4. Seal a nonempty body, appending its MAC. An empty payload
+        // has no body chunk and must not consume another nonce.
+        if body_len != 0 {
+            self.transport
+                .write_message_inplace(&mut out[body_start..total], body_len)?;
+        }
 
         Ok(total)
     }
@@ -171,14 +177,16 @@ impl FrameCodec for EncryptedCodec {
         header: Header,
         buf: &'a mut [u8],
     ) -> Result<FrameView<'a>, Self::Error> {
-        let total = header.msg_length as usize + MAC_SIZE;
+        let body_len = header.msg_length as usize;
+        let total = Self::payload_wire_size(body_len);
         if buf.len() < total {
             return Err(SessionError::BufferTooSmall);
         }
-        let plain_len = self.transport.read_message_inplace(&mut buf[..total])?;
-        debug_assert_eq!(plain_len, header.msg_length as usize);
-        FrameView::try_new(header, &buf[..header.msg_length as usize])
-            .map_err(SessionError::Framing)
+        if body_len != 0 {
+            let plain_len = self.transport.read_message_inplace(&mut buf[..total])?;
+            debug_assert_eq!(plain_len, body_len);
+        }
+        FrameView::try_new(header, &buf[..body_len]).map_err(SessionError::Framing)
     }
 }
 
@@ -299,6 +307,30 @@ mod tests {
     use ii_sv2_messages::MINING_EXTENSION_TYPE;
     use ii_sv2_messages::{NewMiningJob, OpenStandardMiningChannel, SetupConnectionSuccess};
     use ii_sv2_types::Uint256;
+
+    #[tokio::test]
+    async fn empty_frames_fit_exact_buffers_and_preserve_nonces() {
+        let (mut tx, mut rx) = paired_codecs().await;
+        for payload in [&b""[..], b"", b"next", b"", b"last"] {
+            let header = Header::for_descriptor(
+                MessageDescriptor::new(0x1234, 7, false),
+                u32::try_from(payload.len()).unwrap(),
+            );
+            let frame = FrameView::try_new(header, payload).unwrap();
+            let wire_len = EncryptedCodec::HEADER_WIRE_SIZE
+                + if payload.is_empty() {
+                    0
+                } else {
+                    payload.len() + MAC_SIZE
+                };
+            let mut wire = std::vec![0; wire_len];
+            assert_eq!(tx.encode(&frame, &mut wire).unwrap(), wire_len);
+            let (header_bytes, body) = wire.split_at_mut(EncryptedCodec::HEADER_WIRE_SIZE);
+            let received_header = rx.decode_header(header_bytes).unwrap();
+            let received = rx.decode_frame(received_header, body).unwrap();
+            assert_eq!(received, frame);
+        }
+    }
 
     /// Synthetic frame whose `body_len()` returns a value larger than
     /// `MAX_PLAINTEXT_LENGTH`. `write_body` is `unreachable!()` because

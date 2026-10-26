@@ -41,11 +41,11 @@ impl MiningClient for Stub {
         Ok(())
     }
 
-    async fn drive<T>(&mut self, _transport: &mut T) -> Result<(), Error>
+    async fn drive<T>(&mut self, _transport: &mut T) -> Result<crate::DriveEvent, Error>
     where
         T: Read + Write,
     {
-        Ok(())
+        Ok(crate::DriveEvent::FrameReceived)
     }
 
     fn accept<V: MiningClientVisitor>(&mut self, _visitor: &mut V) {}

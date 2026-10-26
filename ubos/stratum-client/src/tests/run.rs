@@ -203,7 +203,7 @@ impl MiningClient for FailingClient {
         Ok(())
     }
 
-    async fn drive<T: Read + Write>(&mut self, _transport: &mut T) -> Result<(), Error> {
+    async fn drive<T: Read + Write>(&mut self, _transport: &mut T) -> Result<DriveEvent, Error> {
         Err(Error::Transport)
     }
 
