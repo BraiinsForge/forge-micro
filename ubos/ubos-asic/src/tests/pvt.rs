@@ -35,7 +35,7 @@ fn the_store() {
     assert_eq!(store.temperature(2), None, "chip 2 has not reported");
     assert_eq!(store.temperature(16), None, "chip 16 is past the array");
     let dies = store.temperature_summary().expect("two chips reported");
-    assert_eq!(dies.chips, 2);
+    assert_eq!(dies.chips.get(), 2);
     assert_eq!(dies.total_millicelsius, 79_500);
     assert_eq!(dies.lowest_millicelsius, 38_000);
     assert_eq!(dies.highest_millicelsius, 41_500);

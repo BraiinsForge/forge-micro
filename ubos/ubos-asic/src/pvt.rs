@@ -34,6 +34,7 @@
 //! for the metric that publishes every chip's reading.
 
 use core::cell::RefCell;
+use core::num::NonZeroU8;
 
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -176,7 +177,7 @@ impl<const CHIPS: usize> ChainPvt<CHIPS> {
                 highest = highest.max(value);
                 chips += 1;
             }
-            (chips > 0).then_some(TemperatureSummary {
+            NonZeroU8::new(chips).map(|chips| TemperatureSummary {
                 chips,
                 total_millicelsius: total,
                 lowest_millicelsius: lowest,
@@ -223,7 +224,7 @@ impl<const CHIPS: usize> Default for ChainPvt<CHIPS> {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TemperatureSummary {
-    pub chips: u8,
+    pub chips: NonZeroU8,
     pub total_millicelsius: i32,
     pub lowest_millicelsius: i32,
     pub highest_millicelsius: i32,

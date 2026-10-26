@@ -228,7 +228,7 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
             publish_chip_reading(chain, chip, value).await;
         }
         if let Some(temperature) = self.pvt[chain].temperature_summary() {
-            let mean = temperature.total_millicelsius / i32::from(temperature.chips);
+            let mean = temperature.total_millicelsius / i32::from(temperature.chips.get());
             Self::publish_stat(chain, "lowest", temperature.lowest_millicelsius).await;
             Self::publish_stat(chain, "mean", mean).await;
             Self::publish_stat(chain, "highest", temperature.highest_millicelsius).await;
