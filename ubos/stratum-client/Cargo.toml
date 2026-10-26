@@ -33,7 +33,7 @@ critical-section = { version = "1.2", features = ["std"] }
 # The test binary links the counter pushes, which stamp each metric
 # with `embassy_time::Instant::now()`. The std time driver is
 # host-only and never reaches firmware.
-embassy-time     = { workspace = true, features = ["std"] }
+embassy-time     = { workspace = true, features = ["std", "generic-queue-8"] }
 
 [package.metadata.cargo-machete]
 ignored = ["defmt"]
