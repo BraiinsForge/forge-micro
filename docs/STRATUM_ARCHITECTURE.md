@@ -59,7 +59,7 @@ disagree, the code wins and this file needs a patch.
    │   │       client.drive(t)       → client.accept(state, ext) │       │
    │   │       asic.take_solution()  → handle_solution(state)    │       │
    │   │       work_ticker → state.publish_work(asic, step)      │       │
-   │   │       wake (ext deadline / retry) → extension.tick()    │       │
+   │   │       wake (ext deadline)   → extension.tick()          │       │
    │   │     )                                                   │       │
    │   │   }                                                     │       │
    │   └─────────────────────────────────────────────────────────┘       │
@@ -257,7 +257,7 @@ pool job never has the key it is still echoing retired under it.
 | Pool I/O | event-driven | network bytes arriving / Solution arriving in `select4` |
 | Stratum visitor dispatch | per frame | inside `accept()` |
 | Work publish | 1 Hz with `NtimeRoll::Host`, once per job with `Chip` | `work_ticker` arm of the same `select4` loop |
-| Extension wake | the extension's deadline, or 200 ms while a frame waits for the outbound slot | fourth arm of `select4` |
+| Extension wake | the extension's deadline while it has no pending frame | fourth arm of `select4` |
 | Pool counter push | 2 s | `PoolHandle::push_counters_periodically`, selected beside each session by the pool session task |
 | ASIC poll for work change | ~100 ms | yield boundary in CPU mock; polling cadence in real driver |
 | ASIC produces solutions | as found | non-blocking `try_send` into the channel |
@@ -308,11 +308,23 @@ other extension into the outbound slot, and `accept` hands every
 frame of another extension to `visit_extension_frame` instead of the
 mining dispatch. `SessionExtension` in `stratum-client` is the hook
 the loop drives. The loop tells it when the session connects, hands
-it each foreign frame, offers the frame it holds to the adapter at
-the top of every iteration, and wakes it at its own deadline through
-the fourth arm of `select4`. A session that carries nothing names
-`NoExtension`. The adapter never reads a frame it carries, so the
-protocol stays with the code that owns it.
+it each foreign frame, offers the frame it holds to the adapter when
+no share waits for the slot, and wakes it at its own deadline through
+the fourth arm of `select4` while it holds no frame. A session that
+carries nothing names `NoExtension`. The adapter never reads a frame
+it carries, so the protocol stays with the code that owns it.
+
+The frame descriptor preserves the extension number, message type and
+channel flag. A busy outbound slot returns `Busy`. A frame that exceeds
+the capacity returns `BufferTooSmall`. The extension receives the result
+of each accepted or rejected queue operation through `outbound_result`.
+
+The loop retains one solution while the outbound slot is busy. It checks
+the job again before each retry and gives shares priority over further
+extension frames. The adapter reports `OutboundFlushed` after a write if
+the receive path needs more bytes. A ready inbound frame takes priority
+over that notification. The loop retries pending traffic on this progress
+without a retry timer.
 
 ## Lifetime and ownership boundary
 

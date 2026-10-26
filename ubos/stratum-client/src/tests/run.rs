@@ -32,6 +32,7 @@
 //! guard in `run_stratum_client_inner`).
 
 use super::*;
+use embassy_time::Instant;
 
 use crate::asic_session::AsicSession;
 use crate::extension::{NoExtension, SessionExtension};
@@ -281,7 +282,7 @@ impl SessionExtension for Recording {
         None
     }
 
-    fn sent(&mut self) {}
+    fn outbound_result(&mut self, _result: Result<(), Error>) {}
 }
 
 /// The loop's visitor hands mining events to the state and foreign

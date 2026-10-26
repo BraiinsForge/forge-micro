@@ -27,8 +27,8 @@
 //! is object safe, so every session runs one loop body whatever it
 //! carries.
 
-use embassy_time::{Duration, Instant};
-use mining_protocol::ExtensionFrame;
+use embassy_time::Instant;
+use mining_protocol::{Error, ExtensionFrame};
 
 /// One protocol riding a mining session beside the mining traffic.
 pub trait SessionExtension {
@@ -48,8 +48,10 @@ pub trait SessionExtension {
     /// The frame waiting to be sent, if any.
     fn outbound(&self) -> Option<ExtensionFrame<'_>>;
 
-    /// The frame `outbound` returned has been taken by the adapter.
-    fn sent(&mut self);
+    /// The adapter accepted the frame into its queue, or rejected it
+    /// permanently. Release the frame in either case. A busy slot
+    /// keeps the frame pending and produces no callback.
+    fn outbound_result(&mut self, result: Result<(), Error>);
 }
 
 /// The extension of a session that carries none.
@@ -70,11 +72,5 @@ impl SessionExtension for NoExtension {
         None
     }
 
-    fn sent(&mut self) {}
+    fn outbound_result(&mut self, _result: Result<(), Error>) {}
 }
-
-/// How long the loop waits before offering a waiting frame to the
-/// adapter again. The slot frees on the next `drive`, which the next
-/// inbound frame or share also triggers, so this only bounds the wait
-/// on a quiet session.
-pub const OUTBOUND_RETRY: Duration = Duration::from_millis(200);

@@ -39,11 +39,11 @@
 //! nothing else holds a borrow.
 
 use embassy_futures::select::{Either4, select4};
-use embassy_time::{Duration, Instant, Ticker, Timer};
+use embassy_time::{Duration, Ticker, Timer};
 use embedded_io_async::{Read, Write};
 use mining_protocol::{
-    DriveEvent, Error, ExtensionFrame, JobId, MiningClient, MiningClientVisitor, MiningJob, SessionUpdate,
-    Share, SubmitResult,
+    DriveEvent, Error, ExtensionFrame, JobId, MiningClient, MiningClientVisitor, MiningJob,
+    SessionUpdate, Share, SubmitResult,
 };
 use ubos_logging::{info, warn};
 
@@ -54,7 +54,7 @@ use ubos_logging::{info, warn};
 pub(crate) const POOL_INDEX_SPACE: usize = 8;
 
 use crate::asic_session::PoolHandle;
-use crate::extension::{OUTBOUND_RETRY, SessionExtension};
+use crate::extension::SessionExtension;
 use crate::state::StratumState;
 use crate::work::Solution;
 
@@ -126,14 +126,14 @@ pub const NTIME_ROLL_MAX_SECS: u32 = 7_200;
 /// traffic, [`crate::NoExtension`] when there is none. It is told when
 /// the session connects, handed every frame of another extension, and
 /// woken at its own deadline; the frame it holds is offered to the
-/// adapter at the top of every iteration until the adapter takes it.
+/// adapter after any pending share until the adapter takes it.
 ///
 /// # Errors
 ///
 /// Surfaces any `Error` returned from `client.connect()` or
-/// `client.drive()`. `client.submit()` errors are logged and
-/// otherwise swallowed — a single bad submit must not tear down
-/// the whole session.
+/// `client.drive()`, and fatal `client.send_extension()` errors.
+/// A busy outbound slot retains the pending solution. Other submit
+/// errors are logged and discard that solution.
 pub async fn run_stratum_client<C, T, const N: usize, const CHAINS: usize>(
     client: &mut C,
     transport: &mut T,
@@ -200,17 +200,29 @@ where
     // ticker driving repeat publishes that would restart the ASIC's
     // sweep.
     let mut last_published: Option<JobId> = None;
+    let mut pending_solution = None;
 
     loop {
-        offer_outbound(client, extension);
-        // A frame the adapter refused waits for the next flush, so the
-        // wake is the retry; otherwise it is the extension's own clock.
+        pending_solution = pending_solution.or_else(|| asic.try_take_solution());
+        if let Some(solution) = pending_solution {
+            match handle_solution(client, state, solution) {
+                Err(Error::Busy) => {}
+                result => {
+                    pending_solution = None;
+                    if let Err(error) = result {
+                        warn!(
+                            "stratum-client: pool {} submit dropped error={:?}",
+                            state.slot, error,
+                        );
+                    }
+                }
+            }
+        }
+        if pending_solution.is_none() {
+            offer_outbound(client, extension)?;
+        }
         let waiting = extension.outbound().is_some();
-        let wake_at = if waiting {
-            Some(Instant::now() + OUTBOUND_RETRY)
-        } else {
-            extension.deadline()
-        };
+        let wake_at = extension.deadline().filter(|_| !waiting);
 
         let tick = async {
             match work_ticker.as_mut() {
@@ -224,8 +236,14 @@ where
                 None => core::future::pending::<()>().await,
             }
         };
+        let solution = async {
+            if pending_solution.is_some() {
+                core::future::pending::<()>().await;
+            }
+            asic.take_solution().await
+        };
 
-        match select4(client.drive(transport), asic.take_solution(), tick, wake).await {
+        match select4(client.drive(transport), solution, tick, wake).await {
             Either4::First(drive_result) => {
                 if drive_result? == DriveEvent::OutboundFlushed {
                     continue;
@@ -250,12 +268,7 @@ where
                 }
             }
             Either4::Second(solution) => {
-                if let Err(error) = handle_solution(client, state, solution) {
-                    warn!(
-                        "stratum-client: pool {} submit dropped error={:?}",
-                        state.slot, error,
-                    );
-                }
+                pending_solution = Some(solution);
             }
             Either4::Third(()) => {
                 // Each publish is one ntime step regardless of how far
@@ -265,11 +278,7 @@ where
                 state.publish_work(asic, 1);
             }
             Either4::Fourth(()) => {
-                // A retry wake has nothing to do here: the top of the
-                // loop offers the waiting frame again.
-                if !waiting {
-                    extension.tick();
-                }
+                extension.tick();
             }
         }
     }
@@ -280,22 +289,28 @@ where
 /// the adapter can never take, because its protocol carries none or
 /// the payload is too large, is dropped so the loop does not retry it
 /// forever.
-fn offer_outbound<C: MiningClient>(client: &mut C, extension: &mut dyn SessionExtension) {
+fn offer_outbound<C: MiningClient>(
+    client: &mut C,
+    extension: &mut dyn SessionExtension,
+) -> Result<(), Error> {
     let Some(frame) = extension.outbound() else {
-        return;
+        return Ok(());
     };
     match client.send_extension(&frame) {
-        Ok(()) => extension.sent(),
-        Err(Error::NotImplemented | Error::BufferTooSmall) => {
-            warn!(
-                "stratum-client: extension frame dropped ext={:#x} type={:#x} len={}",
-                frame.extension_type,
-                frame.msg_type,
-                frame.payload.len(),
-            );
-            extension.sent();
+        Err(Error::Busy) => Ok(()),
+        result => {
+            if let Err(error) = result {
+                warn!(
+                    "stratum-client: extension frame dropped ext={:#x} type={:#x} error={:?}",
+                    frame.extension_type, frame.msg_type, error,
+                );
+            }
+            extension.outbound_result(result);
+            match result {
+                Err(Error::NotImplemented | Error::BufferTooSmall) => Ok(()),
+                other => other,
+            }
         }
-        Err(_) => {}
     }
 }
 
