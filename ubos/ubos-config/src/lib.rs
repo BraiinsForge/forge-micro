@@ -137,13 +137,22 @@ const COMMAND_CHANNEL_DEPTH: usize = 4;
 
 /// Stack buffer size for encode and decode of stored config blobs.
 ///
-/// Holds the 8-byte schema-hash prefix plus the postcard-encoded
-/// [`Config`]. The factory-default blob is ~111 bytes (see the golden
-/// snapshot in `src/tests/storage.rs`); 512 leaves room for the pool list
-/// and network section to grow without re-tuning.
-/// [`flash_storage::SCRATCH_SIZE`] is a const alias for this value, so
-/// raising it here raises the flash scratch budget in lockstep.
-pub(crate) const LOAD_BUFFER_SIZE: usize = 512;
+/// Holds the widest record: the 8-byte schema-hash prefix plus the
+/// postcard-encoded [`Config`] with every field at its widest. The test
+/// `widest_record_fills_the_buffer` measures that record and pins this
+/// value to it, so a schema change that widens the record fails the test
+/// rather than a save. [`flash_storage::SCRATCH_SIZE`] is derived from
+/// this value, so the flash scratch budget follows it.
+pub(crate) const LOAD_BUFFER_SIZE: usize = 1408;
+
+/// Stack buffer size for encode and decode of the seed record, which
+/// holds a fingerprint for each [`Seed`] field.
+///
+/// The config task holds this buffer at its deepest await, beside the
+/// boot config and the seed, so it is sized for the seed record rather
+/// than for a config record. The test
+/// `widest_seed_record_fills_its_buffer` pins it to the widest record.
+pub(crate) const TAKEN_BUFFER_SIZE: usize = 18;
 
 type CSMutex = CriticalSectionRawMutex;
 
@@ -1085,7 +1094,7 @@ fn seeded(
 /// every field of a record that does not decode, because the record is
 /// written again only when a seed is taken.
 async fn load_taken<S: Storage>(storage: &mut S) -> Option<Taken> {
-    let mut buffer = [0u8; LOAD_BUFFER_SIZE];
+    let mut buffer = [0u8; TAKEN_BUFFER_SIZE];
     let Ok(record) = storage.load(SEED_KEY, &mut buffer).await else {
         warn!("config: cannot read the seed record, seed not used");
         return None;
@@ -1102,7 +1111,7 @@ async fn load_taken<S: Storage>(storage: &mut S) -> Option<Taken> {
 /// Persist the seed fingerprints the store took. A failure is logged
 /// and swallowed, and the next boot takes the same fields again.
 async fn persist_taken<S: Storage>(taken: &Taken, storage: &mut S) {
-    let mut buffer = [0u8; LOAD_BUFFER_SIZE];
+    let mut buffer = [0u8; TAKEN_BUFFER_SIZE];
     let Ok(record) = postcard::to_slice(taken, &mut buffer) else {
         warn!("config: cannot encode the seed record");
         return;

@@ -33,14 +33,20 @@ use sequential_storage::{
 
 use crate::storage::Storage;
 
-/// Stack buffer size for postcard-encoded `Config` blobs.
+/// The widest flash word `sequential-storage` supports. The map reads an
+/// item back rounded up to the flash word, so the scratch is rounded up
+/// to the widest word a board can have.
+const MAX_WORD_SIZE: usize = 32;
+
+/// Stack buffer size for one map item: the `u8` key and the widest
+/// record, rounded up to the flash word.
 ///
-/// Aliased from [`crate::LOAD_BUFFER_SIZE`] so the encode budget in
-/// `lib.rs` and the flash scratch budget here cannot drift. Revisit if
-/// `Config` grows beyond this limit; `store_item` returns
-/// `Error::ItemTooBig` before corrupting flash if the encoded size
-/// exceeds the page size.
-pub(crate) const SCRATCH_SIZE: usize = crate::LOAD_BUFFER_SIZE;
+/// Derived from [`crate::LOAD_BUFFER_SIZE`] so the encode budget in
+/// `lib.rs` and the flash scratch budget here cannot drift.
+/// `store_item` returns `Error::ItemTooBig` before corrupting flash if
+/// the encoded size exceeds the page size.
+pub(crate) const SCRATCH_SIZE: usize =
+    (size_of::<u8>() + crate::LOAD_BUFFER_SIZE).next_multiple_of(MAX_WORD_SIZE);
 
 /// Flash-backed config storage using `sequential-storage` map mode.
 ///

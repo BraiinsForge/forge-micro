@@ -19,7 +19,17 @@
 
 //! Unit tests for blob framing and storage error paths.
 
-use crate::{Config, LoadError, NetworkConfig, NetworkMode, decode_blob, encode_blob};
+use core::num::NonZeroU32;
+
+use ubos_core::units::Temperature;
+
+use crate::seed::Taken;
+use crate::{
+    ApiConfig, Config, CoolingConfig, FanMode, LOAD_BUFFER_SIZE, LoadError, MinerConfig,
+    NetworkConfig, NetworkMode, PidConfig, PidTarget, PoolEntry, PowerTarget, ProtocolKind, Seed,
+    SeedField, Source, Statistic, TAKEN_BUFFER_SIZE, TemperatureDescriptor, ThermalConfig, Tuning,
+    decode_blob, encode_blob,
+};
 
 /// Round-trip: encode the default config and decode it back.
 #[test]
@@ -163,4 +173,116 @@ fn golden_snapshot() {
     let mut buffer = [0u8; 512];
     let length = encode_blob(&config, &mut buffer).expect("encode must succeed");
     assert_eq!(&buffer[..length], EXPECTED_BLOB);
+}
+
+/// A string of `N` bytes, the most its capacity holds.
+fn filled<const N: usize>() -> heapless::String<N> {
+    let mut string = heapless::String::new();
+    for _ in 0..N {
+        string.push('a').expect("BUG: fill exceeds capacity");
+    }
+    string
+}
+
+/// The widest record a store can hold has exactly the length of the
+/// record buffer, so a config the operator can save always reaches
+/// flash, and the buffer holds no stack it never uses.
+///
+/// Every field takes its widest encoding: each string and list at
+/// capacity, each varint at the value that needs the most bytes, and
+/// each enum at its widest variant. SV1 with a full password is wider
+/// than SV2 with a key, and static addressing is wider than DHCP.
+#[test]
+fn widest_record_fills_the_buffer() {
+    let entry = PoolEntry {
+        host: filled(),
+        port: u16::MAX,
+        user: filled(),
+        protocol: ProtocolKind::Sv1 {
+            password: Some(filled()),
+        },
+        weight: u32::MAX,
+    };
+    let mut pool = heapless::Vec::new();
+    while pool.push(entry.clone()).is_ok() {}
+    let mut dns = heapless::Vec::new();
+    while dns.push([u8::MAX; 4]).is_ok() {}
+    let coldest = Temperature::from_millicelsius(i32::MIN);
+    let widest = Config {
+        pool,
+        thermal: ThermalConfig {
+            sample_interval_ms: u32::MAX,
+            dangerous: TemperatureDescriptor {
+                chip: Some(coldest),
+                hashboard: Some(coldest),
+            },
+            cooldown_temp: coldest,
+        },
+        cooling: CoolingConfig {
+            mode: FanMode::Fixed,
+            target: PidTarget {
+                source: Source::Chip,
+                statistic: Statistic::Mean,
+                temp: coldest,
+            },
+            fixed_fan_pwm: u8::MAX,
+            pid: PidConfig {
+                min_fan_pwm: u8::MAX,
+                p_gain: f64::MAX,
+                i_gain: f64::MAX,
+                d_gain: f64::MAX,
+                smoother_half_decay_secs: u32::MAX,
+                input_smoother_half_decay_secs: u32::MAX,
+            },
+        },
+        miner: MinerConfig {
+            tuning: Tuning::Power(PowerTarget {
+                input_power_mw: u32::MAX,
+                efficiency_mj_per_th: NonZeroU32::MAX,
+            }),
+        },
+        api: ApiConfig {
+            username: filled(),
+            password: filled(),
+        },
+        network: NetworkConfig {
+            mode: NetworkMode::Static {
+                address: [u8::MAX; 4],
+                prefix_len: u8::MAX,
+                gateway: [u8::MAX; 4],
+                dns,
+            },
+            hostname: filled(),
+        },
+    };
+
+    let mut buffer = [0u8; 2 * LOAD_BUFFER_SIZE];
+    let length = encode_blob(&widest, &mut buffer).expect("BUG: the probe holds any record");
+    assert_eq!(length, LOAD_BUFFER_SIZE);
+}
+
+/// The widest seed record, with a fingerprint at its widest varint for
+/// every seed field, has exactly the length of its buffer.
+#[test]
+fn widest_seed_record_fills_its_buffer() {
+    let widest = Seed {
+        pool: Some(SeedField {
+            value: heapless::Vec::new(),
+            fingerprint: u32::MAX,
+        }),
+        api: Some(SeedField {
+            value: ApiConfig::default(),
+            fingerprint: u32::MAX,
+        }),
+        network_mode: Some(SeedField {
+            value: NetworkMode::Dhcp,
+            fingerprint: u32::MAX,
+        }),
+    };
+    let mut taken = Taken::default();
+    widest.apply(&mut Config::default(), &mut taken);
+
+    let mut buffer = [0u8; 2 * TAKEN_BUFFER_SIZE];
+    let record = postcard::to_slice(&taken, &mut buffer).expect("BUG: the probe holds any record");
+    assert_eq!(record.len(), TAKEN_BUFFER_SIZE);
 }
