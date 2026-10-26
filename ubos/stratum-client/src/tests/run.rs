@@ -17,19 +17,7 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Tests for `publish_work`'s ntime-roll math, the job-acceptance
-//! dedup logic that stands in for the ticker when it's disabled, and
-//! the work-cell teardown when a session ends.
-//!
-//! `run_stratum_client_inner`'s ticker gating (the `Option<Ticker>` /
-//! `core::future::pending()` select arm) is not covered here: it needs
-//! a `select3` over an embassy executor to observe, which these
-//! synchronous unit tests don't run. What's unit-testable and covered
-//! instead is the two pieces that gating delegates to: the step math
-//! `publish_work` performs per call, and the `last_published` dedup
-//! comparison the `None` path uses to publish exactly once per job
-//! (exercised directly below via `JobId` equality, matching the `if`
-//! guard in `run_stratum_client_inner`).
+//! Tests of work publication, session teardown and outbound arbitration.
 
 use super::*;
 use embassy_time::Instant;
@@ -323,4 +311,228 @@ fn no_extension_has_no_deadline_and_nothing_to_send() {
     none.tick();
     assert_eq!(none.deadline(), None);
     assert!(none.outbound().is_none());
+}
+
+/// Scripted I/O events keep the session tests independent of wall-clock time.
+#[derive(Clone, Copy)]
+enum DriveStep {
+    BlockWithSolutions,
+    CleanJob,
+    Flush,
+    End,
+}
+
+const FIRST_NONCE: u32 = 11;
+const SECOND_NONCE: u32 = 12;
+const EXTENSION_SEND: u32 = 0;
+
+/// A client with one outbound slot and a cancellable blocked write.
+struct ScriptedClient<'a> {
+    asic: &'a AsicSession,
+    solution: Solution,
+    steps: &'a [DriveStep],
+    at: usize,
+    occupied: bool,
+    submitted: heapless::Vec<u32, 8>,
+    send_error: Option<Error>,
+}
+
+impl MiningClient for ScriptedClient<'_> {
+    async fn connect<T: Read + Write>(&mut self, _transport: &mut T) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn submit(&mut self, share: &Share<'_>) -> Result<(), Error> {
+        if self.occupied {
+            return Err(Error::Busy);
+        }
+        self.occupied = true;
+        self.submitted.push(share.nonce).expect("script fits");
+        Ok(())
+    }
+
+    fn send_extension(&mut self, _frame: &ExtensionFrame<'_>) -> Result<(), Error> {
+        if let Some(error) = self.send_error {
+            return Err(error);
+        }
+        if self.occupied {
+            return Err(Error::Busy);
+        }
+        self.occupied = true;
+        self.submitted.push(EXTENSION_SEND).expect("script fits");
+        Ok(())
+    }
+
+    async fn drive<T: Read + Write>(&mut self, _transport: &mut T) -> Result<DriveEvent, Error> {
+        let step = *self.steps.get(self.at).expect("script exhausted");
+        self.at += 1;
+        match step {
+            DriveStep::BlockWithSolutions => {
+                for nonce in [FIRST_NONCE, SECOND_NONCE] {
+                    assert!(self.asic.submit_solution(
+                        0,
+                        Solution {
+                            nonce,
+                            ..self.solution
+                        }
+                    ));
+                }
+                core::future::pending().await
+            }
+            DriveStep::CleanJob => Ok(DriveEvent::FrameReceived),
+            DriveStep::Flush => {
+                assert!(self.occupied);
+                self.occupied = false;
+                Ok(DriveEvent::OutboundFlushed)
+            }
+            DriveStep::End => Err(Error::Transport),
+        }
+    }
+
+    fn accept<V: MiningClientVisitor>(&mut self, visitor: &mut V) {
+        visitor.visit_new_job(MiningJob {
+            clean_jobs: true,
+            ..sample_job(2)
+        });
+    }
+}
+
+/// An extension that always exposes the next frame after a queue result.
+struct QueuedExtension {
+    remaining: usize,
+    results: heapless::Vec<Result<(), Error>, 4>,
+}
+
+impl SessionExtension for QueuedExtension {
+    fn connected(&mut self) {}
+    fn frame(&mut self, _frame: ExtensionFrame<'_>) {}
+    fn deadline(&self) -> Option<Instant> {
+        None
+    }
+    fn tick(&mut self) {
+        panic!("no deadline");
+    }
+    fn outbound(&self) -> Option<ExtensionFrame<'_>> {
+        (self.remaining > 0).then_some(ExtensionFrame {
+            extension_type: 0x1234,
+            msg_type: 0,
+            is_channel_message: false,
+            payload: b"frame",
+        })
+    }
+    fn outbound_result(&mut self, result: Result<(), Error>) {
+        self.remaining -= 1;
+        self.results.push(result).expect("script fits");
+    }
+}
+
+/// Run the production loop through a blocked write and its scripted recovery.
+fn run_script(steps: &[DriveStep]) -> heapless::Vec<u32, 8> {
+    let asic = AsicSession::new();
+    let mut state = StratumState::new(0);
+    state.visit_new_job(sample_job(1));
+    state.publish_work(asic.pool_handle(0), 0);
+    let assignment = asic
+        .work_receiver(0)
+        .expect("receiver")
+        .try_get()
+        .expect("work");
+    let mut client = ScriptedClient {
+        asic: &asic,
+        solution: Solution {
+            assignment_id: assignment.assignment_id,
+            nonce: FIRST_NONCE,
+            ntime: assignment.ntime,
+            version_bits: 0,
+        },
+        steps,
+        at: 0,
+        occupied: false,
+        submitted: heapless::Vec::new(),
+        send_error: None,
+    };
+    let mut extension = QueuedExtension {
+        remaining: 2,
+        results: heapless::Vec::new(),
+    };
+    let result = embassy_futures::block_on(run_stratum_client(
+        &mut client,
+        &mut NullTransport,
+        asic.pool_handle(0),
+        &mut state,
+        None,
+        &mut extension,
+    ));
+    assert_eq!(result, Err(Error::Transport));
+    assert_eq!(extension.results.as_slice(), &[Ok(()), Ok(())]);
+    assert!(asic.pool_handle(0).try_take_solution().is_none());
+    client.submitted
+}
+
+#[test]
+fn blocked_extension_writes_retain_shares_and_give_them_priority() {
+    let sent = run_script(&[
+        DriveStep::BlockWithSolutions,
+        DriveStep::Flush,
+        DriveStep::Flush,
+        DriveStep::Flush,
+        DriveStep::End,
+    ]);
+    assert_eq!(
+        sent.as_slice(),
+        &[EXTENSION_SEND, FIRST_NONCE, SECOND_NONCE, EXTENSION_SEND]
+    );
+}
+
+#[test]
+fn a_pending_share_is_revalidated_after_a_clean_job() {
+    let sent = run_script(&[
+        DriveStep::BlockWithSolutions,
+        DriveStep::CleanJob,
+        DriveStep::Flush,
+        DriveStep::End,
+    ]);
+    assert_eq!(sent.as_slice(), &[EXTENSION_SEND, EXTENSION_SEND]);
+}
+
+#[test]
+fn extension_queue_results_distinguish_busy_rejected_and_fatal() {
+    let asic = AsicSession::new();
+    let mut client = ScriptedClient {
+        asic: &asic,
+        solution: Solution {
+            assignment_id: 0,
+            nonce: 0,
+            ntime: 0,
+            version_bits: 0,
+        },
+        steps: &[],
+        at: 0,
+        occupied: false,
+        submitted: heapless::Vec::new(),
+        send_error: None,
+    };
+    for (error, expected) in [
+        (None, Ok(())),
+        (Some(Error::Busy), Ok(())),
+        (Some(Error::NotImplemented), Ok(())),
+        (Some(Error::BufferTooSmall), Ok(())),
+        (Some(Error::Transport), Err(Error::Transport)),
+        (Some(Error::Adapter), Err(Error::Adapter)),
+    ] {
+        client.occupied = false;
+        client.send_error = error;
+        let mut extension = QueuedExtension {
+            remaining: 1,
+            results: heapless::Vec::new(),
+        };
+        assert_eq!(offer_outbound(&mut client, &mut extension), expected);
+        if error == Some(Error::Busy) {
+            assert!(extension.outbound().is_some());
+            assert!(extension.results.is_empty());
+        } else {
+            assert!(extension.outbound().is_none());
+            assert_eq!(extension.results.as_slice(), &[error.map_or(Ok(()), Err)]);
+        }
+    }
 }
