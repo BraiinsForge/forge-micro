@@ -44,6 +44,10 @@ mod versions;
 mod tests_storage;
 
 #[cfg(test)]
+#[path = "tests/versions.rs"]
+mod tests_versions;
+
+#[cfg(test)]
 #[path = "tests/validation.rs"]
 mod tests_validation;
 
@@ -726,12 +730,11 @@ impl Config {
     ///
     /// Computed via FNV1a-64 over the postcard schema and the type path
     /// string. Any field addition, removal, rename, reorder, or type
-    /// change shifts this hash. [`crate::storage::decode_blob`] compares
-    /// the 8-byte prefix of stored blobs against this constant and
-    /// returns [`crate::storage::LoadError::SchemaMismatch`] on mismatch,
-    /// allowing the firmware to fall back to defaults safely.
-    pub const SCHEMA_HASH: [u8; 8] =
-        postcard_schema::key::hash::fnv1a64::hash_ty_path::<Config>("ubos_config::Config");
+    /// change shifts this hash. The boot compares the 8-byte prefix of
+    /// the stored record against this constant, and against the hashes
+    /// of the older versions it can upgrade from, and falls back to
+    /// defaults on a record in no schema it reads.
+    pub const SCHEMA_HASH: [u8; 8] = versions::schema_hash::<Config>();
 
     /// Validate operator-tunable fields against their per-domain bounds.
     ///
@@ -771,8 +774,10 @@ impl Config {
 /// Reconfigure task for the config subsystem.
 ///
 /// On boot, loads the stored [`Config`] via `storage` and validates it
-/// against `info.bounds`. On [`LoadError::SchemaMismatch`] (firmware
-/// upgraded across an incompatible schema), [`LoadError::Corrupt`]
+/// against `info.bounds`. A record that an older version stored is
+/// upgraded to the live schema. On
+/// [`LoadError::SchemaMismatch`] (a record in no schema this build
+/// reads), [`LoadError::Corrupt`]
 /// (partial write before power loss), an I/O error, or a failed
 /// validation, falls back to [`Config::for_board`] with
 /// `info.default_tuning` and logs the reason. `Ok(None)` means the key
@@ -1007,13 +1012,7 @@ fn decode_stored<E>(
     board: &'static HashboardDescriptor,
     info: &'static MiningInfo,
 ) -> Option<Config> {
-    let mut config = match decode_blob::<E>(blob) {
-        Ok(config) => config,
-        Err(error) => {
-            log_decode_error(&error);
-            return None;
-        }
-    };
+    let mut config = decode_record::<E>(blob)?;
     // Firmware updates narrow the tuners and ranges a stored tuning
     // passed. Only the tuning is replaced then, so the operator keeps
     // the rest of their config.
@@ -1057,6 +1056,40 @@ fn decode_stored<E>(
         return None;
     }
     info!("config: loaded from storage");
+    Some(config)
+}
+
+/// The live config in a stored record, or `None` after a logged reason
+/// when it does not decode: decoded directly when the record is in this
+/// build's schema, and upgraded when an older version wrote it.
+fn decode_record<E>(blob: &[u8]) -> Option<Config> {
+    let error = match decode_blob::<E>(blob) {
+        Ok(config) => return Some(config),
+        Err(error) => error,
+    };
+    if let LoadError::SchemaMismatch { stored, .. } = error
+        && let Some(version) = versions::older_version(stored, versions::VERSIONS)
+    {
+        return upgrade_record(version, &blob[stored.len()..]);
+    }
+    log_decode_error(&error);
+    None
+}
+
+/// The live config in the `payload` of a record of `version`, or `None`
+/// after a logged reason when the payload does not decode.
+///
+/// The upgrade decodes and converts without an await, so the task never
+/// holds the old and the new config across a suspend point.
+fn upgrade_record(version: &versions::Version, payload: &[u8]) -> Option<Config> {
+    let Some(config) = (version.upgrade)(payload) else {
+        warn!(
+            "config: the record of version {} does not decode, using defaults",
+            version.number
+        );
+        return None;
+    };
+    info!("config: upgraded the record of version {}", version.number);
     Some(config)
 }
 
@@ -1128,7 +1161,11 @@ async fn persist_taken<S: Storage>(taken: &Taken, storage: &mut S) {
 #[allow(clippy::match_same_arms)]
 fn log_decode_error<E>(error: &LoadError<E>) {
     match error {
-        LoadError::SchemaMismatch { .. } => warn!("config: schema mismatch, using defaults"),
+        LoadError::SchemaMismatch { .. } => {
+            warn!(
+                "config: the stored config has a schema that this firmware cannot read, using defaults"
+            );
+        }
         LoadError::Corrupt => warn!("config: stored blob corrupt, using defaults"),
         LoadError::Io(_) => warn!("config: storage error decoding blob, using defaults"),
     }

@@ -30,6 +30,8 @@
 // state to be `Send`, which is not free on no_std embedded targets.
 #![allow(async_fn_in_trait)]
 
+use serde::Serialize;
+
 use crate::Config;
 
 /// Map key for the config record.
@@ -103,12 +105,25 @@ pub trait Storage {
 /// serialized config (the schema-hash prefix always fits in any
 /// buffer ≥ 8 bytes, so the error is from the postcard encoding step).
 pub fn encode_blob(config: &Config, buffer: &mut [u8]) -> Result<usize, postcard::Error> {
+    encode_record(Config::SCHEMA_HASH, config, buffer)
+}
+
+/// Encode `schema` into `buffer` behind `hash`, the schema hash of the
+/// version whose record it is, and return the record length.
+///
+/// The live config and every older version frame their record the same
+/// way, so one encoder serves them all.
+pub(crate) fn encode_record<T: Serialize>(
+    hash: [u8; 8],
+    schema: &T,
+    buffer: &mut [u8],
+) -> Result<usize, postcard::Error> {
     const HASH_LEN: usize = 8;
     if buffer.len() < HASH_LEN {
         return Err(postcard::Error::SerializeBufferFull);
     }
-    buffer[..HASH_LEN].copy_from_slice(&Config::SCHEMA_HASH);
-    let payload = postcard::to_slice(config, &mut buffer[HASH_LEN..])?;
+    buffer[..HASH_LEN].copy_from_slice(&hash);
+    let payload = postcard::to_slice(schema, &mut buffer[HASH_LEN..])?;
     Ok(HASH_LEN + payload.len())
 }
 
