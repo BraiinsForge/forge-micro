@@ -37,6 +37,7 @@ use embassy_futures::block_on;
 use crate::TemperatureDescriptor;
 use ubos_core::units::Temperature;
 
+use crate::storage::encode_record;
 use crate::{
     ApiConfig, CONFIG_KEY, Config, DefaultTuning, LOAD_BUFFER_SIZE, MiningInfo, NetworkMode, Seed,
     SeedField, decode_blob, encode_blob, file_storage::FileStorage, load_initial, storage::Storage,
@@ -121,12 +122,27 @@ fn save(storage: &mut FileStorage, config: &Config) {
         .expect("BUG: FileStorage::store failed in test");
 }
 
-/// A `FileStorage` that counts its writes, and refuses every config
-/// write while `refuse_config` is set, as a flash fault would.
+/// Store `config` behind a schema hash that no build reads, as a dev
+/// build with another schema would.
+fn save_unreadable(storage: &mut FileStorage, config: &Config) {
+    let mut buffer = [0u8; LOAD_BUFFER_SIZE];
+    let length =
+        encode_record(UNREADABLE, config, &mut buffer).expect("BUG: encode_record failed in test");
+    block_on(storage.store(CONFIG_KEY, &buffer[..length]))
+        .expect("BUG: FileStorage::store failed in test");
+}
+
+/// A schema hash that no build reads.
+const UNREADABLE: [u8; 8] = [0xA5; 8];
+
+/// A `FileStorage` that counts its writes, refuses every config write
+/// while `refuse_config` is set, and fails every config read while
+/// `fail_config_read` is set, as a flash fault would.
 struct Probe {
     inner: FileStorage,
     writes: usize,
     refuse_config: bool,
+    fail_config_read: bool,
 }
 
 impl Probe {
@@ -135,6 +151,7 @@ impl Probe {
             inner: FileStorage::new(dir),
             writes: 0,
             refuse_config: false,
+            fail_config_read: false,
         }
     }
 }
@@ -147,6 +164,9 @@ impl Storage for Probe {
         key: u8,
         buffer: &'b mut [u8],
     ) -> Result<Option<&'b [u8]>, Self::Error> {
+        if self.fail_config_read && key == CONFIG_KEY {
+            return Err(std::io::Error::other("config read failed in test"));
+        }
         self.inner.load(key, buffer).await
     }
 
@@ -428,6 +448,62 @@ fn stored_thresholds_of_other_kinds_take_the_machine_ones() {
     let mut expected = other;
     expected.thermal.dangerous = TemperatureDescriptor::dangerous_of(BOARD);
     assert_eq!(loaded, expected);
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// A stored config this build cannot read takes every seed field over
+/// the defaults, though the store took each of them before, and the
+/// result replaces the record.
+#[test]
+fn unreadable_config_takes_every_seed_field() {
+    let dir = fresh_dir("unreadable");
+    let mut storage = FileStorage::new(&dir);
+    block_on(load_initial(&mut storage, BOARD, &INFO, Some(seed())));
+
+    let mut edited = seeded();
+    edited.thermal.dangerous = TemperatureDescriptor {
+        chip: None,
+        hashboard: Some(Temperature::from_celsius(80)),
+    };
+    save_unreadable(&mut storage, &edited);
+    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(seed())));
+    assert_eq!(loaded, seeded(), "the defaults take every seed field");
+    assert_eq!(
+        stored(&mut storage),
+        Some(seeded()),
+        "the seeded config replaces the unreadable record"
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// A stored config this build cannot read gives the defaults on a board
+/// with no seed, and the boot writes nothing.
+#[test]
+fn unreadable_config_without_a_seed_gives_the_defaults() {
+    let dir = fresh_dir("unreadable-no-seed");
+    let mut storage = Probe::new(&dir);
+    save_unreadable(&mut storage.inner, &seeded());
+
+    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, None));
+    assert_eq!(loaded, Config::for_board(BOARD, INFO.default_tuning));
+    assert_eq!(storage.writes, 0, "the defaults are not persisted");
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// A config read that fails gives the defaults without the seed, and the
+/// boot writes nothing, so a flash fault never replaces the config.
+#[test]
+fn failed_config_read_takes_no_seed() {
+    let dir = fresh_dir("failed-read");
+    let mut storage = Probe::new(&dir);
+    storage.fail_config_read = true;
+
+    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(seed())));
+    assert_eq!(loaded, Config::for_board(BOARD, INFO.default_tuning));
+    assert_eq!(storage.writes, 0, "a failed read writes nothing");
 
     let _ = fs::remove_dir_all(&dir);
 }

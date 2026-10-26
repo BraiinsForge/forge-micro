@@ -792,8 +792,9 @@ impl Config {
 /// under the other firmware reaches the config once, and a setting the
 /// operator has since changed here stays as they left it. A factory
 /// reset keeps the fingerprints, so the seed stays out until its
-/// source changes. A seed whose result fails validation is dropped
-/// with a warning.
+/// source changes. A fallback for any reason but an I/O error takes
+/// every seed field, whatever the fingerprints say. A seed whose result
+/// fails validation is dropped with a warning.
 ///
 /// A board hands in the `fee` slot it runs, from [`FeeSlot::last_of`],
 /// and the handle answers for it from then on: [`Handle::pool_slot`]
@@ -952,6 +953,12 @@ fn clear_pending_status() {
 /// paths converge on defaults so the firmware always boots with a
 /// valid config. A seed field is new when its fingerprint differs from
 /// the taken one, so a first boot with no taken record takes them all.
+///
+/// A stored config that this build cannot read takes every seed field
+/// over the defaults, whatever the store took before, and is stored at
+/// once. The operator's config is gone then, and the settings the board
+/// recovered are the best values it knows. A load that fails with an
+/// I/O error takes no seed, so a flash fault never writes.
 async fn load_initial<S: Storage>(
     storage: &mut S,
     board: &'static HashboardDescriptor,
@@ -959,19 +966,15 @@ async fn load_initial<S: Storage>(
     seed: Option<Seed>,
 ) -> Config {
     // The buffer is scoped to the load, so the task does not hold it
-    // across the seed writes.
+    // across the seed writes. An empty store reads as the defaults, so
+    // `None` is a record this build cannot read.
     let stored = {
         let mut buffer = [0u8; LOAD_BUFFER_SIZE];
         match storage.load(CONFIG_KEY, &mut buffer).await {
-            Ok(Some(blob)) => {
-                let Some(config) = decode_stored::<S::Error>(blob, board, info) else {
-                    return Config::for_board(board, info.default_tuning);
-                };
-                Some(config)
-            }
+            Ok(Some(blob)) => decode_stored::<S::Error>(blob, board, info),
             Ok(None) => {
                 info!("config: no stored config, using defaults");
-                None
+                Some(Config::for_board(board, info.default_tuning))
             }
             Err(_) => {
                 warn!("config: load failed, using defaults");
@@ -984,21 +987,25 @@ async fn load_initial<S: Storage>(
     };
     // The boot config is scoped to the merge, so the task holds one config
     // across the writes below rather than two.
-    let (config, taken, changed) = {
+    let (config, taken, store) = {
+        let lost = stored.is_none();
         let base = stored.unwrap_or_else(|| Config::for_board(board, info.default_tuning));
         let Some(taken) = load_taken(storage).await else {
             return base;
         };
-        let Some((config, taken)) = seeded(&base, taken, seed, info.bounds) else {
+        let from = if lost { Taken::default() } else { taken };
+        let Some((config, taken)) = seeded(&base, from, seed, info.bounds) else {
             return base;
         };
-        let changed = config != base;
-        (config, taken, changed)
+        // A lost record is replaced even by a seed that matches the
+        // defaults, so the next boot reads the config directly.
+        let store = lost || config != base;
+        (config, taken, store)
     };
     // The fingerprints are saved only once the config is stored, so a power
     // cut or a failed write between the two takes the seed again on the
     // next boot rather than losing it.
-    if changed && !persist(&config, storage).await {
+    if store && !persist(&config, storage).await {
         return config;
     }
     persist_taken(&taken, storage).await;
