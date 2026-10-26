@@ -36,7 +36,7 @@ use edge_nal::Readable;
 use edge_nal::TcpSplit;
 use embedded_io_async::{ErrorType, Read, Write};
 
-use crate::ota::OtaError;
+use crate::ota::{OtaError, StagedConfig};
 use crate::system::{DispatchOutcome, Route, route};
 
 // ---------------------------------------------------------------------------
@@ -253,6 +253,10 @@ impl crate::ota::OtaTarget for MockOtaTarget {
 
     fn finish(&mut self) -> Result<(), OtaError> {
         self.finish_result
+    }
+
+    fn staged_config(&self) -> Option<StagedConfig> {
+        None
     }
 
     fn reboot_into_new(&mut self) -> ! {

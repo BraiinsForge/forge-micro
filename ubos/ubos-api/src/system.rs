@@ -57,6 +57,9 @@
 //!   acknowledged individually, using the `X-OTA-Offset` and
 //!   `X-OTA-Final` headers to order and terminate the transfer.
 //!
+//! Both downgrade the config before the reboot, so the new image boots
+//! on a record it reads.
+//!
 //! Both OTA endpoints are intercepted in `rest.rs` ahead of [`dispatch`]
 //! because they stream their body straight from the connection. They
 //! require an [`crate::ota::OtaTarget`] registered via
@@ -159,6 +162,24 @@ pub(crate) const OTA_MAX_IMAGE_BYTES: u64 = 952 * 1024;
 /// A Cortex-M vector table occupies the first 512 bytes of a valid
 /// firmware image. Any image smaller than this cannot be valid firmware.
 const OTA_MIN_IMAGE_BYTES: u64 = 512;
+
+/// Downgrade the config for the image that `ota` staged, and wait until
+/// the config task has stored the record that the image reads.
+///
+/// Called after `finish` accepted the image and before the reboot, so
+/// the image boots on a record it reads. A target that cannot tell what
+/// the image reads downgrades nothing.
+async fn downgrade_config(ota: &dyn crate::ota::OtaTarget) {
+    let Some(staged) = ota.staged_config() else {
+        info!(
+            "OTA: the config that the image reads is not known, rebooting without the config downgrade"
+        );
+        return;
+    };
+    if !ubos_config::handle().downgrade(staged).await {
+        warn!("OTA: the config task did not answer, rebooting without the config downgrade");
+    }
+}
 
 /// Maximum image size the registered target accepts.
 ///
@@ -1163,6 +1184,7 @@ where
         .await;
     }
 
+    downgrade_config(ota).await;
     info!(
         "OTA upload complete ({} bytes); rebooting into new slot",
         total_bytes
@@ -1472,6 +1494,7 @@ where
             .await;
         }
 
+        downgrade_config(ota).await;
         // `ota_offset` is bounded by the target's max image size (fits in usize on all targets).
         #[allow(clippy::cast_possible_truncation)]
         let total_bytes = ota_offset as usize + chunk_size;

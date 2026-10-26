@@ -62,7 +62,8 @@ pub use hw_info::{
     publish_nominal_hashrate, publish_product_name,
 };
 pub use ota::{
-    OtaError, OtaTarget, OtaWritePhase, ResetReason, publish_reset_diag, register_ota_target,
+    OtaError, OtaTarget, OtaWritePhase, ResetReason, StagedConfig, publish_reset_diag,
+    register_ota_target,
 };
 pub use rest::{
     RestApiService, run_ota_session_watchdog, run_sync_credentials, seed_api_credentials,

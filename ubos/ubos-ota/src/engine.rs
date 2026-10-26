@@ -32,7 +32,7 @@
 //! after, release the park on every exit path — in one place so a second
 //! board cannot diverge from it.
 
-use ubos_api::{OtaError, OtaWritePhase};
+use ubos_api::{OtaError, OtaWritePhase, StagedConfig};
 
 /// Maximum number of park-ack polls before giving up and returning an error.
 ///
@@ -253,6 +253,12 @@ impl<B: OtaBackend> ubos_api::OtaTarget for OtaEngine<B> {
         self.backend.clear_breadcrumb();
         ubos_mining::release_core1_park();
         result
+    }
+
+    /// Always `None`: an embassy-boot image carries no header that
+    /// declares the config it reads.
+    fn staged_config(&self) -> Option<StagedConfig> {
+        None
     }
 
     /// Releases the core-1 park and clears the breadcrumb without committing.

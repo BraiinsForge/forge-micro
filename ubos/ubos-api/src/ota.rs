@@ -50,6 +50,10 @@ use serde::Serialize;
 
 use crate::schema::system_info::OtaInfo;
 
+/// The config that [`OtaTarget::staged_config`] reports, re-exported so a
+/// target names it without depending on `ubos-config`.
+pub use ubos_config::StagedConfig;
+
 // ---------------------------------------------------------------------------
 // Live upload session state (lock-free atomics)
 // ---------------------------------------------------------------------------
@@ -583,6 +587,16 @@ pub trait OtaTarget: Send {
     /// Returns [`OtaError::Flash`] on failure. Not calling `finish` after
     /// writing is how a partial update is kept from being booted.
     fn finish(&mut self) -> Result<(), OtaError>;
+
+    /// The config that the image [`finish`] accepted reads, or `None`
+    /// when the board cannot tell.
+    ///
+    /// The handler hands it to the config task before the reboot, and
+    /// the task stores the record that the image reads. On `None` the
+    /// handler downgrades nothing.
+    ///
+    /// [`finish`]: OtaTarget::finish
+    fn staged_config(&self) -> Option<StagedConfig>;
 
     /// Reboot the device into the freshly written inactive slot.
     ///
