@@ -41,6 +41,10 @@ use embedded_hal_async::i2c::I2c;
 use crate::Error;
 use crate::pmbus::{decode_status, read_word, write_word};
 
+#[cfg(test)]
+#[path = "tests/tps53647.rs"]
+mod tests;
+
 // Register addresses (PMBus command codes).
 pub(crate) const OPERATION: u8 = 0x01;
 pub(crate) const CLEAR_FAULTS: u8 = 0x03;
@@ -389,7 +393,3 @@ where
         .map_err(Error::Bus)?;
     Ok(decode_status(buffer[0]))
 }
-
-#[cfg(test)]
-#[path = "tests/tps53647.rs"]
-mod tests;

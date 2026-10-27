@@ -31,6 +31,10 @@
 use embassy_time::{Duration, Timer};
 use embedded_hal_async::i2c::I2c;
 
+#[cfg(test)]
+#[path = "tests/watchdog.rs"]
+mod tests;
+
 const REG_VIRTUAL_INPUT: u8 = 0x7a;
 const HEARTBEAT_HIGH_DURATION: Duration = Duration::from_millis(100);
 
@@ -72,7 +76,3 @@ where
     Timer::after(HEARTBEAT_HIGH_DURATION).await;
     i2c.write(address, &[REG_VIRTUAL_INPUT, 0x00]).await
 }
-
-#[cfg(test)]
-#[path = "tests/watchdog.rs"]
-mod tests;

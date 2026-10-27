@@ -28,6 +28,10 @@
 use std::error::Error;
 use std::fmt;
 
+#[cfg(test)]
+#[path = "tests/events.rs"]
+mod tests_events;
+
 /// Width of a single decoded event argument.
 ///
 /// Mirrors `ubos_events::ArgWidth`, as serialised into the event catalog
@@ -275,7 +279,3 @@ impl EventCodec {
         (year, month, day)
     }
 }
-
-#[cfg(test)]
-#[path = "tests/events.rs"]
-mod tests_events;

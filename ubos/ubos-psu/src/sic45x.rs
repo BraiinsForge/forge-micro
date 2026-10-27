@@ -39,6 +39,10 @@ use embedded_hal_async::i2c::I2c;
 use crate::Error;
 use crate::pmbus::{decode_status, write_word};
 
+#[cfg(test)]
+#[path = "tests/sic45x.rs"]
+mod tests;
+
 // Register addresses (PMBus command codes).
 pub(crate) const OPERATION: u8 = 0x01;
 pub(crate) const CLEAR_FAULTS: u8 = 0x03;
@@ -560,7 +564,3 @@ where
         .ok()?;
     Some(u16::from_le_bytes(word_buf))
 }
-
-#[cfg(test)]
-#[path = "tests/sic45x.rs"]
-mod tests;

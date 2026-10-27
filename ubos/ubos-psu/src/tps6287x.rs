@@ -27,6 +27,10 @@
 //! watchdog over the same bus. A method that locked again would
 //! deadlock. `state.rs` holds the receiver these would otherwise want.
 
+#[cfg(test)]
+#[path = "tests/tps6287x.rs"]
+mod tests;
+
 pub(crate) const REG_VSET: u8 = 0x00;
 pub(crate) const REG_CONTROL1: u8 = 0x01;
 pub(crate) const REG_CONTROL2: u8 = 0x02;
@@ -369,7 +373,3 @@ where
         .map_err(Error::Bus)?;
     Ok(decode_status(buffer[0]))
 }
-
-#[cfg(test)]
-#[path = "tests/tps6287x.rs"]
-mod tests;

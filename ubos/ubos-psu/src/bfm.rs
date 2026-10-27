@@ -30,6 +30,10 @@ use ubos_core::units::{Power, Voltage};
 use crate::state::{Device, Shared};
 use crate::{Error, Psu, ina230, sic45x};
 
+#[cfg(test)]
+#[path = "tests/bfm.rs"]
+mod tests;
+
 /// Runtime configuration for `BfmPsu`.
 #[derive(Clone, Copy, Debug)]
 pub struct BfmPsuDescriptor {
@@ -232,7 +236,3 @@ impl<I: I2c + 'static> Psu for BfmPsu<I> {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "tests/bfm.rs"]
-mod tests;

@@ -29,6 +29,10 @@ use ubos_core::units::Temperature;
 
 use crate::{Readings, TempSource, add_source};
 
+#[cfg(test)]
+#[path = "tests/tmp102.rs"]
+mod tests;
+
 /// Temperature register pointer. POR value selects this register, so a
 /// plain two-byte read without a preceding pointer write also works if the
 /// pointer register has not been changed.
@@ -106,7 +110,3 @@ pub(crate) fn raw_to_millicelsius(buffer: [u8; 2]) -> i32 {
     let raw12 = i16::from_be_bytes(buffer) >> 4;
     i32::from(raw12) * MILLICELSIUS_NUMERATOR / MILLICELSIUS_DENOMINATOR
 }
-
-#[cfg(test)]
-#[path = "tests/tmp102.rs"]
-mod tests;

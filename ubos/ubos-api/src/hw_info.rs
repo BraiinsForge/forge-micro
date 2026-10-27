@@ -33,6 +33,10 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::Watch;
 use heapless::{String, Vec};
 
+#[cfg(test)]
+#[path = "tests/hw_info.rs"]
+mod tests;
+
 /// Capacity of every string field in the hardware-identity response.
 /// Sized to the largest producer, a 40-byte hashboard EEPROM serial, so
 /// no board's data needs truncating and no field encodes a
@@ -129,7 +133,3 @@ pub fn publish_hashboard_id(serial: Option<HwString>) {
 pub(crate) fn hashboard_ids() -> Option<HashboardIds> {
     HASHBOARD_IDS.try_get()
 }
-
-#[cfg(test)]
-#[path = "tests/hw_info.rs"]
-mod tests;

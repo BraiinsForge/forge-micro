@@ -43,6 +43,10 @@ use ubos_core::units::Temperature;
 
 use crate::{Readings, TempSource, add_source};
 
+#[cfg(test)]
+#[path = "tests/tmp464.rs"]
+mod tests;
+
 /// Local temperature result register (16-bit, 13-bit result left-justified).
 const REG_LOCAL: u8 = 0x00;
 /// Remote Channel Open Status register (read-only, 16-bit). Bits 8 to 11
@@ -255,7 +259,3 @@ pub(crate) fn decode_millicelsius(buffer: [u8; 2]) -> i32 {
     let raw = i16::from_be_bytes(buffer) >> RESULT_SHIFT;
     i32::from(raw) * MILLICELSIUS_NUMERATOR / MILLICELSIUS_DENOMINATOR
 }
-
-#[cfg(test)]
-#[path = "tests/tmp464.rs"]
-mod tests;

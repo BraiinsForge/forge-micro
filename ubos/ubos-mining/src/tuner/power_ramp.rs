@@ -44,6 +44,10 @@ use ubos_tuner::{Plan, Readings, Tuner};
 
 use super::{MachineTuner, PowerTarget};
 
+#[cfg(test)]
+#[path = "../tests/power_ramp.rs"]
+mod tests;
+
 /// Upper safety margin as a divisor of the target, e.g. `1 / 40 = 2.5%`.
 const TARGET_POWER_UPPER_MARGIN_DIVISOR: u32 = 20; // 1 / 20 = 5%
 /// Lower restoration margin as a divisor of the target, e.g. `1 / 40 = 2.5%`.
@@ -520,7 +524,3 @@ fn predicted_voltage(target: Power, alpha: f64, frequency: Frequency) -> Voltage
     let volts = sqrt(f64::from(target.mw()) / (alpha * frequency.as_mhz()));
     Voltage::from_mv((volts * 1000.0) as u32)
 }
-
-#[cfg(test)]
-#[path = "../tests/power_ramp.rs"]
-mod tests;

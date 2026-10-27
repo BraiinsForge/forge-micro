@@ -34,6 +34,10 @@
 
 use embedded_hal_async::i2c::I2c;
 
+#[cfg(test)]
+#[path = "tests/ina230.rs"]
+mod tests;
+
 const REG_CONFIG: u8 = 0x00;
 const REG_BUS_VOLTAGE: u8 = 0x02;
 const REG_POWER: u8 = 0x03;
@@ -168,7 +172,3 @@ where
     let register = u16::from_be_bytes(buffer);
     Ok((u32::from(register) * BUS_VOLTAGE_LSB_MICROVOLTS) / 1_000)
 }
-
-#[cfg(test)]
-#[path = "tests/ina230.rs"]
-mod tests;

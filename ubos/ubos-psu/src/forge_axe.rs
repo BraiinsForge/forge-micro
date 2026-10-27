@@ -30,6 +30,10 @@ use crate::state::{Device, Shared};
 use crate::tps53647::{self, Tps53647Config};
 use crate::{Error, Psu};
 
+#[cfg(test)]
+#[path = "tests/forge_axe.rs"]
+mod tests;
+
 /// Runtime configuration for `ForgeAxePsu`.
 #[derive(Clone, Copy, Debug)]
 pub struct ForgeAxePsuDescriptor {
@@ -148,7 +152,3 @@ impl<I: I2c + 'static> Psu for ForgeAxePsu<I> {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "tests/forge_axe.rs"]
-mod tests;

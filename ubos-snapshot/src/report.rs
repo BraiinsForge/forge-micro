@@ -28,6 +28,10 @@ use serde_json::Value;
 use crate::events::{EventCodec, Width};
 use crate::snapshot::{CatalogEntry, EventsSection, Meta, MetricEntry, Snapshot};
 
+#[cfg(test)]
+#[path = "tests/report.rs"]
+mod tests_report;
+
 /// Severity of a report table row, used for HTML row tinting.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
@@ -732,7 +736,3 @@ tbody tr.sev-warn { background: #fff3cd; }
 tbody tr.sev-error { background: #f8d7da; }
 p.note { color: #555; font-style: italic; }
 ";
-
-#[cfg(test)]
-#[path = "tests/report.rs"]
-mod tests_report;

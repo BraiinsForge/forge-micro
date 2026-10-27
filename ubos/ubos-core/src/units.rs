@@ -28,6 +28,10 @@
 
 use core::num::NonZeroU32;
 
+#[cfg(test)]
+#[path = "tests/units.rs"]
+mod tests;
+
 /// Clock frequency in kilohertz. The internal scalar is kHz so a
 /// 6.25 MHz PLL step survives the type without truncation; consumers
 /// that operate at MHz granularity (config, dashboard, telemetry)
@@ -308,7 +312,3 @@ impl FanRpm {
         self.0
     }
 }
-
-#[cfg(test)]
-#[path = "tests/units.rs"]
-mod tests;

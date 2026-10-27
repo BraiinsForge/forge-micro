@@ -35,6 +35,10 @@ use ubos_core::units::Temperature;
 
 use crate::{Readings, TempSource, add_source};
 
+#[cfg(test)]
+#[path = "tests/tmp461.rs"]
+mod tests;
+
 /// Status register (read-only). Reports ADC state and the remote-diode
 /// connection fault.
 const REG_STATUS: u8 = 0x02;
@@ -264,7 +268,3 @@ pub(crate) fn decode_millicelsius(high: u8, low: u8, extended_range: bool) -> i3
     degrees * MILLICELSIUS_PER_DEGREE
         + i32::from(low >> FRACTION_SHIFT) * FRACTION_STEP_NUMERATOR / FRACTION_STEP_DENOMINATOR
 }
-
-#[cfg(test)]
-#[path = "tests/tmp461.rs"]
-mod tests;

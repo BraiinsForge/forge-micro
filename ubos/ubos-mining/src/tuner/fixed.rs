@@ -32,6 +32,10 @@ use ubos_tuner::{Plan, Readings, Tuner};
 
 use super::{FixedTarget, MachineTuner};
 
+#[cfg(test)]
+#[path = "../tests/tuner.rs"]
+mod tests;
+
 /// Fixed-target policy. Hardware state remains in the serial actors and PSU.
 pub struct FixedTuner {
     board: &'static HashboardDescriptor,
@@ -290,7 +294,3 @@ fn curve_voltage(power_target: f64, frequency: Frequency, target_voltage: Voltag
     let curve_mv = sqrt(power_target / f64::from(frequency.khz())) as u32;
     Voltage::from_mv(curve_mv).max(target_voltage)
 }
-
-#[cfg(test)]
-#[path = "../tests/tuner.rs"]
-mod tests;
