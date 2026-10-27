@@ -62,6 +62,7 @@ use ubos_config::{FlashStorage, SyncFlash};
 #[cfg(feature = "display")]
 use ubos_display::sh1106::{Rotation, Sh1106};
 use ubos_eeprom::HashboardEeprom as _;
+use ubos_esp32::i2c;
 use ubos_net::net;
 use {defmt_rtt as _, esp_backtrace as _};
 
@@ -143,7 +144,7 @@ impl ubos_thermal::McuTemperatureSensor for McuTempSensor {
 }
 
 ubos_thermal::thermal_task!(
-    ubos_thermal::SensorArray<{ config::MACHINE.temp.len() }, psu::Device>,
+    ubos_thermal::SensorArray<{ config::MACHINE.temp.len() }, i2c::Device>,
     ubos_thermal::NoAmbient,
     McuTempSensor
 );
@@ -499,14 +500,14 @@ async fn boot(spawner: Spawner) {
     // mining tasks run on Core 0 so the I2C bus mutex can stay
     // `NoopRawMutex`: every consumer is on the same executor.
     {
-        static I2C0_BUS: StaticCell<psu::Bus> = StaticCell::new();
+        static I2C0_BUS: StaticCell<i2c::Bus> = StaticCell::new();
         // Valid I2C0 peripheral with GPIO15/7 routed via the GPIO matrix; cannot fail.
         let i2c = I2c::new(hw.i2c, I2cConfig::default())
             .expect("BUG: I2C0 configuration failed")
             .with_sda(hw.sda)
             .with_scl(hw.scl)
             .into_async();
-        let bus: &'static psu::Bus = I2C0_BUS.init(Mutex::new(i2c));
+        let bus: &'static i2c::Bus = I2C0_BUS.init(Mutex::new(i2c));
 
         // Read the hashboard EEPROM once, before powering anything up, so
         // its identity is in the log even if bring-up later fails. The

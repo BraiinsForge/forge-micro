@@ -22,23 +22,8 @@
 //! Owns the static cells for the shared `BmmPsu` state and the PSU
 //! handle, both of which `ubos_psu::bmm_psu!` writes. The bus mutex is
 //! owned by `main`, so another consumer takes its own `I2cDevice` from
-//! the same mutex rather than one of these; what it does take from here
-//! is the [`Device`] alias that names the handle type.
+//! the same mutex rather than one of these.
 
-use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
-use embassy_stm32::i2c::{I2c, Master};
-use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-use embassy_sync::mutex::Mutex;
-
-/// Bus mutex shared by every consumer on I2C1. `NoopRawMutex` is sufficient
-/// because the STM32F407 is single-core: every I2C consumer runs on the same
-/// executor and there is no cross-core contention.
-pub type Bus = Mutex<NoopRawMutex, I2c<'static, embassy_stm32::mode::Async, Master>>;
-
-/// `embedded-hal-async` device handle for one consumer of the shared bus.
-/// Cloning the bus reference is the supported shared-bus pattern. Public
-/// because the hashboard sensor array takes one of these too.
-pub type Device =
-    I2cDevice<'static, NoopRawMutex, I2c<'static, embassy_stm32::mode::Async, Master>>;
+use ubos_stm32::i2c::{Bus, Device};
 
 ubos_psu::bmm_psu!(Bus, Device, crate::config::MACHINE.psu);

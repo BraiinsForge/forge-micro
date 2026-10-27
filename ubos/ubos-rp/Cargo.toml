@@ -21,6 +21,8 @@ ubos-ota = { workspace = true, features = ["defmt", "rp"] }
 serial-baudrate = { workspace = true }
 embedded-io-async = { workspace = true }
 embassy-time = { workspace = true }
+embassy-sync = { workspace = true }
+embassy-embedded-hal = { version = "0.6.0", default-features = false }
 defmt = { workspace = true }
 
 # No chip feature here: the crate builds under both rp2040 (thumbv6m) and

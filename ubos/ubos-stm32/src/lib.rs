@@ -23,9 +23,9 @@
 //! temperature code that both STM32 boards carried one copy of: the
 //! timer-based fan PWM and the tachometer that counts capture edges in the
 //! TIM4 handler, the `MinerUart` newtype, the `BoardWatchdog` wrapper, the
-//! `Device` type alias with its `ethernet_device!` macro, and the ADC1
-//! wiring for the die thermometer. A board depends on this crate and
-//! deletes its own copies.
+//! `Device` type alias with its `ethernet_device!` macro, the shared I2C
+//! bus aliases, and the ADC1 wiring for the die thermometer. A board
+//! depends on this crate and deletes its own copies.
 //!
 //! Both boards are single-core, so there is no core-1 spawn macro here, and
 //! neither declares a `#[panic_handler]` or a `HardFault` handler, so there
@@ -34,6 +34,7 @@
 #![no_std]
 
 pub mod fan;
+pub mod i2c;
 pub mod mcu_temp;
 pub mod uart;
 

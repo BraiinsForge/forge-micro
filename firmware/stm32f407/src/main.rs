@@ -54,6 +54,7 @@ use ubos_config::{FlashStorage, SyncFlash};
 #[cfg(feature = "display")]
 use ubos_display::sh1106::{Rotation, Sh1106};
 use ubos_eeprom::HashboardEeprom as _;
+use ubos_stm32::i2c;
 use {defmt_rtt as _, panic_probe as _};
 
 use ubos_net::net;
@@ -123,7 +124,7 @@ ubos_mining::pool_weights_task!(&mining::CHAINS);
 ubos_mining::miner_metrics_task!(POOL_SLOTS);
 
 ubos_thermal::thermal_task!(
-    ubos_thermal::SensorArray<{ config::MACHINE.temp.len() }, psu::Device>,
+    ubos_thermal::SensorArray<{ config::MACHINE.temp.len() }, i2c::Device>,
     ubos_thermal::NoAmbient,
     ubos_stm32::mcu_temp::McuTempSensor
 );
@@ -363,7 +364,7 @@ async fn boot(spawner: Spawner) {
     // and the miner bring-up task all run on the single-core executor, so
     // the I2C bus mutex can stay `NoopRawMutex`.
     {
-        static I2C1_BUS: StaticCell<psu::Bus> = StaticCell::new();
+        static I2C1_BUS: StaticCell<i2c::Bus> = StaticCell::new();
         let i2c = I2c::new(
             hw.i2c,
             hw.scl,
@@ -373,7 +374,7 @@ async fn boot(spawner: Spawner) {
             Irqs,
             I2cConfig::default(),
         );
-        let bus: &'static psu::Bus = I2C1_BUS.init(Mutex::new(i2c));
+        let bus: &'static i2c::Bus = I2C1_BUS.init(Mutex::new(i2c));
 
         // Read the hashboard EEPROM once, before powering anything up, so
         // its identity is in the log even if bring-up later fails. The

@@ -14,6 +14,8 @@ ubos-thermal = { workspace = true }
 serial-baudrate = { workspace = true }
 embedded-io-async = { workspace = true }
 embassy-time = { workspace = true }
+embassy-sync = { workspace = true }
+embassy-embedded-hal = { version = "0.6.0", default-features = false }
 defmt = { workspace = true }
 portable-atomic = { workspace = true }
 critical-section = { version = "1" }

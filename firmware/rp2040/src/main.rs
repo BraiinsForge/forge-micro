@@ -49,7 +49,7 @@ use embassy_rp::peripherals::{DMA_CH2, SPI1};
 use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
 use embassy_rp::uart::BufferedInterruptHandler;
 use embassy_rp::watchdog::Watchdog;
-use embassy_rp::{bind_interrupts, dma, i2c};
+use embassy_rp::{bind_interrupts, dma};
 use embassy_sync::blocking_mutex::Mutex as BlockingMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::Delay;
@@ -60,6 +60,7 @@ use ubos_config::{FlashStorage, SyncFlash};
 #[cfg(feature = "display")]
 use ubos_display::sh1106::{Rotation, Sh1106};
 use ubos_eeprom::HashboardEeprom as _;
+use ubos_rp::i2c;
 
 use ubos_net::net;
 
@@ -95,7 +96,7 @@ bind_interrupts!(struct Irqs {
         dma::InterruptHandler<DMA_CH1>,
         #[cfg(feature = "display")]
         dma::InterruptHandler<DMA_CH2>;
-    I2C1_IRQ => i2c::InterruptHandler<I2C1>;
+    I2C1_IRQ => embassy_rp::i2c::InterruptHandler<I2C1>;
     UART1_IRQ => BufferedInterruptHandler<UART1>;
 });
 
@@ -138,7 +139,7 @@ async fn mdns_task(stack: embassy_net::Stack<'static>, hostname: &'static str) -
 }
 
 ubos_thermal::thermal_task!(
-    ubos_thermal::SensorArray<{ config::MACHINE.temp.len() }, psu::Device>,
+    ubos_thermal::SensorArray<{ config::MACHINE.temp.len() }, i2c::Device>,
     ubos_thermal::NoAmbient,
     ubos_thermal::NoMcu
 );
@@ -337,9 +338,9 @@ async fn boot(spawner: Spawner) {
     let mining_handle = ubos_mining::handle();
 
     {
-        static I2C1_BUS: StaticCell<psu::Bus> = StaticCell::new();
+        static I2C1_BUS: StaticCell<i2c::Bus> = StaticCell::new();
         let i2c = I2c::new_async(hw.i2c, hw.scl, hw.sda, Irqs, I2cConfig::default());
-        let bus: &'static psu::Bus = I2C1_BUS.init(Mutex::new(i2c));
+        let bus: &'static i2c::Bus = I2C1_BUS.init(Mutex::new(i2c));
 
         // Read the hashboard EEPROM once, before powering anything up, so
         // its identity is in the log even if bring-up later fails. The

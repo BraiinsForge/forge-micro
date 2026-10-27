@@ -30,24 +30,10 @@
 
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_rp::gpio::{Input, Output};
-use embassy_rp::i2c::{Async, I2c};
-use embassy_rp::peripherals::I2C1;
-use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-use embassy_sync::mutex::Mutex;
 use static_cell::StaticCell;
 use ubos_machine::HASHNODE as MACHINE;
 use ubos_psu::{BfmPsu, BfmShared, GatedPsu, InnerGate};
-
-/// Bus mutex shared by every consumer on I2C1. `NoopRawMutex` is sufficient
-/// because every I2C consumer runs on the Core 0 executor. The chip-serial
-/// actor (`mining::serial_task`) runs on Core 1 but does not touch I2C, so
-/// there is no cross-core contention. If a future I2C consumer moves to
-/// Core 1, bump this to `CriticalSectionRawMutex`.
-pub type Bus = Mutex<NoopRawMutex, I2c<'static, I2C1, Async>>;
-
-/// `embedded-hal-async` device handle for one consumer of the shared bus.
-/// Public because the hashboard sensor array takes one of these too.
-pub type Device = I2cDevice<'static, NoopRawMutex, I2c<'static, I2C1, Async>>;
+use ubos_rp::i2c::{Bus, Device};
 
 /// The shared `SIC45x` `PMBus` driver instantiated for this board's bus.
 type InnerPsu = BfmPsu<Device>;
