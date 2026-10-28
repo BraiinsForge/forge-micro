@@ -19,9 +19,12 @@
 
 //! Pool endpoint configuration and validation.
 //!
-//! Defines [`PoolEntry`], [`ProtocolKind`], the factory-default pool
-//! constants, the fee switch and the fee slot's place, and per-entry
-//! validation. The fee pool itself is [`crate::fee`].
+//! Re-exports [`PoolEntry`], [`ProtocolKind`] and their capacities from
+//! the live version of the config schema. Defines the factory-default
+//! pool constants, the fee switch and the fee slot's place, and
+//! per-entry validation. The fee pool itself is [`crate::fee`].
+
+pub use crate::versions::live::{MAX_POOLS, NAME_CAPACITY, PoolEntry, ProtocolKind};
 
 /// Factory-default pool host for [`crate::Config::default`]. Overridable at
 /// compile time by setting the `POOL_HOST` env var; a stored config
@@ -69,7 +72,7 @@ pub(crate) fn default_protocol(raw: Option<&str>) -> ProtocolKind {
 /// base58check string; postcard (flash, `false`) carries the raw
 /// `Option<[u8; 32]>`, byte-identical to a plain field. This is why a
 /// stored config survives this change without a schema reset.
-mod sv2_pubkey_serde {
+pub(crate) mod sv2_pubkey_serde {
     use crate::pubkey;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -109,67 +112,6 @@ mod sv2_pubkey_serde {
         }
     }
 }
-
-/// Selects the pool mining protocol and carries its protocol-specific
-/// parameters.
-#[derive(
-    Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
-)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum ProtocolKind {
-    /// Stratum V1 with an optional worker password.
-    Sv1 {
-        /// `None` means no password sent; most pools authorise by
-        /// worker name alone.
-        password: Option<heapless::String<128>>,
-    },
-    /// Stratum V2 with an optional authority public key.
-    Sv2 {
-        /// `None` means `ValidateNothing`; `Some` means
-        /// `ValidateSignature` against the supplied 32-byte key. Over
-        /// JSON this is the SV2 base58check string; in flash it is the
-        /// raw 32 bytes. See [`crate::pubkey`] and
-        /// [`sv2_pubkey_serde`].
-        #[serde(with = "sv2_pubkey_serde")]
-        pool_pubkey: Option<[u8; 32]>,
-    },
-}
-
-/// A single pool endpoint entry.
-#[derive(
-    Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
-)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct PoolEntry {
-    /// DNS name or IPv4 literal of the pool host.
-    pub host: heapless::String<NAME_CAPACITY>,
-    /// TCP port.
-    pub port: u16,
-    /// Worker name sent in `mining.authorize`.
-    pub user: heapless::String<NAME_CAPACITY>,
-    /// Protocol selection and its parameters.
-    pub protocol: ProtocolKind,
-    /// Scheduler dispatch weight for this slot. Zero marks a
-    /// backup-only slot: mined only while no weighted slot has
-    /// work. An absent JSON key deserializes as zero, so
-    /// weightless configs keep the primary-plus-backups
-    /// behavior. See the config-driven weights section of
-    /// `docs/MULTIPOOL_DESIGN.md`.
-    #[serde(default)]
-    pub weight: u32,
-}
-
-/// Bytes a [`PoolEntry`] host or worker name can hold.
-pub const NAME_CAPACITY: usize = 128;
-
-/// Maximum number of pool slots the firmware persists and validates.
-///
-/// Drives both the `heapless::Vec<PoolEntry, MAX_POOLS>` capacity in
-/// [`crate::Config`] / [`crate::ConfigUpdate`] and the length of the
-/// per-slot error-message tables below, so growing the slot count is
-/// a single-const change that fails to compile until every table is
-/// extended in step.
-pub const MAX_POOLS: usize = 3;
 
 /// Build error for a `DEVFEE` that is none of unset, `0` and `1`.
 const DEVFEE_BAD: &str = "DEVFEE must be 0, 1 or unset";

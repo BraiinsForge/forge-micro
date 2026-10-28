@@ -19,27 +19,11 @@
 
 //! HTTP API credentials configuration and validation.
 //!
-//! Defines [`ApiConfig`] for the HTTP API username and password, with
-//! its custom [`Default`] impl and a [`validate`][ApiConfig::validate]
-//! method.
+//! Re-exports [`ApiConfig`] for the HTTP API username and password from
+//! the live version of the config schema, and defines its custom
+//! [`Default`] impl and a [`validate`][ApiConfig::validate] method.
 
-/// HTTP API credentials.
-///
-/// `heapless::String<N>` has a `const fn new()` but no const
-/// constructor that accepts content, so `ApiConfig::default` is a
-/// regular `Default` impl rather than a `const`. The shadow step
-/// publishes the value at runtime; no call site needs it at
-/// compile time.
-#[derive(
-    Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
-)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct ApiConfig {
-    /// Login username; maximum 32 bytes.
-    pub username: heapless::String<32>,
-    /// Login password; maximum 32 bytes.
-    pub password: heapless::String<32>,
-}
+pub use crate::versions::live::ApiConfig;
 
 impl Default for ApiConfig {
     fn default() -> Self {

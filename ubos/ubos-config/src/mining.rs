@@ -19,12 +19,12 @@
 
 //! Mining tuning configuration, bounds, and static chip metadata.
 //!
-//! Defines [`FrequencyVoltageTarget`] for ASIC frequency and voltage overrides,
-//! [`PowerTarget`] for a PSU input-power target,
-//! [`TunerInfo`] and [`DefaultTuning`] for the tuners a machine offers,
-//! [`MiningBounds`] with the accepted ranges, [`MiningInfo`] for the
-//! static chip facts that live alongside the config, and the
-//! [`BOUNDS`] constant.
+//! Re-exports [`FrequencyVoltageTarget`] for ASIC frequency and voltage
+//! overrides and [`PowerTarget`] for a PSU input-power target from the
+//! live version of the config schema. Defines [`TunerInfo`] and
+//! [`DefaultTuning`] for the tuners a machine offers, [`MiningBounds`]
+//! with the accepted ranges, [`MiningInfo`] for the static chip facts
+//! that live alongside the config, and the [`BOUNDS`] constant.
 
 use core::num::NonZeroU32;
 use core::ops::RangeInclusive;
@@ -32,37 +32,7 @@ use ubos_asic::HashboardDescriptor;
 
 use crate::miner::Tuning;
 
-/// ASIC frequency and voltage overrides.
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
-)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct FrequencyVoltageTarget {
-    /// Target ASIC core frequency in kHz. The PLL grid steps by a
-    /// fraction of a megahertz, so a megahertz field cannot name every
-    /// point on it.
-    pub frequency_khz: u32,
-    /// Core supply voltage in millivolts.
-    pub voltage_mv: u32,
-}
-
-/// The power a power tuner holds the machine at.
-///
-/// PSU input power, so it is the figure a site meters and bills, not
-/// the hashboard draw. What range a machine accepts follows from its
-/// supply and its boards, and the tuner that reads this is the only
-/// thing that knows it.
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
-)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct PowerTarget {
-    /// Target PSU input power in mW.
-    pub input_power_mw: u32,
-    /// Target input power per theoretical hashrate in mJ/TH, which caps
-    /// the clock the tuner ramps to.
-    pub efficiency_mj_per_th: NonZeroU32,
-}
+pub use crate::versions::live::{FrequencyVoltageTarget, PowerTarget};
 
 /// One tuner a machine offers: the [`Tuning`] variant it reads, the
 /// name the mining form shows for it, and the target fields it reads.

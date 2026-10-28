@@ -37,6 +37,7 @@
 #![allow(clippy::module_name_repetitions)]
 
 mod message;
+mod versions;
 
 #[cfg(test)]
 #[path = "tests/storage.rs"]
@@ -106,6 +107,7 @@ pub mod file_storage;
 pub use file_storage::FileStorage;
 
 pub use message::Message;
+pub use versions::live::Config;
 
 use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -634,26 +636,6 @@ impl ConfigUpdate {
 
         Ok(())
     }
-}
-
-/// All runtime-tunable firmware parameters.
-#[derive(
-    Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
-)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Config {
-    /// Ordered list of pool endpoints; the client tries them in order.
-    pub pool: heapless::Vec<PoolEntry, { pool::MAX_POOLS }>,
-    /// Thermal monitoring parameters.
-    pub thermal: ThermalConfig,
-    /// Cooling loop parameters.
-    pub cooling: CoolingConfig,
-    /// Miner orchestration: the tuner kind and its target.
-    pub miner: MinerConfig,
-    /// HTTP API credentials.
-    pub api: ApiConfig,
-    /// Network interface configuration (IP assignment mode and hostname).
-    pub network: NetworkConfig,
 }
 
 impl Default for Config {

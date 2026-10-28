@@ -19,31 +19,14 @@
 
 //! Miner orchestration configuration.
 //!
-//! Defines [`Tuning`] and [`MinerConfig`], which select a tuner and
-//! provide its target for each chip bring-up cycle.
+//! Re-exports [`Tuning`] and [`MinerConfig`], which select a tuner and
+//! provide its target for each chip bring-up cycle, from the live
+//! version of the config schema, and defines their defaults and
+//! validation.
 
 use crate::mining::{DefaultTuning, FrequencyVoltageTarget, MiningBounds, PowerTarget};
 
-/// Tuner selection and target parameters used at bring-up.
-///
-/// A variant names a kind of tuning and carries that kind's target.
-/// Which tuner a machine runs for a kind is the firmware's answer, not
-/// this crate's, and a machine need not answer every kind: the firmware
-/// lists the tuners it offers in [`MiningBounds::tuners`]. Changing the
-/// variant tears down the chip and restarts under the tuner the
-/// firmware selects for it; changing only the target does not, because
-/// the running tuner reads it at its next step.
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
-)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Tuning {
-    /// Hold one frequency and one rail voltage, reached by a ramp.
-    Fixed(FrequencyVoltageTarget),
-    /// Hold a power draw, leaving the frequency and the rail to the
-    /// tuner.
-    Power(PowerTarget),
-}
+pub use crate::versions::live::{MinerConfig, Tuning};
 
 impl Default for Tuning {
     /// Factory defaults for the BMM101 board. Firmware builds its real
@@ -109,23 +92,6 @@ impl Tuning {
             }),
         }
     }
-}
-
-/// Miner-level tuning configuration.
-#[derive(
-    Clone,
-    Debug,
-    Default,
-    PartialEq,
-    Eq,
-    serde::Serialize,
-    serde::Deserialize,
-    postcard_schema::Schema,
-)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct MinerConfig {
-    /// Tuner variant and target selected for the next bring-up.
-    pub tuning: Tuning,
 }
 
 impl MinerConfig {
