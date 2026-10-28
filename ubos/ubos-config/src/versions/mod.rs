@@ -87,13 +87,6 @@
 //! the image of that firmware holds the hash of its version. An OTA to a
 //! deleted version then boots on the defaults and the seed, and an OTA to
 //! an unrecognized image writes the oldest version left.
-//!
-//! The `dead_code` expectation below holds while an item here has no
-//! caller. Delete it once the first version is listed.
-
-// No version is listed yet, so the steps and the conversions have no
-// caller outside the tests until the first one is.
-#![cfg_attr(not(test), expect(dead_code))]
 
 use serde::{Serialize, de::DeserializeOwned};
 
@@ -109,7 +102,13 @@ pub(crate) use self::v1 as live;
 
 /// Every version whose record this build reads, oldest first. The
 /// newest entry is the live version.
-pub(crate) const VERSIONS: &[Version] = &[];
+pub(crate) const VERSIONS: &[Version] = &[Version::of::<v1::Config>(1)];
+
+const _: () = assert!(
+    u64::from_ne_bytes(VERSIONS[VERSIONS.len() - 1].hash)
+        == u64::from_ne_bytes(Config::SCHEMA_HASH),
+    "The newest entry in VERSIONS is not the live config schema. Do the steps for a schema change in ubos/ubos-config/src/versions/mod.rs."
+);
 
 /// The schema of a version.
 pub(crate) trait Versioned: Serialize + DeserializeOwned {

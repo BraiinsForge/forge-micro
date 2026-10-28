@@ -19,15 +19,16 @@
 
 //! Tests for the version list and the steps between config versions.
 //!
-//! No version is listed yet, so these build a synthetic chain of two
-//! versions: version 1 holds the API login alone, version 2 adds the
-//! hostname, and the live [`Config`] follows version 2.
+//! The rules run on a synthetic chain of two versions, so they hold
+//! whatever the real list holds: version 1 holds the API login alone,
+//! version 2 adds the hostname, and the live [`Config`] follows version 2.
+//! The real list is tested on the records of its versions.
 
 use serde::{Deserialize, Serialize};
 
 use crate::network::HOSTNAME_MAX;
 use crate::versions::{Step, Version, Versioned, downgrade_version, older_version};
-use crate::{ApiConfig, Config, LOAD_BUFFER_SIZE, NetworkConfig, StagedConfig};
+use crate::{ApiConfig, Config, LOAD_BUFFER_SIZE, NetworkConfig, StagedConfig, decode_blob};
 
 /// Version 1 of the synthetic chain: the API login alone.
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -231,4 +232,57 @@ fn down_then_up_keeps_what_the_version_holds() {
         ..Config::default()
     };
     assert_eq!((CHAIN[0].upgrade)(&buffer[8..length]), Some(expected));
+}
+
+/// A record of version 1: the BMM101 factory defaults, with the
+/// derivative smoother's half-decay at 7 seconds.
+const VERSION_1_RECORD: &[u8] = &[
+    22, 94, 167, 65, 122, 95, 186, 108, // schema hash of version 1
+    1,   // pool: length 1
+    19, 115, 116, 114, 97, 116, 117, 109, 46, 98, 114, 97, 105, 105, 110, 115, 46, 99, 111,
+    109, // pool[0].host = "stratum.braiins.com"
+    133, 26, // pool[0].port = 3333
+    0,  // pool[0].user = ""
+    1,  // pool[0].protocol = Sv2
+    1,  // pool[0].protocol.pool_pubkey = Some
+    41, 149, 76, 151, 69, 107, 89, 156, 131, 111, 112, 245, 8, 214, 25, 211, 40, 82, 123, 184, 114,
+    41, 215, 215, 210, 230, 126, 109, 205, 24, 235, 207, // the default pool key
+    0,   // pool[0].weight = 0
+    232, 7, // thermal.sample_interval_ms = 1000
+    1, 240, 144, 10, // thermal.dangerous_hashboard_temp = Some(83000)
+    0,  // thermal.dangerous_chip_temp = None
+    144, 191, 5, // thermal.cooldown_temp = 45000
+    0, // cooling.mode = Auto
+    0, // cooling.target.source = Hashboard
+    0, // cooling.target.statistic = Max
+    192, 169, 7,  // cooling.target.temp = 60000
+    50, // cooling.fixed_fan_pwm = 50
+    20, // cooling.pid.min_fan_pwm = 20
+    0, 0, 0, 0, 0, 0, 20, 192, // cooling.pid.p_gain = -5.0
+    51, 51, 51, 51, 51, 51, 195, 191, // cooling.pid.i_gain = -0.15
+    0, 0, 0, 0, 0, 0, 89, 192, // cooling.pid.d_gain = -100.0
+    7,   // cooling.pid.smoother_half_decay_secs = 7 (varint)
+    0,   // cooling.pid.input_smoother_half_decay_secs = 0
+    0,   // miner.tuning = Fixed
+    200, 133, 32, // miner.tuning.Fixed.frequency_khz = 525000
+    248, 10, // miner.tuning.Fixed.voltage_mv = 1400
+    4, 114, 111, 111, 116, // api.username = "root"
+    4, 114, 111, 111, 116, // api.password = "root"
+    0,   // network.mode = Dhcp
+    0,   // network.hostname = ""
+];
+
+/// The record of version 1 loads as the live config, so an edit to the
+/// schema or the hash of version 1 fails here.
+#[test]
+fn version_1_record_loads_as_the_live_config() {
+    assert!(
+        option_env!("POOL_HOST").is_none()
+            && option_env!("POOL_PORT").is_none()
+            && option_env!("POOL_USER").is_none(),
+        "POOL_* env vars override Config::default; unset them to run this test",
+    );
+    let mut expected = Config::default();
+    expected.cooling.pid.smoother_half_decay_secs = 7;
+    assert_eq!(decode_blob::<()>(VERSION_1_RECORD).ok(), Some(expected));
 }

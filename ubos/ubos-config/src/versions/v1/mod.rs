@@ -17,7 +17,7 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Version 1 of the config schema.
+//! Version 1 of the config schema, the oldest that a build upgrades from.
 //!
 //! It defines every type of the schema, one file per domain of the
 //! config. The capacities of its strings and lists are defined here as
@@ -39,6 +39,8 @@ pub use network::{HOSTNAME_MAX, NetworkConfig, NetworkMode};
 pub use pool::{MAX_POOLS, NAME_CAPACITY, PoolEntry, ProtocolKind};
 pub use thermal::{Source, TemperatureDescriptor, ThermalConfig};
 
+use super::{Versioned, schema_hash};
+
 /// All runtime-tunable firmware parameters.
 #[derive(
     Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
@@ -58,3 +60,12 @@ pub struct Config {
     /// Network interface configuration (IP assignment mode and hostname).
     pub network: NetworkConfig,
 }
+
+impl Versioned for Config {
+    const HASH: [u8; 8] = [0x16, 0x5E, 0xA7, 0x41, 0x7A, 0x5F, 0xBA, 0x6C];
+}
+
+const _: () = assert!(
+    u64::from_ne_bytes(schema_hash::<Config>()) == u64::from_ne_bytes(<Config as Versioned>::HASH),
+    "The config schema is not the schema of version 1. Do the steps for a schema change in ubos/ubos-config/src/versions/mod.rs."
+);
