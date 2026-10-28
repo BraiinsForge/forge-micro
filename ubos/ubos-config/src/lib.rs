@@ -814,7 +814,7 @@ impl Config {
 ///
 /// On boot, loads the stored [`Config`] via `storage` and validates it
 /// against `info.bounds`. A record that an older version stored is
-/// upgraded to the live schema. On
+/// upgraded to the live schema and stored again in it. On
 /// [`LoadError::SchemaMismatch`] (a record in no schema this build
 /// reads), [`LoadError::Corrupt`]
 /// (partial write before power loss), an I/O error, or a failed
@@ -1061,13 +1061,13 @@ async fn load_initial<S: Storage>(
     // The buffer is scoped to the load, so the task does not hold it
     // across the seed writes. An empty store reads as the defaults, so
     // `None` is a record this build cannot read.
-    let stored = {
+    let loaded = {
         let mut buffer = [0u8; LOAD_BUFFER_SIZE];
         match storage.load(CONFIG_KEY, &mut buffer).await {
             Ok(Some(blob)) => decode_stored::<S::Error>(blob, board, info),
             Ok(None) => {
                 info!("config: no stored config, using defaults");
-                Some(Config::for_board(board, info.default_tuning))
+                Some(Loaded::Live(Config::for_board(board, info.default_tuning)))
             }
             Err(_) => {
                 warn!("config: load failed, using defaults");
@@ -1075,6 +1075,16 @@ async fn load_initial<S: Storage>(
                 return Config::for_board(board, info.default_tuning);
             }
         }
+    };
+    // An upgraded record is stored again in this build's schema, so a later
+    // build reads it after it drops the version that wrote it.
+    let stored = match loaded {
+        Some(Loaded::Upgraded(config)) => {
+            persist(&config, storage).await;
+            Some(config)
+        }
+        Some(Loaded::Live(config)) => Some(config),
+        None => None,
     };
     let Some(seed) = &seed else {
         return stored.unwrap_or_else(|| Config::for_board(board, info.default_tuning));
@@ -1106,14 +1116,26 @@ async fn load_initial<S: Storage>(
     config
 }
 
+/// A config the boot loaded, in the live schema or upgraded to it.
+///
+/// The boot stores an upgraded record again, and only the decode knows
+/// which path a record took, so it hands the answer on in the type.
+enum Loaded {
+    /// A config in the live schema: the defaults or a record of this build.
+    Live(Config),
+    /// A record that an older version stored, upgraded to the live schema.
+    Upgraded(Config),
+}
+
 /// The config in a stored `blob`, or `None` after a logged reason when
 /// it does not decode or fails validation.
 fn decode_stored<E>(
     blob: &[u8],
     board: &'static HashboardDescriptor,
     info: &'static MiningInfo,
-) -> Option<Config> {
-    let mut config = decode_record::<E>(blob)?;
+) -> Option<Loaded> {
+    let mut loaded = decode_record::<E>(blob)?;
+    let (Loaded::Live(config) | Loaded::Upgraded(config)) = &mut loaded;
     // Firmware updates narrow the tuners and ranges a stored tuning
     // passed. Only the tuning is replaced then, so the operator keeps
     // the rest of their config.
@@ -1160,21 +1182,21 @@ fn decode_stored<E>(
         return None;
     }
     info!("config: loaded from storage");
-    Some(config)
+    Some(loaded)
 }
 
 /// The live config in a stored record, or `None` after a logged reason
 /// when it does not decode: decoded directly when the record is in this
 /// build's schema, and upgraded when an older version wrote it.
-fn decode_record<E>(blob: &[u8]) -> Option<Config> {
+fn decode_record<E>(blob: &[u8]) -> Option<Loaded> {
     let error = match decode_blob::<E>(blob) {
-        Ok(config) => return Some(config),
+        Ok(config) => return Some(Loaded::Live(config)),
         Err(error) => error,
     };
     if let LoadError::SchemaMismatch { stored, .. } = error
         && let Some(version) = versions::older_version(stored, versions::VERSIONS)
     {
-        return upgrade_record(version, &blob[stored.len()..]);
+        return upgrade_record(version, &blob[stored.len()..]).map(Loaded::Upgraded);
     }
     log_decode_error(&error);
     None
