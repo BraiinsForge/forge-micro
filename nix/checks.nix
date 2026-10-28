@@ -162,6 +162,7 @@ let
     clippy-ubos-tuner.crate = "ubos-tuner";
     clippy-stratum-v1.crate = "stratum-v1";
     clippy-stratum-v2.crate = "stratum-v2";
+    clippy-transitions.crate = "transitions";
     clippy-stratum-client.crate = "stratum-client";
     clippy-ubos-temperature.crate = "ubos-temperature";
     clippy-ubos-display = {
@@ -231,6 +232,7 @@ let
     test-ubos-mining.crate = "ubos-mining";
     test-stratum-v1.crate = "stratum-v1";
     test-stratum-v2.crate = "stratum-v2";
+    test-transitions.crate = "transitions";
     test-stratum-client.crate = "stratum-client";
     test-mining-protocol.crate = "mining-protocol";
     test-ubos-asic.crate = "ubos-asic";

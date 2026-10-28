@@ -28,6 +28,7 @@ members = [
     "ubos/stratum-client",
     "ubos/stratum-v1",
     "ubos/stratum-v2",
+    "ubos/transitions",
     "ubos/ubos-api",
     "ubos/ubos-auth",
     "ubos/ubos-mdns",
@@ -124,6 +125,7 @@ serial-baudrate   = { path = "ubos/serial-baudrate" }
 stratum-client    = { path = "ubos/stratum-client" }
 stratum-v1        = { path = "ubos/stratum-v1" }
 stratum-v2        = { path = "ubos/stratum-v2" }
+transitions       = { path = "ubos/transitions" }
 ubos-mining       = { path = "ubos/ubos-mining", default-features = false }
 ii-sv2            = { path = "micro-sv2/ii-sv2", default-features = false }
 ubos-api          = { path = "ubos/ubos-api", default-features = false }

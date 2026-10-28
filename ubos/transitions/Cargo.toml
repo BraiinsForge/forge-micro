@@ -1,0 +1,9 @@
+[package]
+license.workspace = true
+name        = "transitions"
+edition.workspace = true
+version     = "0.1.0"
+description = "no_std state machine types: states own their data and name the states they may lead to."
+
+[lints]
+workspace = true

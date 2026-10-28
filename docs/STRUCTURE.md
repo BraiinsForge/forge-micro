@@ -48,6 +48,7 @@ gives the framework's table of contents.
 | `ubos-`     | core firmware framework                    |
 | `ubos-mining`, `mining-protocol`, `stratum-*` | mining domain    |
 | `rp235x-`, `serial-`      | hardware-specific drivers |
+| `transitions`             | state machine library, named for its pattern |
 
 The firmware framework is split along domain lines. `ubos-core`,
 `ubos-logging`, and `ubos-config` are leaf crates with no
@@ -114,6 +115,7 @@ typed `TaskPool` static and so rejects generic task functions.
 | `esp32s3-tsens`    | ESP32-S3 on-die temperature sensor driver          |
 | `rp235x-sha256`    | RP2350 hardware SHA-256 driver                     |
 | `serial-baudrate`  | trait for runtime baud-rate changes on a serial line |
+| `transitions`      | state machine types: states own their data and name the states they lead to, checked for unreachable states and dead ends |
 | `ubos-psu`         | async PSU driver over I2C                          |
 | `ubos-temperature` | LM75A, TMP102, TMP461 and TMP464 drivers, the `Reading` every sensor yields, and the sensor descriptor types a board declares its topology with. No task and no metric |
 | `ubos-machine`     | per-board `MachineDescriptor` consts composing the hashboard, PSU, and sensor descriptors with a control-board and platform descriptor; pure const data read by firmware and the host runner |
