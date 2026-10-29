@@ -1,0 +1,40 @@
+diff --git a/nix/build-rust-application.nix b/nix/build-rust-application.nix
+index ed72c12..f15ac80 100644
+--- a/nix/build-rust-application.nix
++++ b/nix/build-rust-application.nix
+@@ -70,7 +70,7 @@ let
+ 
+   # A misspelt attribute would otherwise be ignored, and the build would
+   # fail later for want of what it was meant to supply.
+-  overrideAttrs = [ "buildInputs" "nativeBuildInputs" "env" "extraSrc" "optional" ];
++  overrideAttrs = [ "buildInputs" "nativeBuildInputs" "env" "extraSrc" "optional" "rustflags" ];
+   unknownOverrides = lib.concatLists (lib.mapAttrsToList
+     (key: entry: map (attr: "crateOverrides.${key}.${attr}")
+       (lib.attrNames (removeAttrs entry overrideAttrs)))
+diff --git a/nix/builders.nix b/nix/builders.nix
+index cd646ab..5b7ccb4 100644
+--- a/nix/builders.nix
++++ b/nix/builders.nix
+@@ -97,6 +97,13 @@ let
+   # for the target and to nothing else.
+   rustflagsOf = node: if forBuildMachine node then [ ] else rustflags;
+ 
++  # The flags an override adds for its own package, as cargo's
++  # `profile.<name>.package.<pkg>.rustflags` adds them. Its build script
++  # is compiled without them, because cargo gives a profile's flags to a
++  # build script only through `build-override`.
++  overrideRustflagsOf = node: override:
++    lib.optionals (node.targetKind != "custom-build") (override.rustflags or [ ]);
++
+   # What an override names is for the platform the program runs on: its
+   # libraries, and tools that answer for it, as pkg-config does. A unit of
+   # the build machine needs the same for that machine, which a cross
+@@ -121,7 +128,7 @@ let
+       deps = map (dep: { inherit (dep) name; path = "${dep.unit}"; }) node.deps;
+       buildScript = if node.buildScript == null then null else "${node.buildScript}";
+       overrideEnv = envOf override;
+-      rustflags = rustflagsOf node;
++      rustflags = rustflagsOf node ++ overrideRustflagsOf node override;
+       configEnv = configEnvOf package;
+       withheldEnv = withheldEnvOf package;
+     };
