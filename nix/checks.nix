@@ -708,6 +708,9 @@ hostClippyChecks
     cargoDenyChecks = "-D warnings bans licenses sources";
   };
 
+  # The crate graph against the layer table; see nix/layers.nix.
+  layers = (import ./layers.nix { inherit pkgs; }).check { inherit root; };
+
   # nix/webui.nix admits only the files it lists into the dashboard
   # build, and build.rs lists the same files as its rebuild triggers.
   # Neither can read the other, and a file added to build.rs alone is

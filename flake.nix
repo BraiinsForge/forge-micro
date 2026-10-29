@@ -425,6 +425,7 @@
         guards = ./nix/guards.nix;
         helpers = ./nix/lib.nix;
         instruction-paths = ./nix/instruction-paths.nix;
+        layers = ./nix/layers.nix;
         patched-crates = ./nix/patched-crates.nix;
         probe-rs = ./nix/probe-rs.nix;
         source = ./nix/source.nix;

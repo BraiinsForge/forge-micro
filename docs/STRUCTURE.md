@@ -243,6 +243,13 @@ for humans and agents respectively.
   in a firmware crate's dep graph, and a `ubos/` crate must never
   pull in `std`.
 
+- **The dependency direction is a gate.** `nix/layers.nix` puts each
+  crate in one layer: foundation, drivers, services, platform,
+  assembly, boards, and host. A crate depends only on its own layer
+  or a lower one. Only the platform layer and the layers above it
+  name a HAL, a PAC or a runtime crate. The `layers` check fails on
+  any other edge, and on a crate that is in no layer.
+
 ## Footprint
 
 Per-board RAM headroom after the multipool change (one stratum
