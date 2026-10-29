@@ -138,15 +138,14 @@ export interface PoolConfig {
 /** Millicelsius in one degree. The API carries every config temperature in millicelsius. */
 export const MC_PER_C = 1000;
 
-// The two dangerous thresholds are both halt thresholds, and the board
-// judges against the one that matches the sensor its safety reading came
-// from: the hashboard one where a hashboard reading stands in for the die, the chip
-// one where a die reading is real.
+// The dangerous thresholds are halt thresholds, one for each kind of
+// reading the machine measures, and null for a kind it does not read. The
+// board judges each kind it reads against its own threshold.
 export interface ThermalConfig {
   sample_interval_ms: number;
-  dangerous_hashboard_temp: number;
+  dangerous_hashboard_temp: number | null;
   cooldown_temp: number;
-  dangerous_chip_temp: number;
+  dangerous_chip_temp: number | null;
 }
 
 // The fan runs the PID against the target under `auto` and holds the

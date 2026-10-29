@@ -82,15 +82,19 @@ function StatCard({ label, value, cls, wide }: StatCardProps) {
   );
 }
 
-// The board's two halt thresholds, which the card tiers by severity: the
-// hashboard one turns the reading amber and the chip one turns it red.
+// The board's halt thresholds, which the card tiers by severity: the
+// hashboard one turns the reading amber and the chip one turns it red. A
+// machine that does not read a kind has no threshold and no tier for it.
 // The board judges against whichever matches its live sensor, and the
 // pair is ordered, so the amber step is the point past which some sensor
 // would already halt.
 interface TempThresholds {
-  hashboardC: number;
-  chipC: number;
+  hashboardC: number | null;
+  chipC: number | null;
 }
+
+/** A threshold in degrees, or null where the machine has none. */
+const celsius = (millicelsius: number | null) => (millicelsius === null ? null : millicelsius / MC_PER_C);
 
 function StatusDot({ text, dot = true }: { text: string; dot?: boolean }) {
   return (
@@ -137,8 +141,8 @@ export default function Dashboard({ shown }: DashboardProps) {
         );
         if (data.thermal) {
           setTempThresh({
-            hashboardC: data.thermal.dangerous_hashboard_temp / MC_PER_C,
-            chipC: data.thermal.dangerous_chip_temp / MC_PER_C,
+            hashboardC: celsius(data.thermal.dangerous_hashboard_temp),
+            chipC: celsius(data.thermal.dangerous_chip_temp),
           });
         }
       } catch (_) {
@@ -151,8 +155,8 @@ export default function Dashboard({ shown }: DashboardProps) {
 
   function tempCls(): string {
     if (temperature == null || !tempThresh) return '';
-    if (temperature >= tempThresh.chipC) return 'temp-red';
-    if (temperature >= tempThresh.hashboardC) return 'temp-warn';
+    if (tempThresh.chipC != null && temperature >= tempThresh.chipC) return 'temp-red';
+    if (tempThresh.hashboardC != null && temperature >= tempThresh.hashboardC) return 'temp-warn';
     return 'temp-ok';
   }
 

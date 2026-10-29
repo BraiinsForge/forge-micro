@@ -17,10 +17,16 @@ export interface ConfigThermalProps {
 
 export default function ConfigThermal({ thermal, cooling, thermalBounds, coolingBounds }: ConfigThermalProps) {
   const [sampleMs] = useState<number | null>(() => (thermal ? thermal.sample_interval_ms : null));
+  // A machine has a threshold only for a kind of reading it measures, and
+  // the field of a kind it does not read is null and not shown.
+  const hasHashboard = thermal?.dangerous_hashboard_temp !== null;
+  const hasChip = thermal?.dangerous_chip_temp !== null;
   const [hashboardC, setHashboardC] = useState<string | number>(() =>
-    thermal ? thermal.dangerous_hashboard_temp / MC_PER_C : '',
+    thermal?.dangerous_hashboard_temp != null ? thermal.dangerous_hashboard_temp / MC_PER_C : '',
   );
-  const [chipC, setChipC] = useState<string | number>(() => (thermal ? thermal.dangerous_chip_temp / MC_PER_C : ''));
+  const [chipC, setChipC] = useState<string | number>(() =>
+    thermal?.dangerous_chip_temp != null ? thermal.dangerous_chip_temp / MC_PER_C : '',
+  );
   const [cooldownC, setCooldownC] = useState<string | number>(() => (thermal ? thermal.cooldown_temp / MC_PER_C : ''));
   const [mode, setMode] = useState<FanMode>(() => (cooling && cooling.mode != null ? cooling.mode : 'auto'));
   const [targetC, setTargetC] = useState<string | number>(() =>
@@ -61,9 +67,9 @@ export default function ConfigThermal({ thermal, cooling, thermalBounds, cooling
     return saveConfig({
       thermal: {
         sample_interval_ms: sampleMs,
-        dangerous_hashboard_temp: Math.round(+hashboardC * MC_PER_C),
+        dangerous_hashboard_temp: hasHashboard ? Math.round(+hashboardC * MC_PER_C) : null,
         cooldown_temp: Math.round(+cooldownC * MC_PER_C),
-        dangerous_chip_temp: Math.round(+chipC * MC_PER_C),
+        dangerous_chip_temp: hasChip ? Math.round(+chipC * MC_PER_C) : null,
       },
       cooling: {
         mode,
@@ -79,28 +85,32 @@ export default function ConfigThermal({ thermal, cooling, thermalBounds, cooling
     <h2 class="cfgTitle">Temperature</h2>
     <form onSubmit={save}>
       <div class="fldRows">
-          <Field
-            label="Hashboard danger threshold"
-            desc={fmtRange(hashboard.start, hashboard.end)}
-            unit="°C"
-            value={hashboardC}
-            onInput={(e) => setHashboardC(e.currentTarget.value)}
-            type="number"
-            step="0.5"
-            min={hashboard.start}
-            max={hashboard.end}
-          />
-          <Field
-            label="Chip danger threshold"
-            desc={fmtRange(chip.start, chip.end)}
-            unit="°C"
-            value={chipC}
-            onInput={(e) => setChipC(e.currentTarget.value)}
-            type="number"
-            step="0.5"
-            min={chip.start}
-            max={chip.end}
-          />
+          {hasHashboard && (
+            <Field
+              label="Hashboard danger threshold"
+              desc={fmtRange(hashboard.start, hashboard.end)}
+              unit="°C"
+              value={hashboardC}
+              onInput={(e) => setHashboardC(e.currentTarget.value)}
+              type="number"
+              step="0.5"
+              min={hashboard.start}
+              max={hashboard.end}
+            />
+          )}
+          {hasChip && (
+            <Field
+              label="Chip danger threshold"
+              desc={fmtRange(chip.start, chip.end)}
+              unit="°C"
+              value={chipC}
+              onInput={(e) => setChipC(e.currentTarget.value)}
+              type="number"
+              step="0.5"
+              min={chip.start}
+              max={chip.end}
+            />
+          )}
           <Field
             label="Cooldown threshold"
             desc={fmtRange(cooldown.start, cooldown.end)}
