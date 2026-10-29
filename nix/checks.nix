@@ -330,6 +330,10 @@ let
     "rp2350-bootloader"
   ];
 
+  # The script a packer runs to read the config schema hash out of the
+  # ELF of an image.
+  configSchemaHash = pkgs.callPackage ../pkgs/config-schema-hash { };
+
   # The image guards, one per `guard` of the board table, each a check
   # over the ELF a board plan links. cargo check and cargo clippy stop
   # short of linking the final ELF for binary crates, so they miss
@@ -338,11 +342,15 @@ let
   # bound. The Footprint section of docs/STRUCTURE.md records the
   # per-board RAM snapshot this gate protects; docs/OTA.md the flash
   # layout and slot budget. The guard text renders from nix/guards.nix.
+  # Each guard also reads the config schema hash out of the ELF, so an
+  # image whose link lost the symbol fails its build check rather than
+  # the packing of an update.
   imageGuards = {
     slot =
       name: plan:
       pkgs.runCommand "build-${name}" { nativeBuildInputs = [ pkgs.gcc-arm-embedded ]; } (
         ''
+          ${configSchemaHash}/bin/config-schema-hash ${plan}/bin/${name}
           bin=$(mktemp --suffix=.bin)
           arm-none-eabi-objcopy -O binary ${plan}/bin/${name} "$bin"
         ''
@@ -360,7 +368,10 @@ let
     elf =
       name: plan:
       pkgs.runCommand "build-${name}" { } (
-        guards.imageGuard {
+        ''
+          ${configSchemaHash}/bin/config-schema-hash ${plan}/bin/${name}
+        ''
+        + guards.imageGuard {
           inherit name;
           bin = "${plan}/bin/${name}";
         }
@@ -1097,4 +1108,5 @@ hostClippyChecks
   rp2350-bootloader-run = pkgs.callPackage ../pkgs/rp2350-bootloader-runner { };
   setup-network = pkgs.callPackage ../pkgs/setup-network { };
   host-runner-run = pkgs.callPackage ../pkgs/host-runner-run { };
+  config-schema-hash = configSchemaHash;
 }
