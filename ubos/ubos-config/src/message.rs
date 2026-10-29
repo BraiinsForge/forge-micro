@@ -23,7 +23,7 @@
 //! `Update(Config)` after validating the POST body; `run` persists
 //! and publishes the new value.
 
-use crate::{Config, NetworkConfig};
+use crate::{Config, NetworkConfig, StagedConfig};
 
 /// Wire-level command sent to the config module via `Handle::send`.
 ///
@@ -62,4 +62,9 @@ pub enum Message {
     /// immediately after sending this message; the board never returns to
     /// normal operation with the fresh defaults.
     FactoryReset,
+    /// Store the record that the image an OTA staged reads, then answer
+    /// [`Handle::downgrade`](crate::Handle::downgrade), which sends it. The
+    /// OTA handler reboots into the image next, so the task stores nothing
+    /// after it: a later write would replace the record the image reads.
+    Downgrade(StagedConfig),
 }

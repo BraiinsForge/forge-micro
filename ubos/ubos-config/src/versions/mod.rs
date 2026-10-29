@@ -86,7 +86,7 @@
 //! from them move into the oldest version left. The schema hash symbol in
 //! the image of that firmware holds the hash of its version. An OTA to a
 //! deleted version then boots on the defaults and the seed, and an OTA to
-//! stock writes the oldest version left.
+//! an unrecognized image writes the oldest version left.
 //!
 //! The `dead_code` expectation below holds while an item here has no
 //! caller. Delete it once the first version is listed.
@@ -206,6 +206,34 @@ fn downgrade<T: Versioned + Live>(config: &Config, buffer: &mut [u8]) -> Option<
 pub(crate) fn older_version(hash: [u8; 8], versions: &[Version]) -> Option<&Version> {
     let (_, older) = versions.split_last()?;
     older.iter().find(|version| version.hash == hash)
+}
+
+/// The config that the image an OTA staged reads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum StagedConfig {
+    /// A ubos image that declares this schema hash.
+    Schema([u8; 8]),
+    /// An image that the board does not recognize as ubos, which leaves
+    /// the ubos record in place.
+    Unrecognized,
+}
+
+/// The version whose record a build of the newest of `versions` writes
+/// before it reboots into an image that reads `staged`, or `None` when
+/// it writes nothing.
+///
+/// An unrecognized image takes the oldest version, so a ubos image
+/// installed after it upgrades from that record. A build writes nothing
+/// for its own schema or for one it does not know: a newer image upgrades
+/// from the stored record, and any other image boots on the defaults and
+/// the seed.
+pub(crate) fn downgrade_version(staged: StagedConfig, versions: &[Version]) -> Option<&Version> {
+    let target = match staged {
+        StagedConfig::Schema(hash) => hash,
+        StagedConfig::Unrecognized => versions.first()?.hash,
+    };
+    older_version(target, versions)
 }
 
 /// The schema hash of this build, under a symbol name that a packer

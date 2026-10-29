@@ -26,8 +26,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::network::HOSTNAME_MAX;
-use crate::versions::{Step, Version, Versioned, older_version};
-use crate::{ApiConfig, Config, LOAD_BUFFER_SIZE, NetworkConfig};
+use crate::versions::{Step, Version, Versioned, downgrade_version, older_version};
+use crate::{ApiConfig, Config, LOAD_BUFFER_SIZE, NetworkConfig, StagedConfig};
 
 /// Version 1 of the synthetic chain: the API login alone.
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -140,6 +140,36 @@ fn unknown_hash_is_lost() {
 #[test]
 fn empty_list_reads_no_older_version() {
     assert_eq!(older(V1::HASH, &[]), None);
+}
+
+/// The version a downgrade stores, or `None` when it stores nothing.
+fn downgrade(staged: StagedConfig, versions: &[Version]) -> Option<u16> {
+    downgrade_version(staged, versions).map(|version| version.number)
+}
+
+/// A build stores the record of an older version that the staged image
+/// declares.
+#[test]
+fn downgrade_to_an_older_version_stores_its_record() {
+    assert_eq!(downgrade(StagedConfig::Schema(V1::HASH), CHAIN), Some(1));
+}
+
+/// A staged image of the build's own schema, or of one the build does
+/// not know, reads the stored record as it is.
+#[test]
+fn downgrade_to_the_own_or_an_unknown_schema_stores_nothing() {
+    assert_eq!(downgrade(StagedConfig::Schema(V2::HASH), CHAIN), None);
+    assert_eq!(downgrade(StagedConfig::Schema(UNKNOWN), CHAIN), None);
+}
+
+/// An unrecognized image takes the record of the oldest version, so a
+/// ubos image installed after it upgrades from that record, and nothing
+/// when the oldest version is the build's own.
+#[test]
+fn downgrade_to_an_unrecognized_image_stores_the_oldest_version() {
+    assert_eq!(downgrade(StagedConfig::Unrecognized, CHAIN), Some(1));
+    assert_eq!(downgrade(StagedConfig::Unrecognized, &CHAIN[..1]), None);
+    assert_eq!(downgrade(StagedConfig::Unrecognized, &[]), None);
 }
 
 /// A record of version 1 goes up both steps to the live config, and the

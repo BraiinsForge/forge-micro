@@ -111,14 +111,16 @@ pub mod file_storage;
 pub use file_storage::FileStorage;
 
 pub use message::Message;
+pub use versions::StagedConfig;
 pub use versions::live::Config;
 
 use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::once_lock::OnceLock;
+use embassy_sync::signal::Signal;
 use embassy_sync::watch::{Receiver, Watch};
-use embassy_time::{Duration, Instant, Timer};
+use embassy_time::{Duration, Instant, Timer, with_timeout};
 use portable_atomic::{AtomicBool, AtomicU64, Ordering};
 use ubos_logging::{info, warn};
 
@@ -210,6 +212,17 @@ pub type GenerationWatch = Watch<CSMutex, u32, GENERATION_WATCH_CAPACITY>;
 
 /// The update generation that the board's one config task bumps.
 pub(crate) static GENERATION_WATCH: GenerationWatch = Watch::new();
+
+/// How long [`Handle::downgrade`] waits for the config task to store the
+/// record of the staged image. A config task that does not answer must
+/// not keep the board from the reboot, with mining already stopped.
+const DOWNGRADE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// The answer [`run`] signals once it has downgraded the config. It
+/// serves one waiter, which the OTA handler is: the handler calls
+/// [`Handle::downgrade`] under the OTA target lock, which admits one
+/// upload at a time.
+static DOWNGRADE_DONE: Signal<CSMutex, ()> = Signal::new();
 
 /// The cell that holds the fee slot a board hands to [`run`]. Named so
 /// a host test can declare one of its own for a [`Handle`].
@@ -398,6 +411,25 @@ impl Handle {
     #[must_use]
     pub fn try_send(&self, message: Message) -> bool {
         self.commands.try_send(message).is_ok()
+    }
+
+    /// Downgrade the config for the image that an OTA staged, and wait
+    /// until the config task has stored the record that the image reads.
+    /// Returns `false` when the task is busy or does not answer within
+    /// [`DOWNGRADE_TIMEOUT`].
+    ///
+    /// The task stores nothing after the downgrade, so the caller reboots
+    /// into the image next. The message goes out without an await,
+    /// because a `Message` is as large as a `Config` and an awaited send
+    /// would hold one in the future of the caller.
+    pub async fn downgrade(&self, staged: StagedConfig) -> bool {
+        DOWNGRADE_DONE.reset();
+        if !self.try_send(Message::Downgrade(staged)) {
+            return false;
+        }
+        with_timeout(DOWNGRADE_TIMEOUT, DOWNGRADE_DONE.wait())
+            .await
+            .is_ok()
     }
 
     /// Per-task subscription to the update-generation watch. The
@@ -815,6 +847,10 @@ impl Config {
 /// `committed.network` is the revert target and is left untouched while
 /// a preview is pending, so a superseding apply still reverts all the
 /// way back.
+///
+/// A [`Message::Downgrade`] stores the record that the image an OTA
+/// staged reads, answers [`Handle::downgrade`], and drops every command
+/// after it until the handler reboots the board into that image.
 pub async fn run<S: Storage>(
     mut storage: S,
     board: &'static HashboardDescriptor,
@@ -904,7 +940,53 @@ pub async fn run<S: Storage>(
                 NETWORK_WATCH.sender().send(committed.network.clone());
                 ubos_core::reboot::request_reboot();
             }
+            Message::Downgrade(staged) => {
+                store_downgraded(&committed, staged, &mut storage).await;
+                DOWNGRADE_DONE.signal(());
+                drop_until_reboot().await;
+            }
         }
+    }
+}
+
+/// Store the record that the image an OTA staged reads, when that is an
+/// older version than this build's.
+///
+/// The conversion runs without an await, so the task holds one config
+/// across each suspend point. Only the encoded record waits for the
+/// store.
+async fn store_downgraded<S: Storage>(config: &Config, staged: StagedConfig, storage: &mut S) {
+    let Some(version) = versions::downgrade_version(staged, versions::VERSIONS) else {
+        info!("config: the new image gets the stored config as it is");
+        return;
+    };
+    let mut buffer = [0u8; LOAD_BUFFER_SIZE];
+    let Some(length) = (version.downgrade)(config, &mut buffer) else {
+        warn!(
+            "config: cannot encode the config of version {} for the new image",
+            version.number
+        );
+        return;
+    };
+    if storage.store(CONFIG_KEY, &buffer[..length]).await.is_err() {
+        warn!(
+            "config: cannot store the config of version {} for the new image",
+            version.number
+        );
+        return;
+    }
+    info!(
+        "config: stored the config of version {} for the new image",
+        version.number
+    );
+}
+
+/// Drop every command until the OTA handler reboots into the staged
+/// image, so no write replaces the record that the image reads.
+async fn drop_until_reboot() -> ! {
+    loop {
+        let _ = COMMAND_CHANNEL.receive().await;
+        warn!("config: an update is installing, the change is not saved");
     }
 }
 
