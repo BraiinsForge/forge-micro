@@ -34,8 +34,9 @@
   # For the cross package set each board target builds in.
   nixpkgs,
   # Patched so a selection that installs nothing, a library crate's
-  # units or its tests, plans and builds, and so an override adds rustc
-  # flags for its own package.
+  # units or its tests, plans and builds, so an override adds rustc
+  # flags for its own package, and so a test run keeps the coverage
+  # profiles it writes.
   rostnix,
   src,
   hostRustToolchain,
@@ -57,6 +58,7 @@ let
       patches = [
         ./rostnix-libraries.patch
         ./rostnix-rustflags.patch
+        ./rostnix-profiles.patch
       ];
     }
   );

@@ -1,0 +1,34 @@
+diff --git a/src/testrun.rs b/src/testrun.rs
+index 415959d..a58c358 100644
+--- a/src/testrun.rs
++++ b/src/testrun.rs
+@@ -423,6 +423,9 @@ pub fn run() -> Result<()> {
+             .stdin(Stdio::null())
+             .stdout(writer.try_clone()?)
+             .stderr(writer);
++        // An executable built with `-C instrument-coverage` writes its
++        // profile here, and every other executable ignores the variable.
++        command.env("LLVM_PROFILE_FILE", Path::new(out).join("profraw/%m_%p.profraw"));
+         // The harness starts as many threads as the machine has cores;
+         // the build was given so many.
+         let cores = std::env::var("NIX_BUILD_CORES").unwrap_or_default();
+@@ -446,6 +449,19 @@ pub fn run() -> Result<()> {
+         return Err(format!("{what} failed: {status}").into());
+     }
+ 
++    // A profile needs the executables that wrote it to be read, so they
++    // are kept beside it, with the root of the copy the test was compiled
++    // in, which its paths name.
++    if Path::new(out).join("profraw").is_dir() {
++        fs::write(Path::new(out).join("source-root"), text(&layout.source))?;
++        let objects = Path::new(out).join("objects");
++        fs::create_dir_all(&objects)?;
++        copy_writable(&exe, &objects.join(exe.file_name().unwrap_or_default()))?;
++        for placed in &layout.executables {
++            copy_writable(&placed.to, &objects.join(placed.to.file_name().unwrap_or_default()))?;
++        }
++    }
++
+     let mut argv = vec![text(&exe)];
+     argv.extend(node.args.iter().cloned());
+     node::write_record_as(
