@@ -83,9 +83,10 @@
 //!
 //! The versions older than the oldest one that a supported firmware
 //! stores can go, after the definitions that a later version re-exports
-//! from them move into the oldest version left. An OTA to a deleted
-//! version then boots on the defaults and the seed, and an OTA to stock
-//! writes the oldest version left.
+//! from them move into the oldest version left. The schema hash symbol in
+//! the image of that firmware holds the hash of its version. An OTA to a
+//! deleted version then boots on the defaults and the seed, and an OTA to
+//! stock writes the oldest version left.
 //!
 //! The `dead_code` expectation below holds while an item here has no
 //! caller. Delete it once the first version is listed.
@@ -206,6 +207,19 @@ pub(crate) fn older_version(hash: [u8; 8], versions: &[Version]) -> Option<&Vers
     let (_, older) = versions.split_last()?;
     older.iter().find(|version| version.hash == hash)
 }
+
+/// The schema hash of this build, under a symbol name that a packer
+/// reads from the ELF.
+///
+/// A packer copies the hash into the update header, so the firmware
+/// that installs the update knows which record the new image reads.
+/// `pkgs/config-schema-hash` reads the symbol. The linker refuses a
+/// second definition of the name, so an image holds one hash. `used`
+/// keeps the static through the link, because nothing in the firmware
+/// reads it.
+#[used]
+#[unsafe(export_name = "UBOS_CONFIG_SCHEMA_HASH")]
+static SCHEMA_HASH_SYMBOL: [u8; 8] = Config::SCHEMA_HASH;
 
 /// The schema hash of `T` as a record of its version holds it.
 ///
