@@ -110,6 +110,10 @@ const _: () = assert!(
     "The newest entry in VERSIONS is not the live config schema. Do the steps for a schema change in ubos/ubos-config/src/versions/mod.rs."
 );
 
+/// The number of the live version, which the events name as the version
+/// that an upgrade converts to and a downgrade converts from.
+pub(crate) const NEWEST_VERSION: u16 = VERSIONS[VERSIONS.len() - 1].number;
+
 /// The schema of a version.
 pub(crate) trait Versioned: Serialize + DeserializeOwned {
     /// The schema hash in front of a record of this version.

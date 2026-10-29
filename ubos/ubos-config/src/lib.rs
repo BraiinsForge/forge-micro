@@ -130,6 +130,13 @@ ubos_events::events! {
     factory_reset()                                      warn = "Factory reset to defaults",
     network_applied()                                    info = "Network config applied",
     network_reverted()                                   warn = "Network config reverted",
+    config_upgraded(from: u16, to: u16)                  info = "Configuration upgraded from version {} to version {}",
+    config_upgrade_failed(from: u16, to: u16)            warn = "Cannot upgrade the configuration from version {} to version {}, defaults in use",
+    config_version_unknown()                             warn = "Stored configuration has an unknown version, defaults in use",
+    config_unusable()                                    warn = "Cannot use the stored configuration, defaults in use",
+    config_tuning_adjusted()                             warn = "Stored tuning does not fit this firmware and is adjusted",
+    config_downgraded(from: u16, to: u16)                info = "Configuration converted from version {} to version {} for the update",
+    config_downgrade_failed(from: u16, to: u16)           warn = "Cannot convert the configuration from version {} to version {} for the update",
 }
 
 /// Subscriber capacity for the config watch.
@@ -812,9 +819,10 @@ impl Config {
 /// reads), [`LoadError::Corrupt`]
 /// (partial write before power loss), an I/O error, or a failed
 /// validation, falls back to [`Config::for_board`] with
-/// `info.default_tuning` and logs the reason. `Ok(None)` means the key
-/// was never written and is treated as a clean first-boot: defaults,
-/// with no warning.
+/// `info.default_tuning` and logs the reason. An upgrade and each
+/// fallback record an event, so the operator reads what an update did
+/// to the config. `Ok(None)` means the key was never written and is
+/// treated as a clean first-boot: defaults, with no warning.
 ///
 /// A board can hand in a `seed` of settings it recovered from the
 /// firmware it replaced. Each seed field is written over the config
@@ -966,6 +974,7 @@ async fn store_downgraded<S: Storage>(config: &Config, staged: StagedConfig, sto
             "config: cannot encode the config of version {} for the new image",
             version.number
         );
+        crate::events::config_downgrade_failed(versions::NEWEST_VERSION, version.number);
         return;
     };
     if storage.store(CONFIG_KEY, &buffer[..length]).await.is_err() {
@@ -973,12 +982,14 @@ async fn store_downgraded<S: Storage>(config: &Config, staged: StagedConfig, sto
             "config: cannot store the config of version {} for the new image",
             version.number
         );
+        crate::events::config_downgrade_failed(versions::NEWEST_VERSION, version.number);
         return;
     }
     info!(
         "config: stored the config of version {} for the new image",
         version.number
     );
+    crate::events::config_downgraded(versions::NEWEST_VERSION, version.number);
 }
 
 /// Drop every command until the OTA handler reboots into the staged
@@ -1060,6 +1071,7 @@ async fn load_initial<S: Storage>(
             }
             Err(_) => {
                 warn!("config: load failed, using defaults");
+                crate::events::config_unusable();
                 return Config::for_board(board, info.default_tuning);
             }
         }
@@ -1110,11 +1122,13 @@ fn decode_stored<E>(
         config.miner.tuning = stored.clamped(info.bounds);
         if config.miner.tuning != stored {
             warn!("config: stored tuning outside the accepted ranges, clamped into them");
+            crate::events::config_tuning_adjusted();
         }
     } else {
         warn!(
             "config: stored tuning selects a tuner this machine does not offer, using the default tuning"
         );
+        crate::events::config_tuning_adjusted();
         config.miner.tuning = info.default_tuning.tuning(board);
     }
     // A firmware update can change the kinds of reading a machine
@@ -1142,6 +1156,7 @@ fn decode_stored<E>(
     }
     if config.validate(info.bounds).is_err() {
         warn!("config: stored config failed validation, using defaults");
+        crate::events::config_unusable();
         return None;
     }
     info!("config: loaded from storage");
@@ -1176,9 +1191,11 @@ fn upgrade_record(version: &versions::Version, payload: &[u8]) -> Option<Config>
             "config: the record of version {} does not decode, using defaults",
             version.number
         );
+        crate::events::config_upgrade_failed(version.number, versions::NEWEST_VERSION);
         return None;
     };
     info!("config: upgraded the record of version {}", version.number);
+    crate::events::config_upgraded(version.number, versions::NEWEST_VERSION);
     Some(config)
 }
 
@@ -1243,10 +1260,14 @@ async fn persist_taken<S: Storage>(taken: &Taken, storage: &mut S) {
     }
 }
 
-/// Log the variant-specific reason a stored blob could not be decoded.
+/// Log the variant-specific reason a stored blob could not be decoded,
+/// and record its event.
 ///
 /// Each arm produces a different diagnostic so operators can tell a
 /// firmware-upgrade schema bump apart from a flash corruption event.
+/// The event names only the schema bump, because an update caused it,
+/// and a damaged or an unreadable record is the same loss to the
+/// operator.
 #[allow(clippy::match_same_arms)]
 fn log_decode_error<E>(error: &LoadError<E>) {
     match error {
@@ -1254,9 +1275,16 @@ fn log_decode_error<E>(error: &LoadError<E>) {
             warn!(
                 "config: the stored config has a schema that this firmware cannot read, using defaults"
             );
+            crate::events::config_version_unknown();
         }
-        LoadError::Corrupt => warn!("config: stored blob corrupt, using defaults"),
-        LoadError::Io(_) => warn!("config: storage error decoding blob, using defaults"),
+        LoadError::Corrupt => {
+            warn!("config: stored blob corrupt, using defaults");
+            crate::events::config_unusable();
+        }
+        LoadError::Io(_) => {
+            warn!("config: storage error decoding blob, using defaults");
+            crate::events::config_unusable();
+        }
     }
 }
 
