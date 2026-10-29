@@ -4,8 +4,14 @@ import Chart from './Chart';
 import { useDash } from '../lib/store';
 import { getConfig } from '../lib/api';
 import { fmtHr, fmtUp, fmtPower, fmtVolts } from '../lib/format';
-import { MC_PER_C, MINING_STATE_CLASS, MINING_STATE_LABEL, PAUSE_LABEL } from '../lib/types';
-import type { ChainInfo, Info } from '../lib/types';
+import { MC_PER_C, MINING_STATE_CLASS, MINING_STATE_LABEL, PAUSE_LABEL, SOURCE_LABEL, SOURCES } from '../lib/types';
+import type { ChainInfo, CoolingConfig, Info, Source, Statistic } from '../lib/types';
+
+// The colour of each kind's temperature line. The temperature card puts
+// a dot of it before the reading the PID follows.
+// Neither hue reads as hot or as a status, so a line never looks like
+// the green or red that the card gives a reading.
+const TEMP_COLOR: Record<Source, string> = { chip: '#d946ef', hashboard: '#0891b2' };
 
 // A pool slot's display metadata, derived from GET /api/config. `null`
 // means the slot answered but is unconfigured; `undefined` (the initial
@@ -82,12 +88,9 @@ function StatCard({ label, value, cls, wide }: StatCardProps) {
   );
 }
 
-// The board's halt thresholds, which the card tiers by severity: the
-// hashboard one turns the reading amber and the chip one turns it red. A
-// machine that does not read a kind has no threshold and no tier for it.
-// The board judges against whichever matches its live sensor, and the
-// pair is ordered, so the amber step is the point past which some sensor
-// would already halt.
+// The board's halt thresholds, one for each kind of reading it measures.
+// The temperature card turns red when the hottest reading of a kind
+// reaches the threshold of that kind.
 interface TempThresholds {
   hashboardC: number | null;
   chipC: number | null;
@@ -117,6 +120,7 @@ export default function Dashboard({ shown }: DashboardProps) {
 
   const [poolCfg, setPoolCfg] = useState<(PoolMeta | null | undefined)[]>([undefined, undefined, undefined]);
   const [tempThresh, setTempThresh] = useState<TempThresholds | null>(null);
+  const [cooling, setCooling] = useState<CoolingConfig | null>(null);
   const [cursor, setCursor] = useState<number | null>(null);
 
   // Re-read on every return to the view: the dashboard stays mounted while
@@ -145,19 +149,42 @@ export default function Dashboard({ shown }: DashboardProps) {
             chipC: celsius(data.thermal.dangerous_chip_temp),
           });
         }
+        if (data.cooling) setCooling(data.cooling);
       } catch (_) {
         /* leave labels blank; the poll still drives alive/dead */
       }
     })();
   }, [shown]);
 
-  const temperature = dash.temperature;
+  // The target's kind at its statistic, and the other kind at its
+  // hottest, which the halt judges. So the card's reading sits on the line
+  // of its dot's colour.
+  const pidTarget = cooling?.target;
+  const statisticOf = (kind: Source): Statistic => (pidTarget?.source === kind ? pidTarget.statistic : 'max');
+  // One line for each kind with a reading in the window.
+  const tempLines = SOURCES.map((kind) => ({ kind, buf: dash.temp[`temperature_${kind}_${statisticOf(kind)}`] }))
+    .filter(({ buf }) => buf.some((value) => value != null))
+    .map(({ kind, buf }) => ({
+      buf,
+      color: TEMP_COLOR[kind],
+      label: `${SOURCE_LABEL[kind]} Temp. (°C)`,
+      tip: `${SOURCE_LABEL[kind]} ${statisticOf(kind)} (°C)`,
+    }));
+  // The kind the PID follows, or the target's kind while the PID does not
+  // run, which then has no target in force.
+  const active = info?.pid_source;
+  const cardKind = active ?? pidTarget?.source;
+  const cardTemp = cardKind ? info?.[`temperature_${cardKind}_${statisticOf(cardKind)}`] : null;
+  const cardTarget = active && pidTarget ? `${pidTarget.temp / MC_PER_C} °C` : '–';
 
   function tempCls(): string {
-    if (temperature == null || !tempThresh) return '';
-    if (tempThresh.chipC != null && temperature >= tempThresh.chipC) return 'temp-red';
-    if (tempThresh.hashboardC != null && temperature >= tempThresh.hashboardC) return 'temp-warn';
-    return 'temp-ok';
+    if (cardTemp == null || !tempThresh) return '';
+    const hot = (value: number | null | undefined, limit: number | null) =>
+      value != null && limit !== null && value >= limit;
+    return hot(info?.temperature_chip_max, tempThresh.chipC) ||
+      hot(info?.temperature_hashboard_max, tempThresh.hashboardC)
+      ? 'temp-red'
+      : 'temp-ok';
   }
 
   function poolState(slot: number): Status {
@@ -189,7 +216,7 @@ export default function Dashboard({ shown }: DashboardProps) {
           onCursor={setCursor}
         />
         <Chart
-          lines={[{ buf: dash.tp, color: '#fe8431', label: 'Temperature (°C)' }]}
+          lines={tempLines}
           min={20}
           max={100}
           minSpan={20}
@@ -216,9 +243,17 @@ export default function Dashboard({ shown }: DashboardProps) {
       <aside class="side">
         <StatCard label="Real Hashrate" value={fmtHr(info?.hashrate)} />
         <StatCard
-          label="Chip Temperature"
-          value={temperature != null ? temperature + ' °C' : '–'}
-          cls={tempCls()}
+          label="Temperature / Target"
+          value={
+            cardKind && cardTemp != null ? (
+              <span class="ps">
+                <span class="pd" style={{ background: TEMP_COLOR[cardKind] }} />
+                <span class={tempCls()}>{cardTemp} °C</span> / {cardTarget}
+              </span>
+            ) : (
+              '–'
+            )
+          }
         />
         <StatCard
           label="Power in / out"

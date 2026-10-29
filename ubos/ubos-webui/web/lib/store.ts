@@ -5,7 +5,7 @@
 
 import { createSignal } from './signal';
 import { getInfo } from './api';
-import type { Info } from './types';
+import type { Info, Source, Statistic } from './types';
 
 export const SAMPLES = 150; // 150 × 2 s = 5-minute rolling window
 const FAIL_THRESHOLD = 3; // consecutive misses before the link reads Dead
@@ -16,15 +16,23 @@ type Sample = number | null;
 
 const emptyBuf = (): Sample[] => new Array<Sample>(SAMPLES).fill(null);
 
+/** The `/api/info` key of a kind's reading at a statistic. */
+export type TempKey = `temperature_${Source}_${Statistic}`;
+const TEMP_KEYS: TempKey[] = [
+  'temperature_chip_max',
+  'temperature_chip_mean',
+  'temperature_hashboard_max',
+  'temperature_hashboard_mean',
+];
+
 export interface Dash {
   info: Info | null;
   link: boolean;
-  // The chip temperature the page may show. A stale reading is a held or
-  // zero value the board did not measure, so it is absent here, and the
-  // card, its colour and the chart all read this one field.
-  temperature: number | null;
   hr: Sample[];
-  tp: Sample[];
+  // One buffer for each kind and statistic, so the chart draws each kind
+  // at the statistic the PID follows it at. The board sends `null` for a kind
+  // that a sample did not read, so a stale kind breaks its line.
+  temp: Record<TempKey, Sample[]>;
   pin: Sample[];
   pout: Sample[];
 }
@@ -32,9 +40,8 @@ export interface Dash {
 export const dash: Dash = {
   info: null,
   link: false,
-  temperature: null,
   hr: emptyBuf(),
-  tp: emptyBuf(),
+  temp: Object.fromEntries(TEMP_KEYS.map((key) => [key, emptyBuf()])) as Record<TempKey, Sample[]>,
   pin: emptyBuf(),
   pout: emptyBuf(),
 };
@@ -57,8 +64,7 @@ async function tick(): Promise<void> {
     dash.link = true;
     dash.info = data;
     push(dash.hr, data.hashrate ?? null);
-    dash.temperature = data.chip_reading_stale || data.temperature == null ? null : data.temperature;
-    push(dash.tp, dash.temperature);
+    for (const key of TEMP_KEYS) push(dash.temp[key], data[key] ?? null);
     push(dash.pin, data.power_in_mw == null ? null : data.power_in_mw / 1000);
     push(dash.pout, data.power_out_mw == null ? null : data.power_out_mw / 1000);
   } catch (error) {

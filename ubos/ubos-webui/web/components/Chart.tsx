@@ -14,6 +14,8 @@ export interface ChartLine {
   buf: (number | null)[];
   color: string;
   label: string;
+  /** The line's name in the tooltip, where it says more than `label`. */
+  tip?: string;
 }
 
 export interface ChartProps {
@@ -218,7 +220,7 @@ export default function Chart({
       .map((line): TooltipEntry | null => {
         const v = line.buf[cursor];
         if (v == null) return null;
-        return { label: line.label, color: line.color, text: val(v) };
+        return { label: line.tip ?? line.label, color: line.color, text: val(v) };
       })
       .filter((e): e is TooltipEntry => e != null);
     const tipX = parseFloat(geo.tip.x1);

@@ -29,10 +29,10 @@ export interface Info {
   hashrate?: number;
   uptime?: number;
   /**
-   * Chip temperature in °C. Read `chip_reading_stale` before showing
-   * it: this field holds its last value when the board stops measuring.
-   * `lib/store.ts` filters it into `dash.temperature`, and the card,
-   * its colour and the chart all read that field instead of this one.
+   * The hottest reading of the last sample, of either kind, in °C. Read
+   * `chip_reading_stale` before showing it: this field holds its last
+   * value when the board stops measuring. The dashboard reads the four
+   * kind temperatures below.
    */
   temperature?: number;
   /** Ambient temperature near the board. `null` on a board without a sensor for it. */

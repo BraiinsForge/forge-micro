@@ -703,15 +703,13 @@ main > * {
 
 /* Status card value: colored to match the mining state. Green while
    running, orange for a safety pause, muted for an operator stop. */
-.v.temp-ok {
+/* Only the reading takes the colour, so the target beside it reads as
+   plain text. */
+.v .temp-ok {
   color: var(--green);
 }
 
-.v.temp-warn {
-  color: var(--orange);
-}
-
-.v.temp-red {
+.v .temp-red {
   color: var(--red);
 }
 
