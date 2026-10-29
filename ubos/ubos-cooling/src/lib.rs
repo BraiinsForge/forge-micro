@@ -170,6 +170,9 @@ pub struct FanState {
     /// sample. The display shows one fan line; on multi-fan boards this is
     /// the busiest fan.
     pub rpm: FanRpm,
+    /// The kind of reading the PID follows. `None` under
+    /// [`FanMode::Fixed`] and while a failsafe holds the fan at full.
+    pub pid_source: Option<Source>,
 }
 
 /// Module-internal fan-telemetry watch. Single writer is [`run_cooling`];
@@ -549,7 +552,11 @@ async fn publish_state<const N: usize>(
         .copied()
         .max_by_key(|reading| reading.rpm())
         .unwrap_or(FanRpm::from_rpm(0));
-    STATE_WATCH.sender().send(FanState { pwm, rpm: fastest });
+    STATE_WATCH.sender().send(FanState {
+        pwm,
+        rpm: fastest,
+        pid_source: pid.map(|input| input.source),
+    });
 
     Metric::with_no_labels(METRIC_FAN_PWM, Value::Uint(u64::from(pwm.percent())))
         .push()

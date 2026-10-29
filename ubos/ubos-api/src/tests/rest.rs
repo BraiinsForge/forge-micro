@@ -26,6 +26,7 @@ extern crate std;
 
 use core::fmt::Write as _;
 
+use ubos_config::Source;
 use ubos_core::units::Temperature;
 
 use crate::ota::{MAX_BUILD_ID_LEN, OtaPhase, OtaWritePhase, ResetReason};
@@ -39,7 +40,7 @@ use crate::schema::info::{ApiInfo, ApiInfoChain, ApiInfoOta};
 /// Pinned exactly, as [`WORST_CASE_BODY_LEN`] is and for the same reason:
 /// a field addition that still fits the buffer fails here, and updating
 /// this constant is the prompt to check the buffer's comment.
-const WORST_CASE_INFO_BODY_LEN: usize = 1787;
+const WORST_CASE_INFO_BODY_LEN: usize = 1964;
 
 /// A `&'static str` of `len` copies of `text`. [`ApiInfo`] takes
 /// `&'static str`, and a leak in a test costs nothing.
@@ -64,6 +65,9 @@ fn leaked(text: &str, len: usize) -> &'static str {
 /// - `ambient` (`Option<i32>`): `Some(i32::MIN)` (11 chars), wider than `null`.
 /// - `fan_pwm`/`pools` (`u8`/`u8`): `u8::MAX` = 255 (3 digits).
 /// - `chip_reading_stale`: `false` (5 chars).
+/// - the four chip and hashboard temperatures: `Some(i32::MIN)` (11
+///   chars each), wider than `null`.
+/// - `pid_source`: `"hashboard"` (11 chars), the longer kind.
 /// - `psu_fault`/`hasPreviousImage`/`resetOtaActive`: `true` (4 chars).
 /// - `ip`: `"255.255.255.255"` (15 chars).
 /// - `mac`: `"ff:ff:ff:ff:ff:ff"` (17 chars).
@@ -116,6 +120,11 @@ fn api_info_body_fits_in_buffer() {
         temperature: i32::MIN,
         ambient: Some(i32::MIN),
         chip_reading_stale: false,
+        temperature_chip_max: Some(i32::MIN),
+        temperature_chip_mean: Some(i32::MIN),
+        temperature_hashboard_max: Some(i32::MIN),
+        temperature_hashboard_mean: Some(i32::MIN),
+        pid_source: Some(Source::Hashboard),
         fan_rpm: u32::MAX,
         fan_pwm: u8::MAX,
         power_in_mw: u32::MAX,
@@ -174,6 +183,11 @@ fn api_info_body_fits_in_buffer() {
          \"temperature\":{min_i32},\
          \"ambient\":{min_i32},\
          \"chip_reading_stale\":false,\
+         \"temperature_chip_max\":{min_i32},\
+         \"temperature_chip_mean\":{min_i32},\
+         \"temperature_hashboard_max\":{min_i32},\
+         \"temperature_hashboard_mean\":{min_i32},\
+         \"pid_source\":\"hashboard\",\
          \"fan_rpm\":{max_u32},\
          \"fan_pwm\":{max_u8},\
          \"power_in_mw\":{max_u32},\
@@ -260,6 +274,11 @@ fn api_info_without_ota_leaves_the_key_out() {
         temperature: 0,
         ambient: None,
         chip_reading_stale: true,
+        temperature_chip_max: None,
+        temperature_chip_mean: None,
+        temperature_hashboard_max: None,
+        temperature_hashboard_mean: None,
+        pid_source: None,
         fan_rpm: 0,
         fan_pwm: 0,
         power_in_mw: 0,
