@@ -3,10 +3,23 @@ import type { JSX } from 'preact';
 import { saveConfig } from '../lib/api';
 import { fmtRange } from '../lib/format';
 import { toast } from '../lib/toast';
-import { MC_PER_C } from '../lib/types';
-import type { CoolingBounds, CoolingConfig, FanMode, Range, ThermalBounds, ThermalConfig } from '../lib/types';
+import { MC_PER_C, SOURCE_LABEL, SOURCES } from '../lib/types';
+import type {
+  CoolingBounds,
+  CoolingConfig,
+  FanMode,
+  Range,
+  Statistic,
+  ThermalBounds,
+  ThermalConfig,
+} from '../lib/types';
 import Field from './Field';
 import Section from './Section';
+
+const STATISTICS: [Statistic, string][] = [
+  ['max', 'Max'],
+  ['mean', 'Mean'],
+];
 
 export interface ConfigThermalProps {
   thermal?: ThermalConfig;
@@ -30,8 +43,12 @@ export default function ConfigThermal({ thermal, cooling, thermalBounds, cooling
   const [cooldownC, setCooldownC] = useState<string | number>(() => (thermal ? thermal.cooldown_temp / MC_PER_C : ''));
   const [mode, setMode] = useState<FanMode>(() => (cooling && cooling.mode != null ? cooling.mode : 'auto'));
   const [targetC, setTargetC] = useState<string | number>(() =>
-    cooling && cooling.target_temp != null ? cooling.target_temp / MC_PER_C : '',
+    cooling?.target != null ? cooling.target.temp / MC_PER_C : '',
   );
+  // The kind and the statistic of the target. Only a machine that reads
+  // both kinds offers the kind, and the target's kind is the only reading
+  // the PID follows.
+  const [input, setInput] = useState(cooling?.target);
   const [minFanPwm, setMinFanPwm] = useState<string | number>(() =>
     cooling && cooling.min_fan_pwm != null ? cooling.min_fan_pwm : '',
   );
@@ -50,10 +67,10 @@ export default function ConfigThermal({ thermal, cooling, thermalBounds, cooling
   const fixed: Partial<Range> = coolingBounds.fixedFanPwm || {};
   const isFixed = mode === 'fixed';
 
-  // The floor bounds PID output and the target is its setpoint, so both
-  // are dead under fixed, and the fixed duty is dead under auto. All
-  // three stay visible, enabled, and keep their value across a toggle,
-  // and the dead ones are dimmed so the eye lands on the live ones:
+  // The floor bounds PID output and the input and the target are what it
+  // follows, so all are dead under fixed, and the fixed duty is dead under
+  // auto. All of them stay visible, enabled, and keep their value across
+  // a toggle, and the dead ones are dimmed so the eye lands on the live ones:
   // the mode control says what governs the fan, the layout never
   // moves, and every field stays under the browser's range check, which
   // a disabled control is barred from. The save carries all six, so an
@@ -73,7 +90,7 @@ export default function ConfigThermal({ thermal, cooling, thermalBounds, cooling
       },
       cooling: {
         mode,
-        target_temp: Math.round(+targetC * MC_PER_C),
+        target: input && { ...input, temp: Math.round(+targetC * MC_PER_C) },
         fixed_fan_pwm: +fixedFanPwm,
         min_fan_pwm: +minFanPwm,
       },
@@ -139,18 +156,56 @@ export default function ConfigThermal({ thermal, cooling, thermalBounds, cooling
               </div>
             </span>
           </div>
-          <Field
-            label="Target temperature"
-            off={isFixed}
-            desc={fmtRange(target.start, target.end)}
-            unit="°C"
-            value={targetC}
-            onInput={(e) => setTargetC(e.currentTarget.value)}
-            type="number"
-            step="0.5"
-            min={target.start}
-            max={target.end}
-          />
+          {input && hasHashboard && hasChip && (
+            <div class={'fld' + (isFixed ? ' off' : '')}>
+              <span class="fldText">
+                <span class="fldLabel">PID follows</span>
+              </span>
+              <span class="fldCtl">
+                <div class="seg">
+                  {SOURCES.map((source) => (
+                    <button
+                      type="button"
+                      class={input.source === source ? 'active' : ''}
+                      onClick={() => setInput({ ...input, source })}
+                    >
+                      {SOURCE_LABEL[source]}
+                    </button>
+                  ))}
+                </div>
+              </span>
+            </div>
+          )}
+          <div class={'fld' + (isFixed ? ' off' : '')}>
+            <span class="fldText">
+              <span class="fldLabel">Target temperature</span>
+              <span class="fldDesc">{fmtRange(target.start, target.end)}</span>
+            </span>
+            <span class="fldCtl hasUnit">
+              <input
+                type="number"
+                value={targetC}
+                onInput={(e) => setTargetC(e.currentTarget.value)}
+                step="0.5"
+                min={target.start}
+                max={target.end}
+              />
+              <span class="fldUnit">°C</span>
+            </span>
+            {input && (
+              <div class="seg">
+                {STATISTICS.map(([statistic, label]) => (
+                  <button
+                    type="button"
+                    class={input.statistic === statistic ? 'active' : ''}
+                    onClick={() => setInput({ ...input, statistic })}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <Field
             label="Min fan speed"
             off={isFixed}

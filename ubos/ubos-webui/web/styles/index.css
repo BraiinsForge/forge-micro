@@ -1434,6 +1434,12 @@ main > * {
   border-color: var(--accent);
 }
 
+/* A switch that qualifies the field before it, such as the statistic of
+   a setpoint, sits after the field so the fields stay aligned. */
+.fldCtl + .seg {
+  margin-left: 8px; /* Carbon $spacing-03 */
+}
+
 /* Full-screen takeover shown after a network change is applied. The
    board's address and this session are gone, so the SPA is dead; an
    opaque page-filling notice makes that unmistakable and tells the

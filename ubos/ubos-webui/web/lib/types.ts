@@ -39,6 +39,13 @@ export interface Info {
   ambient?: number | null;
   /** `true` when `temperature` is a held or zero value the board did not measure, not a fresh read. */
   chip_reading_stale?: boolean;
+  /** The hottest and the mean reading of each kind in the last sample, in °C; `null` for a kind it did not read. */
+  temperature_chip_max?: number | null;
+  temperature_chip_mean?: number | null;
+  temperature_hashboard_max?: number | null;
+  temperature_hashboard_mean?: number | null;
+  /** The kind the cooling PID follows; `null` under a fixed duty or while a failsafe holds the fan at full. */
+  pid_source?: Source | null;
   fan_rpm?: number;
   fan_pwm?: number;
   power_in_mw?: number;
@@ -152,9 +159,25 @@ export interface ThermalConfig {
 // fixed duty under `fixed`, the two wire names of the config enum.
 export type FanMode = 'auto' | 'fixed';
 
+/** What a temperature reading measures. */
+export type Source = 'chip' | 'hashboard';
+export type Statistic = 'max' | 'mean';
+export const SOURCES: Source[] = ['chip', 'hashboard'];
+export const SOURCE_LABEL: Record<Source, string> = { chip: 'Chip', hashboard: 'Hashboard' };
+
+/**
+ * What the PID holds: one statistic of one kind of reading, at `temp` in
+ * millicelsius. That kind is the only reading the PID follows.
+ */
+export interface PidTarget {
+  source: Source;
+  statistic: Statistic;
+  temp: number;
+}
+
 export interface CoolingConfig {
   mode: FanMode;
-  target_temp: number;
+  target: PidTarget;
   fixed_fan_pwm: number;
   min_fan_pwm: number;
 }

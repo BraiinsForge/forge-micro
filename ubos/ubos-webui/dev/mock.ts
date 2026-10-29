@@ -36,6 +36,10 @@ function info() {
   // temperatureUnreadable label stay reachable against the mock, the
   // same way `ambient` cycles above without a live board.
   const pauseReason = PAUSE_CYCLE[Math.floor(tick / 20) % PAUSE_CYCLE.length];
+  const stale = pauseReason !== null;
+  // The chip, the kind the mock's target names, goes quiet for a stretch,
+  // so the hold while the PID has no reading stays reachable.
+  const chipQuiet = stale || Math.floor(tick / 15) % 3 === 2;
   return {
     // The board name the API reports, not the brand: the brand reaches
     // the page from the declared brand directory, and a fixture that
@@ -45,7 +49,12 @@ function info() {
     uptime,
     temperature,
     ambient,
-    chip_reading_stale: pauseReason !== null,
+    chip_reading_stale: stale,
+    temperature_chip_max: chipQuiet ? null : temperature + 8,
+    temperature_chip_mean: chipQuiet ? null : temperature + 4,
+    temperature_hashboard_max: stale ? null : temperature - 15,
+    temperature_hashboard_mean: stale ? null : temperature - 17,
+    pid_source: chipQuiet ? null : 'chip',
     fan_rpm: 4200,
     fan_pwm: 65,
     power_in_mw: powerIn * 1000,
@@ -114,7 +123,12 @@ const CONFIG = {
     cooldown_temp: 75000,
     dangerous_chip_temp: 105000,
   },
-  cooling: { mode: 'auto', target_temp: 65000, fixed_fan_pwm: 60, min_fan_pwm: 20 },
+  cooling: {
+    mode: 'auto',
+    target: { source: 'chip', statistic: 'mean', temp: 65000 },
+    fixed_fan_pwm: 60,
+    min_fan_pwm: 20,
+  },
   miner: { tuning: { Fixed: { frequency_khz: 500000, voltage_mv: 1200 } } },
   api: { username: 'admin', password: '' },
   network: { mode: 'Dhcp', hostname: '', address: [192, 168, 1, 50], prefix_len: 24, gateway: [192, 168, 1, 1], dns: [] },
