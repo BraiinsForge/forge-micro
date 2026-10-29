@@ -4213,7 +4213,6 @@ version = "0.1.0"
 dependencies = [
  "critical-section",
  "defmt 1.2.0",
- "embassy-futures",
  "embassy-sync 0.8.0",
  "embassy-time",
  "heapless 0.9.4",

@@ -23,7 +23,6 @@ defmt           = { workspace = true, optional = true }
 
 [dev-dependencies]
 critical-section = { version = "1.2", features = ["std"] }
-embassy-futures  = { workspace = true }
 
 [package.metadata.cargo-machete]
 ignored = ["defmt"]
