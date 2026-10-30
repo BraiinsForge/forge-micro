@@ -34,6 +34,158 @@
 //! The machine's owner holds the sum type over all states and the loop
 //! that runs one state after another, or races a state against its
 //! interrupts. That keeps the crate free of any executor.
+//!
+//! # Example
+//!
+//! The machine has three states. `Idle` leads to `Work`, `Work` repeats
+//! until its count runs out and then leads to `Done`, and `Done` leads
+//! back to `Idle`. `Done` is also where the interrupt leads from every
+//! state.
+//!
+//! ```
+//! use core::future::Future;
+//! use core::pin::pin;
+//! use core::task::{Context, Poll, Waker};
+//! use transitions::{Lift, Machine, Member, Members, Named, State, check, member, successors};
+//!
+//! // Each state is a struct that owns its data. The name is what the
+//! // report of a bad edge uses.
+//! struct Idle;
+//! struct Work {
+//!     left: u32,
+//! }
+//! struct Done;
+//!
+//! impl Named for Idle {
+//!     const NAME: &'static str = "Idle";
+//! }
+//! impl Named for Work {
+//!     const NAME: &'static str = "Work";
+//! }
+//! impl Named for Done {
+//!     const NAME: &'static str = "Done";
+//! }
+//!
+//! // The sum type holds the state the machine is in. Every state
+//! // converts into it.
+//! enum Any {
+//!     Idle(Idle),
+//!     Work(Work),
+//!     Done(Done),
+//! }
+//!
+//! impl From<Idle> for Any {
+//!     fn from(state: Idle) -> Self {
+//!         Self::Idle(state)
+//!     }
+//! }
+//! impl From<Work> for Any {
+//!     fn from(state: Work) -> Self {
+//!         Self::Work(state)
+//!     }
+//! }
+//! impl From<Done> for Any {
+//!     fn from(state: Done) -> Self {
+//!         Self::Done(state)
+//!     }
+//! }
+//!
+//! // Each enum names the states one state may lead to. The variant is
+//! // the trigger and its payload is the state it leads to.
+//! successors! { enum IdleNext { Start(Work) } }
+//! successors! { enum WorkNext { Again(Work), Finish(Done) } }
+//! successors! { enum DoneNext { Reset(Idle) } }
+//! // The interrupt applies to every state.
+//! successors! { enum Anywhere { Stop(Done) } }
+//!
+//! // The machine is what the states borrow to do their work.
+//! struct Counter {
+//!     steps: u32,
+//! }
+//!
+//! impl Machine for Counter {
+//!     type Any = Any;
+//!     type Anywhere = Anywhere;
+//! }
+//!
+//! impl Members<Counter> for Any {
+//!     const ALL: &'static [Member] = &[
+//!         member::<Counter, Idle>(),
+//!         member::<Counter, Work>(),
+//!         member::<Counter, Done>(),
+//!     ];
+//! }
+//!
+//! // A state does its work and returns the enum of its edges, so a
+//! // return that the enum does not name does not compile.
+//! impl State<Counter> for Idle {
+//!     type Next = IdleNext;
+//!     async fn run(self, _machine: &mut Counter) -> IdleNext {
+//!         IdleNext::Start(Work { left: 3 })
+//!     }
+//! }
+//!
+//! impl State<Counter> for Work {
+//!     type Next = WorkNext;
+//!     async fn run(self, machine: &mut Counter) -> WorkNext {
+//!         machine.steps += 1;
+//!         match self.left {
+//!             0 | 1 => WorkNext::Finish(Done),
+//!             left => WorkNext::Again(Work { left: left - 1 }),
+//!         }
+//!     }
+//! }
+//!
+//! impl State<Counter> for Done {
+//!     type Next = DoneNext;
+//!     async fn run(self, _machine: &mut Counter) -> DoneNext {
+//!         DoneNext::Reset(Idle)
+//!     }
+//! }
+//!
+//! // The owner's step runs the current state and lifts its successor
+//! // into the sum type.
+//! async fn step(any: Any, machine: &mut Counter) -> Any {
+//!     match any {
+//!         Any::Idle(state) => state.run(machine).await.lift(),
+//!         Any::Work(state) => state.run(machine).await.lift(),
+//!         Any::Done(state) => state.run(machine).await.lift(),
+//!     }
+//! }
+//!
+//! // These states never wait, so one poll finishes a step. A machine
+//! // whose states wait for hardware runs the same calls on an executor.
+//! fn finish<F: Future>(future: F) -> F::Output {
+//!     let mut future = pin!(future);
+//!     match future.as_mut().poll(&mut Context::from_waker(Waker::noop())) {
+//!         Poll::Ready(output) => output,
+//!         Poll::Pending => panic!("these states never wait"),
+//!     }
+//! }
+//!
+//! // The declared edges are sound: every state is reachable from `Idle`
+//! // and has a path of its own edges back to it.
+//! assert_eq!(check::<Counter>("Idle"), Ok(()));
+//!
+//! let mut machine = Counter { steps: 0 };
+//! let mut any = Any::Idle(Idle);
+//! while !matches!(any, Any::Done(_)) {
+//!     any = finish(step(any, &mut machine));
+//! }
+//! assert_eq!(machine.steps, 3);
+//! ```
+//!
+//! # Checking the edges
+//!
+//! [`check`] holds the declared edges to two rules. Every state is
+//! reachable from the start, so no state is one that no code can enter.
+//! Every state has a path of its own edges back to the start, so no
+//! state is one that only an interrupt can leave. The machine's
+//! `Anywhere` edges count when a state is reached and do not count when
+//! one is left, because an interrupt that applies to every state would
+//! otherwise let every state pass. A failed rule is a [`Fault`] that
+//! names the state, and a machine's own tests assert the result on every
+//! build.
 
 #![no_std]
 
