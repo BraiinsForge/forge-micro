@@ -36,13 +36,13 @@ const WATCH_CAPACITY: usize = 5;
 /// `send()` once full.
 pub(crate) const CMD_CHANNEL_DEPTH: usize = 4;
 
-/// Module-internal state watch. Single writer is [`crate::Miner::run`];
-/// readers are obtained via [`Handle::subscribe`].
+/// Module-internal state watch. Its single writer is the miner, through
+/// [`Handle::publish`]; readers are obtained via [`Handle::subscribe`].
 #[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
 static STATE_WATCH: Watch<CSMutex, MiningState, WATCH_CAPACITY> = Watch::new();
 
-/// Module-internal command channel. Single consumer is
-/// [`crate::Miner::run`]; producers send via the [`Handle`]
+/// Module-internal command channel. Its single consumer is the miner,
+/// through [`Handle::next_message`]; producers send via the [`Handle`]
 /// inherent methods.
 #[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
 pub(crate) static COMMAND_CHANNEL: Channel<CSMutex, Message, CMD_CHANNEL_DEPTH> = Channel::new();
@@ -82,10 +82,6 @@ impl MiningState {
         Self::Running,
         Self::Stopped,
     ];
-}
-
-pub(crate) fn publish_state(state: MiningState) {
-    STATE_WATCH.sender().send(state);
 }
 
 /// Commands sent through the mining Handle. Outside crates construct
@@ -149,5 +145,17 @@ impl Handle {
     /// Queue a resume from a previous halt. Idempotent.
     pub async fn resume(&self) {
         self.commands.send(Message::Resume).await;
+    }
+
+    /// Publish `state` as the miner's lifecycle status, on the watch every
+    /// [`Self::state`] and [`Self::subscribe`] reads. Crate-private, so
+    /// the miner stays the only writer.
+    pub(crate) fn publish(&self, state: MiningState) {
+        self.state.sender().send(state);
+    }
+
+    /// Take the next halt or resume. The miner is the only consumer.
+    pub(crate) async fn next_message(&self) -> Message {
+        self.commands.receive().await
     }
 }

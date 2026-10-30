@@ -778,6 +778,7 @@ fn test_miner<'a, T: MachineTuner<CHAINS, PlatformReadings = ()>, const CHAINS: 
         }),
         halted: false,
         read_platform: || (),
+        mining: crate::handle(),
         empty_cycles: 0,
     }
 }
@@ -1498,19 +1499,19 @@ fn settling_ignores_resume_and_preserves_a_resume_queued_after_halt() {
         ));
         let mut context = Context::from_waker(Waker::noop());
         assert!(
-            super::COMMAND_CHANNEL
+            crate::control::COMMAND_CHANNEL
                 .try_send(super::Message::Resume)
                 .is_ok()
         );
         assert!(wait.as_mut().poll(&mut context).is_pending());
         LOG.lock(|log| assert!(log.borrow().is_empty()));
         assert!(
-            super::COMMAND_CHANNEL
+            crate::control::COMMAND_CHANNEL
                 .try_send(super::Message::Halt)
                 .is_ok()
         );
         assert!(
-            super::COMMAND_CHANNEL
+            crate::control::COMMAND_CHANNEL
                 .try_send(super::Message::Resume)
                 .is_ok()
         );
@@ -1692,7 +1693,7 @@ fn halt_publishes_stopped_after_reset_even_if_psu_disable_fails() {
                 disable_fails,
             };
             let mut miner = test_miner::<crate::tuner::Tuners, 1>(&psu, [&ACTOR], [&STATS]);
-            super::publish_state(MiningState::Starting);
+            crate::handle().publish(MiningState::Starting);
             block_on(mining.halt());
             assert_eq!(block_on(subscription.changed()), MiningState::Starting);
             assert!(matches!(

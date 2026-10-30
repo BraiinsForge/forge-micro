@@ -48,7 +48,7 @@ use ubos_metrics::chain::ChainPresence;
 use ubos_psu::{Error as PsuError, Psu};
 
 use crate::chain::{ChainControl, ChainHandle};
-use crate::control::{COMMAND_CHANNEL, Message, MiningState, publish_state};
+use crate::control::{Handle, Message, MiningState};
 use crate::reset::ResetPin;
 use crate::serial::Serial;
 use crate::tuner::MachineTuner;
@@ -74,6 +74,20 @@ const POOL_LOSS_GRACE: Duration = Duration::from_secs(60);
 /// Teardown cuts the rail before the outer loop returns.
 #[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
 pub static STOP_MINING: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+
+/// Run the mining module of a deployment that has no chip: publish
+/// [`MiningState::Stopped`] and drain halt and resume.
+///
+/// The command channel is bounded, so a deployment that never reads it
+/// blocks every later sender, which is the manager task.
+pub async fn run_idle() -> ! {
+    let handle = crate::handle();
+    handle.publish(MiningState::Stopped);
+    info!("mining: idle loop active (no chip)");
+    loop {
+        handle.next_message().await;
+    }
+}
 
 /// Error type for chip-control operations.
 ///
@@ -175,6 +189,9 @@ where
     /// Readings only this board's platform has. Read once per step and
     /// passed to the tuner.
     read_platform: fn() -> T::PlatformReadings,
+    /// The mining handle the API reads; the miner publishes its lifecycle
+    /// status through it.
+    mining: Handle,
     /// Bring-up cycles that found no chain since the last one that did.
     /// Counts toward `BRING_UP_CYCLES`, and is cleared by every cycle
     /// that brings a chain up.
@@ -272,6 +289,7 @@ where
             chains,
             halted: false,
             read_platform,
+            mining: crate::handle(),
             empty_cycles: 0,
         }
     }
@@ -544,7 +562,7 @@ where
             }
         }
 
-        publish_state(MiningState::WaitingForPool);
+        self.mining.publish(MiningState::WaitingForPool);
         info!("mining: entering reset");
         crate::events::miner_reset();
         for chain in &mut self.chains {
@@ -558,7 +576,7 @@ where
         }
         crate::events::pool_available();
 
-        publish_state(MiningState::Starting);
+        self.mining.publish(MiningState::Starting);
         let settled = settle_or_abort(Self::RESET_HOLD, self.psu, &mut self.chains).await;
         if let Some(outcome) = self.leave_cycle(settled) {
             return outcome;
@@ -603,7 +621,7 @@ where
             }
         }
 
-        publish_state(MiningState::Running);
+        self.mining.publish(MiningState::Running);
         self.mine_phase(tuner, config_subscription, selected).await
     }
 
@@ -896,18 +914,8 @@ enum BringUpOutcome {
     NonePresent,
 }
 
-/// Idle counterpart to [`Miner::run`] for deployments without a real chip.
-/// Publish the stopped state and drain commands without hardware access.
-pub async fn run_idle() -> ! {
-    publish_state(MiningState::Stopped);
-    info!("mining: idle loop active (no chip)");
-    loop {
-        next_halt_change().await;
-    }
-}
-
 async fn next_halt_change() -> bool {
-    match COMMAND_CHANNEL.receive().await {
+    match crate::handle().next_message().await {
         Message::Halt => true,
         Message::Resume => false,
     }
@@ -947,7 +955,7 @@ where
     if let Err(error) = psu.disable().await {
         warn!("psu disable failed: {:?}", Debug2Format(&error));
     }
-    publish_state(MiningState::Stopped);
+    crate::handle().publish(MiningState::Stopped);
 }
 
 /// Outcome returned by `bring_up_cycle` to the outer `run` loop.
