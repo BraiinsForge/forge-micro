@@ -39,6 +39,9 @@
 
 mod check;
 mod edge;
+#[cfg(test)]
+#[path = "tests/example.rs"]
+mod example;
 mod machine;
 
 pub use crate::check::{Fault, check};

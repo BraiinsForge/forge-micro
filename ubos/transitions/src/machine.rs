@@ -24,6 +24,10 @@ use core::future::Future;
 
 use crate::edge::{Edge, Edges};
 
+#[cfg(test)]
+#[path = "tests/machine.rs"]
+mod tests;
+
 /// The name of a state in reports of its edges.
 pub trait Named {
     const NAME: &'static str;

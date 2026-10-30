@@ -20,6 +20,10 @@
 //! The edges a state declares: the enum it returns, with one variant per
 //! edge, and the same edges as data so that a machine can be checked.
 
+#[cfg(test)]
+#[path = "tests/edge.rs"]
+mod tests;
+
 /// One declared transition: the variant that triggers it and the state
 /// it leads to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

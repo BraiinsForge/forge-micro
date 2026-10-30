@@ -23,6 +23,10 @@
 use crate::edge::Edges;
 use crate::machine::{Machine, Members};
 
+#[cfg(test)]
+#[path = "tests/check.rs"]
+mod tests;
+
 /// Why a machine's declared edges are unsound.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Fault {
