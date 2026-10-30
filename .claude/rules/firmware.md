@@ -60,6 +60,17 @@ libraries. These load only when working under `firmware/` or `ubos/`.
   in place, or when a trait or a HAL dictates the signature. Where our
   code calls such a HAL, the platform crate wraps the call in a function
   that returns the value, as `ubos_rp::boot::flash_unique_id` does.
+- A library crate's `lib.rs` holds the crate docs, the crate attributes,
+  the `mod` declarations and the `pub use` lines of the public API, and
+  no item of its own. Each item lives in a module named for what it is,
+  so a reader finds it by the file name, and the `pub use` lines keep
+  the public paths at the crate root. A module's tests live in
+  `src/tests/<module>.rs`, attached with `#[path]`, and a fixture that
+  several modules' tests share is a test module of its own, as in
+  `ubos/transitions`. A `#[macro_export]` macro lives in its module too,
+  because the attribute puts it at the crate root wherever it is
+  defined. An existing crate takes this shape when its `lib.rs` is next
+  edited.
 
 ## Free functions
 
