@@ -24,8 +24,8 @@
 //! A run in which no pool slot holds a job for `POOL_LOSS_GRACE` cuts the rail and
 //! waits for a pool again.
 //! The miner applies bounded policy plans in decrease, rail, increase order.
-//! Live targets take effect at the next step. Interruptions allow the current plan
-//! a bounded wait, then cut the rail without a shutdown ramp.
+//! Live targets take effect at the next step. A stop or a halt allows the current
+//! plan a bounded wait, then cuts the rail without a shutdown ramp.
 
 #[cfg(test)]
 #[path = "tests/miner.rs"]
@@ -666,7 +666,14 @@ where
             let mut interruption = None;
             match select(
                 async {
-                    interruption = Some(interrupted(selected, subscription).await);
+                    // Only a stop or a halt interrupts a plan in flight. The
+                    // plan is bounded, and the next pass of the loop reads a
+                    // tuner change before the next step.
+                    let exit = match select(STOP_MINING.wait(), wait_for_halt()).await {
+                        Either::First(()) => Interrupt::Stop,
+                        Either::Second(()) => Interrupt::Halt,
+                    };
+                    interruption = Some(exit);
                     Timer::after(INTERRUPT_TIMEOUT).await;
                 },
                 self.apply_plan(&plan),

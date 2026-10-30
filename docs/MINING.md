@@ -41,10 +41,10 @@ halts.
 
 `serial_task` and `miner_task` never return under normal operation.
 `Miner::run` responds to `STOP_MINING` with a rail cut.
-HALT, STOP, and algorithm changes interrupt plans.
+HALT and STOP interrupt plans.
 The miner allows up to 100 ms for an interrupted plan to complete.
 The miner keeps the first interruption and skips the remaining plan delay.
-All three interruptions then cut the rail without a shutdown ramp or voltage write.
+Both interruptions then cut the rail without a shutdown ramp or voltage write.
 After HALT, the loop waits for `Message::Resume` or `STOP_MINING`.
 Resume restarts bring-up, while STOP ends the loop. On
 bare metal there is no `STOP_MINING`, so if either loop ever returns the
@@ -169,8 +169,9 @@ Then `Miner::run` repeats:
 4. Set the open-core voltage and start work on every present chain.
 5. Read the latest target, feed readings to the tuner, bound its plan, and apply it.
    Wait for the plan delay before the next step.
-6. On HALT, STOP, or an algorithm change, allow up to 100 ms for the current plan.
-   Skip the remaining plan delay and cut the rail without a shutdown ramp.
+6. On HALT or STOP, allow up to 100 ms for the current plan.
+   On HALT, STOP, or an algorithm change, skip the remaining plan delay and cut the rail without a shutdown ramp.
+   An algorithm change during a plan takes effect when the plan completes.
 7. After HALT, wait for `Message::Resume` or `STOP_MINING`.
    After an algorithm change, restart initialization with the new policy.
    After STOP, return from the mining loop.
