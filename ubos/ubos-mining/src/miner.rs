@@ -1329,9 +1329,118 @@ where
 /// chain.
 struct StartWork;
 
+successors! {
+    enum StartWorkNext<T> { Missing(NoTuner), Failed(Recover), Started(Step<T>) }
+}
+
+impl<P, R, T, const CHAINS: usize> State<Context<'_, '_, P, R, T, CHAINS>> for StartWork
+where
+    P: Psu,
+    R: ResetPin,
+    T: MachineTuner<CHAINS>,
+{
+    type Next = StartWorkNext<T>;
+
+    /// Build the tuner the configuration selects now, anchor the shared
+    /// rail and start every present chain.
+    ///
+    /// Building the tuner at the end of bring-up means that a tuning that
+    /// changed to another tuner this machine has during bring-up is the
+    /// one that runs, without another power cycle. A tuning that changed
+    /// to one this machine does not have leads to [`NoTuner`], which cuts
+    /// the rail.
+    async fn run(self, context: &mut Context<'_, '_, P, R, T, CHAINS>) -> StartWorkNext<T> {
+        let tuning = context.config.get().await.miner.tuning;
+        let miner = &mut *context.miner;
+        let Some(tuner) = T::select(&tuning, miner.board) else {
+            return StartWorkNext::Missing(NoTuner::missing(&tuning));
+        };
+        info!("mining: running work initialization");
+        if let Err(error) = miner.start_chains().await {
+            error!(
+                "mining: work initialization error ({:?}); cutting rail and retrying",
+                Debug2Format(&error)
+            );
+            crate::events::work_initialization_failed();
+            return StartWorkNext::Failed(Recover);
+        }
+        crate::events::work_initialized();
+        // Every present chain is enumerated, configured and clocked;
+        // from here it only hashes. A board that addresses it
+        // differently for the two moves its mode line now.
+        for chain in &mut miner.chains {
+            if chain.is_present() {
+                chain.reset.enter_work_mode().await;
+            }
+        }
+        StartWorkNext::Started(Step {
+            run: Run {
+                tuner,
+                selected: Selected::of(&tuning),
+                failures: 0,
+                pool: PoolWatch::default(),
+            },
+        })
+    }
+}
+
 /// Run one tuner step and apply its plan.
 struct Step<T> {
     run: Run<T>,
+}
+
+successors! {
+    enum StepNext<T> { Superseded(Choose), Faulted(Recover), Applied(Pause<T>) }
+}
+
+impl<P, R, T, const CHAINS: usize> State<Context<'_, '_, P, R, T, CHAINS>> for Step<T>
+where
+    P: Psu,
+    R: ResetPin,
+    T: MachineTuner<CHAINS>,
+{
+    type Next = StepNext<T>;
+
+    /// Run one tuner step against the live target and apply its plan.
+    ///
+    /// A configuration that selects another tuner leads to [`Choose`]
+    /// before the step. A plan that writes to the hardware clears
+    /// `failures`; a plan that fails adds one, and the
+    /// [`PLAN_FAILURE_BUDGET`]th failure in a row leads to [`Recover`].
+    async fn run(self, context: &mut Context<'_, '_, P, R, T, CHAINS>) -> StepNext<T> {
+        let mut run = self.run;
+        let snapshot = context.config.get().await;
+        if !run.selected.serves(&snapshot.miner.tuning) {
+            return StepNext::Superseded(Choose);
+        }
+        let miner = &*context.miner;
+        let plan = run.tuner.step(
+            &snapshot.miner.tuning,
+            &miner.readings(),
+            &(miner.read_platform)(),
+        );
+        match miner.apply_plan(&plan).await {
+            Ok(true) => run.failures = 0,
+            Ok(false) => {}
+            Err(error) => {
+                run.failures += 1;
+                warn!(
+                    "mining: plan failed ({} of {}): {:?}",
+                    run.failures,
+                    PLAN_FAILURE_BUDGET,
+                    Debug2Format(&error)
+                );
+                if run.failures >= PLAN_FAILURE_BUDGET {
+                    crate::events::tuner_fault();
+                    return StepNext::Faulted(Recover);
+                }
+            }
+        }
+        StepNext::Applied(Pause {
+            run,
+            until: Instant::now() + plan.delay,
+        })
+    }
 }
 
 /// Wait for the delay the last plan asked for.
@@ -1339,6 +1448,45 @@ struct Pause<T> {
     run: Run<T>,
     /// When the delay ends.
     until: Instant,
+}
+
+successors! {
+    enum PauseNext<T> { Elapsed(Step<T>), Superseded(Choose), PoolLost(Choose) }
+}
+
+impl<P, R, T, const CHAINS: usize> State<Context<'_, '_, P, R, T, CHAINS>> for Pause<T>
+where
+    P: Psu,
+    R: ResetPin,
+    T: MachineTuner<CHAINS>,
+{
+    type Next = PauseNext<T>;
+
+    /// Wait until `until`.
+    ///
+    /// A configuration that selects another tuner ends the wait and leads
+    /// to [`Choose`]; a new target for the running tuner does not, and
+    /// reaches the tuner at the next step. No pool slot holding a job for
+    /// [`POOL_LOSS_GRACE`] also leads to [`Choose`], which waits for a
+    /// pool again with the rail off.
+    async fn run(self, context: &mut Context<'_, '_, P, R, T, CHAINS>) -> PauseNext<T> {
+        let Self { mut run, until } = self;
+        match select3(
+            Timer::at(until),
+            run.selected.superseded(context.config),
+            run.pool.lost(context.miner.pool_serial()),
+        )
+        .await
+        {
+            Either3::First(()) => PauseNext::Elapsed(Step { run }),
+            Either3::Second(()) => PauseNext::Superseded(Choose),
+            Either3::Third(()) => {
+                warn!("mining: no pool has held a job for the grace period; cutting rail");
+                crate::events::pool_lost();
+                PauseNext::PoolLost(Choose)
+            }
+        }
+    }
 }
 
 /// Hold the rail off before the next bring-up.
