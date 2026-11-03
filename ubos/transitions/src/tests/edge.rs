@@ -17,7 +17,7 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-use crate::example::{Any, Anywhere, Halt, IdleNext, Nowhere, Start};
+use crate::example::{Anywhere, Halt, IdleNext, MachineState, Nowhere, Start};
 
 #[test]
 fn the_edges_are_the_declared_ones() {
@@ -34,8 +34,8 @@ fn the_edges_are_the_declared_ones() {
 fn every_edge_lifts_to_the_state_it_names() {
     use crate::Lift;
 
-    let to_start: Any = IdleNext::Prepare(Start).lift();
-    let to_halt: Any = Anywhere::Halt(Halt).lift();
-    assert_eq!(to_start.name(), "Start");
-    assert_eq!(to_halt.name(), "Halt");
+    let to_start: MachineState = IdleNext::Prepare(Start).lift();
+    let to_halt: MachineState = Anywhere::Halt(Halt).lift();
+    assert!(matches!(to_start, MachineState::Start(_)));
+    assert!(matches!(to_halt, MachineState::Halt(_)));
 }

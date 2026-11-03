@@ -19,20 +19,30 @@
 
 use core::task::Poll;
 
-use crate::example::{Any, Example, Idle, Work, poll_once};
+use crate::Machine;
+use crate::example::{Example, Idle, MachineState, Work, poll_once};
 
 #[test]
 fn a_run_lifts_its_next_into_the_sum_type() {
-    let mut machine = Example { idle_runs: 0 };
-    let Poll::Ready(next) = poll_once(Any::Idle(Idle).run(&mut machine)) else {
+    let mut example = Example { idle_runs: 0 };
+    let Poll::Ready(next) = poll_once(MachineState::Idle(Idle).run(&mut example)) else {
         panic!("Idle::run must finish without waiting");
     };
-    assert_eq!(next.name(), "Work");
-    assert_eq!(machine.idle_runs, 1);
+    assert!(matches!(next, MachineState::Work(_)));
+    assert_eq!(example.idle_runs, 1);
 }
 
 #[test]
 fn a_state_that_waits_stays_in_its_state() {
-    let mut machine = Example { idle_runs: 0 };
-    assert!(poll_once(Any::Work(Work).run(&mut machine)).is_pending());
+    let mut example = Example { idle_runs: 0 };
+    assert!(poll_once(MachineState::Work(Work).run(&mut example)).is_pending());
+}
+
+#[test]
+fn each_state_is_named_by_its_variant() {
+    use crate::Named;
+    use crate::example::{Halt, Start};
+
+    let names = [Idle::NAME, Start::NAME, Work::NAME, Halt::NAME];
+    assert_eq!(names, ["Idle", "Start", "Work", "Halt"]);
 }

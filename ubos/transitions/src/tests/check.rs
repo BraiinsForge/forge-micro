@@ -17,33 +17,27 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-use crate::example::{Anywhere, Example, Halt, Idle, Nowhere, Work};
-use crate::{Fault, Graph, Machine, Named, Node, check, successors};
+use crate::example::{Anywhere, Example, Halt, Idle, MachineState, Nowhere, Work};
+use crate::{Fault, Graph, Named, Node, check, successors};
 
 #[test]
 fn a_sound_machine_passes() {
-    assert_eq!(check::<Example>("Idle"), Ok(()));
+    assert_eq!(check::<MachineState, Example>("Idle"), Ok(()));
 }
 
-/// Machines whose declared edges are unsound. Only their edge lists are
-/// read, so their variants are never built.
+/// Graphs whose declared edges are unsound. They are written by hand,
+/// with no states that run, so they are graphs over the empty context.
 mod unsound {
     use super::*;
     use crate::Edges;
 
     successors! { #[allow(dead_code)] enum ToWork { Go(Work) } }
     successors! { #[allow(dead_code)] enum ToIdle { Back(Idle) } }
+
     /// Idle leads to Work and Work back to Idle; no edge leads to Halt.
     struct Orphan;
 
-    impl Machine for Orphan {
-        type Any = OrphanStates;
-        type Anywhere = Nowhere;
-    }
-
-    struct OrphanStates;
-
-    impl Graph<Orphan> for OrphanStates {
+    impl Graph<()> for Orphan {
         const NODES: &'static [Node] = &[
             Node {
                 name: Idle::NAME,
@@ -58,19 +52,13 @@ mod unsound {
                 edges: ToIdle::EDGES,
             },
         ];
+        type Anywhere = Nowhere;
     }
 
     /// Idle leads to Work, and Work has no edge.
     struct Stuck;
 
-    impl Machine for Stuck {
-        type Any = StuckStates;
-        type Anywhere = Nowhere;
-    }
-
-    struct StuckStates;
-
-    impl Graph<Stuck> for StuckStates {
+    impl Graph<()> for Stuck {
         const NODES: &'static [Node] = &[
             Node {
                 name: Idle::NAME,
@@ -81,25 +69,13 @@ mod unsound {
                 edges: Nowhere::EDGES,
             },
         ];
+        type Anywhere = Nowhere;
     }
 
     /// Work has no edge of its own, and only the interrupt leaves it.
     struct Interrupted;
 
-    impl Machine for Interrupted {
-        type Any = InterruptedStates;
-        type Anywhere = Anywhere;
-    }
-
-    struct InterruptedStates;
-
-    impl From<Halt> for InterruptedStates {
-        fn from(_: Halt) -> Self {
-            Self
-        }
-    }
-
-    impl Graph<Interrupted> for InterruptedStates {
+    impl Graph<()> for Interrupted {
         const NODES: &'static [Node] = &[
             Node {
                 name: Idle::NAME,
@@ -114,25 +90,32 @@ mod unsound {
                 edges: ToIdle::EDGES,
             },
         ];
+        type Anywhere = Anywhere;
     }
 
     #[test]
     fn a_state_only_an_interrupt_leaves_is_reported() {
-        assert_eq!(check::<Interrupted>("Idle"), Err(Fault::DeadEnd("Work")));
+        assert_eq!(
+            check::<Interrupted, ()>("Idle"),
+            Err(Fault::DeadEnd("Work"))
+        );
     }
 
     #[test]
     fn a_state_without_an_inbound_edge_is_reported() {
-        assert_eq!(check::<Orphan>("Idle"), Err(Fault::Unreachable("Halt")));
+        assert_eq!(check::<Orphan, ()>("Idle"), Err(Fault::Unreachable("Halt")));
     }
 
     #[test]
     fn a_state_with_no_way_out_is_reported() {
-        assert_eq!(check::<Stuck>("Idle"), Err(Fault::DeadEnd("Work")));
+        assert_eq!(check::<Stuck, ()>("Idle"), Err(Fault::DeadEnd("Work")));
     }
 
     #[test]
     fn an_unknown_start_is_reported() {
-        assert_eq!(check::<Stuck>("Start"), Err(Fault::UnknownState("Start")));
+        assert_eq!(
+            check::<Stuck, ()>("Start"),
+            Err(Fault::UnknownState("Start"))
+        );
     }
 }

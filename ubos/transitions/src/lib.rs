@@ -27,11 +27,17 @@
 //! [`check`] walks them and reports a state no path reaches or a state
 //! whose own edges never lead back to the start.
 //!
-//! A transition that no state chooses, because it interrupts whatever a
-//! state is doing, is the machine's [`Machine::Anywhere`]: a `Next`
-//! that applies to every state.
+//! [`machine!`] declares the sum type over the states, and the list in it
+//! is the only place that names every state. The sum type is the
+//! machine's [`Graph`] and its [`Machine`], whose `run` does the work of
+//! the current state and returns the next one.
 //!
-//! The machine's owner holds the sum type over all states and the loop
+//! A transition that no state chooses, because it interrupts whatever a
+//! state is doing, is the machine's [`Graph::Anywhere`]: a `Next` that
+//! applies to every state.
+//!
+//! The states run against a context, which is any type the states borrow
+//! to do their work. The machine's owner holds the context and the loop
 //! that runs one state after another, or races a state against its
 //! interrupts. That keeps the crate free of any executor.
 //!
@@ -46,49 +52,14 @@
 //! use core::future::Future;
 //! use core::pin::pin;
 //! use core::task::{Context, Poll, Waker};
-//! use transitions::{Graph, Lift, Machine, Named, Node, State, check, node, successors};
+//! use transitions::{Machine, State, check, machine, successors};
 //!
-//! // Each state is a struct that owns its data. The name is what the
-//! // report of a bad edge uses.
+//! // Each state is a struct that owns its data.
 //! struct Idle;
 //! struct Work {
 //!     left: u32,
 //! }
 //! struct Done;
-//!
-//! impl Named for Idle {
-//!     const NAME: &'static str = "Idle";
-//! }
-//! impl Named for Work {
-//!     const NAME: &'static str = "Work";
-//! }
-//! impl Named for Done {
-//!     const NAME: &'static str = "Done";
-//! }
-//!
-//! // The sum type holds the state the machine is in. Every state
-//! // converts into it.
-//! enum Any {
-//!     Idle(Idle),
-//!     Work(Work),
-//!     Done(Done),
-//! }
-//!
-//! impl From<Idle> for Any {
-//!     fn from(state: Idle) -> Self {
-//!         Self::Idle(state)
-//!     }
-//! }
-//! impl From<Work> for Any {
-//!     fn from(state: Work) -> Self {
-//!         Self::Work(state)
-//!     }
-//! }
-//! impl From<Done> for Any {
-//!     fn from(state: Done) -> Self {
-//!         Self::Done(state)
-//!     }
-//! }
 //!
 //! // Each enum names the states one state may lead to. The variant is
 //! // the trigger and its payload is the state it leads to.
@@ -98,37 +69,35 @@
 //! // The interrupt applies to every state.
 //! successors! { enum Anywhere { Stop(Done) } }
 //!
-//! // The machine is what the states borrow to do their work.
+//! // The sum type holds the state the machine is in. The name of a state
+//! // in a report of a bad edge is its variant.
+//! machine! {
+//!     enum MachineState {
+//!         Idle(Idle),
+//!         Work(Work),
+//!         Done(Done),
+//!     }
+//!     anywhere = Anywhere;
+//! }
+//!
+//! // The context is what the states borrow to do their work.
 //! struct Counter {
 //!     steps: u32,
-//! }
-//!
-//! impl Machine for Counter {
-//!     type Any = Any;
-//!     type Anywhere = Anywhere;
-//! }
-//!
-//! impl Graph<Counter> for Any {
-//!     const NODES: &'static [Node] = &[
-//!         node::<Counter, Idle>(),
-//!         node::<Counter, Work>(),
-//!         node::<Counter, Done>(),
-//!     ];
 //! }
 //!
 //! // A state does its work and returns the enum of its edges, so a
 //! // return that the enum does not name does not compile.
 //! impl State<Counter> for Idle {
 //!     type Next = IdleNext;
-//!     async fn run(self, _machine: &mut Counter) -> IdleNext {
+//!     async fn run(self, _counter: &mut Counter) -> IdleNext {
 //!         IdleNext::Start(Work { left: 3 })
 //!     }
 //! }
 //!
 //! impl State<Counter> for Work {
 //!     type Next = WorkNext;
-//!     async fn run(self, machine: &mut Counter) -> WorkNext {
-//!         machine.steps += 1;
+//!     async fn run(self, counter: &mut Counter) -> WorkNext {
+//!         counter.steps += 1;
 //!         match self.left {
 //!             0 | 1 => WorkNext::Finish(Done),
 //!             left => WorkNext::Again(Work { left: left - 1 }),
@@ -138,18 +107,8 @@
 //!
 //! impl State<Counter> for Done {
 //!     type Next = DoneNext;
-//!     async fn run(self, _machine: &mut Counter) -> DoneNext {
+//!     async fn run(self, _counter: &mut Counter) -> DoneNext {
 //!         DoneNext::Reset(Idle)
-//!     }
-//! }
-//!
-//! // The owner's step runs the current state and lifts its successor
-//! // into the sum type.
-//! async fn step(any: Any, machine: &mut Counter) -> Any {
-//!     match any {
-//!         Any::Idle(state) => state.run(machine).await.lift(),
-//!         Any::Work(state) => state.run(machine).await.lift(),
-//!         Any::Done(state) => state.run(machine).await.lift(),
 //!     }
 //! }
 //!
@@ -165,14 +124,14 @@
 //!
 //! // The declared edges are sound: every state is reachable from `Idle`
 //! // and has a path of its own edges back to it.
-//! assert_eq!(check::<Counter>("Idle"), Ok(()));
+//! assert_eq!(check::<MachineState, Counter>("Idle"), Ok(()));
 //!
-//! let mut machine = Counter { steps: 0 };
-//! let mut any = Any::Idle(Idle);
-//! while !matches!(any, Any::Done(_)) {
-//!     any = finish(step(any, &mut machine));
+//! let mut counter = Counter { steps: 0 };
+//! let mut state = MachineState::Idle(Idle);
+//! while !matches!(state, MachineState::Done(_)) {
+//!     state = finish(state.run(&mut counter));
 //! }
-//! assert_eq!(machine.steps, 3);
+//! assert_eq!(counter.steps, 3);
 //! ```
 //!
 //! # Checking the edges

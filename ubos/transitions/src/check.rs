@@ -21,7 +21,7 @@
 //! machine relies on.
 
 use crate::edge::Edges;
-use crate::machine::{Graph, Machine};
+use crate::machine::Graph;
 
 #[cfg(test)]
 #[path = "tests/check.rs"]
@@ -37,19 +37,20 @@ pub enum Fault {
     /// No path from the start state reaches this state.
     Unreachable(&'static str),
     /// No path of this state's own edges reaches the start state, so only
-    /// a [`Machine::Anywhere`] edge leads out of it.
+    /// a [`Graph::Anywhere`] edge leads out of it.
     DeadEnd(&'static str),
 }
 
 /// The most states [`check`] tracks.
 const MAX_STATES: usize = u64::BITS as usize;
 
-/// Check the edges of machine `M` from its `start` state.
+/// Check the graph `G` of a machine over context `C` from its `start`
+/// state.
 ///
 /// The check exists so a declared graph is held to the shape the machine
 /// relies on: every state is reachable from `start`, and every state has
 /// a path back to it, which keeps the machine from ending in a state it
-/// cannot leave by its own work. The machine's [`Machine::Anywhere`]
+/// cannot leave by its own work. The machine's [`Graph::Anywhere`]
 /// edges count as edges of every state when reaching a state, and not
 /// when leaving one, because an interrupt that applies to every state
 /// would otherwise let every state pass.
@@ -57,8 +58,8 @@ const MAX_STATES: usize = u64::BITS as usize;
 /// # Errors
 ///
 /// The first [`Fault`] found.
-pub fn check<M: Machine>(start: &'static str) -> Result<(), Fault> {
-    let nodes = <M::Any as Graph<M>>::NODES;
+pub fn check<G: Graph<C>, C>(start: &'static str) -> Result<(), Fault> {
+    let nodes = G::NODES;
     if nodes.len() > MAX_STATES {
         return Err(Fault::TooManyStates);
     }
@@ -73,7 +74,7 @@ pub fn check<M: Machine>(start: &'static str) -> Result<(), Fault> {
     // Bit `j` is set when there is an edge to state `j`: `anywhere` for
     // every state, and `next[i]` for state `i` alone.
     let mut anywhere = 0_u64;
-    for edge in <M::Anywhere as Edges>::EDGES {
+    for edge in <G::Anywhere as Edges>::EDGES {
         anywhere |= 1 << position(edge.to)?;
     }
     let mut next = [0_u64; MAX_STATES];

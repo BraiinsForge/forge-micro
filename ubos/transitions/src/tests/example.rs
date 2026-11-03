@@ -24,39 +24,12 @@ use core::future::Future;
 use core::pin::pin;
 use core::task::{Context, Poll, Waker};
 
-use crate::{Graph, Machine, Named, Node, State, node, successors};
+use crate::{State, machine, successors};
 
 pub(crate) struct Idle;
 pub(crate) struct Start;
 pub(crate) struct Work;
 pub(crate) struct Halt;
-
-/// Every state of the example machine.
-pub(crate) enum Any {
-    Idle(Idle),
-    Start(Start),
-    Work(Work),
-    Halt(Halt),
-}
-
-macro_rules! state {
-    ($state:ident) => {
-        impl Named for $state {
-            const NAME: &'static str = stringify!($state);
-        }
-
-        impl From<$state> for Any {
-            fn from(state: $state) -> Self {
-                Self::$state(state)
-            }
-        }
-    };
-}
-
-state!(Idle);
-state!(Start);
-state!(Work);
-state!(Halt);
 
 successors! { pub(crate) enum IdleNext { Prepare(Start), Go(Work) } }
 successors! { pub(crate) enum StartNext { StartSendingWork(Work) } }
@@ -65,70 +38,47 @@ successors! { pub(crate) enum Nowhere {} }
 successors! { pub(crate) enum HaltNext { Reset(Idle) } }
 successors! { pub(crate) enum Anywhere { Halt(Halt) } }
 
-/// The example machine counts the runs of its idle state.
+machine! {
+    /// Every state of the example machine.
+    pub(crate) enum MachineState {
+        Idle(Idle),
+        Start(Start),
+        Work(Work),
+        Halt(Halt),
+    }
+    anywhere = Anywhere;
+}
+
+/// The context of the example machine counts the runs of its idle state.
 pub(crate) struct Example {
     pub(crate) idle_runs: u32,
 }
 
-impl Machine for Example {
-    type Any = Any;
-    type Anywhere = Anywhere;
-}
-
-impl Graph<Example> for Any {
-    const NODES: &'static [Node] = &[
-        node::<Example, Idle>(),
-        node::<Example, Start>(),
-        node::<Example, Work>(),
-        node::<Example, Halt>(),
-    ];
-}
-
-impl Any {
-    pub(crate) async fn run(self, machine: &mut Example) -> Self {
-        match self {
-            Self::Idle(state) => crate::Lift::lift(state.run(machine).await),
-            Self::Start(state) => crate::Lift::lift(state.run(machine).await),
-            Self::Work(state) => crate::Lift::lift(state.run(machine).await),
-            Self::Halt(state) => crate::Lift::lift(state.run(machine).await),
-        }
-    }
-
-    pub(crate) fn name(&self) -> &'static str {
-        match self {
-            Self::Idle(_) => Idle::NAME,
-            Self::Start(_) => Start::NAME,
-            Self::Work(_) => Work::NAME,
-            Self::Halt(_) => Halt::NAME,
-        }
-    }
-}
-
 impl State<Example> for Idle {
     type Next = IdleNext;
-    async fn run(self, machine: &mut Example) -> IdleNext {
-        machine.idle_runs += 1;
+    async fn run(self, example: &mut Example) -> IdleNext {
+        example.idle_runs += 1;
         IdleNext::Go(Work)
     }
 }
 
 impl State<Example> for Start {
     type Next = StartNext;
-    async fn run(self, _machine: &mut Example) -> StartNext {
+    async fn run(self, _example: &mut Example) -> StartNext {
         StartNext::StartSendingWork(Work)
     }
 }
 
 impl State<Example> for Work {
     type Next = WorkNext;
-    async fn run(self, _machine: &mut Example) -> WorkNext {
+    async fn run(self, _example: &mut Example) -> WorkNext {
         core::future::pending().await
     }
 }
 
 impl State<Example> for Halt {
     type Next = HaltNext;
-    async fn run(self, _machine: &mut Example) -> HaltNext {
+    async fn run(self, _example: &mut Example) -> HaltNext {
         HaltNext::Reset(Idle)
     }
 }
