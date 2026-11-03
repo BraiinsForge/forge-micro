@@ -430,7 +430,17 @@ where
                 self.empty_cycles = 0;
                 InitPhase::Done
             }
-            Either3::Third(BringUpOutcome::NonePresent) => self.no_chain_present().await,
+            Either3::Third(BringUpOutcome::NonePresent) => {
+                // `no_chain_present` names the state the machine goes to.
+                // This temporary arm maps it onto the loop's own phases,
+                // and the commit that deletes the loop removes it.
+                if matches!(self.no_chain_present(), BringUpNext::Park(_)) {
+                    cut_rail(self.psu, &mut self.chains).await;
+                    InitPhase::Parked
+                } else {
+                    self.cut_rail_and_settle().await
+                }
+            }
             Either3::First(()) => {
                 info!("mining: stop signalled during chain bring-up; cutting rail");
                 cut_rail(self.psu, &mut self.chains).await;
@@ -450,34 +460,32 @@ where
     /// The rail cut is what a chain-level retry cannot do, and both
     /// failures that this budget exists for cleared on the cycle after
     /// one. `BRING_UP_CYCLES` bounds it: a machine whose
-    /// connectors are empty parks instead of cutting its rail for as
-    /// long as it is powered. A parked machine waits for the same
-    /// resume a halt waits for. The manager sends one for a Start
-    /// that finds nothing paused, so an operator sends Start, or
-    /// reboots the board.
-    async fn no_chain_present(&mut self) -> InitPhase {
+    /// connectors are empty parks in [`Halted`] instead of
+    /// cutting its rail for as long as it is powered. A parked machine
+    /// waits for the same resume a halt waits for. The manager sends one
+    /// for a Start that finds nothing paused, so an operator sends
+    /// Start, or reboots the board.
+    fn no_chain_present(&mut self) -> BringUpNext {
         if !self.empty_cycle_spends_the_budget() {
             error!(
                 "mining: no chain present on cycle {} of {}; cutting rail and retrying",
                 self.empty_cycles, BRING_UP_CYCLES
             );
-            return self.cut_rail_and_settle().await;
+            return BringUpNext::Retry(Recover);
         }
         error!(
             "mining: no chain present in {} cycles; parking until resume",
             BRING_UP_CYCLES
         );
         crate::events::chains_parked(BRING_UP_CYCLES);
-        cut_rail(self.psu, &mut self.chains).await;
-        InitPhase::Parked
+        BringUpNext::Park(Halted)
     }
 
     /// Count one bring-up cycle that brought no chain up, and report
     /// whether that spends `BRING_UP_CYCLES`.
     ///
     /// Separate from [`Self::no_chain_present`], and free of I/O, so
-    /// the budget is testable without the rail cut and the settle that
-    /// surround it.
+    /// the budget is testable without the bring-up around it.
     fn empty_cycle_spends_the_budget(&mut self) -> bool {
         self.empty_cycles = self.empty_cycles.saturating_add(1);
         self.empty_cycles >= BRING_UP_CYCLES
@@ -1152,6 +1160,8 @@ struct ExitReset;
 
 /// Enumerate and configure every chain.
 struct BringUp;
+
+successors! { enum BringUpNext { Present(StartWork), Retry(Recover), Park(Halted) } }
 
 /// Build the tuner, anchor the rail and start work on every present
 /// chain.
