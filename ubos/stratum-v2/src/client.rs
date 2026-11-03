@@ -60,11 +60,10 @@ const MAC_BYTES: usize = 16;
 /// impl in the next commits — 1 KiB is generous for the read path.
 pub const WIRE_BUFFER_BYTES: usize = 1024;
 
-/// Outbound buffer for one encoded message. `SetupConnection`
-/// (~50 B wire), `OpenStandardMiningChannel` (~60 B wire), and the
-/// future `SubmitSharesStandard` (~24 B wire) all fit several
-/// times over.
-pub const ENCODE_BUFFER_BYTES: usize = 512;
+/// Outbound buffer for one encoded mining or extension message.
+/// Holds a 512-byte extension record with a 24-byte envelope and the
+/// encrypted header and payload MAC (38 bytes), rounded up to 576.
+pub const ENCODE_BUFFER_BYTES: usize = 576;
 
 /// The largest payload `send_extension` seals: the outbound slot less
 /// the encrypted header and the MAC. A caller that builds frames into a
