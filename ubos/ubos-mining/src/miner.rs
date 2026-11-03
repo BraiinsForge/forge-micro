@@ -70,6 +70,26 @@ const POOL_POLL_PERIOD: Duration = Duration::from_secs(1);
 /// is cut. Long enough for a pool to reconnect without a power cycle.
 const POOL_LOSS_GRACE: Duration = Duration::from_secs(60);
 
+/// Settling time held between each reset / PSU transition during
+/// the bring-up sequence.
+const RESET_HOLD: Duration = Duration::from_secs(5);
+
+/// Pause between a failed bring-up and the next attempt. Long enough
+/// for the chip's rail to fully discharge and any transient cable /
+/// board glitch to clear.
+const RETRY_DELAY: Duration = Duration::from_secs(5);
+
+/// Bring-up cycles the machine spends while no chain comes up
+/// present, before it parks instead of cutting the rail again.
+///
+/// Each cycle already gives every chain `ENUMERATE_ATTEMPTS` tries
+/// of its own, so this is the second and outer budget: it buys the
+/// rail cut that a chain-level retry cannot perform, and bounds it,
+/// because a machine with nothing behind its connectors otherwise
+/// cycles the rail for as long as it is powered, once per
+/// `RESET_HOLD` sequence, chain retry budget and `RETRY_DELAY`.
+const BRING_UP_CYCLES: u8 = 3;
+
 /// Request shutdown during initialization, plan execution or settling.
 /// Teardown cuts the rail before the outer loop returns.
 #[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
@@ -204,26 +224,6 @@ where
     R: ResetPin,
     T: MachineTuner<CHAINS>,
 {
-    /// Settling time held between each reset / PSU transition during
-    /// the bring-up sequence.
-    const RESET_HOLD: Duration = Duration::from_secs(5);
-
-    /// Pause between a failed bring-up and the next attempt. Long enough
-    /// for the chip's rail to fully discharge and any transient cable /
-    /// board glitch to clear.
-    const RETRY_DELAY: Duration = Duration::from_secs(5);
-
-    /// Bring-up cycles the machine spends while no chain comes up
-    /// present, before it parks instead of cutting the rail again.
-    ///
-    /// Each cycle already gives every chain `ENUMERATE_ATTEMPTS` tries
-    /// of its own, so this is the second and outer budget: it buys the
-    /// rail cut that a chain-level retry cannot perform, and bounds it,
-    /// because a machine with nothing behind its connectors otherwise
-    /// cycles the rail for as long as it is powered, once per
-    /// `RESET_HOLD` sequence, chain retry budget and `RETRY_DELAY`.
-    const BRING_UP_CYCLES: u8 = 3;
-
     /// Construct a `Miner` from a PSU reference, the board descriptor
     /// whose chip facts drive the tuner, one serial actor with its reset
     /// pin per chain of the machine, in chain order, and the function that
@@ -440,7 +440,7 @@ where
     ///
     /// The rail cut is what a chain-level retry cannot do, and both
     /// failures that this budget exists for cleared on the cycle after
-    /// one. `Self::BRING_UP_CYCLES` bounds it: a machine whose
+    /// one. `BRING_UP_CYCLES` bounds it: a machine whose
     /// connectors are empty parks instead of cutting its rail for as
     /// long as it is powered. A parked machine waits for the same
     /// resume a halt waits for. The manager sends one for a Start
@@ -450,40 +450,39 @@ where
         if !self.empty_cycle_spends_the_budget() {
             error!(
                 "mining: no chain present on cycle {} of {}; cutting rail and retrying",
-                self.empty_cycles,
-                Self::BRING_UP_CYCLES
+                self.empty_cycles, BRING_UP_CYCLES
             );
             return self.cut_rail_and_settle().await;
         }
         error!(
             "mining: no chain present in {} cycles; parking until resume",
-            Self::BRING_UP_CYCLES
+            BRING_UP_CYCLES
         );
-        crate::events::chains_parked(Self::BRING_UP_CYCLES);
+        crate::events::chains_parked(BRING_UP_CYCLES);
         cut_rail(self.psu, &mut self.chains).await;
         InitPhase::Parked
     }
 
     /// Count one bring-up cycle that brought no chain up, and report
-    /// whether that spends `Self::BRING_UP_CYCLES`.
+    /// whether that spends `BRING_UP_CYCLES`.
     ///
     /// Separate from [`Self::no_chain_present`], and free of I/O, so
     /// the budget is testable without the rail cut and the settle that
     /// surround it.
     fn empty_cycle_spends_the_budget(&mut self) -> bool {
         self.empty_cycles = self.empty_cycles.saturating_add(1);
-        self.empty_cycles >= Self::BRING_UP_CYCLES
+        self.empty_cycles >= BRING_UP_CYCLES
     }
 
     /// Cut the rail after a transient bring-up failure and hold
-    /// `Self::RETRY_DELAY` before the next attempt, cancellable by STOP
+    /// `RETRY_DELAY` before the next attempt, cancellable by STOP
     /// and HALT. Returns `Retry` when the hold elapses.
     async fn cut_rail_and_settle(&mut self) -> InitPhase {
         cut_rail(self.psu, &mut self.chains).await;
         match select3(
             STOP_MINING.wait(),
             wait_for_halt(),
-            Timer::after(Self::RETRY_DELAY),
+            Timer::after(RETRY_DELAY),
         )
         .await
         {
@@ -572,7 +571,7 @@ where
         crate::events::pool_available();
 
         self.mining.publish(MiningState::Starting);
-        let settled = settle_or_abort(Self::RESET_HOLD, self.psu, &mut self.chains).await;
+        let settled = settle_or_abort(RESET_HOLD, self.psu, &mut self.chains).await;
         if let Some(outcome) = self.leave_cycle(settled) {
             return outcome;
         }
@@ -582,7 +581,7 @@ where
         if let Err(error) = self.psu.enable().await {
             warn!("psu enable failed: {:?}", Debug2Format(&error));
         }
-        let settled = settle_or_abort(Self::RESET_HOLD, self.psu, &mut self.chains).await;
+        let settled = settle_or_abort(RESET_HOLD, self.psu, &mut self.chains).await;
         if let Some(outcome) = self.leave_cycle(settled) {
             return outcome;
         }
@@ -591,7 +590,7 @@ where
         for chain in &mut self.chains {
             chain.reset.exit_reset().await;
         }
-        let settled = settle_or_abort(Self::RESET_HOLD, self.psu, &mut self.chains).await;
+        let settled = settle_or_abort(RESET_HOLD, self.psu, &mut self.chains).await;
         if let Some(outcome) = self.leave_cycle(settled) {
             return outcome;
         }

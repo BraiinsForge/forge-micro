@@ -571,8 +571,6 @@ fn bring_up_all_returns_none_present_when_no_chain_comes_up() {
 /// again, so an occasional empty cycle never reaches the park.
 #[test]
 fn empty_cycles_spend_the_outer_budget_and_a_good_cycle_starts_it_again() {
-    type TestMiner<'a> = Miner<'a, TestPsu, LoggingResetPin, crate::tuner::Tuners, 1>;
-
     static ACTOR: Serial = Serial::new(0, 1);
     static STATS: [ChainStats; 1] = [ChainStats::new()];
     static ACTIVE: AtomicU8 = AtomicU8::new(1);
@@ -586,11 +584,11 @@ fn empty_cycles_spend_the_outer_budget_and_a_good_cycle_starts_it_again() {
     let stats_handle = ChainStatsHandle::new(&STATS, &ACTIVE);
     let mut miner = test_miner::<crate::tuner::Tuners, 1>(&psu, [&ACTOR], [stats_handle.chain(0)]);
 
-    for cycle in 1..TestMiner::BRING_UP_CYCLES {
+    for cycle in 1..super::BRING_UP_CYCLES {
         assert!(
             !miner.empty_cycle_spends_the_budget(),
             "cycle {cycle} of {} must still cut the rail and retry",
-            TestMiner::BRING_UP_CYCLES
+            super::BRING_UP_CYCLES
         );
     }
     assert!(

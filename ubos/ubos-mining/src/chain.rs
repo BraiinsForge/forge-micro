@@ -45,7 +45,7 @@ pub(crate) use control::ChainControl;
 use presence::Action;
 
 /// How long a chain is held in reset between two bring-up attempts.
-/// Shorter than `Miner::RESET_HOLD`, which settles a whole machine's
+/// Shorter than `miner::RESET_HOLD`, which settles a whole machine's
 /// rail: here the rail is up and only one chain restarts.
 const RETRY_RESET_HOLD: Duration = Duration::from_millis(100);
 
@@ -53,7 +53,7 @@ const RETRY_RESET_HOLD: Duration = Duration::from_millis(100);
 /// next enumerate. A chip that answered nothing on the attempt before
 /// was observed answering the attempt that followed a settle of this
 /// order, so the retry is given the time the first try did not have.
-/// The same value as `Miner::RETRY_DELAY`, which settles the machine
+/// The same value as `miner::RETRY_DELAY`, which settles the machine
 /// after a failed bring-up.
 const RETRY_SETTLE: Duration = Duration::from_secs(5);
 
