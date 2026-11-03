@@ -87,7 +87,8 @@ contract: a module that a handle does not connect does not talk.
 Tasks observe configuration changes through `ConfigHandle` subscriptions.
 Most tasks apply changes without a teardown.
 The miner applies target edits within `miner.tuning` at the next policy step.
-A change between `Fixed` and `Power` restarts mining after initialization completes.
+A change between `Fixed` and `Power` during initialization takes effect when work starts.
+The same change during mining restarts mining after the current plan completes.
 
 Stratum owns a TCP connection to a specific pool.
 Its outer loop selects on a restart signal from `ubos-config`, drops the inner future,

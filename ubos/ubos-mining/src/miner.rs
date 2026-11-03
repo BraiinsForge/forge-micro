@@ -26,6 +26,10 @@
 //! The miner applies bounded policy plans in decrease, rail, increase order.
 //! Live targets take effect at the next step. A stop or a halt allows the current
 //! plan a bounded wait, then cuts the rail without a shutdown ramp.
+//!
+//! [`Miner::run`] is a state machine on the `transitions` crate: each state
+//! is a type whose `run` does its work and returns the next state, and
+//! `Miner::advance` runs one state at a time under the machine's only select.
 
 // The state machine is built beside the bring-up loop it replaces, and
 // while both exist only one of them runs. This allowance is temporary,
@@ -102,8 +106,8 @@ const RETRY_DELAY: Duration = Duration::from_secs(5);
 /// `RESET_HOLD` sequence, chain retry budget and `RETRY_DELAY`.
 const BRING_UP_CYCLES: u8 = 3;
 
-/// Request shutdown during initialization, plan execution or settling.
-/// Teardown cuts the rail before the outer loop returns.
+/// Request shutdown of the mining state machine from any state.
+/// The rail is cut before [`Miner::run`] returns.
 #[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
 pub static STOP_MINING: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
@@ -205,7 +209,7 @@ impl defmt::Format for MinerError {
 ///
 /// Owns the PSU reference and every chain of the machine. Firmware
 /// constructs this with [`Miner::new`] and calls [`Miner::run`] to
-/// enter the bring-up loop. The `'a` lifetime covers the PSU reference
+/// run the state machine. The `'a` lifetime covers the PSU reference
 /// which today is always `'static` at the firmware call site. `T` is the
 /// machine's tuner set.
 pub struct Miner<'a, P, R, T, const CHAINS: usize>
@@ -222,11 +226,11 @@ where
     /// passed to the tuner.
     read_platform: fn() -> T::PlatformReadings,
     /// The mining handle the API reads; the miner publishes its lifecycle
-    /// status through it.
+    /// status and reads halt and resume through it.
     mining: Handle,
     /// Bring-up cycles that found no chain since the last one that did.
     /// Counts toward `BRING_UP_CYCLES`, and is cleared by every cycle
-    /// that brings a chain up.
+    /// that brings a chain up and by every resume.
     empty_cycles: u8,
 }
 
@@ -306,58 +310,28 @@ where
         }
     }
 
-    /// Drive the mining work loop.
+    /// Drive the mining state machine.
     ///
-    /// Reads the initial config from `ubos_config::handle()` and holds a
-    /// subscription across the outer bring-up loop. On each iteration the
-    /// outer loop reads the current config, selects the tuner
-    /// `MinerConfig::tuning` names, and calls `bring_up_cycle`. Returns
-    /// when `STOP_MINING` fires; on bare metal that never happens, so the
-    /// loop runs forever.
+    /// Waits for the configuration task's first publication, cuts the
+    /// rail, publishes the first state's lifecycle status, and then runs
+    /// one state of [`MinerState`] after another through [`Self::advance`] from
+    /// [`Choose`]. Returns when `STOP_MINING` fires; on bare metal
+    /// that never happens, so the machine runs forever.
     ///
-    /// A configuration that selects a tuner this machine does not have
-    /// leaves the rail off until the next configuration.
-    ///
-    /// # Tuner-change invariant
-    ///
-    /// Switching tuners cuts the rail and resets every chain.
-    /// The next cycle constructs a fresh policy from the post-reset baseline.
-    /// A new target for the running tuner does not: it reaches the tuner
-    /// at its next step.
+    /// The cut before the first state parks the rail and every chain, so
+    /// each board begins bring-up from a known-off supply, whatever the
+    /// previous boot cycle left it in.
     pub async fn run(&mut self) {
-        let config_handle = ubos_config::handle();
-        let mut config_subscription = config_handle.subscribe();
-
-        // Block for the config task's first publish before reading a
-        // target. This task is spawned before the config task and reaches
-        // the read below with no intervening await, so `current()` would
-        // otherwise fall back to `Config::default()` — the BMM101/BM1362
-        // board's operating point, wrong for this chip. Returns
-        // immediately once a config has been published. The loop reads
-        // the latest target again before every policy step.
-        config_subscription.changed().await;
-
-        // Cut the rail before the first bring-up, so every board begins
-        // with every chain in reset and a known-off supply, whatever the
-        // previous boot cycle left them in. A failure to disable the PSU
-        // is logged and bring-up goes on: the enable that follows the
-        // reset sets the rail either way.
-        cut_rail(self.psu, &mut self.chains).await;
-
-        loop {
-            let tuning = config_handle.current().miner.tuning;
-            let chosen = T::select(&tuning, self.board);
-            let outcome = if let Some(mut tuner) = chosen {
-                self.bring_up_cycle(&mut tuner, &mut config_subscription, discriminant(&tuning))
-                    .await
-            } else {
-                error!("mining: this machine has no tuner for the configured tuning");
-                self.await_another_tuner(&mut config_subscription, discriminant(&tuning))
-                    .await
-            };
-            if outcome.is_stop() {
-                return;
-            }
+        let mut subscription = ubos_config::handle().subscribe();
+        // This task is spawned before the configuration task, and the
+        // first state reads the tuning. Without the wait it would read
+        // `Config::default()`, the operating point of another board.
+        subscription.changed().await;
+        self.cut_rail().await;
+        let mut state = MinerState::Choose(Choose);
+        self.mining.publish(state.mining_state());
+        while let Some(next) = self.advance(state, &mut subscription).await {
+            state = next;
         }
     }
 
@@ -904,10 +878,10 @@ where
 
     /// Collect each present chain's accounting and the PSU's confirmed setpoint.
     ///
-    /// The setpoint is present by construction. `start_chains` commands the
-    /// open-core rail and `bring_up_cycle` reaches `mine_phase` only after
-    /// that command succeeded, and `Psu::set_voltage` records a successful
-    /// write before it returns.
+    /// The setpoint is present by construction. `start_chains` commands
+    /// the open-core rail and [`StartWork`] leads to
+    /// [`Step`] only after that command succeeded, and
+    /// `Psu::set_voltage` records a successful write before it returns.
     fn readings(&self) -> Readings<CHAINS> {
         Readings {
             now: Instant::now(),
@@ -1816,11 +1790,10 @@ where
     }
 }
 
-/// Task shell that runs the [`Miner`] bring-up and teardown state
-/// machine. Takes the board's PSU and reset-pin types, the descriptor
-/// whose chip facts drive the tuner, the machine's chain count, its
-/// tuner set and, when that set reads platform readings, the function
-/// that reads them.
+/// Task shell that runs the [`Miner`]. Takes the board's PSU and reset-pin
+/// types, the descriptor whose chip facts drive the tuner, the machine's
+/// chain count, its tuner set and, when that set reads platform readings,
+/// the function that reads them.
 ///
 /// [`Miner::run`] returns only when `STOP_MINING` fires, which on bare
 /// metal never happens. The shell parks afterwards for the same reason

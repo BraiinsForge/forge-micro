@@ -41,13 +41,10 @@ halts.
 
 `serial_task` and `miner_task` never return under normal operation.
 `Miner::run` responds to `STOP_MINING` with a rail cut.
-HALT and STOP interrupt plans.
-The miner allows up to 100 ms for an interrupted plan to complete.
-The miner keeps the first interruption and skips the remaining plan delay.
-Both interruptions then cut the rail without a shutdown ramp or voltage write.
-After HALT, the loop waits for `Message::Resume` or `STOP_MINING`.
-Resume restarts bring-up, while STOP ends the loop. On
-bare metal there is no `STOP_MINING`, so if either loop ever returns the
+HALT and STOP interrupt the state machine, as the section on it says.
+After HALT, the machine waits for `Message::Resume` or `STOP_MINING`.
+Resume restarts bring-up, while STOP ends the machine. On
+bare metal there is no `STOP_MINING`, so if either task ever returns the
 task idles for 60 s between log lines, keeping the rest of the firmware
 (network, metrics, watchdog) alive so logs can be pulled.
 
@@ -148,7 +145,7 @@ Frequency, voltage, and algorithm edits do not travel the command channel.
 `Miner::run` subscribes to `ubos_config::handle()` directly.
 The miner reads the latest frequency and voltage target before each policy step.
 These edits do not restart mining or interrupt initialization.
-An algorithm change restarts mining with a new policy after initialization completes.
+The state machine below sets when an algorithm change takes effect.
 Other configuration changes do not restart mining.
 
 ## Mining state machine
@@ -158,30 +155,55 @@ One `Miner` owns the PSU rail and every chain of the machine.
 `Miner::run` first cuts the rail: it puts every chain in reset and disables the PSU.
 If the PSU-disable command fails, it logs the error and continues with bring-up.
 
-Then `Miner::run` repeats:
+`Miner::run` is a state machine on the `transitions` crate. Each state is a type.
+Its `run` function does the work of the state and returns the next state.
+The return type names every state that the state can go to.
+A test checks that every state is reachable from `Choose` and has a path back to it.
+The states are:
 
-1. Read the configuration and select the tuner from `miner.tuning` out of the firmware's tuner set.
-   If the set has no tuner for it, cut the rail and hold until the configuration changes.
-2. Assert reset on every chain and hold it until a pool slot holds a job, then enable the PSU and release reset with the existing settle delays.
-3. Reset, enumerate, and configure all chains concurrently.
+1. `Choose`: check that the firmware's tuner set has a tuner for `miner.tuning`.
+   If it has none, go to `NoTuner` and hold until the configuration selects another tuning, then check again.
+2. `Reset`, `WaitForPool`: assert reset on every chain and hold it until a pool slot holds a job.
+3. `Enable`, `ExitReset`: enable the PSU and release reset, with a settle delay before and after each.
+4. `BringUp`: reset, enumerate, and configure all chains concurrently.
    Retry failed attempts, then park absent or faulted chains in reset.
    Read chip temperatures before a chain becomes present.
-4. Set the open-core voltage and start work on every present chain.
-5. Read the latest target, feed readings to the tuner, bound its plan, and apply it.
-   Wait for the plan delay before the next step.
-6. On HALT or STOP, allow up to 100 ms for the current plan.
-   On HALT, STOP, or an algorithm change, skip the remaining plan delay and cut the rail without a shutdown ramp.
-   An algorithm change during a plan takes effect when the plan completes.
-7. After HALT, wait for `Message::Resume` or `STOP_MINING`.
-   After an algorithm change, restart initialization with the new policy.
-   After STOP, return from the mining loop.
+   If no chain comes up, go to `Recover`, or park in `Halted` once `BRING_UP_CYCLES` cycles in a row found none.
+5. `StartWork`: build the tuner from the configuration as it is now, set the open-core voltage,
+   and start work on every present chain.
+6. `Step`: read the latest target, feed readings to the tuner, bound its plan, and apply it.
+7. `Pause`: wait for the plan delay, then go to `Step`.
+   An algorithm change ends the wait and goes to `Choose`, which starts initialization with the new policy.
+   No pool slot holding a job for `POOL_LOSS_GRACE` also goes to `Choose`, which waits for a pool again.
+8. `Recover`: hold the rail off for the retry delay, then go to `Choose`.
+9. `Halted`: hold the rail off until `Message::Resume`, then go to `Choose`.
 
-STOP or HALT during initialization cuts the rail immediately.
-The miner retains an accepted interruption until cleanup completes.
-Configuration publications cannot cancel that cleanup.
-If requests arrive together, STOP takes priority over HALT, then an algorithm change.
+One select runs every state. It reads STOP and HALT and waits for the state's work.
+On HALT, go to `Halted`. On STOP, return from `Miner::run`.
+In `Halted`, the select reads only STOP, and `Halted` reads the resume itself.
+STOP or HALT during `Step` allows up to 100 ms for the current plan.
+In every other state, STOP or HALT ends the state's work immediately.
+Either one cuts the rail without a shutdown ramp or a voltage write.
+If requests arrive together, STOP takes priority over HALT.
+An algorithm change during bring-up takes effect at `StartWork`, without another rail cut.
+An algorithm change during `Step` takes effect when the plan completes.
+
+`Choose`, `NoTuner`, `Recover` and `Halted` hold the rail off.
+`Reset` and `WaitForPool` also keep the rail off, because `Enable` is the first
+state that raises it. The select treats every state except the first four as
+powered. When the machine goes from a powered state to one of those four, or STOP
+ends it, the select cuts the rail after the state's work ends.
+Entry to `NoTuner` or `Halted` also cuts the rail, from any state. The boot cut
+only logs a failed disable, and these two states can hold for an unlimited time.
+Nothing cancels the cut.
 The grace period bounds the wait for the plan, not the complete shutdown.
 PSU and reset commands can still wait for hardware access.
+
+The lifecycle status that the API reads follows from the state: `Reset` and
+`WaitForPool` report `WaitingForPool`; `Enable` through `StartWork` report
+`Starting`; `Step` and `Pause` report `Running`; every state that holds the rail
+off reports `Stopped`. The select publishes the status through the mining
+`Handle` after the cut, whenever a transition changes it.
 
 The executor clamps rail commands to the board ceiling and frequencies to the chip range.
 A failed plan is retried at the next step, planned from the confirmed hardware state.
@@ -190,7 +212,8 @@ initialization.
 A plan that writes to the hardware clears the count.
 A plan that writes nothing, such as one naming a value the chain or the PSU already
 holds, leaves it.
-STOP and HALT can interrupt the retry delay without another rail cut.
+STOP and HALT can interrupt the retry delay without another rail cut,
+because `Recover` holds the rail off.
 
 A persistent chip-count mismatch parks the affected chain.
 The other present chains continue.
