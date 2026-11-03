@@ -21,7 +21,7 @@
 //! machine relies on.
 
 use crate::edge::Edges;
-use crate::machine::{Machine, Members};
+use crate::machine::{Graph, Machine};
 
 #[cfg(test)]
 #[path = "tests/check.rs"]
@@ -58,14 +58,14 @@ const MAX_STATES: usize = u64::BITS as usize;
 ///
 /// The first [`Fault`] found.
 pub fn check<M: Machine>(start: &'static str) -> Result<(), Fault> {
-    let members = <M::Any as Members<M>>::ALL;
-    if members.len() > MAX_STATES {
+    let nodes = <M::Any as Graph<M>>::NODES;
+    if nodes.len() > MAX_STATES {
         return Err(Fault::TooManyStates);
     }
     let position = |name: &'static str| {
-        members
+        nodes
             .iter()
-            .position(|member| member.name == name)
+            .position(|node| node.name == name)
             .ok_or(Fault::UnknownState(name))
     };
     let start = position(start)?;
@@ -77,8 +77,8 @@ pub fn check<M: Machine>(start: &'static str) -> Result<(), Fault> {
         anywhere |= 1 << position(edge.to)?;
     }
     let mut next = [0_u64; MAX_STATES];
-    for (slot, member) in next.iter_mut().zip(members) {
-        for edge in member.edges {
+    for (slot, node) in next.iter_mut().zip(nodes) {
+        for edge in node.edges {
             *slot |= 1 << position(edge.to)?;
         }
     }
@@ -87,7 +87,7 @@ pub fn check<M: Machine>(start: &'static str) -> Result<(), Fault> {
     let mut leads_back = 1_u64 << start;
     loop {
         let (reached_before, leads_back_before) = (reached, leads_back);
-        for (state, edges) in next.iter().enumerate().take(members.len()) {
+        for (state, edges) in next.iter().enumerate().take(nodes.len()) {
             if (reached >> state) & 1 == 1 {
                 reached |= edges | anywhere;
             }
@@ -100,12 +100,12 @@ pub fn check<M: Machine>(start: &'static str) -> Result<(), Fault> {
         }
     }
 
-    for (state, member) in members.iter().enumerate() {
+    for (state, node) in nodes.iter().enumerate() {
         if (reached >> state) & 1 == 0 {
-            return Err(Fault::Unreachable(member.name));
+            return Err(Fault::Unreachable(node.name));
         }
         if (leads_back >> state) & 1 == 0 {
-            return Err(Fault::DeadEnd(member.name));
+            return Err(Fault::DeadEnd(node.name));
         }
     }
     Ok(())

@@ -46,7 +46,7 @@
 //! use core::future::Future;
 //! use core::pin::pin;
 //! use core::task::{Context, Poll, Waker};
-//! use transitions::{Lift, Machine, Member, Members, Named, State, check, member, successors};
+//! use transitions::{Graph, Lift, Machine, Named, Node, State, check, node, successors};
 //!
 //! // Each state is a struct that owns its data. The name is what the
 //! // report of a bad edge uses.
@@ -108,11 +108,11 @@
 //!     type Anywhere = Anywhere;
 //! }
 //!
-//! impl Members<Counter> for Any {
-//!     const ALL: &'static [Member] = &[
-//!         member::<Counter, Idle>(),
-//!         member::<Counter, Work>(),
-//!         member::<Counter, Done>(),
+//! impl Graph<Counter> for Any {
+//!     const NODES: &'static [Node] = &[
+//!         node::<Counter, Idle>(),
+//!         node::<Counter, Work>(),
+//!         node::<Counter, Done>(),
 //!     ];
 //! }
 //!
@@ -198,4 +198,4 @@ mod machine;
 
 pub use crate::check::{Fault, check};
 pub use crate::edge::{Edge, Edges};
-pub use crate::machine::{Lift, Machine, Member, Members, Named, State, member};
+pub use crate::machine::{Graph, Lift, Machine, Named, Node, State, node};

@@ -18,7 +18,7 @@
 // shall be considered distinct from the grant above.
 
 use crate::example::{Anywhere, Example, Halt, Idle, Nowhere, Work};
-use crate::{Fault, Machine, Member, Members, Named, check, successors};
+use crate::{Fault, Graph, Machine, Named, Node, check, successors};
 
 #[test]
 fn a_sound_machine_passes() {
@@ -43,17 +43,17 @@ mod unsound {
 
     struct OrphanStates;
 
-    impl Members<Orphan> for OrphanStates {
-        const ALL: &'static [Member] = &[
-            Member {
+    impl Graph<Orphan> for OrphanStates {
+        const NODES: &'static [Node] = &[
+            Node {
                 name: Idle::NAME,
                 edges: ToWork::EDGES,
             },
-            Member {
+            Node {
                 name: Work::NAME,
                 edges: ToIdle::EDGES,
             },
-            Member {
+            Node {
                 name: Halt::NAME,
                 edges: ToIdle::EDGES,
             },
@@ -70,13 +70,13 @@ mod unsound {
 
     struct StuckStates;
 
-    impl Members<Stuck> for StuckStates {
-        const ALL: &'static [Member] = &[
-            Member {
+    impl Graph<Stuck> for StuckStates {
+        const NODES: &'static [Node] = &[
+            Node {
                 name: Idle::NAME,
                 edges: ToWork::EDGES,
             },
-            Member {
+            Node {
                 name: Work::NAME,
                 edges: Nowhere::EDGES,
             },
@@ -99,17 +99,17 @@ mod unsound {
         }
     }
 
-    impl Members<Interrupted> for InterruptedStates {
-        const ALL: &'static [Member] = &[
-            Member {
+    impl Graph<Interrupted> for InterruptedStates {
+        const NODES: &'static [Node] = &[
+            Node {
                 name: Idle::NAME,
                 edges: ToWork::EDGES,
             },
-            Member {
+            Node {
                 name: Work::NAME,
                 edges: Nowhere::EDGES,
             },
-            Member {
+            Node {
                 name: Halt::NAME,
                 edges: ToIdle::EDGES,
             },

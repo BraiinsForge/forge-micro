@@ -24,7 +24,7 @@ use core::future::Future;
 use core::pin::pin;
 use core::task::{Context, Poll, Waker};
 
-use crate::{Machine, Member, Members, Named, State, member, successors};
+use crate::{Graph, Machine, Named, Node, State, node, successors};
 
 pub(crate) struct Idle;
 pub(crate) struct Start;
@@ -75,12 +75,12 @@ impl Machine for Example {
     type Anywhere = Anywhere;
 }
 
-impl Members<Example> for Any {
-    const ALL: &'static [Member] = &[
-        member::<Example, Idle>(),
-        member::<Example, Start>(),
-        member::<Example, Work>(),
-        member::<Example, Halt>(),
+impl Graph<Example> for Any {
+    const NODES: &'static [Node] = &[
+        node::<Example, Idle>(),
+        node::<Example, Start>(),
+        node::<Example, Work>(),
+        node::<Example, Halt>(),
     ];
 }
 

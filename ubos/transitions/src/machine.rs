@@ -18,7 +18,7 @@
 // shall be considered distinct from the grant above.
 
 //! The traits a machine implements: its states, the sum type over them,
-//! and the list of states that the check reads.
+//! and the graph of their declared edges that the check reads.
 
 use core::future::Future;
 
@@ -48,32 +48,34 @@ pub trait State<M: Machine>: Named + Sized {
     fn run(self, machine: &mut M) -> impl Future<Output = Self::Next>;
 }
 
-/// A state of the machine with its declared edges.
+/// A state of the machine in its graph: its name and its declared
+/// edges.
 #[derive(Clone, Copy, Debug)]
-pub struct Member {
+pub struct Node {
     pub name: &'static str,
     pub edges: &'static [Edge],
 }
 
-/// The [`Member`] of state `S` in machine `M`, for a [`Members`] list.
+/// The [`Node`] of state `S` in machine `M`, for its [`Graph`].
 #[must_use]
-pub const fn member<M: Machine, S: State<M>>() -> Member {
-    Member {
+pub const fn node<M: Machine, S: State<M>>() -> Node {
+    Node {
         name: S::NAME,
         edges: <S::Next as Edges>::EDGES,
     }
 }
 
-/// Every state of machine `M`, listed by its sum type.
-pub trait Members<M: Machine> {
-    const ALL: &'static [Member];
+/// The graph of machine `M`: a node for every state, listed by its
+/// sum type.
+pub trait Graph<M: Machine> {
+    const NODES: &'static [Node];
 }
 
 /// A state machine: the sum type over its states and the transitions
 /// that apply to every state. The states run against the machine, so it
 /// is also what they borrow to do their work.
 pub trait Machine: Sized {
-    type Any: Members<Self>;
+    type Any: Graph<Self>;
     /// A machine without such a transition names an empty enum.
     type Anywhere: Edges + Lift<Self::Any>;
 }
