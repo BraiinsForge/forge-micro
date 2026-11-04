@@ -30,8 +30,8 @@
 //! sequence a chain's hardware reset produces.
 
 use super::{
-    BringUp, Choose, Enable, ExitReset, Halted, Miner, MinerState, Pause, PoolWatch, PsuError,
-    Recover, Reset, Run, STOP_MINING, Selected, StartWork, Step, WaitForPool,
+    BringUp, Choose, Enable, ExitReset, Halted, Miner, MinerState, Pause, PoolWatch, Recover,
+    Reset, Run, STOP_MINING, Selected, StartWork, Step, WaitForPool,
 };
 use crate::control::{COMMAND_CHANNEL, Message};
 use crate::tuner::MachineTuner;
@@ -44,7 +44,7 @@ use embassy_time::{Duration, Timer};
 use portable_atomic::{AtomicU8, Ordering};
 use ubos_config::TunerInfo;
 use ubos_core::units::{Power, Voltage};
-use ubos_psu::{Psu, StatusFlags};
+use ubos_psu::{Error as PsuError, Psu, StatusFlags};
 use ubos_tuner::{Plan, Readings};
 
 use embassy_futures::block_on;

@@ -31,6 +31,8 @@
 //! is a type whose `run` does its work and returns the next state, and
 //! `Miner::advance` runs one state at a time under the machine's only select.
 
+mod error;
+
 #[cfg(test)]
 #[path = "tests/miner.rs"]
 mod tests;
@@ -46,13 +48,12 @@ use embassy_futures::select::{Either3, select3};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Instant, Timer, with_timeout};
-use embedded_io::ErrorKind;
 use ubos_asic::HashboardDescriptor;
 use ubos_config::{ConfigSubscription, Tuning};
 use ubos_core::units::{Frequency, Temperature, Voltage};
 use ubos_logging::{Debug2Format, error, info, warn};
 use ubos_metrics::chain::ChainPresence;
-use ubos_psu::{Error as PsuError, Psu};
+use ubos_psu::Psu;
 
 use crate::chain::{ChainControl, ChainHandle};
 use crate::control::{Handle, Message, MiningState};
@@ -61,6 +62,8 @@ use crate::serial::Serial;
 use crate::tuner::MachineTuner;
 use transitions::{Lift, Machine, State, machine, successors};
 use ubos_tuner::{ChainReadings, Plan, Readings};
+
+pub use error::{MinerError, PsuErrorKind};
 
 /// Maximum time an interrupted hardware plan can finish before the rail cut.
 const INTERRUPT_TIMEOUT: Duration = Duration::from_millis(100);
@@ -114,86 +117,6 @@ pub async fn run_idle() -> ! {
     info!("mining: idle loop active (no chip)");
     loop {
         handle.next_message().await;
-    }
-}
-
-/// Error type for chip-control operations.
-///
-/// Each variant represents a distinct failure mode the caller can
-/// observe and dispatch on. `Serial` wraps the `embedded_io` error
-/// kind so the miner can surface a consistent error surface without
-/// coupling callers to the specific serial actor types.
-#[derive(Debug)]
-pub enum MinerError {
-    /// The serial actor returned an error on a control operation.
-    Serial(ErrorKind),
-    /// The PSU rejected a voltage or enable/disable command. The
-    /// payload narrows the failure to a discriminant the caller can
-    /// dispatch on without taking on the PSU's `BusError` generic.
-    Psu(PsuErrorKind),
-    /// The chain driver rejected a frequency outside the chip's range.
-    UnsupportedFrequency(Frequency),
-}
-
-impl From<ubos_asic::ChipError> for MinerError {
-    fn from(error: ubos_asic::ChipError) -> Self {
-        match error {
-            ubos_asic::ChipError::UnsupportedFrequency(freq) => {
-                MinerError::UnsupportedFrequency(freq)
-            }
-            // A refused host baud switch is a serial-line failure; the
-            // rate itself is already logged by the transport.
-            ubos_asic::ChipError::BaudSwitch(_) => MinerError::Serial(ErrorKind::Other),
-        }
-    }
-}
-
-impl From<embedded_io::ErrorKind> for MinerError {
-    fn from(kind: embedded_io::ErrorKind) -> Self {
-        MinerError::Serial(kind)
-    }
-}
-
-/// Classification of [`ubos_psu::Error`] surfaces stripped of the
-/// generic bus-error payload so [`MinerError`] does not have to be
-/// parameterized over the PSU's `BusError` type.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum PsuErrorKind {
-    Bus,
-    InitFailed,
-    OutOfRange,
-    Fault,
-    Terminated,
-    Timeout,
-}
-
-impl<E> From<PsuError<E>> for PsuErrorKind {
-    fn from(error: PsuError<E>) -> Self {
-        match error {
-            PsuError::Bus(_) => PsuErrorKind::Bus,
-            PsuError::InitFailed(_) => PsuErrorKind::InitFailed,
-            PsuError::OutOfRange => PsuErrorKind::OutOfRange,
-            PsuError::Fault(_) => PsuErrorKind::Fault,
-            PsuError::Terminated => PsuErrorKind::Terminated,
-            PsuError::Timeout => PsuErrorKind::Timeout,
-        }
-    }
-}
-
-#[cfg(feature = "defmt")]
-impl defmt::Format for MinerError {
-    fn format(&self, f: defmt::Formatter) {
-        match self {
-            MinerError::Serial(kind) => {
-                defmt::write!(f, "Serial({:?})", defmt::Debug2Format(kind));
-            }
-            MinerError::Psu(kind) => {
-                defmt::write!(f, "Psu({:?})", defmt::Debug2Format(kind));
-            }
-            MinerError::UnsupportedFrequency(freq) => {
-                defmt::write!(f, "UnsupportedFrequency({} kHz)", freq.khz());
-            }
-        }
     }
 }
 
