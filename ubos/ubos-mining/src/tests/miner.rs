@@ -29,11 +29,15 @@
 //! `configure` hand back; `LoggingResetPin` records the reset-pin call
 //! sequence a chain's hardware reset produces.
 
-use super::{
-    BringUp, Choose, Enable, ExitReset, Halted, Miner, MinerState, Pause, PoolWatch, Recover,
-    Reset, Run, STOP_MINING, Selected, StartWork, Step, WaitForPool,
-};
+use super::Miner;
 use crate::control::{COMMAND_CHANNEL, Message};
+use crate::miner::STOP_MINING;
+use crate::miner::machine::{Context, INTERRUPT_TIMEOUT, MinerState};
+use crate::miner::pool::{POOL_POLL_PERIOD, PoolWatch};
+use crate::miner::states::{
+    BringUp, Choose, Enable, ExitReset, Halted, PLAN_FAILURE_BUDGET, Pause, Recover, Reset, Run,
+    Selected, StartWork, Step, WaitForPool,
+};
 use crate::tuner::MachineTuner;
 use core::cell::{Cell, RefCell};
 use core::convert::Infallible;
@@ -1032,7 +1036,7 @@ fn cancellation_timeout_cuts_power_without_a_shutdown_frequency_write() {
         let driver = BringUpDriver {
             plan_log: Some((0, &LOG)),
             // Complete after the production cancellation budget expires.
-            stop_during_frequency: Some(super::INTERRUPT_TIMEOUT + Duration::from_millis(50)),
+            stop_during_frequency: Some(INTERRUPT_TIMEOUT + Duration::from_millis(50)),
             ..BringUpDriver::new(&[4])
         };
         let mut subscription = test_config().0;
@@ -1299,7 +1303,7 @@ fn waiting_between_refused_commands_does_not_refresh_the_budget() {
                 .iter()
                 .filter(|write| matches!(write, Write::Voltage(_)))
                 .count();
-            assert_eq!(commands, usize::from(super::PLAN_FAILURE_BUDGET));
+            assert_eq!(commands, usize::from(PLAN_FAILURE_BUDGET));
         });
     });
 }
@@ -1491,10 +1495,7 @@ fn empty_plans_wait_before_retrying_and_stop_during_a_write_cuts_the_rail() {
         assert!(outcome.is_none());
         // Two empty plans, then a rail write on every call until the
         // budget of failures runs out.
-        assert_eq!(
-            CALLS.load(Ordering::Relaxed),
-            2 + super::PLAN_FAILURE_BUDGET
-        );
+        assert_eq!(CALLS.load(Ordering::Relaxed), 2 + PLAN_FAILURE_BUDGET);
         // The stop arrives after the fault has cut the rail, so the rail
         // is cut once.
         LOG.lock(|log| {
@@ -2078,7 +2079,7 @@ fn the_pool_wait_holds_until_a_slot_holds_a_job_and_cuts_the_rail_on_halt() {
             // No job: the wait is still pending after several polls.
             let pending = select(
                 miner.advance(waiting(), &mut subscription),
-                Timer::after(super::POOL_POLL_PERIOD * 3),
+                Timer::after(POOL_POLL_PERIOD * 3),
             )
             .await;
             assert!(matches!(pending, Either::Second(())));
@@ -2122,9 +2123,9 @@ fn the_pool_wait_holds_until_a_slot_holds_a_job_and_cuts_the_rail_on_halt() {
 /// only a halt can leave.
 #[test]
 fn every_state_is_reachable_and_leads_back_to_choose() {
-    type Context = super::Context<'static, 'static, TestPsu, LoggingResetPin, OnePlanTuner, 1>;
+    type TestContext = Context<'static, 'static, TestPsu, LoggingResetPin, OnePlanTuner, 1>;
     assert_eq!(
-        transitions::check::<super::MinerState<OnePlanTuner>, Context>(
+        transitions::check::<MinerState<OnePlanTuner>, TestContext>(
             <Choose as transitions::Named>::NAME
         ),
         Ok(())
