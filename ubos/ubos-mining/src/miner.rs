@@ -27,6 +27,14 @@
 //! Live targets take effect at the next step. A stop or a halt allows the current
 //! plan a bounded wait, then cuts the rail without a shutdown ramp.
 
+// The state machine is built beside the bring-up loop it replaces, and
+// while both exist only one of them runs. This allowance is temporary,
+// and the commit that deletes the old loop removes it.
+#![allow(
+    dead_code,
+    reason = "the state machine and the bring-up loop coexist until the loop is deleted"
+)]
+
 #[cfg(test)]
 #[path = "tests/miner.rs"]
 mod tests;
@@ -52,6 +60,7 @@ use crate::control::{Handle, Message, MiningState};
 use crate::reset::ResetPin;
 use crate::serial::Serial;
 use crate::tuner::MachineTuner;
+use transitions::{machine, successors};
 use ubos_tuner::{ChainReadings, Plan, Readings};
 
 /// Maximum time an interrupted hardware plan can finish before the rail cut.
@@ -1041,6 +1050,180 @@ where
             cut_rail(psu, chains).await;
             InitPhase::Halted
         }
+    }
+}
+
+machine! {
+    /// The state the miner is in.
+    ///
+    /// `Choose`, `Recover`, `NoTuner` and `Halted` hold the rail off, and
+    /// `Reset` and `WaitForPool` run before `Enable` raises it. Every state
+    /// but the first four counts as powered, and leaving one for those four
+    /// cuts the rail.
+    enum MinerState<T> {
+        Choose(Choose),
+        Reset(Reset),
+        WaitForPool(WaitForPool),
+        Enable(Enable),
+        ExitReset(ExitReset),
+        BringUp(BringUp),
+        StartWork(StartWork),
+        Step(Step<T>),
+        Pause(Pause<T>),
+        Recover(Recover),
+        NoTuner(NoTuner),
+        Halted(Halted),
+    }
+    anywhere = Anywhere;
+}
+
+successors! {
+    /// The transitions that interrupt every state.
+    enum Anywhere { Halt(Halted) }
+}
+
+/// What a state does with the rail.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Rail {
+    /// The rail is up or about to be raised, so leaving for a state that
+    /// holds it off cuts it. [`Reset`] and [`WaitForPool`] are this with
+    /// the rail still off, so a halt or a stop during the pool wait cuts
+    /// it again.
+    Live,
+    /// The state holds the rail off.
+    Off,
+    /// The state holds the rail off for as long as it takes, and entering
+    /// it cuts the rail whatever state came before.
+    ///
+    /// [`NoTuner`] and [`Halted`] can hold indefinitely on the first pass
+    /// after boot, where the only cut so far is the one in [`Miner::run`],
+    /// and that cut only logs a failed disable. Cutting again on entry
+    /// means a board that boots under an unusable tuning or a queued halt
+    /// never holds with a rail that nobody confirmed down.
+    Parked,
+}
+
+impl<T> MinerState<T> {
+    /// What this state does with the rail.
+    fn rail(&self) -> Rail {
+        match self {
+            Self::Reset(_)
+            | Self::WaitForPool(_)
+            | Self::Enable(_)
+            | Self::ExitReset(_)
+            | Self::BringUp(_)
+            | Self::StartWork(_)
+            | Self::Step(_)
+            | Self::Pause(_) => Rail::Live,
+            Self::Choose(_) | Self::Recover(_) => Rail::Off,
+            Self::NoTuner(_) | Self::Halted(_) => Rail::Parked,
+        }
+    }
+
+    /// The lifecycle status the API and the metrics report for this state.
+    fn mining_state(&self) -> MiningState {
+        match self {
+            Self::Reset(_) | Self::WaitForPool(_) => MiningState::WaitingForPool,
+            Self::Enable(_) | Self::ExitReset(_) | Self::BringUp(_) | Self::StartWork(_) => {
+                MiningState::Starting
+            }
+            Self::Step(_) | Self::Pause(_) => MiningState::Running,
+            Self::Choose(_) | Self::Recover(_) | Self::NoTuner(_) | Self::Halted(_) => {
+                MiningState::Stopped
+            }
+        }
+    }
+}
+
+/// Check that this machine has a tuner for the configured tuning.
+struct Choose;
+
+/// Put every chain in reset.
+struct Reset;
+
+/// Hold every chain in reset until a pool slot holds a job.
+struct WaitForPool;
+
+/// Hold reset a little longer, then enable the rail.
+struct Enable;
+
+/// Release every chain from reset.
+struct ExitReset;
+
+/// Enumerate and configure every chain.
+struct BringUp;
+
+/// Build the tuner, anchor the rail and start work on every present
+/// chain.
+struct StartWork;
+
+/// Run one tuner step and apply its plan.
+struct Step<T> {
+    run: Run<T>,
+}
+
+/// Wait for the delay the last plan asked for.
+struct Pause<T> {
+    run: Run<T>,
+    /// When the delay ends.
+    until: Instant,
+}
+
+/// Hold the rail off before the next bring-up.
+struct Recover;
+
+/// Hold the rail off until the tuning variant changes, because this machine
+/// has no tuner for the configured tuning.
+struct NoTuner {
+    /// The tuning variant that has no tuner here.
+    selected: Selected,
+}
+
+impl NoTuner {
+    /// The state for a configuration that selects `tuning`, which this
+    /// machine has no tuner for.
+    fn missing(tuning: &Tuning) -> Self {
+        error!("mining: this machine has no tuner for the configured tuning");
+        Self {
+            selected: Selected::of(tuning),
+        }
+    }
+}
+
+/// Hold the rail off until a resume, after a halt or after a park.
+struct Halted;
+
+/// What a mining run carries from step to step. [`StartWork`] builds it,
+/// and the run ends when it is dropped.
+struct Run<T> {
+    tuner: T,
+    /// The tuning variant `tuner` was built from.
+    selected: Selected,
+    /// The plans in a row that failed.
+    failures: u8,
+    /// How long no pool slot has held a job.
+    pool: PoolWatch,
+}
+
+/// A tuning variant, which stands for the tuner built from it. A new
+/// target within the variant reaches the running tuner at its next step,
+/// and another variant needs another tuner.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Selected(Discriminant<Tuning>);
+
+impl Selected {
+    fn of(tuning: &Tuning) -> Self {
+        Self(discriminant(tuning))
+    }
+
+    /// Whether `tuning` is of this variant.
+    fn serves(self, tuning: &Tuning) -> bool {
+        self == Self::of(tuning)
+    }
+
+    /// Wait for a configuration that selects another variant.
+    async fn superseded(self, subscription: &mut ConfigSubscription) {
+        while self.serves(&subscription.changed().await.miner.tuning) {}
     }
 }
 
