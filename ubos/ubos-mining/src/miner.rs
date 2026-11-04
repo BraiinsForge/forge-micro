@@ -1344,6 +1344,24 @@ struct Pause<T> {
 /// Hold the rail off before the next bring-up.
 struct Recover;
 
+successors! { enum RecoverNext { Retry(Choose) } }
+
+impl<P, R, T, const CHAINS: usize> State<Context<'_, '_, P, R, T, CHAINS>> for Recover
+where
+    P: Psu,
+    R: ResetPin,
+    T: MachineTuner<CHAINS>,
+{
+    type Next = RecoverNext;
+
+    /// Hold the rail off for [`RETRY_DELAY`] after a failed
+    /// bring-up or a faulted tuner, then start over.
+    async fn run(self, _context: &mut Context<'_, '_, P, R, T, CHAINS>) -> RecoverNext {
+        Timer::after(RETRY_DELAY).await;
+        RecoverNext::Retry(Choose)
+    }
+}
+
 /// Hold the rail off until the tuning variant changes, because this machine
 /// has no tuner for the configured tuning.
 struct NoTuner {
@@ -1362,8 +1380,49 @@ impl NoTuner {
     }
 }
 
+successors! { enum NoTunerNext { Configured(Choose) } }
+
+impl<P, R, T, const CHAINS: usize> State<Context<'_, '_, P, R, T, CHAINS>> for NoTuner
+where
+    P: Psu,
+    R: ResetPin,
+    T: MachineTuner<CHAINS>,
+{
+    type Next = NoTunerNext;
+
+    /// Hold the rail off until a configuration selects another tuning
+    /// variant, which [`Choose`] checks again.
+    async fn run(self, context: &mut Context<'_, '_, P, R, T, CHAINS>) -> NoTunerNext {
+        self.selected.superseded(context.config).await;
+        NoTunerNext::Configured(Choose)
+    }
+}
+
 /// Hold the rail off until a resume, after a halt or after a park.
 struct Halted;
+
+successors! { enum HaltedNext { Resume(Choose) } }
+
+impl<P, R, T, const CHAINS: usize> State<Context<'_, '_, P, R, T, CHAINS>> for Halted
+where
+    P: Psu,
+    R: ResetPin,
+    T: MachineTuner<CHAINS>,
+{
+    type Next = HaltedNext;
+
+    /// Wait for a resume, dropping every halt before it, and start over.
+    ///
+    /// A resumed machine has been asked for the whole budget of empty
+    /// bring-up cycles again, so the count starts from zero.
+    async fn run(self, context: &mut Context<'_, '_, P, R, T, CHAINS>) -> HaltedNext {
+        info!("mining: rail down; awaiting resume");
+        while !matches!(context.miner.mining.next_message().await, Message::Resume) {}
+        info!("mining: resumed; restarting bring-up");
+        context.miner.empty_cycles = 0;
+        HaltedNext::Resume(Choose)
+    }
+}
 
 /// What a mining run carries from step to step. [`StartWork`] builds it,
 /// and the run ends when it is dropped.
