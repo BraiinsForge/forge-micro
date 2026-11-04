@@ -40,13 +40,16 @@
 mod tests;
 
 use core::cmp::Ordering;
+use core::future::poll_fn;
 use core::mem::{Discriminant, discriminant};
+use core::pin::pin;
+use core::task::Poll;
 
 use embassy_futures::join::join_array;
 use embassy_futures::select::{Either, Either3, select, select3};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
-use embassy_time::{Duration, Instant, Timer};
+use embassy_time::{Duration, Instant, Timer, with_timeout};
 use embedded_io::ErrorKind;
 use ubos_asic::HashboardDescriptor;
 use ubos_config::{ConfigSubscription, Tuning};
@@ -60,7 +63,7 @@ use crate::control::{Handle, Message, MiningState};
 use crate::reset::ResetPin;
 use crate::serial::Serial;
 use crate::tuner::MachineTuner;
-use transitions::{State, machine, successors};
+use transitions::{Lift, Machine, State, machine, successors};
 use ubos_tuner::{ChainReadings, Plan, Readings};
 
 /// Maximum time an interrupted hardware plan can finish before the rail cut.
@@ -356,6 +359,111 @@ where
                 return;
             }
         }
+    }
+
+    /// Run `state` to its transition, cut the rail when the transition
+    /// asks for it, and return the next state, or `None` when
+    /// `STOP_MINING` ends the machine.
+    ///
+    /// The race runs first, and the cut and the status publication follow
+    /// it, so nothing cancels the cut halfway. The status is published
+    /// after the cut whenever the transition changes it.
+    async fn advance(
+        &mut self,
+        state: MinerState<T>,
+        config: &mut ConfigSubscription,
+    ) -> Option<MinerState<T>> {
+        let rail = state.rail();
+        let status = state.mining_state();
+        let next = self.race(state, config).await;
+        let next_rail = next.as_ref().map(MinerState::rail);
+        let leaves_live = rail == Rail::Live && next_rail != Some(Rail::Live);
+        if leaves_live || next_rail == Some(Rail::Parked) {
+            self.cut_rail().await;
+        }
+        let next_status = next
+            .as_ref()
+            .map_or(MiningState::Stopped, MinerState::mining_state);
+        if next_status != status {
+            self.mining.publish(next_status);
+        }
+        next
+    }
+
+    /// Run `state` against STOP and HALT, and return the next state, or
+    /// `None` when STOP wins.
+    ///
+    /// This is the only select of the machine. STOP and HALT are read here
+    /// for every state, and the state's own work decides every other
+    /// transition. STOP wins over a HALT that is ready at the same time.
+    /// [`Halted`] waits for the resume itself, so no message is read here
+    /// while the machine is halted.
+    ///
+    /// A STOP or HALT that arrives while [`Step`] waits on the hardware
+    /// gives the plan [`INTERRUPT_TIMEOUT`] to finish, so a rail write
+    /// already on the bus completes before the cut. A STOP or HALT that is
+    /// ready before [`Step`] starts ends it like any other state, so no new
+    /// plan reaches the hardware after it. No message is read during that
+    /// grace, so a later halt or resume stays queued.
+    async fn race(
+        &mut self,
+        state: MinerState<T>,
+        config: &mut ConfigSubscription,
+    ) -> Option<MinerState<T>> {
+        let reads_halt = state.reads_halt();
+        let grants_grace = state.grants_grace();
+        let mining = self.mining;
+        let mut context = Context {
+            miner: self,
+            config,
+        };
+        let mut work = pin!(state.run(&mut context));
+        let mut stop = pin!(STOP_MINING.wait());
+        // A resume that arrives before a halt is dropped, because a
+        // machine that is not halted has nothing to resume.
+        let mut halt = pin!(async {
+            if reads_halt {
+                while !matches!(mining.next_message().await, Message::Halt) {}
+            } else {
+                core::future::pending::<()>().await;
+            }
+        });
+        // Whether the work has waited on something, which a state that
+        // writes to the hardware does from its first command on.
+        let mut waited = false;
+        let outcome = poll_fn(|cx| {
+            if let Poll::Ready(()) = stop.as_mut().poll(cx) {
+                return Poll::Ready(Either3::First(()));
+            }
+            if let Poll::Ready(()) = halt.as_mut().poll(cx) {
+                return Poll::Ready(Either3::Second(()));
+            }
+            let polled = work.as_mut().poll(cx).map(Either3::Third);
+            waited |= polled.is_pending();
+            polled
+        })
+        .await;
+        let (next, interrupted) = match outcome {
+            Either3::First(()) => {
+                info!("mining: stop signalled");
+                (None, true)
+            }
+            Either3::Second(()) => {
+                warn!("mining: halt asserted");
+                (Some(Anywhere::Halt(Halted).lift()), true)
+            }
+            Either3::Third(next) => (Some(next), false),
+        };
+        if interrupted
+            && grants_grace
+            && waited
+            && with_timeout(INTERRUPT_TIMEOUT, work.as_mut())
+                .await
+                .is_err()
+        {
+            warn!("mining: tuner cancellation timed out");
+        }
+        next
     }
 
     /// Hold until the configuration names a tuner this machine has, or
@@ -738,6 +846,31 @@ where
     /// the question touches no chip, so its own presence does not matter.
     fn pool_serial(&self) -> &'static Serial {
         self.chains[0].serial
+    }
+
+    /// Put every chain in reset and drop the rail.
+    ///
+    /// The order matters. Reset is asserted before the rail goes, so the
+    /// chips are held rather than losing power mid-transaction. A failure to
+    /// disable the PSU is logged; the chips remain in reset.
+    ///
+    /// A chain that was present is recorded as `Unknown` here: its
+    /// enumeration is void once the reset is asserted, and the next
+    /// bring-up decides it again. An absent or faulted chain keeps its
+    /// verdict, so a parked connector still reads as parked while the
+    /// machine is down. The store is a direct write rather than an actor
+    /// command, so a cut never waits behind a bring-up command the actor
+    /// is still running.
+    async fn cut_rail(&mut self) {
+        for chain in &mut self.chains {
+            chain.reset.enter_reset().await;
+            if chain.is_present() {
+                chain.stats.set_presence(ChainPresence::Unknown);
+            }
+        }
+        if let Err(error) = self.psu.disable().await {
+            warn!("psu disable failed: {:?}", Debug2Format(&error));
+        }
     }
 
     /// Decide what `bring_up_cycle` does after one bring-up step:
@@ -1140,6 +1273,18 @@ impl<T> MinerState<T> {
             Self::Choose(_) | Self::Recover(_) => Rail::Off,
             Self::NoTuner(_) | Self::Halted(_) => Rail::Parked,
         }
+    }
+
+    /// Whether the select reads HALT while this state runs. [`Halted`]
+    /// reads the messages itself.
+    fn reads_halt(&self) -> bool {
+        !matches!(self, Self::Halted(_))
+    }
+
+    /// Whether a STOP or HALT lets this state finish the command it waits
+    /// on before the cut. Only [`Step`] writes plans to the hardware.
+    fn grants_grace(&self) -> bool {
+        matches!(self, Self::Step(_))
     }
 
     /// The lifecycle status the API and the metrics report for this state.
