@@ -31,11 +31,11 @@ use ubos_config::ConfigSubscription;
 use ubos_logging::{info, warn};
 use ubos_psu::Psu;
 
+use super::Miner;
 use super::states::{
     BringUp, Choose, Enable, ExitReset, Halted, NoTuner, Pause, Recover, Reset, StartWork, Step,
     WaitForPool,
 };
-use super::{Miner, STOP_MINING};
 use crate::control::{Message, MiningState};
 use crate::reset::ResetPin;
 use crate::tuner::MachineTuner;
@@ -54,7 +54,7 @@ where
     /// Waits for the configuration task's first publication, cuts the
     /// rail, publishes the first state's lifecycle status, and then runs
     /// one state of [`MinerState`] after another through [`Self::advance`] from
-    /// [`Choose`]. Returns when `STOP_MINING` fires; on bare metal
+    /// [`Choose`]. Returns when [`Handle::stop`](crate::Handle::stop) fires; on bare metal
     /// that never happens, so the machine runs forever.
     ///
     /// The cut before the first state parks the rail and every chain, so
@@ -76,7 +76,7 @@ where
 
     /// Run `state` to its transition, cut the rail when the transition
     /// asks for it, and return the next state, or `None` when
-    /// `STOP_MINING` ends the machine.
+    /// [`Handle::stop`](crate::Handle::stop) ends the machine.
     ///
     /// The race runs first, and the cut and the status publication follow
     /// it, so nothing cancels the cut halfway. The status is published
@@ -131,7 +131,7 @@ where
             config,
         };
         let mut work = pin!(state.run(&mut context));
-        let mut stop = pin!(STOP_MINING.wait());
+        let mut stop = pin!(mining.stopped());
         // A resume that arrives before a halt is dropped, because a
         // machine that is not halted has nothing to resume.
         let mut halt = pin!(async {

@@ -49,7 +49,7 @@
 //! "empty pool" state that `Pool::new()` constructs).
 //!
 //! The `ubos-mining` mailbox statics relocated on stm32f407
-//! (`STATE_WATCH`, `COMMAND_CHANNEL`, `STOP_MINING`) add the
+//! (`STATE_WATCH`, `COMMAND_CHANNEL`, `STOP`) add the
 //! embassy-sync 0.6.2 async primitives `Signal`, `Watch`, and
 //! `Channel`. Each is bit-equivalent to all-zero after its `new()`:
 //! `Signal::new()` is the `State::None` discriminant 0, and `Watch`

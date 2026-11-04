@@ -24,7 +24,7 @@
 //! [`CHAINS`] for the lifetime of the firmware; `miner_task` runs the
 //! bring-up / teardown state machine in `ubos_mining::Miner::run`. Neither
 //! ever returns under normal operation: there is no SIGINT on bare metal,
-//! so `STOP_MINING` is never raised and `ubos_mining::Miner::run` parks
+//! so `Handle::stop` is never raised and `ubos_mining::Miner::run` parks
 //! inside its bring-up loop.
 
 /// The board's single hashboard chain.

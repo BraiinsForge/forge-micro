@@ -21,7 +21,6 @@
 //! and the select that interrupts it.
 
 use super::*;
-use crate::miner::STOP_MINING;
 use crate::miner::machine::{Context, INTERRUPT_TIMEOUT, MinerState};
 use crate::miner::pool::{POOL_POLL_PERIOD, PoolWatch};
 use crate::miner::states::{
@@ -331,7 +330,7 @@ fn waiting_between_refused_commands_does_not_refresh_the_budget() {
                 }
             })
             .await;
-            STOP_MINING.signal(());
+            crate::handle().stop();
         };
         let Either::First((outcome, ())) = block_on(select(
             join(
@@ -390,7 +389,7 @@ fn a_plan_that_applies_clears_the_failure_budget() {
                 }
             })
             .await;
-            STOP_MINING.signal(());
+            crate::handle().stop();
         };
         let Either::First((outcome, ())) = block_on(select(
             join(
@@ -534,7 +533,7 @@ fn empty_plans_wait_before_retrying_and_stop_during_a_write_cuts_the_rail() {
                 }
             })
             .await;
-            STOP_MINING.signal(());
+            crate::handle().stop();
         };
         let (outcome, ()) = block_on(join(
             drive(&mut miner, state, &mut subscription),
@@ -590,7 +589,7 @@ fn stop_before_work_initialization_prevents_voltage_commands() {
         };
         let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
         let mut subscription = test_config().0;
-        STOP_MINING.signal(());
+        crate::handle().stop();
         let state = MinerState::<OnePlanTuner>::StartWork(StartWork);
         assert!(block_on(miner.advance(state, &mut subscription)).is_none());
         LOG.lock(|log| assert_eq!(log.borrow().as_slice(), &[Write::Disable]));
@@ -655,7 +654,7 @@ fn stop_ready_before_a_step_cuts_the_rail_without_a_plan() {
             })),
         });
         let mut subscription = test_config().0;
-        STOP_MINING.signal(());
+        crate::handle().stop();
         assert!(block_on(miner.advance(state, &mut subscription)).is_none());
         LOG.lock(|log| assert_eq!(log.borrow().as_slice(), &[Write::Disable]));
     });
@@ -687,7 +686,7 @@ fn stop_during_plan_delay_does_not_wait_or_issue_another_plan() {
         let paused =
             block_on(miner.advance(state, &mut subscription)).expect("no stop is signalled");
         assert!(matches!(paused, MinerState::Pause(_)));
-        STOP_MINING.signal(());
+        crate::handle().stop();
         let Either::First(outcome) = block_on(select(
             miner.advance(paused, &mut subscription),
             Timer::after(delay / 2),
@@ -1006,7 +1005,7 @@ fn live_frequency_and_voltage_edits_do_not_cut_power() {
             })
             .await;
             LOG.lock(|log| assert!(!log.borrow().contains(&Write::Disable)));
-            STOP_MINING.signal(());
+            crate::handle().stop();
         };
         let driver = BringUpDriver {
             plan_log: Some((0, &LOG)),
@@ -1056,7 +1055,7 @@ fn stop_has_priority_over_halt_in_every_state() {
             MinerState::Recover(Recover),
         ];
         for state in states {
-            STOP_MINING.signal(());
+            crate::handle().stop();
             block_on(crate::handle().halt());
             assert!(block_on(miner.advance(state, &mut subscription)).is_none());
             assert!(matches!(

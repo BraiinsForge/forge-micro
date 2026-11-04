@@ -44,8 +44,6 @@ mod tests;
 
 use core::cmp::Ordering;
 
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Instant};
 use ubos_asic::HashboardDescriptor;
 use ubos_core::units::{Frequency, Temperature, Voltage};
@@ -72,11 +70,6 @@ pub use error::{MinerError, PsuErrorKind};
 /// cycles the rail for as long as it is powered, once per
 /// `RESET_HOLD` sequence, chain retry budget and `RETRY_DELAY`.
 const BRING_UP_CYCLES: u8 = 3;
-
-/// Request shutdown of the mining state machine from any state.
-/// The rail is cut before [`Miner::run`] returns.
-#[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
-pub static STOP_MINING: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 /// Run the mining module of a deployment that has no chip: publish
 /// [`MiningState::Stopped`] and drain halt and resume.
@@ -345,7 +338,7 @@ where
 /// chain count, its tuner set and, when that set reads platform readings,
 /// the function that reads them.
 ///
-/// [`Miner::run`] returns only when `STOP_MINING` fires, which on bare
+/// [`Miner::run`] returns only when [`Handle::stop`] fires, which on bare
 /// metal never happens. The shell parks afterwards for the same reason
 /// `ubos_mining::serial_task` does.
 #[macro_export]

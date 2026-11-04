@@ -418,16 +418,16 @@ async fn pool_weights_task() -> ! {
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    // SIGINT signals `STOP_MINING` so the BM1362 driver tears the
+    // SIGINT signals `ubos_mining::Handle::stop` so the BM1362 driver tears the
     // chip down cleanly (when the ubos-mining path is active), then exits
     // the process unconditionally. Without the explicit `exit`,
     // the embassy executor would keep running the network /
     // stratum / CPU-mock tasks indefinitely — none of them watch
-    // `STOP_MINING`. The teardown vs. exit is racy on purpose;
+    // `ubos_mining::Handle::stop`. The teardown vs. exit is racy on purpose;
     // this is a developer tool, not a production controller.
     ctrlc::set_handler(|| {
         info!("host-runner: SIGINT received, signalling miner stop");
-        ubos_mining::miner::STOP_MINING.signal(());
+        ubos_mining::handle().stop();
         std::process::exit(130);
     })
     .expect("BUG: ctrlc handler already installed");

@@ -40,11 +40,11 @@ a PMBus register, so there is no separate PSU-watchdog task; only
 halts.
 
 `serial_task` and `miner_task` never return under normal operation.
-`Miner::run` responds to `STOP_MINING` with a rail cut.
+`Miner::run` responds to `Handle::stop` with a rail cut.
 HALT and STOP interrupt the state machine, as the section on it says.
-After HALT, the machine waits for `Message::Resume` or `STOP_MINING`.
+After HALT, the machine waits for `Message::Resume` or `Handle::stop`.
 Resume restarts bring-up, while STOP ends the machine. On
-bare metal there is no `STOP_MINING`, so if either task ever returns the
+bare metal there is no `Handle::stop`, so if either task ever returns the
 task idles for 60 s between log lines, keeping the rest of the firmware
 (network, metrics, watchdog) alive so logs can be pulled.
 
@@ -138,7 +138,7 @@ active concurrently.
 
 The mining command channel carries `Message::Halt` and `Message::Resume`.
 The active miner ignores redundant Resume messages.
-After Halt, the miner waits for Resume or `STOP_MINING`.
+After Halt, the miner waits for Resume or `Handle::stop`.
 A Resume queued after Halt remains available to that wait.
 
 Frequency, voltage, and algorithm edits do not travel the command channel.

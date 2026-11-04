@@ -29,9 +29,9 @@
 //! `configure` hand back; `LoggingResetPin` records the reset-pin call
 //! sequence a chain's hardware reset produces.
 
+use super::Miner;
 use super::machine::MinerState;
 use super::states::BringUp;
-use super::{Miner, STOP_MINING};
 
 #[path = "machine.rs"]
 mod machine;
@@ -200,7 +200,7 @@ impl ChainDriver for BringUpDriver {
             });
         }
         if let Some(delay) = self.stop_during_frequency.take() {
-            STOP_MINING.signal(());
+            crate::handle().stop();
             Timer::after(delay).await;
         }
         if self.refused_frequency == Some(freq) {
@@ -742,7 +742,7 @@ impl Psu for TestPsu {
             }
             VoltageWrite::Interrupt => {
                 self.behavior.set(VoltageWrite::Succeed);
-                STOP_MINING.signal(());
+                crate::handle().stop();
                 core::future::pending::<()>().await;
             }
             VoltageWrite::YieldThenSucceed => {
@@ -750,7 +750,7 @@ impl Psu for TestPsu {
             }
             VoltageWrite::StopThenSucceed => {
                 self.behavior.set(VoltageWrite::Succeed);
-                STOP_MINING.signal(());
+                crate::handle().stop();
                 embassy_futures::yield_now().await;
             }
         }

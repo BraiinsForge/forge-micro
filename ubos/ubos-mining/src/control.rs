@@ -24,6 +24,7 @@
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
+use embassy_sync::signal::Signal;
 use embassy_sync::watch::{Receiver, Watch};
 
 type CSMutex = CriticalSectionRawMutex;
@@ -46,6 +47,12 @@ static STATE_WATCH: Watch<CSMutex, MiningState, WATCH_CAPACITY> = Watch::new();
 /// inherent methods.
 #[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
 pub(crate) static COMMAND_CHANNEL: Channel<CSMutex, Message, CMD_CHANNEL_DEPTH> = Channel::new();
+
+/// Module-internal stop request. Its single consumer is the miner,
+/// through [`Handle::stopped`]; producers signal it through
+/// [`Handle::stop`].
+#[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
+static STOP: Signal<CSMutex, ()> = Signal::new();
 
 /// Mining lifecycle status, separate from hardware readings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -102,6 +109,7 @@ pub fn handle() -> Handle {
     Handle {
         state: &STATE_WATCH,
         commands: &COMMAND_CHANNEL,
+        stop: &STOP,
     }
 }
 
@@ -112,6 +120,7 @@ pub fn handle() -> Handle {
 pub struct Handle {
     state: &'static Watch<CSMutex, MiningState, WATCH_CAPACITY>,
     commands: &'static Channel<CSMutex, Message, CMD_CHANNEL_DEPTH>,
+    stop: &'static Signal<CSMutex, ()>,
 }
 
 impl Handle {
@@ -147,11 +156,22 @@ impl Handle {
         self.commands.send(Message::Resume).await;
     }
 
+    /// Request shutdown of the mining state machine from any state. The
+    /// miner cuts the rail before [`Miner::run`](crate::Miner::run) returns.
+    pub fn stop(&self) {
+        self.stop.signal(());
+    }
+
     /// Publish `state` as the miner's lifecycle status, on the watch every
     /// [`Self::state`] and [`Self::subscribe`] reads. Crate-private, so
     /// the miner stays the only writer.
     pub(crate) fn publish(&self, state: MiningState) {
         self.state.sender().send(state);
+    }
+
+    /// Wait for a stop request. The miner is the only consumer.
+    pub(crate) async fn stopped(&self) {
+        self.stop.wait().await;
     }
 
     /// Take the next halt or resume. The miner is the only consumer.
