@@ -58,17 +58,24 @@ check:
     - nix build --no-link --print-build-logs --option allow-unsafe-native-code-during-evaluation true .#ci-check
 
 # Flashable hashnode and forge-axe BOOTSEL images for every commit
-# that lands on the default branch. The `nix run` app copies the UF2
-# out of the store into build/, so the artifact archives the file
-# itself rather than a dangling /nix/store symlink. The archive name
-# carries the commit; the pure build inside is always version 1.
+# that lands on the default branch, and on demand on an MR. The empty
+# `needs` lets an MR start one while lint fails, and sits on the job
+# because GitLab ignores an empty one in a rule. The `nix run` app
+# copies the UF2 out of the store into build/, so the artifact archives
+# the file itself rather than a dangling /nix/store symlink. The archive
+# name carries the commit; the pure build inside is always version 1.
 .uf2-image:
   stage: check
+  needs: []
   artifacts:
     paths:
       - build/*.uf2
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      needs: [format, instructions, clippy]
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: manual
+      allow_failure: true
 
 hashnode-uf2:
   extends:
