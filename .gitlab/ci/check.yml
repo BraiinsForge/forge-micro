@@ -62,24 +62,26 @@ check:
 # out of the store into build/, so the artifact archives the file
 # itself rather than a dangling /nix/store symlink. The archive name
 # carries the commit; the pure build inside is always version 1.
-hashnode-uf2:
+.uf2-image:
   stage: check
-  script:
-    - nix run --print-build-logs --option allow-unsafe-native-code-during-evaluation true .#hashnode-uf2
   artifacts:
-    name: "hashnode-uf2-${CI_COMMIT_SHORT_SHA}"
     paths:
       - build/*.uf2
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
+hashnode-uf2:
+  extends:
+    - .uf2-image
+  script:
+    - nix run --print-build-logs --option allow-unsafe-native-code-during-evaluation true .#hashnode-uf2
+  artifacts:
+    name: "hashnode-uf2-${CI_COMMIT_SHORT_SHA}"
+
 forge-axe-uf2:
-  stage: check
+  extends:
+    - .uf2-image
   script:
     - nix run --print-build-logs --option allow-unsafe-native-code-during-evaluation true .#forge-axe-uf2
   artifacts:
     name: "forge-axe-uf2-${CI_COMMIT_SHORT_SHA}"
-    paths:
-      - build/*.uf2
-  rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
