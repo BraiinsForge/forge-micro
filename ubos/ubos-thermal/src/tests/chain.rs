@@ -18,8 +18,9 @@
 // shall be considered distinct from the grant above.
 
 use super::*;
-use crate::{clock, measured};
+use crate::{TempSample, TempStats, clock, measured};
 use portable_atomic::AtomicU8;
+use ubos_core::units::Temperature;
 use ubos_metrics::chain::ChainPresence;
 use ubos_metrics::chain::ChainStats;
 
@@ -98,16 +99,26 @@ fn a_failed_read_does_not_hold_the_chain_open() {
 }
 
 #[test]
-fn the_sample_is_the_hottest_die_of_every_present_chain() {
+fn the_sample_is_the_hottest_and_the_mean_die_of_every_present_chain() {
     let (_clock, pvt, stats) = present_board();
     pvt[0].record(0, Some(60.0), None);
+    pvt[0].record(1, Some(63.0), None);
     pvt[1].record(3, Some(72.0), None);
     let mut sensor = ChainTemperature::<TEST_CHIPS, TEST_CHAINS>::new(pvt, stats);
 
     let temps = measured(embassy_futures::block_on(sensor.sample()));
-    assert_eq!(temps.chip.map(|chip| chip.max.millicelsius()), Some(72_000));
+    assert_eq!(
+        temps,
+        TempSample {
+            chip: Some(TempStats {
+                max: Temperature::from_millicelsius(72_000),
+                mean: Temperature::from_millicelsius(65_000),
+            }),
+            hashboard: None,
+        }
+    );
     // Each chain's own hottest die feeds its dashboard column.
-    assert_eq!(stats.chain(0).hottest_mc(), Some(60_000));
+    assert_eq!(stats.chain(0).hottest_mc(), Some(63_000));
     assert_eq!(stats.chain(1).hottest_mc(), Some(72_000));
 }
 

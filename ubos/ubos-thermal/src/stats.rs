@@ -24,6 +24,10 @@ use core::num::NonZeroU16;
 use ubos_asic::TemperatureSummary;
 use ubos_core::units::Temperature;
 
+#[cfg(test)]
+#[path = "tests/stats.rs"]
+mod tests;
+
 /// The hottest and the mean of one kind of reading in one sample.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TempStats {
