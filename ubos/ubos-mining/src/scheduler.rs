@@ -52,7 +52,10 @@ pub trait Scheduler<const N: usize> {
 
     /// Picks the slot to dispatch next, restricted to `available`
     /// slots. Returns `None` when nothing is dispatchable.
-    fn evaluate(&mut self, available: &[bool; N]) -> Option<usize>;
+    ///
+    /// The pick changes no state, so the same call answers whether any
+    /// work is dispatchable without dispatching it.
+    fn evaluate(&self, available: &[bool; N]) -> Option<usize>;
 
     /// Replace the dispatch weights at runtime. The default is a
     /// no-op so policy-free implementations and test stubs need
@@ -114,7 +117,7 @@ impl<const N: usize> Scheduler<N> for RatioScheduler<N> {
         }
     }
 
-    fn evaluate(&mut self, available: &[bool; N]) -> Option<usize> {
+    fn evaluate(&self, available: &[bool; N]) -> Option<usize> {
         let mut best: Option<usize> = None;
         for (slot, (&is_available, &weight)) in available.iter().zip(&self.weights).enumerate() {
             if !is_available || weight == 0 {
@@ -285,7 +288,7 @@ impl<const N: usize> Scheduler<N> for FeeScheduler<N> {
         self.inner.accumulate_share(slot);
     }
 
-    fn evaluate(&mut self, available: &[bool; N]) -> Option<usize> {
+    fn evaluate(&self, available: &[bool; N]) -> Option<usize> {
         if !Self::FEE_SLOT_RUNS {
             return self.inner.evaluate(available);
         }

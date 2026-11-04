@@ -95,7 +95,7 @@ impl<const N: usize> Scheduler<N> for Pinned {
             .expect("test never accumulates more than 8 shares");
     }
 
-    fn evaluate(&mut self, available: &[bool; N]) -> Option<usize> {
+    fn evaluate(&self, available: &[bool; N]) -> Option<usize> {
         if available.get(self.slot).copied().unwrap_or(false) {
             return Some(self.slot);
         }
@@ -234,7 +234,7 @@ impl<'a, const N: usize> Harness<'a, N> {
     fn dispatch(&mut self) -> Option<usize> {
         block_on(self.actor.dispatch_work(
             &mut self.serial,
-            &mut self.scheduler,
+            &self.scheduler,
             &mut self.driver,
             &mut self.registry,
             &mut self.receivers,
@@ -1508,7 +1508,7 @@ impl WeightsRecorder {
 impl<const N: usize> Scheduler<N> for WeightsRecorder {
     fn accumulate_share(&mut self, _slot: usize) {}
 
-    fn evaluate(&mut self, _available: &[bool; N]) -> Option<usize> {
+    fn evaluate(&self, _available: &[bool; N]) -> Option<usize> {
         None
     }
 
@@ -1872,7 +1872,7 @@ fn dispatch_and_submit(
 
     block_on(actor.dispatch_work(
         &mut serial,
-        &mut scheduler,
+        &scheduler,
         &mut driver,
         &mut registry,
         &mut receivers,
@@ -1983,7 +1983,7 @@ fn dispatch_job(session: &AsicSession<1>, chain: usize, chains: usize) -> Option
     let actor = Serial::new(chain, chains);
     let mut serial = MockSerial::new();
     let mut driver = StubDriver::new(ResultMode::Push, 0);
-    let mut scheduler = Pinned::new(0);
+    let scheduler = Pinned::new(0);
     let mut registry = WorkRegistry::new(driver.work_slots());
     let mut receivers: [DynReceiver<'_, WorkAssignment>; 1] = core::array::from_fn(|slot| {
         session
@@ -1994,7 +1994,7 @@ fn dispatch_job(session: &AsicSession<1>, chain: usize, chains: usize) -> Option
 
     block_on(actor.dispatch_work(
         &mut serial,
-        &mut scheduler,
+        &scheduler,
         &mut driver,
         &mut registry,
         &mut receivers,

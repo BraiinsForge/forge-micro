@@ -228,7 +228,7 @@ pub trait Scheduler<const N: usize> {
     fn accumulate_share(&mut self, slot: usize);
     /// Pick the slot to dispatch next, restricted to `available`
     /// slots. `None` when nothing is dispatchable.
-    fn evaluate(&mut self, available: &[bool; N]) -> Option<usize>;
+    fn evaluate(&self, available: &[bool; N]) -> Option<usize>;
 }
 ```
 

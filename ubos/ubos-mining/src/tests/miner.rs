@@ -103,7 +103,7 @@ struct NoWork;
 impl Scheduler<1> for NoWork {
     fn accumulate_share(&mut self, _slot: usize) {}
 
-    fn evaluate(&mut self, _available: &[bool; 1]) -> Option<usize> {
+    fn evaluate(&self, _available: &[bool; 1]) -> Option<usize> {
         None
     }
 }

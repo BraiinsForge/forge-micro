@@ -906,7 +906,7 @@ impl Serial {
                     let dispatched = self
                         .dispatch_work(
                             &mut serial,
-                            &mut scheduler,
+                            &scheduler,
                             &mut driver,
                             &mut registry,
                             &mut work_receivers,
@@ -1004,7 +1004,7 @@ impl Serial {
     async fn dispatch_work<S, const N: usize, Sch: Scheduler<N>>(
         &self,
         serial: &mut S,
-        scheduler: &mut Sch,
+        scheduler: &Sch,
         driver: &mut impl ChainDriver,
         registry: &mut WorkRegistry,
         work_receivers: &mut [DynReceiver<'_, WorkAssignment>; N],
