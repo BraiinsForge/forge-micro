@@ -22,7 +22,7 @@
 //! One task owns the full-duplex serial line and the in-flight work
 //! registry; outside callers go through [`Serial`]'s typed methods to
 //! reset the line, bring the chain up, retune the frequency, gate work
-//! dispatch, or ask whether a pool slot holds a job. The actor is
+//! dispatch, or ask whether the scheduler has work to dispatch. The actor is
 //! generic over the concrete [`ChainDriver`] the
 //! caller injects and implements [`Transport`] over the UART, so the
 //! vendor-specific framing and bring-up recipe live in `ubos-asic` or in
@@ -363,9 +363,9 @@ pub enum SerialMessage {
     /// with the work, so results still latched in its nonce FIFO are not
     /// collected until work restarts.
     StopSendingWork,
-    /// Ask whether any pool slot's work cell holds a job. Answered from
-    /// the session's work receivers without touching the chips, so it is
-    /// valid while the chain sits in reset.
+    /// Ask whether the scheduler would dispatch work from the slots that
+    /// hold a job. Answered from the session's work receivers without
+    /// touching the chips, so it is valid while the chain sits in reset.
     WorkAvailable,
     /// Tell the server task to exit its loop.
     Terminate,
@@ -692,8 +692,11 @@ impl Serial {
         Self::unit(self.cmd_reply(SerialMessage::StopSendingWork).await)
     }
 
-    /// True when any pool slot's work cell holds a job. The session is
-    /// shared by every chain, so one actor answers for the machine.
+    /// True when the scheduler would dispatch work from the slots that
+    /// hold a job. A slot the scheduler never dispatches from, such as
+    /// the fee slot, does not count, so the answer is the same one a work
+    /// tick would find. The session is shared by every chain, so one
+    /// actor answers for the machine.
     ///
     /// The answer is a read of the work receivers, which the actor loop
     /// owns because their count is the session's slot-count generic.
@@ -974,6 +977,7 @@ impl Serial {
                             &mut poll_cadence,
                             &mut registry,
                             &work_receivers,
+                            &scheduler,
                             stats,
                         )
                         .await
@@ -1199,7 +1203,7 @@ impl Serial {
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn handle_command<S, const N: usize>(
+    async fn handle_command<S, const N: usize, Sch: Scheduler<N>>(
         &self,
         seq: u32,
         msg: SerialMessage,
@@ -1210,6 +1214,7 @@ impl Serial {
         poll_cadence: &mut Option<PollCadence>,
         registry: &mut WorkRegistry,
         work_receivers: &[DynReceiver<'_, WorkAssignment>; N],
+        scheduler: &Sch,
         stats: &ChainStats,
     ) -> ControlFlow<()>
     where
@@ -1306,8 +1311,9 @@ impl Serial {
                 return ControlFlow::Break(());
             }
             SerialMessage::WorkAvailable => {
-                let available = work_receivers.iter().any(|cell| cell.contains_value());
-                self.reply.signal((seq, Reply::Flag(available)));
+                let held: [bool; N] = core::array::from_fn(|i| work_receivers[i].contains_value());
+                self.reply
+                    .signal((seq, Reply::Flag(scheduler.evaluate(&held).is_some())));
             }
         }
         ControlFlow::Continue(())

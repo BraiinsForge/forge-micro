@@ -23,15 +23,15 @@ use embassy_time::{Duration, Instant, Timer};
 
 use crate::serial::Serial;
 
-/// How often the miner asks the actor whether a pool slot holds a job,
+/// How often the miner asks the actor whether the scheduler would dispatch work,
 /// both while waiting for a pool and while watching for its loss.
 pub(super) const POOL_POLL_PERIOD: Duration = Duration::from_secs(1);
 
-/// How long every pool slot may stay empty while mining before the rail
-/// is cut. Long enough for a pool to reconnect without a power cycle.
+/// How long the scheduler may have nothing to dispatch while mining
+/// before the rail is cut. Long enough for a pool to reconnect without a power cycle.
 const POOL_LOSS_GRACE: Duration = Duration::from_secs(60);
 
-/// How long no pool slot has held a job while mining.
+/// How long the scheduler has had nothing to dispatch while mining.
 #[derive(Default)]
 pub(super) struct PoolWatch {
     /// When the slots were first seen empty; `None` while a job is held.
@@ -50,7 +50,8 @@ impl PoolWatch {
         now.saturating_duration_since(since) >= grace
     }
 
-    /// Resolve once no pool slot has held a job for `POOL_LOSS_GRACE`.
+    /// Resolve once the scheduler has had nothing to dispatch for
+    /// `POOL_LOSS_GRACE`.
     /// The future is dropped and rebuilt at every tuner step; the time
     /// already spent empty lives in `self`, so a short step cannot
     /// restart the count.

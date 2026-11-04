@@ -101,7 +101,7 @@ where
     }
 }
 
-/// Hold every chain in reset until a pool slot holds a job.
+/// Hold every chain in reset until the scheduler would dispatch work.
 pub(super) struct WaitForPool;
 
 successors! { pub(super) enum WaitForPoolNext { Job(Enable) } }
@@ -114,8 +114,8 @@ where
 {
     type Next = WaitForPoolNext;
 
-    /// Hold the chains in reset with the rail off until a pool slot holds
-    /// a job, asking every [`POOL_POLL_PERIOD`].
+    /// Hold the chains in reset with the rail off until the scheduler would
+    /// dispatch work, asking every [`POOL_POLL_PERIOD`].
     async fn run(self, context: &mut Context<'_, '_, P, R, T, CHAINS>) -> WaitForPoolNext {
         info!("mining: waiting for a pool to hold a job");
         while !context.miner.pool_serial().work_available().await {
@@ -383,7 +383,7 @@ where
     ///
     /// A configuration that selects another tuner ends the wait and leads
     /// to [`Choose`]; a new target for the running tuner does not, and
-    /// reaches the tuner at the next step. No pool slot holding a job for
+    /// reaches the tuner at the next step. A scheduler with nothing to dispatch for
     /// [`POOL_LOSS_GRACE`] also leads to [`Choose`], which waits for a
     /// pool again with the rail off.
     async fn run(self, context: &mut Context<'_, '_, P, R, T, CHAINS>) -> PauseNext<T> {
@@ -497,7 +497,7 @@ pub(super) struct Run<T> {
     pub(super) selected: Selected,
     /// The plans in a row that failed.
     pub(super) failures: u8,
-    /// How long no pool slot has held a job.
+    /// How long the scheduler has had nothing to dispatch.
     pub(super) pool: PoolWatch,
 }
 

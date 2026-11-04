@@ -54,6 +54,9 @@ use embassy_futures::block_on;
 use embassy_futures::join::join;
 use embassy_futures::yield_now;
 use stratum_client::AsicSession;
+use ubos_config::DEVFEE;
+
+use crate::scheduler::{FeeScheduler, RatioScheduler};
 
 /// The poll mode of a chip read every sixty milliseconds.
 const POLL: ResultMode = ResultMode::Poll {
@@ -643,12 +646,27 @@ impl CommandState {
 }
 
 /// Run one command through `handle_command` and return the reply the
-/// server signalled for it.
+/// server signalled for it. The commands run here never ask whether
+/// work is held, so the actor has no pool slots.
 fn run_command(
     actor: &Serial,
     msg: SerialMessage,
     driver: &mut impl ChainDriver,
     state: &mut CommandState,
+    chain_stats: &ChainStats,
+) -> Reply {
+    run_command_over(actor, msg, driver, state, &[], &Pinned::new(0), chain_stats)
+}
+
+/// Run one command through `handle_command` over `receivers` and
+/// `scheduler`, and return the reply the server signalled for it.
+fn run_command_over<const N: usize>(
+    actor: &Serial,
+    msg: SerialMessage,
+    driver: &mut impl ChainDriver,
+    state: &mut CommandState,
+    receivers: &[DynReceiver<'_, WorkAssignment>; N],
+    scheduler: &impl Scheduler<N>,
     chain_stats: &ChainStats,
 ) -> Reply {
     let mut serial = MockSerial::new();
@@ -661,8 +679,8 @@ fn run_command(
         &mut state.work_ticker,
         &mut state.poll_cadence,
         &mut state.registry,
-        // No pool slots: these commands never ask whether work is held.
-        &[],
+        receivers,
+        scheduler,
         chain_stats,
     ));
     assert!(flow.is_continue(), "only Terminate breaks the loop");
@@ -909,6 +927,77 @@ fn cmd_reply_discards_an_orphaned_predecessor_reply() {
     let (reply, ()) = block_on(join(caller, server));
 
     assert!(matches!(reply, Reply::Unit(Ok(()))));
+}
+
+/// Ask the actor whether `scheduler` would dispatch from the slots of
+/// `receivers` that hold a job.
+fn work_is_available<const N: usize>(
+    receivers: &[DynReceiver<'_, WorkAssignment>; N],
+    scheduler: &impl Scheduler<N>,
+) -> bool {
+    let reply = run_command_over(
+        &Serial::new(0, 1),
+        SerialMessage::WorkAvailable,
+        &mut StubDriver::new(ResultMode::Push, 0),
+        &mut CommandState::new(),
+        receivers,
+        scheduler,
+        &ChainStats::new(),
+    );
+    let Reply::Flag(available) = reply else {
+        panic!("a work query is answered with a flag")
+    };
+    available
+}
+
+#[test]
+fn work_is_available_when_a_slot_the_scheduler_serves_holds_a_job() {
+    let session = AsicSession::<2>::new();
+    let receivers = core::array::from_fn(|slot| {
+        session
+            .work_receiver(slot)
+            .expect("test session has a free receiver per slot")
+    });
+    // Slot 0 has weight 1 and slot 1 is a backup, so both are served.
+    let scheduler = RatioScheduler::<2>::new();
+    assert!(!work_is_available(&receivers, &scheduler));
+
+    session.pool_handle(1).publish_work(assignment(1));
+    assert!(work_is_available(&receivers, &scheduler));
+
+    session.pool_handle(1).clear_work();
+    session.pool_handle(0).publish_work(assignment(2));
+    assert!(work_is_available(&receivers, &scheduler));
+
+    session.pool_handle(0).clear_work();
+    assert!(!work_is_available(&receivers, &scheduler));
+}
+
+#[test]
+fn work_is_not_available_while_only_the_fee_slot_holds_a_job() {
+    if !DEVFEE {
+        return;
+    }
+    let session = AsicSession::<2>::new();
+    let receivers = core::array::from_fn(|slot| {
+        session
+            .work_receiver(slot)
+            .expect("test session has a free receiver per slot")
+    });
+    // The fee takes the last slot of a two-slot board.
+    let scheduler = FeeScheduler::<2>::new(20);
+
+    session.pool_handle(1).publish_work(assignment(1));
+    assert!(!work_is_available(&receivers, &scheduler));
+
+    session.pool_handle(0).publish_work(assignment(2));
+    assert!(work_is_available(&receivers, &scheduler));
+
+    session.pool_handle(0).clear_work();
+    assert!(
+        !work_is_available(&receivers, &scheduler),
+        "the fee job that remains is not a pool to mine for"
+    );
 }
 
 // ---------------------------------------------------------------------------

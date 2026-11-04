@@ -19,9 +19,9 @@
 
 //! Multi-chain mining lifecycle and execution of synchronous tuner plans.
 //!
-//! Bring-up holds the chains in reset with the rail off until a pool slot holds a job,
+//! Bring-up holds the chains in reset with the rail off until the scheduler would dispatch work,
 //! then configures every chain concurrently and parks absent or faulted connectors.
-//! A run in which no pool slot holds a job for `POOL_LOSS_GRACE` cuts the rail and
+//! A run in which the scheduler would dispatch nothing for `POOL_LOSS_GRACE` cuts the rail and
 //! waits for a pool again.
 //! The miner applies bounded policy plans in decrease, rail, increase order.
 //! Live targets take effect at the next step. A stop or a halt allows the current

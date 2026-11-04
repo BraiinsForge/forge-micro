@@ -27,6 +27,8 @@ use crate::miner::states::{
     BringUp, Choose, Enable, ExitReset, Halted, PLAN_FAILURE_BUDGET, Pause, Recover, Reset, Run,
     Selected, StartWork, Step, WaitForPool,
 };
+use crate::scheduler::{FeeScheduler, RatioScheduler};
+use ubos_config::DEVFEE;
 
 /// The run of `tuner`, as [`StartWork`] records it for the default
 /// configuration. Every tuner in this file serves that variant.
@@ -1138,7 +1140,67 @@ fn the_pool_wait_holds_until_a_slot_holds_a_job_and_cuts_the_rail_on_halt() {
             &SESSION,
             &BMM101_HASHBOARD,
             BringUpDriver::new(&[4]),
-            NoWork,
+            RatioScheduler::<1>::new(),
+            &STATS,
+        );
+        let outcome = block_on(select(
+            join(exercise, run),
+            Timer::after(Duration::from_secs(10)),
+        ));
+        let Either::First(((), result)) = outcome else {
+            panic!("pool wait timed out")
+        };
+        result.expect("actor succeeds");
+    });
+}
+
+/// The fee slot of the two-slot session the fee wait test runs, after its
+/// one operator slot.
+const FEE_POOL_SLOT: usize = 1;
+
+#[test]
+fn the_pool_wait_ignores_a_fee_job_and_opens_on_an_operator_job() {
+    if !DEVFEE {
+        return;
+    }
+    critical_section::with(|_| {
+        static ACTOR: Serial = Serial::new(0, 1);
+        static STATS: ChainStats = ChainStats::new();
+        static SESSION: AsicSession<2, 1> = AsicSession::new();
+        static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
+        let psu = TestPsu {
+            log: &LOG,
+            behavior: Cell::new(VoltageWrite::Succeed),
+            disable_fails: false,
+        };
+        let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
+        let mut subscription = test_config().0;
+        let waiting = || MinerState::<OnePlanTuner>::WaitForPool(WaitForPool);
+        let exercise = async {
+            // Only the fee pool holds a job: the wait stays pending, so
+            // the rail stays off and no work reaches the chains.
+            SESSION.pool_handle(FEE_POOL_SLOT).publish_work(a_job());
+            let pending = select(
+                miner.advance(waiting(), &mut subscription),
+                Timer::after(POOL_POLL_PERIOD * 3),
+            )
+            .await;
+            assert!(matches!(pending, Either::Second(())));
+            LOG.lock(|log| assert!(log.borrow().is_empty()));
+
+            // The operator pool holds one too: the wait ends.
+            SESSION.pool_handle(0).publish_work(a_job());
+            let outcome = miner.advance(waiting(), &mut subscription).await;
+            assert!(matches!(outcome, Some(MinerState::Enable(_))));
+
+            ACTOR.terminate().await.expect("actor terminates");
+        };
+        let run = ACTOR.run(
+            QuietSerial,
+            &SESSION,
+            &BMM101_HASHBOARD,
+            BringUpDriver::new(&[4]),
+            FeeScheduler::<2>::new(20),
             &STATS,
         );
         let outcome = block_on(select(

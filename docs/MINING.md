@@ -31,7 +31,7 @@ driver is exercised without a hashboard on the bench.
 | Task | Owner | Role |
 |------|-------|------|
 | `serial_task` | `mining.rs` | Drives one entry of the board's static `mining::CHAINS` array through `Serial::run(...)`. One actor per hashboard chain: command dispatch, parser, in-flight work registry, baud-rate switch, and that chain's own `ChainStats`. Pinned to Core 1 so embassy-net on Core 0 stays responsive. |
-| `miner_task` | `mining.rs` | Drives `Miner::<_, _, T, CHAINS>::new(psu, BOARD, chains, platform).run()` against the tuner `MinerConfig::tuning` selects from the firmware's tuner set `T`. Bring-up / teardown state machine: reset assert, wait for a pool to hold a job, PSU up, reset release, per-chain enumeration, per-chain safe-boot configuration, start work, apply tuner plans, PSU off. |
+| `miner_task` | `mining.rs` | Drives `Miner::<_, _, T, CHAINS>::new(psu, BOARD, chains, platform).run()` against the tuner `MinerConfig::tuning` selects from the firmware's tuner set `T`. Bring-up / teardown state machine: reset assert, wait until the scheduler would dispatch work, PSU up, reset release, per-chain enumeration, per-chain safe-boot configuration, start work, apply tuner plans, PSU off. |
 | `power_stats_task` | `psu.rs` | Drives `ubos_psu::run_power_stats`. Polls the SIC45x input/output power every `POWER_STATS_INTERVAL` (two seconds) and publishes them. |
 
 The SIC45x rail is gated by the `SIC_EN` GPIO the `BoardPsu` owns, not by
@@ -87,14 +87,17 @@ bring-up found no chain.
 
 Pool reachability is not a pause reason. The miner gates itself: at
 boot and after every rail cut it holds the chains in reset with the
-rail off and publishes `MiningState::WaitingForPool` until a pool
-slot's work cell holds a job. Availability comes from the work cells
+rail off and publishes `MiningState::WaitingForPool` until the
+scheduler would dispatch work. Availability comes from the work cells
 of the `AsicSession`, as in `MULTIPOOL_DESIGN.md`: a torn-down
 session clears its cell. The miner asks the chain 0 serial actor,
-which owns the receivers; the question touches no chip. While mining,
-a run in which no slot holds a job for `POOL_LOSS_GRACE` cuts the rail
-and returns to the wait, so a pool outage shorter than the grace is
-only a dispatch gap.
+which owns the receivers and the scheduler; the question touches no
+chip. It asks the scheduler because only the scheduler knows which
+slots it serves: a job in the fee slot alone is not dispatchable, so
+it neither starts the miner nor keeps it running. While mining, a run
+in which the scheduler would dispatch nothing for `POOL_LOSS_GRACE`
+cuts the rail and returns to the wait, so a pool outage shorter than
+the grace is only a dispatch gap.
 
 ### Two ways out of an overheat halt
 
@@ -163,7 +166,7 @@ The states are:
 
 1. `Choose`: check that the firmware's tuner set has a tuner for `miner.tuning`.
    If it has none, go to `NoTuner` and hold until the configuration selects another tuning, then check again.
-2. `Reset`, `WaitForPool`: assert reset on every chain and hold it until a pool slot holds a job.
+2. `Reset`, `WaitForPool`: assert reset on every chain and hold it until the scheduler would dispatch work.
 3. `Enable`, `ExitReset`: enable the PSU and release reset, with a settle delay before and after each.
 4. `BringUp`: reset, enumerate, and configure all chains concurrently.
    Retry failed attempts, then park absent or faulted chains in reset.
@@ -174,7 +177,7 @@ The states are:
 6. `Step`: read the latest target, feed readings to the tuner, bound its plan, and apply it.
 7. `Pause`: wait for the plan delay, then go to `Step`.
    An algorithm change ends the wait and goes to `Choose`, which starts initialization with the new policy.
-   No pool slot holding a job for `POOL_LOSS_GRACE` also goes to `Choose`, which waits for a pool again.
+   A scheduler with nothing to dispatch for `POOL_LOSS_GRACE` also goes to `Choose`, which waits for a pool again.
 8. `Recover`: hold the rail off for the retry delay, then go to `Choose`.
 9. `Halted`: hold the rail off until `Message::Resume`, then go to `Choose`.
 

@@ -219,7 +219,7 @@ changes.
 
 ### The `Scheduler` trait
 
-Defined in `ubos-mining` (dispatch is its only caller):
+Defined in `ubos-mining` (the serial worker is its only caller):
 
 ```rust
 pub trait Scheduler<const N: usize> {
@@ -232,8 +232,9 @@ pub trait Scheduler<const N: usize> {
 }
 ```
 
-Both call sites live inside the single `Serial::run` task —
-`evaluate` at the top of `dispatch_work` on each work tick,
+All call sites live inside the single `Serial::run` task —
+`evaluate` at the top of `dispatch_work` on each work tick, and again to
+answer the miner's pool gate, which asks whether it picks any slot;
 `accumulate_share` in `process_solution` right after the diff-1
 `record_share`, before the pool-target check, so all real chip work
 counts. The scheduler is therefore a plain `&mut` value owned by the
