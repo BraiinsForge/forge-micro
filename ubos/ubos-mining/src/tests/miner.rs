@@ -29,7 +29,9 @@
 //! `configure` hand back; `LoggingResetPin` records the reset-pin call
 //! sequence a chain's hardware reset produces.
 
-use super::{BringUp, Choose, Miner, MinerState, PsuError, STOP_MINING};
+use super::{
+    BringUp, Choose, Miner, MinerState, PoolWatch, PsuError, Run, STOP_MINING, Selected, Step,
+};
 use crate::tuner::MachineTuner;
 use core::cell::{Cell, RefCell};
 use core::convert::Infallible;
@@ -37,7 +39,7 @@ use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::{Mutex, raw::CriticalSectionRawMutex};
 use embassy_time::Instant;
 use embassy_time::{Duration, Timer};
-use portable_atomic::AtomicU8;
+use portable_atomic::{AtomicU8, Ordering};
 use ubos_config::TunerInfo;
 use ubos_core::units::{Power, Voltage};
 use ubos_psu::{Psu, StatusFlags};
@@ -875,20 +877,46 @@ fn plans_order_shared_rail_writes_and_preserve_successful_partial_progress() {
     });
 }
 
-/// Drive a real actor so cancelled writes can complete after the rail cut.
+/// The run of `tuner`, as [`StartWork`] records it for the default
+/// configuration. Every tuner in this file serves that variant.
+fn run<M>(tuner: M) -> Run<M> {
+    Run {
+        tuner,
+        selected: Selected::of(&ubos_config::Config::default().miner.tuning),
+        failures: 0,
+        pool: PoolWatch::default(),
+    }
+}
+
+/// Run the machine from `state` until STOP ends it, which returns `None`,
+/// or until it reaches [`Halted`], which is returned.
+async fn drive<M: MachineTuner<CHAINS>, const CHAINS: usize>(
+    miner: &mut Miner<'_, TestPsu, LoggingResetPin, M, CHAINS>,
+    mut state: MinerState<M>,
+    subscription: &mut ubos_config::ConfigSubscription,
+) -> Option<MinerState<M>> {
+    loop {
+        state = miner.advance(state, subscription).await?;
+        if matches!(state, MinerState::Halted(_)) {
+            return Some(state);
+        }
+    }
+}
+
+/// Drive the machine from [`Step`] with a real actor, so cancelled
+/// writes can complete after the rail cut. Returns what [`drive`] returns.
 fn run_mining_with_driver<M: MachineTuner<1>>(
     miner: &mut Miner<'_, TestPsu, LoggingResetPin, M, 1>,
-    tuner: &mut M,
+    tuner: M,
     subscription: &mut ubos_config::ConfigSubscription,
     driver: BringUpDriver,
-) -> super::CycleOutcome {
+) -> Option<MinerState<M>> {
     static SESSION: AsicSession<1, 1> = AsicSession::new();
     let actor = miner.chains[0].serial;
     let stats = miner.chains[0].stats;
     let exercise = async {
-        let outcome = miner
-            .mine_phase(tuner, subscription, fixed_selection())
-            .await;
+        let first = MinerState::Step(Step { run: run(tuner) });
+        let outcome = drive(miner, first, subscription).await;
         actor.terminate().await.expect("actor terminates");
         outcome
     };
@@ -949,7 +977,7 @@ fn stop_finishes_the_pending_voltage_write_without_a_shutdown_ramp() {
         ubos_psu::record_set_voltage(BMM101_HASHBOARD.max_rail_voltage());
         let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
         let voltage = Voltage::from_mv(1100);
-        let mut tuner = OnePlanTuner(Plan {
+        let tuner = OnePlanTuner(Plan {
             frequencies: [None],
             rail: Some(voltage),
             delay: Duration::from_millis(500),
@@ -957,11 +985,11 @@ fn stop_finishes_the_pending_voltage_write_without_a_shutdown_ramp() {
         let mut subscription = test_config().0;
         let outcome = run_mining_with_driver(
             &mut miner,
-            &mut tuner,
+            tuner,
             &mut subscription,
             BringUpDriver::new(&[4]),
         );
-        assert!(outcome.is_stop());
+        assert!(outcome.is_none());
         LOG.lock(|log| {
             assert_eq!(
                 log.borrow().as_slice(),
@@ -989,7 +1017,7 @@ fn cancellation_timeout_cuts_power_without_a_shutdown_frequency_write() {
         STATS.set_frequency(safe);
         ubos_psu::record_set_voltage(BMM101_HASHBOARD.max_rail_voltage());
         let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
-        let mut tuner = OnePlanTuner(Plan {
+        let tuner = OnePlanTuner(Plan {
             frequencies: [Some(raised)],
             rail: None,
             delay: Duration::from_millis(500),
@@ -1001,8 +1029,8 @@ fn cancellation_timeout_cuts_power_without_a_shutdown_frequency_write() {
             ..BringUpDriver::new(&[4])
         };
         let mut subscription = test_config().0;
-        let outcome = run_mining_with_driver(&mut miner, &mut tuner, &mut subscription, driver);
-        assert!(outcome.is_stop());
+        let outcome = run_mining_with_driver(&mut miner, tuner, &mut subscription, driver);
+        assert!(outcome.is_none());
         LOG.lock(|log| {
             assert_eq!(
                 log.borrow().as_slice(),
@@ -1106,10 +1134,25 @@ async fn check_plan_bounds(
     });
 }
 
-#[derive(Default)]
+/// Plans two empty steps, then a rail write on every step. `calls`
+/// counts the steps where the test can read it after the machine has
+/// dropped the tuner.
+///
+/// The tests build it themselves and start the machine from [`Step`], so
+/// the machine never selects it.
 struct WaitingTuner {
-    calls: u8,
+    calls: &'static AtomicU8,
     last_step: Option<Instant>,
+}
+
+impl WaitingTuner {
+    fn new(calls: &'static AtomicU8) -> Self {
+        calls.store(0, Ordering::Relaxed);
+        Self {
+            calls,
+            last_step: None,
+        }
+    }
 }
 
 impl<const CHAINS: usize> MachineTuner<CHAINS> for WaitingTuner {
@@ -1119,7 +1162,7 @@ impl<const CHAINS: usize> MachineTuner<CHAINS> for WaitingTuner {
     const TUNERS: &'static [TunerInfo] = &[];
 
     fn select(_: &ubos_config::Tuning, _: &'static HashboardDescriptor) -> Option<Self> {
-        Some(Self::default())
+        panic!("the tests build this tuner themselves")
     }
 
     fn step(
@@ -1137,9 +1180,9 @@ impl<const CHAINS: usize> MachineTuner<CHAINS> for WaitingTuner {
         );
         assert_eq!(readings.voltage, BMM101_HASHBOARD.max_rail_voltage());
         self.last_step = Some(readings.now);
-        self.calls += 1;
+        let calls = self.calls.fetch_add(1, Ordering::Relaxed) + 1;
         Plan {
-            rail: (self.calls >= 3).then_some(Voltage::from_mv(1100)),
+            rail: (calls >= 3).then_some(Voltage::from_mv(1100)),
             frequencies: [None; CHAINS],
             delay: Duration::from_millis(1),
         }
@@ -1216,7 +1259,9 @@ fn waiting_between_refused_commands_does_not_refresh_the_budget() {
         STATS.set_frequency(BMM101_HASHBOARD.chip.frequency_range.min());
         ubos_psu::record_set_voltage(BMM101_HASHBOARD.max_rail_voltage());
         let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
-        let mut tuner = HoldingRailTuner { calls: 0 };
+        let state = MinerState::Step(Step {
+            run: run(HoldingRailTuner { calls: 0 }),
+        });
         let mut subscription = test_config().0;
         let stop_after_the_cut = async {
             core::future::poll_fn(|_| {
@@ -1231,14 +1276,14 @@ fn waiting_between_refused_commands_does_not_refresh_the_budget() {
         };
         let Either::First((outcome, ())) = block_on(select(
             join(
-                miner.mine_phase(&mut tuner, &mut subscription, fixed_selection()),
+                drive(&mut miner, state, &mut subscription),
                 stop_after_the_cut,
             ),
             Timer::after(Duration::from_millis(500)),
         )) else {
             panic!("waits between refused commands kept the miner off the fault path")
         };
-        assert!(outcome.is_stop());
+        assert!(outcome.is_none());
         // The budget's worth of commands reached the PSU; the empty plans
         // between them did not clear the count.
         LOG.lock(|log| {
@@ -1273,7 +1318,9 @@ fn a_plan_that_applies_clears_the_failure_budget() {
         STATS.set_frequency(BMM101_HASHBOARD.chip.frequency_range.min());
         ubos_psu::record_set_voltage(BMM101_HASHBOARD.max_rail_voltage());
         let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
-        let mut tuner = RailStepTuner { calls: 0 };
+        let state = MinerState::Step(Step {
+            run: run(RailStepTuner { calls: 0 }),
+        });
         let mut subscription = test_config().0;
         let stop_once_the_script_is_spent = async {
             core::future::poll_fn(|_| {
@@ -1288,14 +1335,14 @@ fn a_plan_that_applies_clears_the_failure_budget() {
         };
         let Either::First((outcome, ())) = block_on(select(
             join(
-                miner.mine_phase(&mut tuner, &mut subscription, fixed_selection()),
+                drive(&mut miner, state, &mut subscription),
                 stop_once_the_script_is_spent,
             ),
             Timer::after(Duration::from_millis(500)),
         )) else {
             panic!("the mining loop never reached the end of the script")
         };
-        assert!(outcome.is_stop());
+        assert!(outcome.is_none());
         LOG.lock(|log| {
             let writes = log.borrow();
             let cut = writes
@@ -1392,6 +1439,7 @@ fn empty_plans_wait_before_retrying_and_stop_during_a_write_cuts_the_rail() {
         static ACTOR: Serial = Serial::new(0, 1);
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
+        static CALLS: AtomicU8 = AtomicU8::new(0);
         let psu = TestPsu {
             log: &LOG,
             disable_fails: false,
@@ -1403,7 +1451,9 @@ fn empty_plans_wait_before_retrying_and_stop_during_a_write_cuts_the_rail() {
         STATS.set_frequency(BMM101_HASHBOARD.chip.frequency_range.min());
         ubos_psu::record_set_voltage(BMM101_HASHBOARD.max_rail_voltage());
         let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
-        let mut tuner = WaitingTuner::default();
+        let state = MinerState::Step(Step {
+            run: run(WaitingTuner::new(&CALLS)),
+        });
         let mut subscription = test_config().0;
         let stop_after_failure = async {
             core::future::poll_fn(|_| {
@@ -1417,13 +1467,18 @@ fn empty_plans_wait_before_retrying_and_stop_during_a_write_cuts_the_rail() {
             STOP_MINING.signal(());
         };
         let (outcome, ()) = block_on(join(
-            miner.mine_phase(&mut tuner, &mut subscription, fixed_selection()),
+            drive(&mut miner, state, &mut subscription),
             stop_after_failure,
         ));
-        assert!(outcome.is_stop());
+        assert!(outcome.is_none());
         // Two empty plans, then a rail write on every call until the
         // budget of failures runs out.
-        assert_eq!(tuner.calls, 2 + super::PLAN_FAILURE_BUDGET);
+        assert_eq!(
+            CALLS.load(Ordering::Relaxed),
+            2 + super::PLAN_FAILURE_BUDGET
+        );
+        // The stop arrives after the fault has cut the rail, so the rail
+        // is cut once.
         LOG.lock(|log| {
             assert_eq!(
                 log.borrow()
@@ -1439,14 +1494,13 @@ fn empty_plans_wait_before_retrying_and_stop_during_a_write_cuts_the_rail() {
         });
         psu.behavior.set(VoltageWrite::Interrupt);
         LOG.lock(|log| log.borrow_mut().clear());
-        let mut tuner = WaitingTuner::default();
         let outcome = run_mining_with_driver(
             &mut miner,
-            &mut tuner,
+            WaitingTuner::new(&CALLS),
             &mut subscription,
             BringUpDriver::new(&[4]),
         );
-        assert!(outcome.is_stop());
+        assert!(outcome.is_none());
         LOG.lock(|log| {
             assert_eq!(
                 log.borrow().as_slice(),
@@ -1782,18 +1836,15 @@ fn live_frequency_and_voltage_edits_do_not_cut_power() {
         STATS.set_frequency(safe);
         ubos_psu::record_set_voltage(board.max_rail_voltage());
         let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
-        let mut tuner = LiveTuner(crate::tuner::fixed::FixedTuner::new(board));
+        let state = MinerState::Step(Step {
+            run: run(LiveTuner(crate::tuner::fixed::FixedTuner::new(board))),
+        });
         let (mut subscription, publish) = test_config();
         let mut frequency_khz = safe.khz();
         let mut voltage_mv = board.max_rail_voltage().mv();
         publish(fixed_config(frequency_khz, voltage_mv));
         let exercise = async {
-            assert!(
-                miner
-                    .mine_phase(&mut tuner, &mut subscription, fixed_selection())
-                    .await
-                    .is_stop()
-            );
+            assert!(drive(&mut miner, state, &mut subscription).await.is_none());
             ACTOR.terminate().await.expect("actor terminates");
         };
         let edit = async {
@@ -1881,7 +1932,6 @@ fn stop_has_priority_over_halt_during_initialization_and_settling() {
 
 #[test]
 fn pool_watch_reports_loss_only_after_an_uninterrupted_grace() {
-    use super::PoolWatch;
     let grace = Duration::from_secs(60);
     let start = Instant::from_secs(1_000);
     let mut watch = PoolWatch::default();
