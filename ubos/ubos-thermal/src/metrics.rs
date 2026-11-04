@@ -17,8 +17,8 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! The chip temperature gauge, the ambient gauge and the MCU die gauge.
-//! [`run_thermal`](crate::run_thermal) is the only writer of all three, so
+//! The ambient gauge and the MCU die gauge.
+//! [`run_thermal`](crate::run_thermal) is the only writer of both, so
 //! the names and the pushes live beside that loop. Beside them is the
 //! reading gauge, which the sensors write: one series for every reading a
 //! sensor takes.
@@ -33,19 +33,24 @@ use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value};
 use ubos_temperature::{ChipId, Reading, TempSource};
 
 use crate::chain::chain_labels;
-use crate::{Sample, Source};
 
 /// Every reading a sensor takes, under the `source` it measures. A
 /// hashboard or chip reading also carries the `chain` it comes from, a
 /// chip reading the `chip` it measures, and every other reading the
 /// `addr` of the sensor that took it.
+///
+/// Prometheus convention prefers base SI units, which would
+/// make `_celsius` the canonical suffix. The firmware targets the RP2040
+/// among others, a Cortex-M0+ with no FPU, so a float-valued celsius
+/// gauge would pull software floating-point into the exposition path.
+/// Integer millicelsius preserves sub-degree resolution without
+/// soft-float, and the name reflects the unit carried on the wire.
 const READING_METRIC_NAME: &str = "board_temperature_millicelsius";
 
-/// The `source` label of a hashboard reading, in both gauges that carry
-/// one.
+/// The `source` label of a hashboard reading.
 const HASHBOARD_SOURCE: &str = "hashboard";
 
-/// The `source` label of a chip reading, in both gauges that carry one.
+/// The `source` label of a chip reading.
 const CHIP_SOURCE: &str = "chip";
 
 /// The `source` label of a reading of the air around the board.
@@ -57,50 +62,15 @@ const CONTROL_BOARD_SOURCE: &str = "control_board";
 /// The `source` label of a power-supply reading.
 const PSU_SOURCE: &str = "psu";
 
-/// Gauge name. Prometheus convention prefers base SI units, which would
-/// make `_celsius` the canonical suffix. The firmware targets the RP2040
-/// among others, a Cortex-M0+ with no FPU, so a float-valued celsius
-/// gauge would pull software floating-point into the exposition path.
-/// Integer millicelsius preserves sub-degree resolution without
-/// soft-float, and the name reflects the unit carried on the wire.
-const METRIC_NAME: &str = "board_chip_temperature_millicelsius";
-
 /// The ambient temperature around the board, where the board measures it.
 /// Carries no label: a board reports one ambient reading or none. Integer
-/// millicelsius for the reason [`METRIC_NAME`] gives.
+/// millicelsius for the reason [`READING_METRIC_NAME`] gives.
 pub(crate) const AMBIENT_METRIC_NAME: &str = "board_ambient_temperature_millicelsius";
 
 /// The temperature of the MCU die on the control board. Carries no
 /// label: a board has one MCU. Integer millicelsius for the reason
-/// [`METRIC_NAME`] gives.
+/// [`READING_METRIC_NAME`] gives.
 pub(crate) const MCU_METRIC_NAME: &str = "board_mcu_temperature_millicelsius";
-
-/// The `source` label for a reading. The two label strings live here and
-/// nowhere else, so no comparison outside this module can turn on one.
-const fn source_label(source: Source) -> &'static str {
-    match source {
-        Source::Hashboard => HASHBOARD_SOURCE,
-        Source::Chip => CHIP_SOURCE,
-    }
-}
-
-/// Push the safety reading, and the cooling-PID reading too when the
-/// board reports a second one, each tagged with a `source` label so a
-/// board that reports both keeps them as distinct series under one
-/// metric name.
-pub(crate) async fn publish_chip_temperatures(sample: &Sample) {
-    let safety = Some((sample.safety, sample.safety_source));
-    let pid = sample.pid.map(|temp| (temp, Source::Hashboard));
-    for (temp, source) in [safety, pid].into_iter().flatten() {
-        let mut labels = Labels::new();
-        let _ = labels.push(Label {
-            name: "source",
-            value: LabelValue::Static(source_label(source)),
-        });
-        let value = Value::Int(i64::from(temp.millicelsius()));
-        Metric::with_labels(METRIC_NAME, labels, value).push().await;
-    }
-}
 
 /// Push one reading that the I2C sensor at `address` on `chain` took.
 pub(crate) async fn publish_sensor_reading(

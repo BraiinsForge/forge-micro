@@ -100,7 +100,7 @@ typed `TaskPool` static and so rejects generic task functions.
 | `ubos-metrics`     | Prometheus exporter task, hashrate EWMA, CPU-load gauge, shared metric map |
 | `ubos-display`     | SH1106 OLED driver and render task                 |
 | `ubos-logging`     | `defmt`/`log` macro facade                         |
-| `ubos-thermal`     | `TemperatureSensor` and `McuTemperatureSensor` traits, descriptor-driven sensor fusion, sample loop, chip temperature gauge, MCU die temperature gauge, `ThermalHandle` publisher, thermal guard |
+| `ubos-thermal`     | `TemperatureSensor` and `McuTemperatureSensor` traits, descriptor-driven sensor fusion, sample loop, MCU die temperature gauge, `ThermalHandle` publisher, thermal guard |
 | `ubos-cooling`     | fan control task, PID or fixed duty, `FanOutput` HAL trait, EMC2302-1 fan controller driver |
 | `ubos-mining`      | BM13xx chip-serial actor, miner state machine, `MiningHandle` |
 | `ubos-asic`        | pure chip-protocol library: the vendor-neutral `ChainDriver` seam plus the BM13xx chip family |

@@ -35,9 +35,9 @@
 //! on an unpowered board is no fault is under "Chain presence" in
 //! `docs/MINING.md`.
 //!
-//! This task is also the sole writer of the chip temperature gauge and
-//! the ambient gauge, in `metrics`, and of the MCU temperature gauge,
-//! which it reads from the board's [`McuTemperatureSensor`] on each tick.
+//! This task is also the sole writer of the ambient gauge, in `metrics`,
+//! and of the MCU temperature gauge, which it reads from the board's
+//! [`McuTemperatureSensor`] on each tick.
 //! `array` aggregates a board's I2C sensor table into the reading the
 //! task polls, over the drivers and the descriptor types in
 //! `ubos-temperature`.
@@ -102,7 +102,7 @@ fn measured(reading: Reading) -> Sample {
     }
 }
 
-use crate::metrics::{AMBIENT_METRIC_NAME, MCU_METRIC_NAME, publish_chip_temperatures};
+use crate::metrics::{AMBIENT_METRIC_NAME, MCU_METRIC_NAME};
 use crate::threshold::{Action, evaluate};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::{Receiver, Watch};
@@ -133,7 +133,7 @@ fn temp_celsius_i16(temperature: Temperature) -> i16 {
 type CSMutex = CriticalSectionRawMutex;
 
 /// What a safety reading measures. The value selects the danger
-/// threshold, and `metrics` turns it into the `source` label.
+/// threshold.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Source {
     /// A hashboard reading. Selects `dangerous_hashboard_temp`.
@@ -492,9 +492,6 @@ impl Note {
 struct Step {
     /// Whether a reading goes out, and what it carries.
     tick: Tick,
-    /// The sample measured, which the loop pushes to the chip gauges.
-    /// `None` on a tick that measured nothing.
-    gauge: Option<Sample>,
     /// The edge of the unreadable pair this tick crossed, if any.
     unreadable: Option<Note>,
     /// The edge of the overheat pair this tick crossed, if any. Only a
@@ -547,7 +544,6 @@ impl Thermal {
                         chip_max: self.last_chip_max,
                         pid_temp: Some(sample.pid.unwrap_or(sample.safety)),
                     },
-                    gauge: Some(sample),
                     unreadable: self.unreadable_halt.clear(held).map(Note::Recovered),
                     dangerous: judge_dangerous(&sample, config, held),
                 }
@@ -558,7 +554,6 @@ impl Thermal {
                 let Some(ticks) = self.unreadable_halt.miss() else {
                     return Step {
                         tick: Tick::Withhold,
-                        gauge: None,
                         unreadable: None,
                         dangerous: None,
                     };
@@ -579,16 +574,14 @@ impl Thermal {
     }
 
     /// The step of a tick that measured nothing: the last chip
-    /// temperature goes out with no PID temperature beside it, nothing
-    /// reaches the gauges, and `unreadable` is the one edge such a tick
-    /// can cross.
+    /// temperature goes out with no PID temperature beside it, and
+    /// `unreadable` is the one edge such a tick can cross.
     fn held(&self, unreadable: Option<Note>) -> Step {
         Step {
             tick: Tick::Publish {
                 chip_max: self.last_chip_max,
                 pid_temp: None,
             },
-            gauge: None,
             unreadable,
             dangerous: None,
         }
@@ -677,9 +670,6 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatu
 
         let reading = sensor.sample().await;
         let step = thermal.judge(reading, &config, manager_handle.pause_reasons());
-        if let Some(sample) = step.gauge {
-            publish_chip_temperatures(&sample).await;
-        }
         for note in [step.unreadable, step.dangerous].into_iter().flatten() {
             note.report(&manager_handle).await;
         }

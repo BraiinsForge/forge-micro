@@ -88,9 +88,9 @@ const CHAIN_VOLTAGE_METRIC: &str = "hashboard_chain_voltage_microvolts";
 
 /// The spread of die temperatures across a chain, one series per
 /// statistic under the `stat` label and per chain under the `chain` one.
-/// The thermal loop already publishes the hottest die as the sample it
-/// took, so this is here for the spread: whether one die is running away
-/// from the rest, which a single reading cannot say.
+/// Each die's reading is already published on its own, so this is here
+/// for the spread: whether one die is running away from the rest, which a
+/// single reading cannot say.
 const CHAIN_TEMPERATURE_METRIC: &str = "hashboard_chain_chip_temperature_millicelsius";
 
 /// The thermal loop's view of a board whose chips are its thermometer,

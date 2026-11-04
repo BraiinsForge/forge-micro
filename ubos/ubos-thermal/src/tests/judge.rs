@@ -47,11 +47,6 @@ fn cool_reading() -> Reading {
     Reading::Measured(hashboard(Temperature::from_millicelsius(50_000)))
 }
 
-/// The cool measurement as the gauges receive it.
-fn cool_sample() -> Sample {
-    hashboard(Temperature::from_millicelsius(50_000))
-}
-
 /// Judge one reading against `held`, and answer what the tick decided.
 fn judge(thermal: &mut Thermal, reading: Reading, held: PauseReasons) -> Step {
     let config = ubos_config::Config::default().thermal;
@@ -65,7 +60,6 @@ fn held(chip_max: Option<Temperature>) -> Step {
             chip_max,
             pid_temp: None,
         },
-        gauge: None,
         unreadable: None,
         dangerous: None,
     }
@@ -78,7 +72,6 @@ fn published_cool() -> Step {
             chip_max: Some(Temperature::from_millicelsius(50_000)),
             pid_temp: Some(Temperature::from_millicelsius(50_000)),
         },
-        gauge: Some(cool_sample()),
         unreadable: None,
         dangerous: None,
     }
