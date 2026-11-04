@@ -32,6 +32,7 @@
 //! `Miner::advance` runs one state at a time under the machine's only select.
 
 mod error;
+mod pool;
 
 #[cfg(test)]
 #[path = "tests/miner.rs"]
@@ -64,6 +65,7 @@ use transitions::{Lift, Machine, State, machine, successors};
 use ubos_tuner::{ChainReadings, Plan, Readings};
 
 pub use error::{MinerError, PsuErrorKind};
+use pool::{POOL_POLL_PERIOD, PoolWatch};
 
 /// Maximum time an interrupted hardware plan can finish before the rail cut.
 const INTERRUPT_TIMEOUT: Duration = Duration::from_millis(100);
@@ -73,14 +75,6 @@ const INTERRUPT_TIMEOUT: Duration = Duration::from_millis(100);
 /// clears the count; one that writes nothing, a wait or a value already
 /// held, leaves it.
 const PLAN_FAILURE_BUDGET: u8 = 3;
-/// How often the miner asks the actor whether a pool slot holds a job,
-/// both while waiting for a pool and while watching for its loss.
-const POOL_POLL_PERIOD: Duration = Duration::from_secs(1);
-
-/// How long every pool slot may stay empty while mining before the rail
-/// is cut. Long enough for a pool to reconnect without a power cycle.
-const POOL_LOSS_GRACE: Duration = Duration::from_secs(60);
-
 /// Settling time held between each reset / PSU transition during
 /// the bring-up sequence.
 const RESET_HOLD: Duration = Duration::from_secs(5);
@@ -1082,40 +1076,6 @@ impl Selected {
     /// Wait for a configuration that selects another variant.
     async fn superseded(self, subscription: &mut ConfigSubscription) {
         while self.serves(&subscription.changed().await.miner.tuning) {}
-    }
-}
-
-/// How long no pool slot has held a job while mining.
-#[derive(Default)]
-struct PoolWatch {
-    /// When the slots were first seen empty; `None` while a job is held.
-    empty_since: Option<Instant>,
-}
-
-impl PoolWatch {
-    /// Record one observation. Returns `true` once the slots have been
-    /// empty for `grace` without a job in between.
-    fn observe(&mut self, available: bool, now: Instant, grace: Duration) -> bool {
-        if available {
-            self.empty_since = None;
-            return false;
-        }
-        let since = *self.empty_since.get_or_insert(now);
-        now.saturating_duration_since(since) >= grace
-    }
-
-    /// Resolve once no pool slot has held a job for `POOL_LOSS_GRACE`.
-    /// The future is dropped and rebuilt at every tuner step; the time
-    /// already spent empty lives in `self`, so a short step cannot
-    /// restart the count.
-    async fn lost(&mut self, serial: &Serial) {
-        loop {
-            let available = serial.work_available().await;
-            if self.observe(available, Instant::now(), POOL_LOSS_GRACE) {
-                return;
-            }
-            Timer::after(POOL_POLL_PERIOD).await;
-        }
     }
 }
 
