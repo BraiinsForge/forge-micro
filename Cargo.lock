@@ -4585,6 +4585,7 @@ dependencies = [
  "portable-atomic",
  "serial-baudrate",
  "stratum-client",
+ "transitions",
  "ubos-asic",
  "ubos-config",
  "ubos-core",
