@@ -29,7 +29,7 @@
 //! `configure` hand back; `LoggingResetPin` records the reset-pin call
 //! sequence a chain's hardware reset produces.
 
-use super::{Either, Miner, PsuError, STOP_MINING, select};
+use super::{Choose, Either, Miner, PsuError, STOP_MINING, select};
 use crate::tuner::MachineTuner;
 use core::cell::{Cell, RefCell};
 use core::convert::Infallible;
@@ -1961,4 +1961,18 @@ fn the_pool_wait_holds_until_a_slot_holds_a_job_and_cuts_the_rail_on_halt() {
         };
         result.expect("actor succeeds");
     });
+}
+
+/// The declared edges are sound: every state is reachable from [`Choose`]
+/// and has a path of its own edges back to it, so no state is one that
+/// only a halt can leave.
+#[test]
+fn every_state_is_reachable_and_leads_back_to_choose() {
+    type Context = super::Context<'static, 'static, TestPsu, LoggingResetPin, OnePlanTuner, 1>;
+    assert_eq!(
+        transitions::check::<super::MinerState<OnePlanTuner>, Context>(
+            <Choose as transitions::Named>::NAME
+        ),
+        Ok(())
+    );
 }
