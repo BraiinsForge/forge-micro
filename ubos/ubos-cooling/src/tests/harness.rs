@@ -40,7 +40,7 @@ use ubos_config::{
     NetworkWatch,
 };
 use ubos_core::units::{FanPwm, FanRpm, Temperature};
-use ubos_thermal::{Handle as ThermalHandle, ThermalReading, ThermalWatch};
+use ubos_thermal::{Handle as ThermalHandle, TempSample, TempStats, ThermalReading, ThermalWatch};
 
 use crate::{FanOutput, TachReader};
 
@@ -170,10 +170,17 @@ pub(crate) fn moderate_reading(no_reading: bool) -> ThermalReading {
     // measurement at this temperature unambiguously demonstrates the fan
     // leaving FULL.
     let temp = Temperature::from_millicelsius(50_000);
+    let temps = TempSample {
+        chip: None,
+        hashboard: Some(TempStats {
+            max: temp,
+            mean: temp,
+        }),
+    };
     ThermalReading {
         chain_voltage_mv: None,
-        chip_max: Some(temp),
-        pid_temp: (!no_reading).then_some(temp),
+        temps: (!no_reading).then_some(temps),
+        last_temps: Some(temps),
         ambient: None,
         timestamp_ms: 0,
     }

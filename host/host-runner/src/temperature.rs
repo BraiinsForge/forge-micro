@@ -28,10 +28,9 @@
 
 use embedded_i2c_unix::I2c as HostI2c;
 use log::{error, info};
-use ubos_core::units::Temperature;
 use ubos_machine::BMM101_SENSORS;
 use ubos_temperature::Sensor;
-use ubos_thermal::{Reading, Sample, Source, TemperatureSensor};
+use ubos_thermal::{Accumulator, Reading, TempSample, TemperatureSensor};
 
 use crate::psu::I2C_BUS_ENV;
 
@@ -71,12 +70,16 @@ impl HashboardTemperature {
 
 impl TemperatureSensor for HashboardTemperature {
     async fn sample(&mut self) -> Reading {
-        let mut hottest: Option<Temperature> = None;
+        let mut hashboard: Option<Accumulator> = None;
         for sensor in &mut self.sensors {
             let address = sensor.descriptor().address();
             for result in sensor.read_temperatures().await {
                 match result {
-                    Ok(reading) => hottest = hottest.max(Some(reading.value)),
+                    Ok(reading) => {
+                        hashboard = hashboard
+                            .map(|acc| acc.include(reading.value))
+                            .or_else(|| Some(reading.value.into()));
+                    }
                     Err(error) => error!(
                         "temperature: {:?} {address:#x} error: {:?}",
                         error.source, error.fault
@@ -85,19 +88,17 @@ impl TemperatureSensor for HashboardTemperature {
             }
         }
         // Every sensor here is an LM75A on the hashboard, and the board
-        // carries no die sensor, so the hottest hashboard reading is the one
+        // carries no die sensor, so the hashboard readings are the ones
         // this board reports.
         //
         // Never idle: these sensors sit on the board's own I2C bus and
         // answer whether or not the hashboard rail is up, so silence is
         // always a fault.
-        let Some(hottest) = hottest else {
-            return Reading::Unreadable;
-        };
-        Reading::Measured(Sample {
-            safety: hottest,
-            safety_source: Source::Hashboard,
-            pid: None,
+        hashboard.map_or(Reading::Unreadable, |acc| {
+            Reading::Measured(TempSample {
+                chip: None,
+                hashboard: Some(acc.stats()),
+            })
         })
     }
 }

@@ -104,8 +104,8 @@ fn the_sample_is_the_hottest_die_of_every_present_chain() {
     pvt[1].record(3, Some(72.0), None);
     let mut sensor = ChainTemperature::<TEST_CHIPS, TEST_CHAINS>::new(pvt, stats);
 
-    let sample = measured(embassy_futures::block_on(sensor.sample()));
-    assert_eq!(sample.safety.millicelsius(), 72_000);
+    let temps = measured(embassy_futures::block_on(sensor.sample()));
+    assert_eq!(temps.chip.map(|chip| chip.max.millicelsius()), Some(72_000));
     // Each chain's own hottest die feeds its dashboard column.
     assert_eq!(stats.chain(0).hottest_mc(), Some(60_000));
     assert_eq!(stats.chain(1).hottest_mc(), Some(72_000));
@@ -120,8 +120,8 @@ fn a_present_chain_with_no_reading_does_not_hold_back_a_hot_sample() {
     pvt[0].record(0, Some(60.0), None);
     let mut sensor = ChainTemperature::<TEST_CHIPS, TEST_CHAINS>::new(pvt, stats);
 
-    let sample = measured(embassy_futures::block_on(sensor.sample()));
-    assert_eq!(sample.safety.millicelsius(), 60_000);
+    let temps = measured(embassy_futures::block_on(sensor.sample()));
+    assert_eq!(temps.chip.map(|chip| chip.max.millicelsius()), Some(60_000));
     // Chain 1's silence still reaches the dashboard through its own
     // accounting, even though it did not block the sample.
     assert_eq!(stats.chain(1).hottest_mc(), None);
@@ -150,8 +150,8 @@ fn an_absent_chain_is_skipped_rather_than_read_as_silent() {
     pvt[0].record(0, Some(60.0), None);
     let mut sensor = ChainTemperature::<TEST_CHIPS, TEST_CHAINS>::new(pvt, stats);
 
-    let sample = measured(embassy_futures::block_on(sensor.sample()));
-    assert_eq!(sample.safety.millicelsius(), 60_000);
+    let temps = measured(embassy_futures::block_on(sensor.sample()));
+    assert_eq!(temps.chip.map(|chip| chip.max.millicelsius()), Some(60_000));
     // The connector holds no board, so its column clears rather than
     // standing at whatever it last read.
     assert_eq!(stats.chain(1).hottest_mc(), None);
@@ -180,8 +180,8 @@ fn a_halt_that_cuts_the_rail_does_not_report_a_fault() {
     let (_clock, pvt, stats) = present_board();
     pvt[0].record(0, Some(60.0), None);
     let mut sensor = ChainTemperature::<TEST_CHIPS, TEST_CHAINS>::new(pvt, stats);
-    let sample = measured(embassy_futures::block_on(sensor.sample()));
-    assert_eq!(sample.safety.millicelsius(), 60_000);
+    let temps = measured(embassy_futures::block_on(sensor.sample()));
+    assert_eq!(temps.chip.map(|chip| chip.max.millicelsius()), Some(60_000));
 
     // `cut_rail` marks every present chain unknown. The sensor must read
     // the silence that follows as an idle board and not as a fault, or

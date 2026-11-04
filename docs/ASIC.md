@@ -65,8 +65,8 @@ over a `Transport` (`write_all` / `flush` / `read` / `set_baud` /
   default to no-ops for a family whose chips carry no sensors.
   On a board whose chips are its only thermometer,
   `ubos_thermal::ChainTemperature` is the `TemperatureSensor` over those
-  stores, one per chain. It reports the hottest die that any chip of any
-  present chain has reported. It judges a chain and not one chip: a chip
+  stores, one per chain. It reports the hottest and the mean die
+  temperature of all present chains. It judges a chain and not one chip: a chip
   answers a turn only once per pass, which is minutes on a long chain. A
   chain is silent only if no chip of that chain has answered for 60
   seconds. It reads only the chains that `ChainStats` reports as present,

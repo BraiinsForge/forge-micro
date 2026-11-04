@@ -390,7 +390,7 @@ impl Cooling {
     /// A thermal reading arrived at `now`, carrying `pid_temp` when it
     /// measured something. A fresh reading always carries a PID
     /// temperature and a held one never does, see
-    /// `ThermalReading::pid_temp`, so the one field answers both whether
+    /// `ThermalReading::temps`, so the one field answers both whether
     /// this tick measured and what it measured.
     ///
     /// A run of readings with no measurement skips `control.update()`
@@ -573,7 +573,15 @@ where
         }
 
         let step = match &event {
-            Either::First(reading) => cooling.on_reading(reading.pid_temp, Instant::now()),
+            // The hashboard reading where the board has one, as before
+            // the kinds were split.
+            Either::First(reading) => cooling.on_reading(
+                reading
+                    .temps
+                    .and_then(|temps| temps.hashboard.or(temps.chip))
+                    .map(|stats| stats.max),
+                Instant::now(),
+            ),
             Either::Second(()) => cooling.on_tick(Instant::now()),
         };
         match step.note {

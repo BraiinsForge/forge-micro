@@ -147,10 +147,9 @@ async fn mdns_task(stack: embassy_net::Stack<'static>, hostname: &'static str) -
 // This board's array is a TMP461 remote-diode sensor on the ASIC die plus
 // two TMP102 PCB sensors, from the `ubos_machine::HASHNODE` sensor table.
 //
-// The safety gate therefore reads the real die temperature while the
-// remote channel answers, and halts on `dangerous_chip_temp`. It falls
-// back to the PCB sensors when that channel goes quiet, and halts on the
-// lower `dangerous_hashboard_temp` for as long as it does.
+// The halt therefore judges the real die temperature against
+// `dangerous_chip_temp` while the remote channel answers, and the PCB
+// sensors against the lower `dangerous_hashboard_temp` on every sample.
 ubos_thermal::thermal_task!(
     ubos_thermal::SensorArray<{ config::MACHINE.temp.len() }, i2c::Device>,
     ubos_thermal::NoAmbient,

@@ -22,9 +22,9 @@
 //! A poll-family chain records each chip's die temperature and core
 //! voltage into a [`ChainPvt`] as the serial actor's status turns come
 //! round. This sensor reads one such store per chain for the thermal
-//! loop: it hands the loop the hottest die any chain has reported, and
-//! once in a while logs each chain's summary and publishes its core
-//! voltage, so no task exists for that alone.
+//! loop: it hands the loop the hottest and the mean die temperature the
+//! chains have reported, and once in a while logs each chain's summary
+//! and publishes its core voltage, so no task exists for that alone.
 //!
 //! A board can own more than one chain, and a machine can have more
 //! connectors than boards plugged into them, so the sensor reads only
@@ -52,11 +52,10 @@
 use core::fmt::Write as _;
 
 use crate::metrics::publish_chip_reading;
-use crate::{Reading, Sample, Source, TemperatureSensor};
+use crate::{Accumulator, Reading, TempSample, TemperatureSensor};
 use embassy_futures::poll_once;
 use embassy_time::{Duration, Instant, Ticker};
 use ubos_asic::{ChainPvt, ChipIndex};
-use ubos_core::units::Temperature;
 use ubos_logging::{debug, warn};
 use ubos_metrics::chain::ChainStatsHandle;
 use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value};
@@ -96,9 +95,9 @@ const CHAIN_TEMPERATURE_METRIC: &str = "hashboard_chain_chip_temperature_millice
 /// The thermal loop's view of a board whose chips are its thermometer,
 /// spanning every one of its `CHAINS` chains.
 ///
-/// The reported value is the hottest chip across every present chain,
-/// and each present chain's own hottest chip is written into that
-/// chain's accounting, which is what the dashboard's per-chain
+/// The reported values are the hottest and the mean chip across every
+/// present chain, and each present chain's own hottest chip is written
+/// into that chain's accounting, which is what the dashboard's per-chain
 /// temperature column shows. The hottest die is the one field of that
 /// accounting no other producer writes.
 pub struct ChainTemperature<const CHIPS: usize, const CHAINS: usize> {
@@ -331,7 +330,7 @@ impl<const CHIPS: usize, const CHAINS: usize> TemperatureSensor
     async fn sample(&mut self) -> Reading {
         self.report().await;
         let now = Instant::now();
-        let mut hottest: Option<i32> = None;
+        let mut chips: Option<Accumulator> = None;
         let mut any_present = false;
         for chain in 0..CHAINS {
             let present = self.stats.chain(chain).presence().is_present();
@@ -350,12 +349,16 @@ impl<const CHIPS: usize, const CHAINS: usize> TemperatureSensor
             } else {
                 0
             };
-            let reading = (!silent)
-                .then(|| self.pvt[chain].hottest_millicelsius())
+            let summary = (!silent)
+                .then(|| self.pvt[chain].temperature_summary())
                 .flatten();
-            self.stats.chain(chain).set_hottest(reading);
-            if let Some(value) = reading {
-                hottest = Some(hottest.map_or(value, |held| held.max(value)));
+            self.stats
+                .chain(chain)
+                .set_hottest(summary.map(|summary| summary.highest_millicelsius));
+            if let Some(summary) = summary {
+                chips = chips
+                    .map(|acc| acc.include(summary))
+                    .or_else(|| Some(summary.into()));
             }
         }
         // No chain is present, so no chip is powered: nothing here can
@@ -372,16 +375,14 @@ impl<const CHIPS: usize, const CHAINS: usize> TemperatureSensor
         if self.stalled() {
             return Reading::Unreadable;
         }
-        let Some(hottest) = hottest else {
-            return Reading::Unreadable;
-        };
-        // The chips are the board's thermometer, so the same reading
-        // gates the halt and drives the fans; it comes from the die
-        // itself, so it is gated against the chip limit.
-        Reading::Measured(Sample {
-            safety: Temperature::from_millicelsius(hottest),
-            safety_source: Source::Chip,
-            pid: None,
+        // The chips are the board's thermometer, so they both gate the
+        // halt and drive the fans; the reading comes from the die itself,
+        // so it is gated against the chip limit.
+        chips.map_or(Reading::Unreadable, |acc| {
+            Reading::Measured(TempSample {
+                chip: Some(acc.stats()),
+                hashboard: None,
+            })
         })
     }
 }

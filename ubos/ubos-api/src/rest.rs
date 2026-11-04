@@ -192,7 +192,7 @@ impl RestApiService {
             uptime: Instant::now().as_secs(),
             temperature: thermal_reading
                 .as_ref()
-                .map_or(0, ubos_thermal::ThermalReading::chip_max_celsius),
+                .map_or(0, ubos_thermal::ThermalReading::hottest_celsius),
             ambient: thermal_reading
                 .as_ref()
                 .and_then(ubos_thermal::ThermalReading::ambient_celsius),

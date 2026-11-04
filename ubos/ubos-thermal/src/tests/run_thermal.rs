@@ -43,7 +43,7 @@ use ubos_manager::{
 };
 
 use super::{
-    NoAmbient, NoMcu, Reading, SENSOR_FAULT_TICKS, Sample, Source, TemperatureSensor, clock,
+    NoAmbient, NoMcu, Reading, SENSOR_FAULT_TICKS, TempSample, TempStats, TemperatureSensor, clock,
     run_thermal,
 };
 
@@ -77,10 +77,13 @@ impl TemperatureSensor for ScriptedSensor {
 /// `cooldown_temp`, so a tick taken while the halt stands evaluates to
 /// `Ok` and not to a resume.
 fn hot_reading() -> Reading {
-    Reading::Measured(Sample {
-        safety: Temperature::from_millicelsius(90_000),
-        safety_source: Source::Hashboard,
-        pid: None,
+    let temp = Temperature::from_millicelsius(90_000);
+    Reading::Measured(TempSample {
+        chip: None,
+        hashboard: Some(TempStats {
+            max: temp,
+            mean: temp,
+        }),
     })
 }
 

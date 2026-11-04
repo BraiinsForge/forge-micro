@@ -319,7 +319,7 @@ where
     let thermal_reading = thermal.current();
     let temperature_celsius = thermal_reading
         .as_ref()
-        .map_or(0i32, ubos_thermal::ThermalReading::chip_max_celsius);
+        .map_or(0i32, ubos_thermal::ThermalReading::hottest_celsius);
     let ambient_celsius = thermal_reading
         .as_ref()
         .and_then(ubos_thermal::ThermalReading::ambient_celsius);

@@ -149,9 +149,10 @@ pub const MINIMINER_STM32F439: MachineDescriptor<BmmPsuDescriptor> =
 pub const MINIMINER_INPUT_POWER_MW: core::ops::RangeInclusive<u32> = 19_000..=67_000;
 
 /// The Hashnode's TMP461 remote diode on the ASIC die plus two TMP102 PCB
-/// sensors. The TMP461 gates thermal shutdown from the real die reading;
-/// the hashboard readings, the TMP102 pair's and the TMP461 local channel's,
-/// drive the cooling PID and cover the safety value if the die read fails.
+/// sensors. The die reading and the hashboard readings, the TMP102 pair's
+/// and the TMP461 local channel's, each gate thermal shutdown against the
+/// threshold of their own kind, and the hashboard readings drive the
+/// cooling PID.
 pub const BFMX4_SENSORS: [SensorDescriptor; 3] = [
     SensorDescriptor::Tmp461(Tmp461 {
         address: 0x4E,

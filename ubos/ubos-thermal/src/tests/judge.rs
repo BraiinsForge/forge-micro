@@ -30,14 +30,16 @@ extern crate std;
 use ubos_core::units::Temperature;
 use ubos_manager::{Message, PauseReasons};
 
-use super::{Note, Reading, SENSOR_FAULT_TICKS, Sample, Source, Step, Thermal, Tick};
+use super::{Note, Reading, SENSOR_FAULT_TICKS, Step, TempSample, TempStats, Thermal, Tick};
 
-/// A sample of one hashboard reading, which the PID tracks too.
-fn hashboard(safety: Temperature) -> Sample {
-    Sample {
-        safety,
-        safety_source: Source::Hashboard,
-        pid: None,
+/// A sample of one hashboard reading.
+fn hashboard(temp: Temperature) -> TempSample {
+    TempSample {
+        chip: None,
+        hashboard: Some(TempStats {
+            max: temp,
+            mean: temp,
+        }),
     }
 }
 
@@ -47,6 +49,11 @@ fn cool_reading() -> Reading {
     Reading::Measured(hashboard(Temperature::from_millicelsius(50_000)))
 }
 
+/// The cool measurement as the gauges receive it.
+fn cool_sample() -> TempSample {
+    hashboard(Temperature::from_millicelsius(50_000))
+}
+
 /// Judge one reading against `held`, and answer what the tick decided.
 fn judge(thermal: &mut Thermal, reading: Reading, held: PauseReasons) -> Step {
     let config = ubos_config::Config::default().thermal;
@@ -54,11 +61,11 @@ fn judge(thermal: &mut Thermal, reading: Reading, held: PauseReasons) -> Step {
 }
 
 /// The step of a tick that measured nothing and crossed no edge.
-fn held(chip_max: Option<Temperature>) -> Step {
+fn held(last_temps: Option<TempSample>) -> Step {
     Step {
         tick: Tick::Publish {
-            chip_max,
-            pid_temp: None,
+            temps: None,
+            last_temps,
         },
         unreadable: None,
         dangerous: None,
@@ -69,8 +76,8 @@ fn held(chip_max: Option<Temperature>) -> Step {
 fn published_cool() -> Step {
     Step {
         tick: Tick::Publish {
-            chip_max: Some(Temperature::from_millicelsius(50_000)),
-            pid_temp: Some(Temperature::from_millicelsius(50_000)),
+            temps: Some(cool_sample()),
+            last_temps: Some(cool_sample()),
         },
         unreadable: None,
         dangerous: None,
@@ -92,16 +99,13 @@ fn spend_budget(thermal: &mut Thermal) -> PauseReasons {
 }
 
 #[test]
-fn a_measurement_publishes_this_ticks_pid_temperature() {
+fn a_measurement_publishes_this_ticks_sample() {
     let mut thermal = Thermal::default();
 
     let step = judge(&mut thermal, cool_reading(), PauseReasons::default());
 
     assert_eq!(step, published_cool());
-    assert_eq!(
-        thermal.last_chip_max,
-        Some(Temperature::from_millicelsius(50_000))
-    );
+    assert_eq!(thermal.last_temps, Some(cool_sample()));
 }
 
 #[test]
@@ -116,13 +120,13 @@ fn silence_is_withheld_inside_the_budget_and_published_held_past_it() {
     }
 
     // The tick that spends the budget asks for the halt, and publishes
-    // the held chip temperature with no PID temperature beside it.
+    // the last sample with no sample of this tick beside it.
     let step = judge(&mut thermal, Reading::Unreadable, PauseReasons::default());
     assert_eq!(
         step,
         Step {
             unreadable: Some(Note::Unreadable(SENSOR_FAULT_TICKS)),
-            ..held(Some(Temperature::from_millicelsius(50_000)))
+            ..held(Some(cool_sample()))
         }
     );
 
@@ -131,7 +135,7 @@ fn silence_is_withheld_inside_the_budget_and_published_held_past_it() {
     let held_mask = PauseReasons::default().apply(Message::TemperatureUnreadable);
     assert_eq!(
         judge(&mut thermal, Reading::Unreadable, held_mask),
-        held(Some(Temperature::from_millicelsius(50_000)))
+        held(Some(cool_sample()))
     );
 }
 

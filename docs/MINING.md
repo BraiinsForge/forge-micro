@@ -441,10 +441,10 @@ Code: `firmware/hashnode/src/temperature.rs` binds
 The hashboard carries a TMP461 sensor and two TMP102 sensors on the
 shared I2C1 bus. The TMP461 remote channel reads the ASIC die. The
 TMP461 local channel and the two TMP102 sensors read the hashboard.
-While the die reading is available, the safety gate uses it and halts
-above `dangerous_chip_temp`. If the die reading is not available, the
-safety gate uses the hottest hashboard reading and halts above
-`dangerous_hashboard_temp`. `BFMX4_HASHBOARD` in `ubos-asic` gives the
+The halt judges each kind of reading against its own threshold. It
+halts when the die reading reaches `dangerous_chip_temp`, or when the
+hottest hashboard reading reaches `dangerous_hashboard_temp`. Mining
+resumes when every kind of reading is at or below `cooldown_temp`. `BFMX4_HASHBOARD` in `ubos-asic` gives the
 factory value of both thresholds.
 
 ## Host parity

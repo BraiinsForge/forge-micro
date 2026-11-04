@@ -29,9 +29,10 @@
 //! zero.
 //!
 //! What the store hands out is mostly the chain's aggregate: the thermal
-//! loop needs the hottest die the chain reported and whether the chain is
-//! still reporting at all. One chip's die temperature is handed out too,
-//! for the metric that publishes every chip's reading.
+//! loop needs the hottest and the mean die temperature the chain reported
+//! and whether the chain is still reporting at all. One chip's die
+//! temperature is handed out too, for the metric that publishes every
+//! chip's reading.
 
 use core::cell::RefCell;
 use core::num::NonZeroU8;
@@ -157,7 +158,7 @@ impl<const CHIPS: usize> ChainPvt<CHIPS> {
     }
 
     /// The chips that reported a temperature, with their sum and spread.
-    /// The hottest alone drives the thermal loop; the spread is what says
+    /// The hottest and the mean drive the thermal loop; the spread says
     /// whether one die is running away from the rest.
     #[must_use]
     pub fn temperature_summary(&self) -> Option<TemperatureSummary> {

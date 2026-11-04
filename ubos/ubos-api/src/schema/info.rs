@@ -48,8 +48,8 @@ pub struct ApiInfo {
     pub hashrate: u64,
     /// Firmware uptime in whole seconds since boot.
     pub uptime: u64,
-    /// Hottest chip temperature in whole degrees Celsius, or zero before
-    /// the first measurement.
+    /// The hottest reading of the last sample, of either kind, in whole
+    /// degrees Celsius, or zero before the first measurement.
     pub temperature: i32,
     /// Ambient temperature in whole degrees Celsius, or `null` where the
     /// board measures none.

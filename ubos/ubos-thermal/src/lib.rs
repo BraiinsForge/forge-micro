@@ -94,9 +94,9 @@ fn clock() -> std::sync::MutexGuard<'static, ()> {
 
 /// The sample a poll produced, or a panic naming what it gave instead.
 #[cfg(test)]
-fn measured(reading: Reading) -> Sample {
+fn measured(reading: Reading) -> TempSample {
     match reading {
-        Reading::Measured(sample) => sample,
+        Reading::Measured(temps) => temps,
         Reading::Unreadable => panic!("expected a measurement, got Unreadable"),
         Reading::Idle => panic!("expected a measurement, got Idle"),
     }
@@ -132,26 +132,66 @@ fn temp_celsius_i16(temperature: Temperature) -> i16 {
 
 type CSMutex = CriticalSectionRawMutex;
 
-/// What a safety reading measures. The value selects the danger
-/// threshold.
+/// What a reading measures.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Source {
-    /// A hashboard reading. Selects `dangerous_hashboard_temp`.
+    /// A sensor on the hashboard.
     Hashboard,
-    /// A chip's own die reading. Selects `dangerous_chip_temp`.
+    /// A chip's own die.
     Chip,
 }
 
-/// One sample from a board temperature sensor.
+/// One sample from a board temperature sensor: the hottest and the mean
+/// of each kind of reading it took, and `None` for a kind it took none of.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Sample {
-    /// The reading that gates thermal shutdown.
-    pub safety: Temperature,
-    /// What [`safety`](Self::safety) measures.
-    pub safety_source: Source,
-    /// The reading that drives the cooling PID, when the board reports a
-    /// second value. `None` means the PID tracks the safety reading.
-    pub pid: Option<Temperature>,
+pub struct TempSample {
+    /// The dies of the chips.
+    pub chip: Option<TempStats>,
+    /// The sensors on the hashboard.
+    pub hashboard: Option<TempStats>,
+}
+
+impl TempSample {
+    /// The hottest reading of either kind, or `None` when the sample
+    /// took none.
+    #[must_use]
+    pub fn hottest(self) -> Option<Temperature> {
+        let chip = self.chip.map(|chip| chip.max);
+        chip.max(self.hashboard.map(|hashboard| hashboard.max))
+    }
+
+    /// Judge each kind this sample read against its own threshold, and
+    /// answer the edge of the overheat pair it crossed, if any.
+    ///
+    /// The counterpart of [`UnreadableHalt`], finding both edges of its
+    /// message pair for the same reason. It is a method and not a struct
+    /// because this halt has no state of its own: the threshold decision is
+    /// [`evaluate`]'s, and whether the halt stands is what `held` says the
+    /// manager's mask holds. Reading the mask back each tick is what makes
+    /// an operator's release real: a flag of its own would leave this loop
+    /// halted for ever after, with `evaluate` answering `Ok` at any
+    /// temperature.
+    fn judge_dangerous(self, config: &ThermalConfig, held: PauseReasons) -> Option<Note> {
+        let halted = held.contains(PauseReason::DangerousTemperature);
+        let checks = [
+            (self.chip, config.dangerous_chip_temp),
+            (self.hashboard, config.dangerous_hashboard_temp),
+        ]
+        .map(|(stats, dangerous)| Some((stats?.max, dangerous)));
+        let mut cooled = checks.iter().any(Option::is_some);
+        for (temp, dangerous) in checks.into_iter().flatten() {
+            match evaluate(temp, halted, dangerous, config.cooldown_temp) {
+                Action::EnterHalt => return Some(Note::Dangerous(temp)),
+                Action::Ok => cooled = false,
+                Action::Resume => {}
+            }
+        }
+        match (self.chip, self.hashboard) {
+            (Some(chip), _) => cooled.then_some(Note::Cooled(chip.max)),
+            (None, Some(hashboard)) => cooled.then_some(Note::Cooled(hashboard.max)),
+            (None, None) => None,
+        }
+    }
 }
 
 /// What one poll of a board temperature sensor found.
@@ -161,7 +201,7 @@ pub struct Sample {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Reading {
     /// A usable measurement.
-    Measured(Sample),
+    Measured(TempSample),
     /// The sensor owes an answer and did not give one. Repeated for
     /// [`SENSOR_FAULT_TICKS`] ticks, this halts mining.
     Unreadable,
@@ -247,25 +287,20 @@ impl McuTemperatureSensor for NoMcu {
 /// budget. Consumers read it through `Handle`.
 #[derive(Clone)]
 pub struct ThermalReading {
-    /// Maximum chip temperature observed. The real die reading where
-    /// the board provides one; gates thermal shutdown. Held over from
-    /// the last measurement on a tick that measured nothing, so a
-    /// consumer reads the last known temperature, and `None` until the
-    /// first measurement.
-    pub chip_max: Option<Temperature>,
-    /// Temperature that drives the cooling PID. The hashboard reading rather
-    /// than the real die reading, falling back to the
-    /// safety reading when the board reports no second reading.
-    /// `None` on a tick that measured nothing: [`chip_max`](Self::chip_max)
-    /// is held over for the operator, this one is not, because the fan
-    /// holds full on it rather than on a value never measured.
-    pub pid_temp: Option<Temperature>,
+    /// This tick's sample, or `None` on a tick that measured nothing,
+    /// which the fan holds full on rather than on a value never measured.
+    pub temps: Option<TempSample>,
+    /// The last sample measured: this tick's on a tick that measured, and
+    /// an earlier one held over on a tick that measured nothing, so a
+    /// consumer reads the last known temperatures. `None` until the first
+    /// measurement.
+    pub last_temps: Option<TempSample>,
     /// The ambient temperature around the board, where the board measures
     /// it. What it is and is not read for: [`AmbientSensor`].
     pub ambient: Option<Temperature>,
     /// Chip-derived voltage sum, separate from a measured PSU output rail.
     /// It goes out only beside a measurement, so a tick that measured
-    /// nothing reports `None` here as in [`pid_temp`](Self::pid_temp),
+    /// nothing reports `None` here as in [`temps`](Self::temps),
     /// and the value is never held over.
     pub chain_voltage_mv: Option<u32>,
     /// Monotonic timestamp of this reading in milliseconds since boot.
@@ -273,11 +308,11 @@ pub struct ThermalReading {
 }
 
 impl ThermalReading {
-    /// Whether this tick measured nothing, so the chip temperature it
-    /// carries is held over from an earlier one. Derived from
-    /// [`pid_temp`](Self::pid_temp), which is the one field that is
-    /// never held over; a consumer that wants the PID input reads that
-    /// field for its value, not this answer.
+    /// Whether this tick measured nothing, so the last sample it carries
+    /// is held over from an earlier one. Derived from
+    /// [`temps`](Self::temps), which is the one field that is never
+    /// held over; a consumer that wants this tick's temperatures reads
+    /// that field for them, not this answer.
     ///
     /// The mark covers both kinds of silence, because a consumer of
     /// this watch treats them alike: neither one gives a temperature to
@@ -288,20 +323,23 @@ impl ThermalReading {
     /// may be watching nothing.
     #[must_use]
     pub const fn chip_reading_stale(&self) -> bool {
-        self.pid_temp.is_none()
+        self.temps.is_none()
     }
 
-    /// Maximum chip temperature in whole degrees Celsius, or zero before
-    /// the first measurement. Both info handlers in `ubos-api` serialize
-    /// this field, so the derivation lives here rather than twice there.
+    /// The hottest reading of the last sample in whole degrees Celsius,
+    /// or zero before the first measurement. Both info handlers in
+    /// `ubos-api` serialize it, so the derivation lives here rather than
+    /// twice there.
     #[must_use]
-    pub fn chip_max_celsius(&self) -> i32 {
-        self.chip_max.map_or(0i32, Temperature::celsius_i32)
+    pub fn hottest_celsius(&self) -> i32 {
+        self.last_temps
+            .and_then(TempSample::hottest)
+            .map_or(0i32, Temperature::celsius_i32)
     }
 
     /// Ambient temperature in whole degrees Celsius, or `None` where the
     /// board measures none or the read failed. Derived here for the same
-    /// reason as [`chip_max_celsius`](Self::chip_max_celsius).
+    /// reason as [`hottest_celsius`](Self::hottest_celsius).
     #[must_use]
     pub fn ambient_celsius(&self) -> Option<i32> {
         self.ambient.map(Temperature::celsius_i32)
@@ -438,10 +476,11 @@ enum Note {
     Recovered(u32),
     /// The board went idle under the unreadable halt.
     Idle,
-    /// The safety reading crossed the dangerous threshold.
+    /// A reading crossed the dangerous threshold of its kind.
     Dangerous(Temperature),
-    /// The safety reading cooled below the cooldown threshold while the
-    /// overheat halt was held.
+    /// Every kind read cooled below the cooldown threshold while the
+    /// overheat halt was held. Carries the hottest die where one was
+    /// read, and the hottest hashboard reading otherwise.
     Cooled(Temperature),
 }
 
@@ -499,17 +538,15 @@ struct Step {
     dangerous: Option<Note>,
 }
 
-/// Whether a reading goes out this tick, and the two temperatures it
+/// Whether a reading goes out this tick, and the temperatures it
 /// carries.
 #[derive(Debug, PartialEq, Eq)]
 enum Tick {
-    /// Publish a reading. The chip temperature is this tick's, or the
-    /// last one measured on a tick that measured nothing. The PID
-    /// temperature is `None` on such a tick, which is what tells a
-    /// consumer the chip temperature beside it is held over.
+    /// Publish a reading: this tick's sample, `None` on a tick that
+    /// measured nothing, and the last sample measured beside it.
     Publish {
-        chip_max: Option<Temperature>,
-        pid_temp: Option<Temperature>,
+        temps: Option<TempSample>,
+        last_temps: Option<TempSample>,
     },
     /// Inside the miss budget: say nothing this tick. Silence that short
     /// is a hiccup the loop rides out, and a reading for it would park
@@ -517,15 +554,15 @@ enum Tick {
     Withhold,
 }
 
-/// What one tick hands the next: the miss budget, and the last chip
-/// temperature measured.
+/// What one tick hands the next: the miss budget, and the last sample
+/// measured.
 #[derive(Default)]
 struct Thermal {
     unreadable_halt: UnreadableHalt,
-    /// The last chip temperature measured, published again on a tick
-    /// that measured nothing, so a consumer in such a gap reads the last
-    /// known temperature. `None` until the first measurement.
-    last_chip_max: Option<Temperature>,
+    /// The last sample measured, published again on a tick that measured
+    /// nothing, so a consumer in such a gap reads the last known
+    /// temperatures. `None` until the first measurement.
+    last_temps: Option<TempSample>,
 }
 
 impl Thermal {
@@ -537,15 +574,15 @@ impl Thermal {
     /// arguments and the previous tick.
     fn judge(&mut self, reading: Reading, config: &ThermalConfig, held: PauseReasons) -> Step {
         match reading {
-            Reading::Measured(sample) => {
-                self.last_chip_max = Some(sample.safety);
+            Reading::Measured(temps) => {
+                self.last_temps = Some(temps);
                 Step {
                     tick: Tick::Publish {
-                        chip_max: self.last_chip_max,
-                        pid_temp: Some(sample.pid.unwrap_or(sample.safety)),
+                        temps: Some(temps),
+                        last_temps: self.last_temps,
                     },
                     unreadable: self.unreadable_halt.clear(held).map(Note::Recovered),
-                    dangerous: judge_dangerous(&sample, config, held),
+                    dangerous: temps.judge_dangerous(config, held),
                 }
             }
             Reading::Unreadable => {
@@ -573,14 +610,14 @@ impl Thermal {
         }
     }
 
-    /// The step of a tick that measured nothing: the last chip
-    /// temperature goes out with no PID temperature beside it, and
-    /// `unreadable` is the one edge such a tick can cross.
+    /// The step of a tick that measured nothing: the last sample goes out
+    /// with no sample of this tick beside it, and `unreadable` is the one
+    /// edge such a tick can cross.
     fn held(&self, unreadable: Option<Note>) -> Step {
         Step {
             tick: Tick::Publish {
-                chip_max: self.last_chip_max,
-                pid_temp: None,
+                temps: None,
+                last_temps: self.last_temps,
             },
             unreadable,
             dangerous: None,
@@ -676,15 +713,15 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatu
         let ambient_temp = read_ambient(&mut ambient).await;
         // A tick inside the miss budget withholds its reading, for the
         // reason `Tick::Withhold` gives.
-        if let Tick::Publish { chip_max, pid_temp } = step.tick {
-            // The chain voltage is not held over the way the chip
-            // temperature is: it goes out only beside a measurement, and a
-            // tick that measured nothing reports none.
+        if let Tick::Publish { temps, last_temps } = step.tick {
+            // The chain voltage is not held over the way the last sample
+            // is: it goes out only beside a measurement, and a tick that
+            // measured nothing reports none.
             publisher.send(ThermalReading {
-                chip_max,
-                pid_temp,
+                temps,
+                last_temps,
                 ambient: ambient_temp,
-                chain_voltage_mv: pid_temp.and_then(|_| sensor.chain_voltage_mv()),
+                chain_voltage_mv: temps.and_then(|_| sensor.chain_voltage_mv()),
                 timestamp_ms: now.as_millis(),
             });
         }
@@ -719,28 +756,4 @@ macro_rules! thermal_task {
                 .await
         }
     };
-}
-
-/// Judge one measurement against the thresholds, and answer the edge of
-/// the overheat pair it crossed, if any.
-///
-/// The counterpart of [`UnreadableHalt`], finding both edges of its
-/// message pair for the same reason. It is a function and not a struct
-/// because this halt has no state of its own: the threshold decision is
-/// [`evaluate`]'s, and whether the halt stands is what `held` says the
-/// manager's mask holds. Reading the mask back each tick is what makes
-/// an operator's release real: a flag of its own would leave this loop halted
-/// for ever after, with `evaluate` answering `Ok` at any temperature.
-fn judge_dangerous(sample: &Sample, config: &ThermalConfig, held: PauseReasons) -> Option<Note> {
-    let dangerous = match sample.safety_source {
-        Source::Chip => config.dangerous_chip_temp,
-        Source::Hashboard => config.dangerous_hashboard_temp,
-    };
-    let halted = held.contains(PauseReason::DangerousTemperature);
-    let temp = sample.safety;
-    match evaluate(temp, halted, dangerous, config.cooldown_temp) {
-        Action::Ok => None,
-        Action::EnterHalt => Some(Note::Dangerous(temp)),
-        Action::Resume => Some(Note::Cooled(temp)),
-    }
 }

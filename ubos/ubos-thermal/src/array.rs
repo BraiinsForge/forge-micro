@@ -22,18 +22,16 @@
 //! A board describes its sensor topology as a `&'static [SensorDescriptor]`
 //! table, then instantiates [`SensorArray`] with that table. On each sample,
 //! `SensorArray` reads every sensor through the drivers in
-//! `ubos-temperature`, folds the readings into the two values this crate
-//! needs — a safety reading and a cooling-PID input — and publishes
-//! every reading it took. Boards supply only the topology; all folding
-//! logic lives here.
+//! `ubos-temperature`, folds the chip and the hashboard readings each into
+//! their hottest and their mean, and publishes every reading it took.
+//! Boards supply only the topology; all folding logic lives here.
 
 use embedded_hal_async::i2c::{I2c, SevenBitAddress};
-use ubos_core::units::Temperature;
 use ubos_logging::{Debug2Format, error};
 use ubos_temperature::{ReadingError, Sensor, SensorDescriptor, TempSource};
 
 use crate::metrics::publish_sensor_reading;
-use crate::{Reading, Sample, Source, TemperatureSensor};
+use crate::{Accumulator, Reading, TempSample, TemperatureSensor};
 
 /// The chain of every board that carries an I2C sensor table: one
 /// hashboard, on chain 0.
@@ -68,8 +66,8 @@ where
     Bus: I2c,
 {
     async fn sample(&mut self) -> Reading {
-        let mut chip: Option<Temperature> = None;
-        let mut hashboard: Option<Temperature> = None;
+        let mut chip: Option<Accumulator> = None;
+        let mut hashboard: Option<Accumulator> = None;
 
         for sensor in &mut self.sensors {
             let address = sensor.descriptor().address();
@@ -78,27 +76,29 @@ where
                     continue;
                 };
                 publish_sensor_reading(CHAIN, address, reading).await;
-                match reading.source {
-                    TempSource::Chip(_) => chip = chip.max(Some(reading.value)),
-                    TempSource::Hashboard => hashboard = hashboard.max(Some(reading.value)),
+                match (reading.source, reading.value) {
+                    (TempSource::Chip(_), temp) => {
+                        chip = chip
+                            .map(|acc| acc.include(temp))
+                            .or_else(|| Some(temp.into()));
+                    }
+                    (TempSource::Hashboard, temp) => {
+                        hashboard = hashboard
+                            .map(|acc| acc.include(temp))
+                            .or_else(|| Some(temp.into()));
+                    }
                     // Published only: these gate no halt and drive no fan.
-                    TempSource::Ambient | TempSource::ControlBoard | TempSource::Psu => {}
+                    (TempSource::Ambient | TempSource::ControlBoard | TempSource::Psu, _) => {}
                 }
             }
         }
 
         match (chip, hashboard) {
-            (Some(chip), hashboard) => Reading::Measured(Sample {
-                safety: chip,
-                safety_source: Source::Chip,
-                pid: hashboard,
-            }),
-            (None, Some(hashboard)) => Reading::Measured(Sample {
-                safety: hashboard,
-                safety_source: Source::Hashboard,
-                pid: None,
-            }),
             (None, None) => Reading::Unreadable,
+            (chip, hashboard) => Reading::Measured(TempSample {
+                chip: chip.map(Accumulator::stats),
+                hashboard: hashboard.map(Accumulator::stats),
+            }),
         }
     }
 }
