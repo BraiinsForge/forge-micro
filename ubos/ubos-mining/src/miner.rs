@@ -60,7 +60,7 @@ use crate::control::{Handle, Message, MiningState};
 use crate::reset::ResetPin;
 use crate::serial::Serial;
 use crate::tuner::MachineTuner;
-use transitions::{machine, successors};
+use transitions::{State, machine, successors};
 use ubos_tuner::{ChainReadings, Plan, Readings};
 
 /// Maximum time an interrupted hardware plan can finish before the rail cut.
@@ -1061,6 +1061,20 @@ where
     }
 }
 
+/// What a state runs against: the miner, and the configuration
+/// subscription the state reads the tuning through. The subscription is
+/// a borrow, so a test drives the machine from a configuration of its
+/// own.
+struct Context<'m, 'a, P, R, T, const CHAINS: usize>
+where
+    P: Psu,
+    R: ResetPin,
+    T: MachineTuner<CHAINS>,
+{
+    miner: &'m mut Miner<'a, P, R, T, CHAINS>,
+    config: &'m mut ConfigSubscription,
+}
+
 machine! {
     /// The state the miner is in.
     ///
@@ -1146,22 +1160,170 @@ impl<T> MinerState<T> {
 /// Check that this machine has a tuner for the configured tuning.
 struct Choose;
 
+successors! { enum ChooseNext { Missing(NoTuner), Found(Reset) } }
+
+impl<P, R, T, const CHAINS: usize> State<Context<'_, '_, P, R, T, CHAINS>> for Choose
+where
+    P: Psu,
+    R: ResetPin,
+    T: MachineTuner<CHAINS>,
+{
+    type Next = ChooseNext;
+
+    /// Check the tuner before any chain is powered. A configuration that
+    /// selects a tuner this machine does not have leads to [`NoTuner`],
+    /// with the rail left off.
+    async fn run(self, context: &mut Context<'_, '_, P, R, T, CHAINS>) -> ChooseNext {
+        let tuning = context.config.get().await.miner.tuning;
+        if T::select(&tuning, context.miner.board).is_none() {
+            return ChooseNext::Missing(NoTuner::missing(&tuning));
+        }
+        ChooseNext::Found(Reset)
+    }
+}
+
 /// Put every chain in reset.
 struct Reset;
+
+successors! { enum ResetNext { Held(WaitForPool) } }
+
+impl<P, R, T, const CHAINS: usize> State<Context<'_, '_, P, R, T, CHAINS>> for Reset
+where
+    P: Psu,
+    R: ResetPin,
+    T: MachineTuner<CHAINS>,
+{
+    type Next = ResetNext;
+
+    async fn run(self, context: &mut Context<'_, '_, P, R, T, CHAINS>) -> ResetNext {
+        info!("mining: entering reset");
+        crate::events::miner_reset();
+        for chain in &mut context.miner.chains {
+            chain.reset.enter_reset().await;
+        }
+        ResetNext::Held(WaitForPool)
+    }
+}
 
 /// Hold every chain in reset until a pool slot holds a job.
 struct WaitForPool;
 
+successors! { enum WaitForPoolNext { Job(Enable) } }
+
+impl<P, R, T, const CHAINS: usize> State<Context<'_, '_, P, R, T, CHAINS>> for WaitForPool
+where
+    P: Psu,
+    R: ResetPin,
+    T: MachineTuner<CHAINS>,
+{
+    type Next = WaitForPoolNext;
+
+    /// Hold the chains in reset with the rail off until a pool slot holds
+    /// a job, asking every [`POOL_POLL_PERIOD`].
+    async fn run(self, context: &mut Context<'_, '_, P, R, T, CHAINS>) -> WaitForPoolNext {
+        info!("mining: waiting for a pool to hold a job");
+        while !context.miner.pool_serial().work_available().await {
+            Timer::after(POOL_POLL_PERIOD).await;
+        }
+        crate::events::pool_available();
+        WaitForPoolNext::Job(Enable)
+    }
+}
+
 /// Hold reset a little longer, then enable the rail.
 struct Enable;
 
+successors! { enum EnableNext { Enabled(ExitReset) } }
+
+impl<P, R, T, const CHAINS: usize> State<Context<'_, '_, P, R, T, CHAINS>> for Enable
+where
+    P: Psu,
+    R: ResetPin,
+    T: MachineTuner<CHAINS>,
+{
+    type Next = EnableNext;
+
+    /// Hold the chains in reset for [`RESET_HOLD`], then enable the
+    /// rail and let it settle for [`RESET_HOLD`]. A failure is
+    /// logged and bring-up goes on, because enumeration finds a rail that
+    /// did not come up.
+    async fn run(self, context: &mut Context<'_, '_, P, R, T, CHAINS>) -> EnableNext {
+        Timer::after(RESET_HOLD).await;
+        info!("mining: enabling PSU");
+        crate::events::psu_enabled();
+        if let Err(error) = context.miner.psu.enable().await {
+            warn!("psu enable failed: {:?}", Debug2Format(&error));
+        }
+        Timer::after(RESET_HOLD).await;
+        EnableNext::Enabled(ExitReset)
+    }
+}
+
 /// Release every chain from reset.
 struct ExitReset;
+
+successors! { enum ExitResetNext { Released(BringUp) } }
+
+impl<P, R, T, const CHAINS: usize> State<Context<'_, '_, P, R, T, CHAINS>> for ExitReset
+where
+    P: Psu,
+    R: ResetPin,
+    T: MachineTuner<CHAINS>,
+{
+    type Next = ExitResetNext;
+
+    /// Release every chain from reset and let it settle for
+    /// [`RESET_HOLD`].
+    async fn run(self, context: &mut Context<'_, '_, P, R, T, CHAINS>) -> ExitResetNext {
+        info!("mining: exiting reset");
+        for chain in &mut context.miner.chains {
+            chain.reset.exit_reset().await;
+        }
+        Timer::after(RESET_HOLD).await;
+        ExitResetNext::Released(BringUp)
+    }
+}
 
 /// Enumerate and configure every chain.
 struct BringUp;
 
 successors! { enum BringUpNext { Present(StartWork), Retry(Recover), Park(Halted) } }
+
+impl<P, R, T, const CHAINS: usize> State<Context<'_, '_, P, R, T, CHAINS>> for BringUp
+where
+    P: Psu,
+    R: ResetPin,
+    T: MachineTuner<CHAINS>,
+{
+    type Next = BringUpNext;
+
+    /// Reset, enumerate and configure every chain, all at once. This is
+    /// the last bring-up step before the tuner sees a chain.
+    ///
+    /// What one chain does is [`ChainHandle::bring_up`]. A chain whose
+    /// count never settles on the board's chip count within the retry
+    /// budget is marked absent when its last answer was no chips at all,
+    /// and faulted when it was a count, a sweep no chip answered, or a
+    /// refused safe-boot configuration. Either way the chain is parked in
+    /// reset and left out of the ramp, and the other chains carry on:
+    /// only a bring-up where no chain comes up present cuts the rail.
+    async fn run(self, context: &mut Context<'_, '_, P, R, T, CHAINS>) -> BringUpNext {
+        let miner = &mut *context.miner;
+        let expected = miner.board.num_chips;
+        join_array(
+            miner
+                .chains
+                .each_mut()
+                .map(|chain| chain.bring_up(expected)),
+        )
+        .await;
+        if miner.chains.iter().any(ChainHandle::is_present) {
+            miner.empty_cycles = 0;
+            return BringUpNext::Present(StartWork);
+        }
+        miner.no_chain_present()
+    }
+}
 
 /// Build the tuner, anchor the rail and start work on every present
 /// chain.
