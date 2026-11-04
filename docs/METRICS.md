@@ -116,7 +116,8 @@ Code: `ubos/ubos-thermal/src/metrics.rs`,
 `ubos/ubos-thermal/src/array.rs`, `ubos/ubos-thermal/src/chain.rs`.
 
 Three gauges in this section carry a temperature. A fourth is the
-per-chain chip temperature, under "Per-chain PVT series" below.
+per-chain chip temperature, under "Per-chain PVT series" below, and a
+fifth is the temperature the cooling PID follows, under "Cooling PID".
 
 - `board_ambient_temperature_millicelsius` is the ambient temperature around
   the board. `ubos_thermal::run_thermal` reads the ambient sensor on
@@ -184,6 +185,26 @@ Every temperature gauge is an integer in millicelsius. The rp2040 is a
 Cortex-M0+ with no FPU, so a float-valued celsius gauge adds software
 floating-point to the exposition path. Millicelsius keeps sub-degree
 resolution without soft-float.
+
+## Cooling PID
+
+Code: `ubos/ubos-cooling/src/lib.rs`.
+
+`ubos_cooling::run_cooling` writes two gauges on every step of the
+cooling loop:
+
+- `board_pid_temperature_millicelsius{type="measured"}` is the value
+  that the PID follows. The raw readings behind it are under
+  `board_temperature_millicelsius`.
+- `board_pid_temperature_millicelsius{type="target"}` is the setpoint
+  for that value.
+- `board_pid_source{source="...",stat="..."}` carries one series for
+  each kind and statistic. The series that the PID follows reads 1, and
+  the other three read 0.
+
+If the fan mode is fixed, or a failsafe holds the fan at full, the PID
+does not run. Then every `board_pid_source` series reads 0, and both
+`board_pid_temperature_millicelsius` series keep the last written value.
 
 ## Per-pool series
 

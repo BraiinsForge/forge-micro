@@ -32,6 +32,7 @@ use ubos_core::units::Temperature;
 use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value};
 use ubos_temperature::{ChipId, Reading, TempSource};
 
+use crate::Source;
 use crate::chain::chain_labels;
 
 /// Every reading a sensor takes, under the `source` it measures. A
@@ -48,10 +49,10 @@ use crate::chain::chain_labels;
 const READING_METRIC_NAME: &str = "board_temperature_millicelsius";
 
 /// The `source` label of a hashboard reading.
-const HASHBOARD_SOURCE: &str = "hashboard";
+const HASHBOARD_SOURCE: &str = Source::Hashboard.as_str();
 
 /// The `source` label of a chip reading.
-const CHIP_SOURCE: &str = "chip";
+const CHIP_SOURCE: &str = Source::Chip.as_str();
 
 /// The `source` label of a reading of the air around the board.
 const AMBIENT_SOURCE: &str = "ambient";

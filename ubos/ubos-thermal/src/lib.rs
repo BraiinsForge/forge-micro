@@ -132,13 +132,44 @@ fn temp_celsius_i16(temperature: Temperature) -> i16 {
 
 type CSMutex = CriticalSectionRawMutex;
 
-/// What a reading measures.
+/// What a reading measures. `metrics` turns it into the `source` label.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Source {
     /// A sensor on the hashboard.
     Hashboard,
     /// A chip's own die.
     Chip,
+}
+
+impl Source {
+    /// The `source` label of this kind in the metrics.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Hashboard => "hashboard",
+            Self::Chip => "chip",
+        }
+    }
+}
+
+/// A reduction of one kind's readings in a sample.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Statistic {
+    /// The hottest reading.
+    Max,
+    /// The mean of the readings.
+    Mean,
+}
+
+impl Statistic {
+    /// The `stat` label of this reduction in the metrics.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Max => "max",
+            Self::Mean => "mean",
+        }
+    }
 }
 
 /// One sample from a board temperature sensor: the hottest and the mean

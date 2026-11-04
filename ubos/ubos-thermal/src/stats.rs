@@ -24,6 +24,8 @@ use core::num::NonZeroU16;
 use ubos_asic::TemperatureSummary;
 use ubos_core::units::Temperature;
 
+use crate::Statistic;
+
 #[cfg(test)]
 #[path = "tests/stats.rs"]
 mod tests;
@@ -33,6 +35,17 @@ mod tests;
 pub struct TempStats {
     pub max: Temperature,
     pub mean: Temperature,
+}
+
+impl TempStats {
+    /// The reduction `statistic` names.
+    #[must_use]
+    pub const fn temp(self, statistic: Statistic) -> Temperature {
+        match statistic {
+            Statistic::Max => self.max,
+            Statistic::Mean => self.mean,
+        }
+    }
 }
 
 /// The running hottest, sum and count of one kind of reading, which

@@ -76,7 +76,7 @@ use ubos_config::{Config, CoolingConfig, FanMode};
 use ubos_core::units::{FanPwm, FanRpm, Temperature};
 use ubos_logging::{error, info};
 use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value};
-use ubos_thermal::Handle as ThermalHandle;
+use ubos_thermal::{Handle as ThermalHandle, Source, Statistic, TempSample};
 
 use crate::pid::TempControl;
 
@@ -146,6 +146,8 @@ pub fn pulses_to_rpm(pulses: u64, pulses_per_rev: u64, elapsed_us: u64) -> FanRp
 
 const METRIC_FAN_PWM: &str = "board_fan_pwm_percent";
 const METRIC_FAN_RPM: &str = "board_fan_rpm";
+const METRIC_PID_TEMPERATURE: &str = "board_pid_temperature_millicelsius";
+const METRIC_PID_SOURCE: &str = "board_pid_source";
 
 /// Subscriber capacity for the fan watch. Every reader takes a
 /// point-in-time snapshot via [`Handle::current`]; none subscribe, so a
@@ -342,6 +344,16 @@ enum Note {
     Recovered,
 }
 
+/// What the PID follows on a reading: a statistic of one kind of
+/// reading, its value, and the setpoint it is held at.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PidInput {
+    source: Source,
+    statistic: Statistic,
+    temp: Temperature,
+    target: Temperature,
+}
+
 /// The fan decision, apart from the hardware and the clock. The loop
 /// selects an event, hands it to the method the event names with the
 /// time it happened, and acts on the [`Step`] that comes back. Nothing
@@ -355,6 +367,8 @@ struct Cooling {
     /// floor and otherwise leaves it, so it must survive between steps.
     pwm: FanPwm,
     last_reading: Instant,
+    /// What the PID followed on the last measurement.
+    pid_input: Option<PidInput>,
 }
 
 impl Cooling {
@@ -376,7 +390,40 @@ impl Cooling {
             hold: Hold::None,
             pwm,
             last_reading: now,
+            pid_input: None,
         }
+    }
+
+    /// What `temps` gives the PID: the hottest hashboard reading where
+    /// it has one, the hottest die otherwise, and `None` when it read
+    /// neither.
+    fn input(&self, temps: TempSample) -> Option<PidInput> {
+        let (source, stats) = match temps {
+            TempSample {
+                hashboard: Some(hashboard),
+                ..
+            } => (Source::Hashboard, hashboard),
+            TempSample {
+                chip: Some(chip), ..
+            } => (Source::Chip, chip),
+            TempSample {
+                chip: None,
+                hashboard: None,
+            } => return None,
+        };
+        Some(PidInput {
+            source,
+            statistic: Statistic::Max,
+            temp: stats.max,
+            target: self.config.target_temp,
+        })
+    }
+
+    /// What the PID follows, for the metrics. `None` under
+    /// [`FanMode::Fixed`] and while a failsafe holds the fan at full.
+    fn pid_input(&self) -> Option<PidInput> {
+        let driving = self.config.mode == FanMode::Auto && self.hold == Hold::None;
+        self.pid_input.filter(|_| driving)
     }
 
     /// Fold a published config in: the cooling section into the
@@ -387,11 +434,12 @@ impl Cooling {
         self.stale = stale_timeout(updated.thermal.sample_interval_ms);
     }
 
-    /// A thermal reading arrived at `now`, carrying `pid_temp` when it
-    /// measured something. A fresh reading always carries a PID
-    /// temperature and a held one never does, see
+    /// A thermal reading arrived at `now`, carrying `temps` when it
+    /// measured something. A fresh reading always carries a sample and a
+    /// held one never does, see
     /// `ThermalReading::temps`, so the one field answers both whether
     /// this tick measured and what it measured.
+    /// [`input`](Self::input) picks what the PID follows from it.
     ///
     /// A run of readings with no measurement skips `control.update()`
     /// each time, so the smoother and ring buffer keep the last good
@@ -405,25 +453,26 @@ impl Cooling {
     /// that run only; a thermal silence shorter than the stale window
     /// triggers no graduated response: the control tick merely resamples
     /// the tach and republishes telemetry until the window elapses.
-    fn on_reading(&mut self, pid_temp: Option<Temperature>, now: Instant) -> Step {
+    fn on_reading(&mut self, temps: Option<TempSample>, now: Instant) -> Step {
         self.last_reading = now;
         let note = (self.hold == Hold::Stalled).then_some(Note::Recovered);
-        self.pwm = match pid_temp {
+        self.pwm = match temps.and_then(|temps| self.input(temps)) {
             None => {
                 self.hold = Hold::NoMeasurement;
                 FanPwm::FULL
             }
-            Some(pid_temp) => {
+            Some(input) => {
                 if self.hold != Hold::None {
                     self.control.forget_input();
                 }
                 self.hold = Hold::None;
+                self.pid_input = Some(input);
                 match self.config.mode {
                     // Fixed ignores the reading and never advances the
                     // PID; the mode transition back to auto rebuilds the
                     // controller, so no state is carried across.
                     FanMode::Fixed => fixed_pwm(&self.config),
-                    FanMode::Auto => FanPwm::from_percent(self.control.update(pid_temp)),
+                    FanMode::Auto => FanPwm::from_percent(self.control.update(input.temp)),
                 }
             }
         };
@@ -480,6 +529,7 @@ impl Cooling {
 /// than re-reading the counter over a short, uneven window.
 async fn publish_state<const N: usize>(
     pwm: FanPwm,
+    pid: Option<PidInput>,
     rpms: &[FanRpm; N],
     tach_labels: &[Option<&'static str>; N],
 ) {
@@ -507,6 +557,48 @@ async fn publish_state<const N: usize>(
             }
         };
         metric.push().await;
+    }
+    publish_pid(pid).await;
+}
+
+/// Push what the PID follows: its value and its setpoint while it runs,
+/// as the `type="measured"` and `type="target"` series of one gauge, and
+/// a `board_pid_source` series for each kind and statistic, 1 on the one
+/// it follows. Every `board_pid_source` series is pushed on each step,
+/// so a pair the PID stopped following reads 0, and all four read 0
+/// while the PID does not run, as `board_miner_state` marks the miner's
+/// state.
+async fn publish_pid(pid: Option<PidInput>) {
+    if let Some(input) = pid {
+        for (role, temp) in [("measured", input.temp), ("target", input.target)] {
+            let mut labels = Labels::new();
+            let _ = labels.push(Label {
+                name: "type",
+                value: LabelValue::Static(role),
+            });
+            let value = Value::Int(i64::from(temp.millicelsius()));
+            Metric::with_labels(METRIC_PID_TEMPERATURE, labels, value)
+                .push()
+                .await;
+        }
+    }
+    for source in [Source::Chip, Source::Hashboard] {
+        for statistic in [Statistic::Max, Statistic::Mean] {
+            let mut labels = Labels::new();
+            let _ = labels.push(Label {
+                name: "source",
+                value: LabelValue::Static(source.as_str()),
+            });
+            let _ = labels.push(Label {
+                name: "stat",
+                value: LabelValue::Static(statistic.as_str()),
+            });
+            let followed =
+                pid.is_some_and(|input| (input.source, input.statistic) == (source, statistic));
+            Metric::with_labels(METRIC_PID_SOURCE, labels, Value::Uint(u64::from(followed)))
+                .push()
+                .await;
+        }
     }
 }
 
@@ -560,7 +652,7 @@ where
     // Sample the tach once up front so boot telemetry is not a blank line; the
     // control tick refreshes it every CONTROL_INTERVAL thereafter.
     let mut last_rpms = tach.read_rpms().await;
-    publish_state(cooling.pwm, &last_rpms, &tach_labels).await;
+    publish_state(cooling.pwm, None, &last_rpms, &tach_labels).await;
     log_cooling("cooling: started", &cooling.config);
 
     let mut subscription = thermal_handle.subscribe();
@@ -573,15 +665,7 @@ where
         }
 
         let step = match &event {
-            // The hashboard reading where the board has one, as before
-            // the kinds were split.
-            Either::First(reading) => cooling.on_reading(
-                reading
-                    .temps
-                    .and_then(|temps| temps.hashboard.or(temps.chip))
-                    .map(|stats| stats.max),
-                Instant::now(),
-            ),
+            Either::First(reading) => cooling.on_reading(reading.temps, Instant::now()),
             Either::Second(()) => cooling.on_tick(Instant::now()),
         };
         match step.note {
@@ -606,7 +690,7 @@ where
         if let Either::Second(()) = event {
             last_rpms = tach.read_rpms().await;
         }
-        publish_state(step.pwm, &last_rpms, &tach_labels).await;
+        publish_state(step.pwm, cooling.pid_input(), &last_rpms, &tach_labels).await;
     }
 }
 
