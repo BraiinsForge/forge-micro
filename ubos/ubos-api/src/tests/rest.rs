@@ -101,7 +101,7 @@ fn api_info_body_fits_in_buffer() {
     let chain_hottest_c = i32::MIN / 1000;
     let chains = (0..ubos_metrics::chain::MAX_CHAINS)
         .map(|chain| ApiInfoChain {
-            chain,
+            chain: u8::try_from(chain).expect("MAX_CHAINS fits a byte"),
             state: ApiChainState::Unknown,
             chips: u16::MAX,
             frequency: Frequency::from_khz(u32::MAX),
@@ -574,4 +574,15 @@ fn pause_reason_serializes_as_before() {
         let n = serde_json_core::to_slice(&ApiPauseReason::from(reason), &mut buf).expect("fits");
         assert_eq!(core::str::from_utf8(&buf[..n]).expect("utf8"), expected);
     }
+}
+
+/// The chain and pool indexes in `/api/info` carry a fixed width in
+/// the schema, so a generated client types them as small integers.
+#[cfg(feature = "schema")]
+#[test]
+fn api_info_chain_schema_uses_uint8() {
+    let schema = schemars::schema_for!(ApiInfoChain);
+    let value = serde_json::to_value(&schema).expect("schema is JSON");
+    assert_eq!(value["properties"]["chain"]["format"], "uint8");
+    assert_eq!(value["properties"]["pool"]["format"], "uint8");
 }

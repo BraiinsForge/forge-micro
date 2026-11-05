@@ -26,6 +26,7 @@
 
 use heapless::{String, Vec};
 use serde::Serialize;
+use ubos_config::POOL_SLOTS;
 use ubos_core::units::{FanPwm, FanRpm, Frequency, Power, Temperature, Voltage};
 use ubos_metrics::chain::{ChainStats, MAX_CHAINS};
 
@@ -121,12 +122,22 @@ pub struct ApiInfo {
     pub ota: Option<ApiInfoOta>,
 }
 
+// The index conversion below cannot saturate while both tables fit a
+// byte.
+const _: () = assert!(MAX_CHAINS <= u8::MAX as usize);
+const _: () = assert!(POOL_SLOTS <= u8::MAX as usize);
+
+/// A chain or pool slot index as the byte the wire carries.
+fn index_u8(index: usize) -> u8 {
+    u8::try_from(index).unwrap_or(u8::MAX)
+}
+
 /// One chain's entry in the `/api/info` `chains` array.
 #[derive(Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ApiInfoChain {
     /// The chain's index on the board.
-    pub chain: usize,
+    pub chain: u8,
     /// The chain's most recently recorded presence.
     pub state: ApiChainState,
     /// Chips the chain enumerated.
@@ -141,7 +152,7 @@ pub struct ApiInfoChain {
     /// a reading lands.
     pub hottest_c: Option<i32>,
     /// The pool slot the chain mines for, or `null` when it mines for none.
-    pub pool: Option<usize>,
+    pub pool: Option<u8>,
 }
 
 impl ApiInfoChain {
@@ -149,13 +160,13 @@ impl ApiInfoChain {
     #[must_use]
     pub fn new(chain: usize, stats: &ChainStats) -> Self {
         Self {
-            chain,
+            chain: index_u8(chain),
             state: stats.presence().into(),
             chips: stats.chips(),
             frequency: stats.frequency(),
             hashrate: stats.hashrate(),
             hottest_c: stats.hottest().map(Temperature::celsius_i32),
-            pool: stats.active_pool(),
+            pool: stats.active_pool().map(index_u8),
         }
     }
 }
