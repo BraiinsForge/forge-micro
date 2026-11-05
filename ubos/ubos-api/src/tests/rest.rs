@@ -397,8 +397,10 @@ fn config_response_body_fits_in_buffer() {
         fee_permille: Some(ubos_config::MAX_FEE_PERMILLE),
         thermal: Some(ubos_config::ThermalConfig {
             sample_interval_ms: u32::MAX,
-            dangerous_hashboard_temp: Temperature::from_millicelsius(i32::MIN),
-            dangerous_chip_temp: Temperature::from_millicelsius(i32::MIN),
+            dangerous: ubos_config::TemperatureDescriptor {
+                chip: Some(Temperature::from_millicelsius(i32::MIN)),
+                hashboard: Some(Temperature::from_millicelsius(i32::MIN)),
+            },
             cooldown_temp: Temperature::from_millicelsius(i32::MIN),
         }),
         cooling: Some(ubos_config::CoolingUpdate {

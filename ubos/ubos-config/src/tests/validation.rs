@@ -19,6 +19,7 @@
 
 //! Tests for [`crate::ConfigUpdate::validate`].
 
+use crate::TemperatureDescriptor;
 use ubos_core::units::Temperature;
 
 use crate::{
@@ -62,8 +63,10 @@ fn valid_pool_entry() -> PoolEntry {
 fn valid_thermal() -> ThermalConfig {
     ThermalConfig {
         sample_interval_ms: 1000,
-        dangerous_hashboard_temp: Temperature::from_celsius(90),
-        dangerous_chip_temp: Temperature::from_celsius(110),
+        dangerous: TemperatureDescriptor {
+            chip: None,
+            hashboard: Some(Temperature::from_celsius(90)),
+        },
         cooldown_temp: Temperature::from_celsius(45),
     }
 }
@@ -305,7 +308,10 @@ fn thermal_sample_interval_too_high() {
 fn thermal_dangerous_temp_too_low() {
     let mut update = empty_update();
     let mut thermal = valid_thermal();
-    thermal.dangerous_hashboard_temp = Temperature::from_millicelsius(49_900);
+    thermal.dangerous = TemperatureDescriptor {
+        chip: None,
+        hashboard: Some(Temperature::from_millicelsius(49_900)),
+    };
     thermal.cooldown_temp = Temperature::from_celsius(20);
     update.thermal = Some(thermal);
     assert_eq!(
@@ -319,7 +325,10 @@ fn thermal_dangerous_temp_too_low() {
 fn thermal_dangerous_temp_too_high() {
     let mut update = empty_update();
     let mut thermal = valid_thermal();
-    thermal.dangerous_hashboard_temp = Temperature::from_millicelsius(110_100);
+    thermal.dangerous = TemperatureDescriptor {
+        chip: None,
+        hashboard: Some(Temperature::from_millicelsius(110_100)),
+    };
     update.thermal = Some(thermal);
     assert_eq!(
         update.validate(&Config::default(), &crate::mining::BOUNDS),
@@ -353,17 +362,113 @@ fn thermal_cooldown_temp_too_high() {
     );
 }
 
-/// `cooldown_temp` equal to `dangerous_hashboard_temp` is rejected.
+/// `cooldown_temp` equal to the highest dangerous temperature is rejected.
 #[test]
 fn thermal_cooldown_not_less_than_dangerous_rejected() {
     let mut update = empty_update();
     let mut thermal = valid_thermal();
-    thermal.cooldown_temp = thermal.dangerous_hashboard_temp;
+    thermal.cooldown_temp = thermal
+        .dangerous
+        .max()
+        .expect("BUG: the valid thermal config has a threshold");
     update.thermal = Some(thermal);
     assert_eq!(
         update.validate(&Config::default(), &crate::mining::BOUNDS),
-        Err("thermal.cooldown_temp must be less than thermal.dangerous_hashboard_temp")
+        Err("thermal.cooldown_temp must be less than the highest dangerous temperature")
     );
+}
+
+/// The thresholds of a machine that reads both kinds: the BFMX4's.
+fn both_kinds() -> TemperatureDescriptor {
+    TemperatureDescriptor {
+        chip: Some(Temperature::from_celsius(110)),
+        hashboard: Some(Temperature::from_celsius(75)),
+    }
+}
+
+/// A thermal update that names other reading kinds than the machine is
+/// rejected, because the kinds belong to the machine.
+#[test]
+fn thermal_with_other_reading_kinds_rejected() {
+    let mut update = empty_update();
+    let mut thermal = valid_thermal();
+    thermal.dangerous = both_kinds();
+    update.thermal = Some(thermal);
+    assert_eq!(
+        update.validate(&Config::default(), &crate::mining::BOUNDS),
+        Err(
+            "thermal must set a dangerous temperature for each reading kind of the machine, and for no other kind"
+        )
+    );
+}
+
+/// On a machine that reads both kinds, a hashboard threshold above the
+/// chip one is rejected.
+#[test]
+fn thermal_hashboard_above_chip_rejected() {
+    let mut current = Config::default();
+    current.thermal.dangerous = both_kinds();
+    let mut update = empty_update();
+    let mut thermal = valid_thermal();
+    thermal.dangerous = TemperatureDescriptor {
+        chip: Some(Temperature::from_celsius(90)),
+        hashboard: Some(Temperature::from_celsius(95)),
+    };
+    update.thermal = Some(thermal);
+    assert_eq!(
+        update.validate(&current, &crate::mining::BOUNDS),
+        Err("thermal.dangerous_hashboard_temp must not exceed thermal.dangerous_chip_temp")
+    );
+}
+
+/// A chip threshold above 115 °C is rejected.
+#[test]
+fn thermal_dangerous_chip_temp_too_high() {
+    let mut current = Config::default();
+    current.thermal.dangerous = TemperatureDescriptor {
+        chip: Some(Temperature::from_celsius(110)),
+        hashboard: None,
+    };
+    let mut update = empty_update();
+    let mut thermal = valid_thermal();
+    thermal.dangerous = TemperatureDescriptor {
+        chip: Some(Temperature::from_millicelsius(115_100)),
+        hashboard: None,
+    };
+    update.thermal = Some(thermal);
+    assert_eq!(
+        update.validate(&current, &crate::mining::BOUNDS),
+        Err("thermal.dangerous_chip_temp must be between 50000 and 115000")
+    );
+}
+
+/// The JSON of a machine that reads no hashboard sensor carries `null`
+/// for that threshold, and parses back to the same thresholds.
+#[test]
+fn thermal_json_carries_a_missing_kind_as_null() {
+    let mut thermal = valid_thermal();
+    thermal.dangerous = TemperatureDescriptor {
+        chip: Some(Temperature::from_celsius(110)),
+        hashboard: None,
+    };
+    let update = ConfigUpdate {
+        thermal: Some(thermal.clone()),
+        ..empty_update()
+    };
+
+    let json = serde_json_core::ser::to_string::<_, 512>(&update).expect("serialize succeeds");
+    assert!(json.contains("\"dangerous_hashboard_temp\":null"));
+    let (decoded, _) =
+        serde_json_core::de::from_str::<ConfigUpdate>(&json).expect("deserialize succeeds");
+
+    assert_eq!(decoded.thermal, Some(thermal));
+}
+
+/// A thermal body that sets no dangerous temperature does not parse.
+#[test]
+fn thermal_json_without_a_dangerous_temperature_rejected() {
+    let json = r#"{"thermal":{"sample_interval_ms":1000,"cooldown_temp":45000}}"#;
+    assert!(serde_json_core::de::from_str::<ConfigUpdate>(json).is_err());
 }
 
 // --- Cooling target cross-field rule ---
@@ -388,6 +493,26 @@ fn cooling_target_below_dangerous_passes() {
     );
 }
 
+/// On a machine that reads only its dies, `cooling.target_temp` is held
+/// below the chip threshold alone, so a target above the hashboard
+/// threshold of the default machine passes.
+#[test]
+fn cooling_target_on_a_chip_only_machine_uses_the_chip_threshold() {
+    let mut current = Config::default();
+    current.thermal.dangerous = TemperatureDescriptor {
+        chip: Some(Temperature::from_celsius(110)),
+        hashboard: None,
+    };
+    let mut update = empty_update();
+    update.cooling = Some(CoolingUpdate {
+        mode: None,
+        target_temp: Some(Temperature::from_celsius(84)),
+        fixed_fan_pwm: None,
+        min_fan_pwm: None,
+    });
+    assert!(update.validate(&current, &crate::mining::BOUNDS).is_ok());
+}
+
 /// `cooling.target_temp` equal to `dangerous_hashboard_temp` is rejected.
 ///
 /// Build a current config with dangerous = 80.0 and set target = 80.0
@@ -395,7 +520,10 @@ fn cooling_target_below_dangerous_passes() {
 #[test]
 fn cooling_target_equal_to_dangerous_rejected() {
     let mut current = Config::default();
-    current.thermal.dangerous_hashboard_temp = Temperature::from_celsius(80);
+    current.thermal.dangerous = TemperatureDescriptor {
+        chip: None,
+        hashboard: Some(Temperature::from_celsius(80)),
+    };
     let mut update = empty_update();
     // 80.0 is within 30..=85 but equals the dangerous limit.
     update.cooling = Some(CoolingUpdate {
@@ -406,7 +534,7 @@ fn cooling_target_equal_to_dangerous_rejected() {
     });
     assert_eq!(
         update.validate(&current, &crate::mining::BOUNDS),
-        Err("cooling.target_temp must be less than dangerous_hashboard_temp")
+        Err("cooling.target_temp must be less than each dangerous temperature")
     );
 }
 
@@ -418,7 +546,10 @@ fn cooling_target_cross_field_uses_incoming_dangerous() {
     // dangerous of 80 should pass because 75 < 80.
     let mut update = empty_update();
     let mut thermal = valid_thermal();
-    thermal.dangerous_hashboard_temp = Temperature::from_celsius(80);
+    thermal.dangerous = TemperatureDescriptor {
+        chip: None,
+        hashboard: Some(Temperature::from_celsius(80)),
+    };
     update.thermal = Some(thermal);
     update.cooling = Some(CoolingUpdate {
         mode: None,
@@ -692,12 +823,15 @@ fn thermal_only_update_rejected_when_current_target_above_new_dangerous() {
     current.cooling.target_temp = Temperature::from_celsius(80);
     let mut update = empty_update();
     let mut thermal = valid_thermal();
-    thermal.dangerous_hashboard_temp = Temperature::from_celsius(70);
+    thermal.dangerous = TemperatureDescriptor {
+        chip: None,
+        hashboard: Some(Temperature::from_celsius(70)),
+    };
     // cooldown must be below dangerous; 45.0 < 70.0 is fine.
     update.thermal = Some(thermal);
     assert_eq!(
         update.validate(&current, &crate::mining::BOUNDS),
-        Err("current cooling.target_temp must remain less than thermal.dangerous_hashboard_temp")
+        Err("current cooling.target_temp must remain less than each dangerous temperature")
     );
 }
 
@@ -1146,11 +1280,14 @@ fn config_default_validates() {
 #[test]
 fn config_cooling_target_above_dangerous_rejected() {
     let mut config = Config::default();
-    config.thermal.dangerous_hashboard_temp = Temperature::from_celsius(60);
+    config.thermal.dangerous = TemperatureDescriptor {
+        chip: None,
+        hashboard: Some(Temperature::from_celsius(60)),
+    };
     config.cooling.target_temp = Temperature::from_celsius(80);
     assert_eq!(
         config.validate(&crate::mining::BOUNDS),
-        Err("cooling.target_temp must be less than dangerous_hashboard_temp")
+        Err("cooling.target_temp must be less than each dangerous temperature")
     );
 }
 

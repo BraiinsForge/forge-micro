@@ -88,7 +88,8 @@ pub use pool::{
 };
 pub use seed::{Seed, SeedField};
 pub use thermal::{
-    BOUNDS as THERMAL_BOUNDS, INFO as THERMAL_INFO, ThermalBounds, ThermalConfig, ThermalInfo,
+    BOUNDS as THERMAL_BOUNDS, INFO as THERMAL_INFO, Source, TemperatureDescriptor, ThermalBounds,
+    ThermalConfig, ThermalInfo,
 };
 
 pub mod storage;
@@ -554,15 +555,18 @@ impl ConfigUpdate {
     /// into; the caller is responsible for reading it once and passing it
     /// in so the function is pure and the read order is explicit.
     ///
-    /// For `cooling.target_temp`, the dangerous-temp limit is resolved
-    /// from the incoming `thermal` field when present, otherwise from
-    /// `current.thermal.dangerous_hashboard_temp`.
+    /// An incoming `thermal` must name the same reading kinds as `current`,
+    /// because the kinds belong to the machine.
+    ///
+    /// For `cooling.target_temp`, the dangerous temperatures are those of
+    /// the incoming `thermal` field when present, otherwise of
+    /// `current.thermal`.
     ///
     /// The cross-field rule covers both directions:
     /// - When `cooling.target_temp` is in the update, the incoming target
-    ///   must be strictly less than the incoming (or current) `dangerous_hashboard_temp`.
+    ///   must be strictly less than each of them.
     /// - When only `thermal` is in the update, the current `cooling.target_temp`
-    ///   must still be strictly less than the incoming `dangerous_hashboard_temp`.
+    ///   must still be strictly less than each incoming one.
     ///
     /// Returns `Ok(())` when every present field is within its allowed range.
     /// Returns `Err(msg)` with a static, operator-readable message on the
@@ -583,6 +587,11 @@ impl ConfigUpdate {
         }
         if let Some(thermal) = &self.thermal {
             thermal.validate()?;
+            if !thermal.dangerous.same_kinds(&current.thermal.dangerous) {
+                return Err(
+                    "thermal must set a dangerous temperature for each reading kind of the machine, and for no other kind",
+                );
+            }
         }
         if let Some(miner) = &self.miner {
             miner.validate(bounds)?;
@@ -616,15 +625,15 @@ impl ConfigUpdate {
             let dangerous = self
                 .thermal
                 .as_ref()
-                .map_or(current.thermal.dangerous_hashboard_temp, |thermal| {
-                    thermal.dangerous_hashboard_temp
-                });
+                .map_or(current.thermal.dangerous, |thermal| thermal.dangerous);
 
             if let Some(target) = cooling_target {
                 CoolingConfig::validate_target_temp(target, dangerous)?;
-            } else if current.cooling.target_temp >= dangerous {
+            } else if CoolingConfig::validate_target_temp(current.cooling.target_temp, dangerous)
+                .is_err()
+            {
                 return Err(
-                    "current cooling.target_temp must remain less than thermal.dangerous_hashboard_temp",
+                    "current cooling.target_temp must remain less than each dangerous temperature",
                 );
             }
         }
@@ -694,14 +703,12 @@ impl Config {
         Self {
             pool,
             thermal: ThermalConfig {
-                // The chip family's safe junction ceiling lives on the
-                // board descriptor rather than a single hardcoded
-                // default, so a board with a different die-temperature
-                // rating comes up at its own halt threshold. The hashboard
-                // threshold lives there too, because each board defines the
-                // temperature its hashboard may reach.
-                dangerous_chip_temp: board.dangerous_chip_temp,
-                dangerous_hashboard_temp: board.dangerous_hashboard_temp,
+                // The halt thresholds live on the board descriptor rather
+                // than a single hardcoded default, so a board comes up with
+                // a threshold for each kind of reading it measures: its chip
+                // family's junction ceiling, the temperature its hashboard
+                // may reach, or both.
+                dangerous: TemperatureDescriptor::dangerous_of(board),
                 sample_interval_ms: thermal::DEFAULT_SAMPLE_INTERVAL_MS,
                 cooldown_temp: thermal::DEFAULT_COOLDOWN_TEMP,
             },
@@ -745,7 +752,8 @@ impl Config {
     ///
     /// Runs the pool, thermal, miner, api, and network
     /// sub-validators, bounds both cooling duties, and enforces the
-    /// cross-field rule `cooling.target_temp < thermal.dangerous_hashboard_temp`.
+    /// cross-field rule that `cooling.target_temp` is below each dangerous
+    /// temperature in `thermal`.
     /// Stored blobs pass through serde and can carry out-of-range or
     /// non-finite floats in those fields; [`load_initial`] calls this after
     /// [`decode_blob`] so a corrupted blob falls back to defaults instead of
@@ -768,10 +776,7 @@ impl Config {
         self.miner.validate(bounds)?;
         self.api.validate()?;
         self.network.validate()?;
-        CoolingConfig::validate_target_temp(
-            self.cooling.target_temp,
-            self.thermal.dangerous_hashboard_temp,
-        )?;
+        CoolingConfig::validate_target_temp(self.cooling.target_temp, self.thermal.dangerous)?;
         CoolingConfig::validate_fixed_fan_pwm(self.cooling.fixed_fan_pwm)?;
         CoolingConfig::validate_min_fan_pwm(self.cooling.pid.min_fan_pwm)?;
         Ok(())
@@ -1038,6 +1043,16 @@ fn decode_stored<E>(
             "config: stored tuning selects a tuner this machine does not offer, using the default tuning"
         );
         config.miner.tuning = info.default_tuning.tuning(board);
+    }
+    // A firmware update can change the kinds of reading a machine
+    // measures, and a threshold is kept only for a kind the machine reads.
+    // Only the thresholds are replaced then, as the tuning is.
+    let dangerous = TemperatureDescriptor::dangerous_of(board);
+    if !config.thermal.dangerous.same_kinds(&dangerous) {
+        warn!(
+            "config: stored dangerous temperatures name other reading kinds than the machine, using the default ones"
+        );
+        config.thermal.dangerous = dangerous;
     }
     if config.validate(info.bounds).is_err() {
         warn!("config: stored config failed validation, using defaults");

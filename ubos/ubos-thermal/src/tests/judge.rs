@@ -27,6 +27,7 @@
 
 extern crate std;
 
+use ubos_config::TemperatureDescriptor;
 use ubos_core::units::Temperature;
 use ubos_manager::{Message, PauseReasons};
 
@@ -183,7 +184,11 @@ fn a_measurement_releases_the_halt_and_the_budget_starts_over() {
 fn a_dangerous_measurement_halts_once_and_a_cool_one_under_the_halt_resumes() {
     let config = ubos_config::Config::default().thermal;
     // One degree above the hashboard threshold the default config sets.
-    let hot = Temperature::from_millicelsius(config.dangerous_hashboard_temp.millicelsius() + 1000);
+    let threshold = config
+        .dangerous
+        .hashboard
+        .expect("BUG: the default machine reads no hashboard");
+    let hot = Temperature::from_millicelsius(threshold.millicelsius() + 1000);
     let mut thermal = Thermal::default();
 
     let step = judge(
@@ -209,11 +214,19 @@ fn a_dangerous_measurement_halts_once_and_a_cool_one_under_the_halt_resumes() {
 
 #[test]
 fn every_kind_of_a_sample_is_judged_against_its_own_threshold() {
-    let config = ubos_config::Config::default().thermal;
+    let mut config = ubos_config::Config::default().thermal;
+    let (dangerous_chip, dangerous_hashboard) = (
+        Temperature::from_celsius(110),
+        Temperature::from_celsius(83),
+    );
+    config.dangerous = TemperatureDescriptor {
+        chip: Some(dangerous_chip),
+        hashboard: Some(dangerous_hashboard),
+    };
     // The hashboard runs past its own threshold while the die is still
     // below the die one, and either kind at its own threshold halts.
-    let hot = Temperature::from_millicelsius(config.dangerous_hashboard_temp.millicelsius() + 1000);
-    let die = Temperature::from_millicelsius(config.dangerous_chip_temp.millicelsius() - 1000);
+    let hot = Temperature::from_millicelsius(dangerous_hashboard.millicelsius() + 1000);
+    let die = Temperature::from_millicelsius(dangerous_chip.millicelsius() - 1000);
     let cool = Temperature::from_millicelsius(config.cooldown_temp.millicelsius() - 1000);
     let both = |chip: Temperature, hashboard: Temperature| {
         Reading::Measured(TempSample {
@@ -229,15 +242,14 @@ fn every_kind_of_a_sample_is_judged_against_its_own_threshold() {
     };
     let mut thermal = Thermal::default();
 
-    let step = judge(&mut thermal, both(die, hot), PauseReasons::default());
+    let step = thermal.judge(both(die, hot), &config, PauseReasons::default());
     assert_eq!(step.dangerous, Some(Note::Dangerous(hot)));
 
     // Under the halt a cool hashboard resumes nothing while the die is
     // still warm: every kind read has to cool.
     let halted = PauseReasons::default().apply(Message::DangerousTemperature);
-    assert_eq!(judge(&mut thermal, both(die, cool), halted).dangerous, None);
-    assert_eq!(
-        judge(&mut thermal, both(cool, cool), halted).dangerous,
-        Some(Note::Cooled(cool))
-    );
+    let step = thermal.judge(both(die, cool), &config, halted);
+    assert_eq!(step.dangerous, None);
+    let step = thermal.judge(both(cool, cool), &config, halted);
+    assert_eq!(step.dangerous, Some(Note::Cooled(cool)));
 }

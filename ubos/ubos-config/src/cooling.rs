@@ -24,6 +24,7 @@
 
 use core::ops::RangeInclusive;
 
+use crate::thermal::TemperatureDescriptor;
 use ubos_core::units::Temperature;
 
 /// How the cooling loop decides the fan duty.
@@ -131,26 +132,26 @@ impl Default for CoolingConfig {
 
 impl CoolingConfig {
     /// Validate the proposed `target` temperature against [`BOUNDS`] and
-    /// `dangerous_hashboard_temp`.
-    ///
-    /// `dangerous_hashboard_temp` is resolved by the caller to either the
-    /// value being set in the same update or the current live config's
-    /// value. It is the lower of the two halt thresholds, so a target below
-    /// it stays below both.
+    /// `dangerous`, the halt thresholds the caller resolves from the same
+    /// update or from the current live config.
     ///
     /// # Errors
     ///
     /// Returns `Err` when `target` is outside `BOUNDS.target_temp`, or
-    /// not strictly less than `dangerous_hashboard_temp`.
+    /// not strictly less than each threshold in `dangerous`.
     pub fn validate_target_temp(
         target: Temperature,
-        dangerous_hashboard_temp: Temperature,
+        dangerous: TemperatureDescriptor,
     ) -> Result<(), &'static str> {
         if !BOUNDS.target_temp.contains(&target) {
             return Err("cooling.target_temp must be between 30000 and 85000");
         }
-        if target >= dangerous_hashboard_temp {
-            return Err("cooling.target_temp must be less than dangerous_hashboard_temp");
+        if [dangerous.chip, dangerous.hashboard]
+            .into_iter()
+            .flatten()
+            .any(|threshold| target >= threshold)
+        {
+            return Err("cooling.target_temp must be less than each dangerous temperature");
         }
         Ok(())
     }

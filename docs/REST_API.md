@@ -133,7 +133,7 @@ chain value only when the PSU reading is unavailable.
 
 | Method | Path                              | Auth      | Status | Description                                                              |
 |--------|-----------------------------------|-----------|--------|--------------------------------------------------------------------------|
-| GET    | `/api/system/info`                | any       | 200    | `SystemInfo`; full telemetry with `apiVariant: "ubos-0.2"`, plus `hwInfo` (`productName` the name of the machine, `null` on a board that does not report it; `nominalHashrate` the hashrate in hashes per second that the maker rates the machine at, `null` on a board that does not report it; `psuModel` detected at runtime, `null` where the supply is not identifiable; `bootloaderVersion`/`fanControllerVersion` populated only on platforms that report them, `null` elsewhere; `hashboardIds` per-chain hashboard EEPROM serials, `null` slot when a chain's board is absent or unreadable; `chainsPresent` count of chains currently enumerated `Present`) |
+| GET    | `/api/system/info`                | any       | 200    | `SystemInfo`; full telemetry with `apiVariant: "ubos-0.3"`, plus `hwInfo` (`productName` the name of the machine, `null` on a board that does not report it; `nominalHashrate` the hashrate in hashes per second that the maker rates the machine at, `null` on a board that does not report it; `psuModel` detected at runtime, `null` where the supply is not identifiable; `bootloaderVersion`/`fanControllerVersion` populated only on platforms that report them, `null` elsewhere; `hashboardIds` per-chain hashboard EEPROM serials, `null` slot when a chain's board is absent or unreadable; `chainsPresent` count of chains currently enumerated `Present`) |
 | GET    | `/api/system/asic`                | any       | 200    | `MiningInfo`; chip facts (`asicModel`, `deviceModel`, `swarmColor`, `asicCount`), tuning defaults (`defaultFrequencyKhz`, `defaultVoltageMv`, `defaultEfficiencyMjPerTh`, and `defaultTuning`, the tuning a new config starts on: `"Fixed"` or `{ Power: { inputPowerMw } }`), `bounds: { frequencyKhz: { start, end }, voltageMv: { start, end }, inputPowerMw, tuners }`, where `inputPowerMw` is `{ start, end }`, or `null` when no tuner reads a power target, and `tuners` lists the tuners the machine offers, each `{ Fixed: { name } }` or `{ Power: { name, readsEfficiency } }` |
 | GET    | `/api/system/thermal`             | any       | 200    | `ThermalInfo`; accepted ranges as `bounds: { sampleIntervalMs, dangerousHashboardTempC, dangerousChipTempC, cooldownTempC }` |
 | GET    | `/api/system/cooling`             | any       | 200    | `CoolingInfo`; accepted ranges as `bounds: { targetTempC, minFanPwm, fixedFanPwm }` |
@@ -220,14 +220,22 @@ board that runs no fee slot has neither key. A `POST` that carries
 `fee` or `fee_permille` back is accepted and the fields are ignored,
 so a `POST` of the `GET` body leaves the list as it was.
 
+The `thermal` section has a dangerous temperature for each kind of
+reading that the machine measures. `dangerous_chip_temp` is the halt
+threshold of the chip readings, and `dangerous_hashboard_temp` is the
+halt threshold of the hashboard readings. If a machine does not read a
+kind, the field of that kind is `null`. The API refuses a `thermal` that
+adds or removes a kind. If the machine reads both kinds,
+`dangerous_hashboard_temp` must not be above `dangerous_chip_temp`.
+
 The `cooling` section carries `mode`, either `"auto"` or `"fixed"`,
 alongside `fixed_fan_pwm` and `min_fan_pwm`, both 0-100. Each duty is
 validated on its own, independently of the mode, so one can be edited
 while the other governs the fan. The thermal thresholds and
 `target_temp` are integers in millicelsius, so `67000` is 67 °C.
-`target_temp` is validated under both modes: it must stay below `thermal.dangerous_hashboard_temp`,
-the lower of the two halt thresholds, and that rule is what bounds how
-low `dangerous_hashboard_temp` can be set. A fixed duty of 0 is
+`target_temp` is validated under both modes. It must stay below each
+dangerous temperature in `thermal`, and that rule is what bounds how
+low a dangerous temperature can be set. A fixed duty of 0 is
 accepted. The mining halt protects the board.
 
 Under `"fixed"` the fan holds `fixed_fan_pwm`. No PID runs, so
@@ -253,7 +261,7 @@ publishes no temperature to steer by.
 | `ConfigUpdate`          | `GET /api/config`, `POST /api/config`              |
 | `GenericResponse`       | action stubs, 501 responses, errors                |
 
-`API_VARIANT = "ubos-0.2"` (`ubos-api/src/schema/mod.rs:43`) ships on
+`API_VARIANT = "ubos-0.3"` (`ubos-api/src/schema/mod.rs:45`) ships on
 every versioned response. Clients dispatch on this string rather than
 treating ubos as a reference-device; the minor bumps on each schema-breaking
 change while pre-1.0.

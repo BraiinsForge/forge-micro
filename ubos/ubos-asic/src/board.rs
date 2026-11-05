@@ -99,16 +99,17 @@ pub struct HashboardDescriptor {
     pub swarm_color: &'static str,
     /// Per-board cooling profile (PID setpoint and fan floor).
     pub cooling: BoardCooling,
-    /// Die-temperature halt threshold, read by
-    /// `Config::for_board` into `ThermalConfig::dangerous_chip_temp`.
+    /// Die-temperature halt threshold, or `None` on a machine that reads
+    /// no die, read by `Config::for_board` into `ThermalConfig::dangerous`.
     /// Travels with the board because a chip family's safe junction
     /// ceiling is a property of the silicon, not a runtime tuning knob.
-    pub dangerous_chip_temp: Temperature,
-    /// Hashboard halt threshold, read by `Config::for_board` into
-    /// `ThermalConfig::dangerous_hashboard_temp`. Travels with the
+    pub dangerous_chip_temp: Option<Temperature>,
+    /// Hashboard halt threshold, or `None` on a machine that reads no
+    /// hashboard sensor, read by `Config::for_board` into
+    /// `ThermalConfig::dangerous`. Travels with the
     /// board because the temperature a hashboard may reach is a property of
     /// the board, as the chip ceiling is a property of the silicon.
-    pub dangerous_hashboard_temp: Temperature,
+    pub dangerous_hashboard_temp: Option<Temperature>,
     /// Product name reported to external clients and the dashboard, sited
     /// here so the active board's name has one home.
     pub model: &'static str,
@@ -164,8 +165,8 @@ pub const BMM101_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
         min_fan_pwm: 20,
         input_smoother_half_decay_secs: 0,
     },
-    dangerous_chip_temp: Temperature::from_celsius(110),
-    dangerous_hashboard_temp: Temperature::from_celsius(83),
+    dangerous_chip_temp: None,
+    dangerous_hashboard_temp: Some(Temperature::from_celsius(83)),
     model: "miniminer",
     // Confirmed against BOS's AM2-S17 addressing
     // (`BASE_I2C_ADDRESS = 0x50`, single-hashboard `hashboard_address = 1`
@@ -195,8 +196,8 @@ pub const BFMX4_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
         min_fan_pwm: 20,
         input_smoother_half_decay_secs: 0,
     },
-    dangerous_chip_temp: Temperature::from_celsius(110),
-    dangerous_hashboard_temp: Temperature::from_celsius(75),
+    dangerous_chip_temp: Some(Temperature::from_celsius(110)),
+    dangerous_hashboard_temp: Some(Temperature::from_celsius(75)),
     model: "Braiins Forge Miner x4",
     // Tentative, unlike BMM101_HASHBOARD's 0x50: not yet cross-checked
     // against a parsed product-name match the way 0x50 was. See
@@ -227,8 +228,8 @@ pub const FORGE_AXE_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
         min_fan_pwm: 20,
         input_smoother_half_decay_secs: 0,
     },
-    dangerous_chip_temp: Temperature::from_celsius(110),
-    dangerous_hashboard_temp: Temperature::from_celsius(75),
+    dangerous_chip_temp: Some(Temperature::from_celsius(110)),
+    dangerous_hashboard_temp: Some(Temperature::from_celsius(75)),
     model: "Forge Axe",
     eeprom_i2c_address: None,
 };

@@ -276,3 +276,7 @@ const _: () = assert!(
     FORGE_AXE.chains <= MAX_CHAINS,
     "the Forge Axe has more chains than MAX_CHAINS"
 );
+
+#[cfg(test)]
+#[path = "tests/machine.rs"]
+mod tests;

@@ -133,24 +133,7 @@ fn temp_celsius_i16(temperature: Temperature) -> i16 {
 type CSMutex = CriticalSectionRawMutex;
 
 /// What a reading measures. `metrics` turns it into the `source` label.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Source {
-    /// A sensor on the hashboard.
-    Hashboard,
-    /// A chip's own die.
-    Chip,
-}
-
-impl Source {
-    /// The `source` label of this kind in the metrics.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Hashboard => "hashboard",
-            Self::Chip => "chip",
-        }
-    }
-}
+pub use ubos_config::Source;
 
 /// A reduction of one kind's readings in a sample.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -183,6 +166,15 @@ pub struct TempSample {
 }
 
 impl TempSample {
+    /// The stats of `source`, when the sample read it.
+    #[must_use]
+    pub const fn temp_stats(self, source: Source) -> Option<TempStats> {
+        match source {
+            Source::Chip => self.chip,
+            Source::Hashboard => self.hashboard,
+        }
+    }
+
     /// The hottest reading of either kind, or `None` when the sample
     /// took none.
     #[must_use]
@@ -204,11 +196,12 @@ impl TempSample {
     /// temperature.
     fn judge_dangerous(self, config: &ThermalConfig, held: PauseReasons) -> Option<Note> {
         let halted = held.contains(PauseReason::DangerousTemperature);
-        let checks = [
-            (self.chip, config.dangerous_chip_temp),
-            (self.hashboard, config.dangerous_hashboard_temp),
-        ]
-        .map(|(stats, dangerous)| Some((stats?.max, dangerous)));
+        let checks = [Source::Chip, Source::Hashboard].map(|source| {
+            match (self.temp_stats(source), config.dangerous.temp(source)) {
+                (Some(stats), Some(dangerous)) => Some((stats.max, dangerous)),
+                _ => None,
+            }
+        });
         let mut cooled = checks.iter().any(Option::is_some);
         for (temp, dangerous) in checks.into_iter().flatten() {
             match evaluate(temp, halted, dangerous, config.cooldown_temp) {

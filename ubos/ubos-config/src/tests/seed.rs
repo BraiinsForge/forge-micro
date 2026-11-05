@@ -34,6 +34,7 @@ use std::path::{Path, PathBuf};
 
 use embassy_futures::block_on;
 
+use crate::TemperatureDescriptor;
 use ubos_core::units::Temperature;
 
 use crate::{
@@ -216,7 +217,10 @@ fn changed_field_is_taken_again_alone() {
 
     let mut edited = seeded();
     edited.api = login("edited");
-    edited.thermal.dangerous_hashboard_temp = Temperature::from_celsius(80);
+    edited.thermal.dangerous = TemperatureDescriptor {
+        chip: None,
+        hashboard: Some(Temperature::from_celsius(80)),
+    };
     save(&mut storage, &edited);
 
     let changed = Seed {
@@ -248,11 +252,17 @@ fn stored_config_without_a_record_takes_the_seed() {
     let mut storage = FileStorage::new(&dir);
 
     let mut existing = Config::for_board(BOARD, INFO.default_tuning);
-    existing.thermal.dangerous_hashboard_temp = Temperature::from_celsius(80);
+    existing.thermal.dangerous = TemperatureDescriptor {
+        chip: None,
+        hashboard: Some(Temperature::from_celsius(80)),
+    };
     save(&mut storage, &existing);
 
     let mut expected = seeded();
-    expected.thermal.dangerous_hashboard_temp = Temperature::from_celsius(80);
+    expected.thermal.dangerous = TemperatureDescriptor {
+        chip: None,
+        hashboard: Some(Temperature::from_celsius(80)),
+    };
     let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(seed())));
     assert_eq!(loaded, expected);
     assert_eq!(stored(&mut storage), Some(expected));
@@ -387,11 +397,37 @@ fn invalid_seed_keeps_the_config() {
     );
 
     let mut existing = Config::for_board(BOARD, INFO.default_tuning);
-    existing.thermal.dangerous_hashboard_temp = Temperature::from_celsius(80);
+    existing.thermal.dangerous = TemperatureDescriptor {
+        chip: None,
+        hashboard: Some(Temperature::from_celsius(80)),
+    };
     save(&mut storage, &existing);
     let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(bad)));
     assert_eq!(loaded, existing);
     assert_eq!(stored(&mut storage), Some(existing));
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// A stored config whose dangerous temperatures name other reading kinds
+/// than the machine takes the machine's own and keeps everything else.
+#[test]
+fn stored_thresholds_of_other_kinds_take_the_machine_ones() {
+    let dir = fresh_dir("kinds");
+    let mut storage = FileStorage::new(&dir);
+
+    let mut other = Config::for_board(BOARD, INFO.default_tuning);
+    other.thermal.dangerous = TemperatureDescriptor {
+        chip: Some(Temperature::from_celsius(110)),
+        hashboard: Some(Temperature::from_celsius(80)),
+    };
+    other.api = login("kept");
+    save(&mut storage, &other);
+    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, None));
+
+    let mut expected = other;
+    expected.thermal.dangerous = TemperatureDescriptor::dangerous_of(BOARD);
+    assert_eq!(loaded, expected);
 
     let _ = fs::remove_dir_all(&dir);
 }

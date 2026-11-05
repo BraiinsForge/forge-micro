@@ -19,36 +19,149 @@
 
 //! Thermal monitoring configuration and validation.
 //!
-//! Defines [`ThermalConfig`] for the thermal monitor loop,
-//! [`ThermalBounds`] for the accepted ranges, and the static
-//! [`BOUNDS`] constant.
+//! Defines [`Source`], the kinds of reading a machine takes,
+//! [`TemperatureDescriptor`], a temperature for each of them,
+//! [`ThermalConfig`] for the thermal monitor loop, [`ThermalBounds`] for
+//! the accepted ranges, and the static [`BOUNDS`] constant.
 
 use core::ops::RangeInclusive;
 
+use ubos_asic::HashboardDescriptor;
 use ubos_core::units::Temperature;
+
+/// What a reading measures. `metrics` in `ubos-thermal` turns it into
+/// the `source` label.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Source {
+    /// A sensor on the hashboard.
+    Hashboard,
+    /// A chip's own die.
+    Chip,
+}
+
+impl Source {
+    /// The `source` label of this kind in the metrics.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Hashboard => "hashboard",
+            Self::Chip => "chip",
+        }
+    }
+}
+
+/// A temperature for each kind of reading, `None` for a kind the machine
+/// does not read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct TemperatureDescriptor {
+    /// The dies of the chips.
+    pub chip: Option<Temperature>,
+    /// The sensors on the hashboard.
+    pub hashboard: Option<Temperature>,
+    // NOTE: Ambient, ControlBoard and Psu can join as fields of their own
+    // once a reading of theirs is judged.
+}
+
+impl TemperatureDescriptor {
+    /// The temperature of `source`, when the machine reads it.
+    #[must_use]
+    pub const fn temp(&self, source: Source) -> Option<Temperature> {
+        match source {
+            Source::Chip => self.chip,
+            Source::Hashboard => self.hashboard,
+        }
+    }
+
+    /// Whether `other` names the same kinds of reading, whatever its
+    /// temperatures.
+    #[must_use]
+    pub const fn same_kinds(&self, other: &Self) -> bool {
+        self.chip.is_some() == other.chip.is_some()
+            && self.hashboard.is_some() == other.hashboard.is_some()
+    }
+
+    /// The halt thresholds `board` declares, one for each kind of
+    /// reading the machine measures.
+    #[must_use]
+    pub const fn dangerous_of(board: &HashboardDescriptor) -> Self {
+        Self {
+            chip: board.dangerous_chip_temp,
+            hashboard: board.dangerous_hashboard_temp,
+        }
+    }
+
+    /// The highest of the temperatures, or `None` when there is none.
+    #[must_use]
+    pub fn max(&self) -> Option<Temperature> {
+        self.chip.max(self.hashboard)
+    }
+}
 
 /// Tunable parameters for the thermal monitor loop.
 ///
 /// `sample_interval_ms` is stored as milliseconds for serde
 /// simplicity; the runtime converts to `Duration` at the boundary.
-#[derive(
-    Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
-)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(try_from = "ThermalConfigJson", into = "ThermalConfigJson")]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ThermalConfig {
     /// Poll interval in milliseconds.
     pub sample_interval_ms: u32,
-    /// Temperature above which mining is halted when the safety reading is
-    /// a hashboard reading. `Config::for_board` takes it from the board
-    /// descriptor, and [`validate`](Self::validate) holds it at or below
-    /// `dangerous_chip_temp`.
-    pub dangerous_hashboard_temp: Temperature,
-    /// Temperature above which mining is halted when the safety reading is
-    /// a real die temperature. This is the junction ceiling of the chip
-    /// family, which `Config::for_board` takes from the board descriptor.
-    pub dangerous_chip_temp: Temperature,
+    /// Temperatures above which mining is halted, one for each kind of
+    /// reading the machine measures. The die threshold is the junction
+    /// ceiling of the chip family. `Config::for_board` takes them from the
+    /// board descriptor, and [`validate`](Self::validate) holds the
+    /// hashboard one at or below the chip one.
+    pub dangerous: TemperatureDescriptor,
     /// Temperature below which a halted miner may resume.
     pub cooldown_temp: Temperature,
+}
+
+/// The stored and the JSON shape of [`ThermalConfig`]. A threshold is
+/// absent on a machine that does not read its kind, which keeps the field
+/// names the API has always carried.
+#[derive(Clone, serde::Serialize, serde::Deserialize, postcard_schema::Schema)]
+pub struct ThermalConfigJson {
+    sample_interval_ms: u32,
+    dangerous_hashboard_temp: Option<Temperature>,
+    dangerous_chip_temp: Option<Temperature>,
+    cooldown_temp: Temperature,
+}
+
+/// The schema of the bytes stored, which are those of [`ThermalConfigJson`].
+impl postcard_schema::Schema for ThermalConfig {
+    const SCHEMA: &'static postcard_schema::schema::NamedType = ThermalConfigJson::SCHEMA;
+}
+
+impl TryFrom<ThermalConfigJson> for ThermalConfig {
+    type Error = &'static str;
+
+    fn try_from(json: ThermalConfigJson) -> Result<Self, Self::Error> {
+        let dangerous = TemperatureDescriptor {
+            chip: json.dangerous_chip_temp,
+            hashboard: json.dangerous_hashboard_temp,
+        };
+        if dangerous.chip.is_none() && dangerous.hashboard.is_none() {
+            return Err("thermal must set dangerous_chip_temp, dangerous_hashboard_temp, or both");
+        }
+        Ok(Self {
+            sample_interval_ms: json.sample_interval_ms,
+            dangerous,
+            cooldown_temp: json.cooldown_temp,
+        })
+    }
+}
+
+impl From<ThermalConfig> for ThermalConfigJson {
+    fn from(config: ThermalConfig) -> Self {
+        Self {
+            sample_interval_ms: config.sample_interval_ms,
+            dangerous_hashboard_temp: config.dangerous.hashboard,
+            dangerous_chip_temp: config.dangerous.chip,
+            cooldown_temp: config.cooldown_temp,
+        }
+    }
 }
 
 /// Poll interval in milliseconds a board starts with. It is the same on
@@ -67,25 +180,25 @@ impl ThermalConfig {
     /// # Errors
     ///
     /// Returns `Err` when any field is out of range or any ordering invariant
-    /// is violated: `cooldown_temp < dangerous_hashboard_temp`,
-    /// `dangerous_hashboard_temp <= dangerous_chip_temp`.
+    /// is violated: `cooldown_temp` below the highest dangerous temperature, and
+    /// the hashboard threshold at or below the chip one.
     pub fn validate(&self) -> Result<(), &'static str> {
         if !BOUNDS.sample_interval_ms.contains(&self.sample_interval_ms) {
             return Err("thermal.sample_interval_ms must be between 100 and 60000");
         }
-        if !BOUNDS
-            .dangerous_hashboard_temp
-            .contains(&self.dangerous_hashboard_temp)
+        if let Some(hashboard) = self.dangerous.hashboard
+            && !BOUNDS.dangerous_hashboard_temp.contains(&hashboard)
         {
             return Err("thermal.dangerous_hashboard_temp must be between 50000 and 110000");
         }
-        if !BOUNDS
-            .dangerous_chip_temp
-            .contains(&self.dangerous_chip_temp)
+        if let Some(chip) = self.dangerous.chip
+            && !BOUNDS.dangerous_chip_temp.contains(&chip)
         {
             return Err("thermal.dangerous_chip_temp must be between 50000 and 115000");
         }
-        if self.dangerous_hashboard_temp > self.dangerous_chip_temp {
+        if let (Some(chip), Some(hashboard)) = (self.dangerous.chip, self.dangerous.hashboard)
+            && hashboard > chip
+        {
             return Err(
                 "thermal.dangerous_hashboard_temp must not exceed thermal.dangerous_chip_temp",
             );
@@ -93,8 +206,15 @@ impl ThermalConfig {
         if !BOUNDS.cooldown_temp.contains(&self.cooldown_temp) {
             return Err("thermal.cooldown_temp must be between 20000 and 90000");
         }
-        if self.cooldown_temp >= self.dangerous_hashboard_temp {
-            return Err("thermal.cooldown_temp must be less than thermal.dangerous_hashboard_temp");
+        // TODO: Rework the cooldown the same way as the dangerous
+        // temperatures, one for each kind. Held below the highest one only, a
+        // halt judged on a lower one can resume on its next sample.
+        if let Some(highest) = self.dangerous.max()
+            && self.cooldown_temp >= highest
+        {
+            return Err(
+                "thermal.cooldown_temp must be less than the highest dangerous temperature",
+            );
         }
         Ok(())
     }
