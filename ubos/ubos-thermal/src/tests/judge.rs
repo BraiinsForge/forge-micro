@@ -62,12 +62,9 @@ fn judge(thermal: &mut Thermal, reading: Reading, held: PauseReasons) -> Step {
 }
 
 /// The step of a tick that measured nothing and crossed no edge.
-fn held(last_temps: Option<TempSample>) -> Step {
+fn held() -> Step {
     Step {
-        tick: Tick::Publish {
-            temps: None,
-            last_temps,
-        },
+        tick: Tick::Publish { temps: None },
         unreadable: None,
         dangerous: None,
     }
@@ -78,7 +75,6 @@ fn published_cool() -> Step {
     Step {
         tick: Tick::Publish {
             temps: Some(cool_sample()),
-            last_temps: Some(cool_sample()),
         },
         unreadable: None,
         dangerous: None,
@@ -106,7 +102,6 @@ fn a_measurement_publishes_this_ticks_sample() {
     let step = judge(&mut thermal, cool_reading(), PauseReasons::default());
 
     assert_eq!(step, published_cool());
-    assert_eq!(thermal.last_temps, Some(cool_sample()));
 }
 
 #[test]
@@ -121,23 +116,20 @@ fn silence_is_withheld_inside_the_budget_and_published_held_past_it() {
     }
 
     // The tick that spends the budget asks for the halt, and publishes
-    // the last sample with no sample of this tick beside it.
+    // a reading with no sample.
     let step = judge(&mut thermal, Reading::Unreadable, PauseReasons::default());
     assert_eq!(
         step,
         Step {
             unreadable: Some(Note::Unreadable(SENSOR_FAULT_TICKS)),
-            ..held(Some(cool_sample()))
+            ..held()
         }
     );
 
     // Past the budget every tick publishes and none asks again, because
     // the mask already holds the halt.
     let held_mask = PauseReasons::default().apply(Message::TemperatureUnreadable);
-    assert_eq!(
-        judge(&mut thermal, Reading::Unreadable, held_mask),
-        held(Some(cool_sample()))
-    );
+    assert_eq!(judge(&mut thermal, Reading::Unreadable, held_mask), held());
 }
 
 #[test]
@@ -149,14 +141,14 @@ fn an_idle_board_publishes_held_and_releases_the_halt_it_asked_for() {
         judge(&mut thermal, Reading::Idle, held_mask),
         Step {
             unreadable: Some(Note::Idle),
-            ..held(None)
+            ..held()
         }
     );
 
     // An idle tick with no halt to release still publishes, and asks
     // for nothing.
     let released = held_mask.apply(Message::TemperatureReadable);
-    assert_eq!(judge(&mut thermal, Reading::Idle, released), held(None));
+    assert_eq!(judge(&mut thermal, Reading::Idle, released), held());
 }
 
 #[test]

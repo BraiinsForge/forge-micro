@@ -40,7 +40,7 @@ use crate::schema::info::{ApiInfo, ApiInfoChain, ApiInfoOta};
 /// Pinned exactly, as [`WORST_CASE_BODY_LEN`] is and for the same reason:
 /// a field addition that still fits the buffer fails here, and updating
 /// this constant is the prompt to check the buffer's comment.
-const WORST_CASE_INFO_BODY_LEN: usize = 1964;
+const WORST_CASE_INFO_BODY_LEN: usize = 1938;
 
 /// A `&'static str` of `len` copies of `text`. [`ApiInfo`] takes
 /// `&'static str`, and a leak in a test costs nothing.
@@ -61,7 +61,6 @@ fn leaked(text: &str, len: usize) -> &'static str {
 ///   "Waveshare ESP32-S3-LCD-Driver-Board W5100S").
 /// - All `u64` numeric fields: `u64::MAX` (20 decimal digits).
 /// - All `u32` numeric fields: `u32::MAX` (10 decimal digits).
-/// - `temperature` (`i32`): `i32::MIN` (11 chars including the sign).
 /// - `ambient` (`Option<i32>`): `Some(i32::MIN)` (11 chars), wider than `null`.
 /// - `fan_pwm`/`pools` (`u8`/`u8`): `u8::MAX` = 255 (3 digits).
 /// - `chip_reading_stale`: `false` (5 chars).
@@ -117,7 +116,6 @@ fn api_info_body_fits_in_buffer() {
         name: leaked("A", 42),
         hashrate: u64::MAX,
         uptime: u64::MAX,
-        temperature: i32::MIN,
         ambient: Some(i32::MIN),
         chip_reading_stale: false,
         temperature_chip_max: Some(i32::MIN),
@@ -180,7 +178,6 @@ fn api_info_body_fits_in_buffer() {
         "{{\"name\":\"{board_name}\",\
          \"hashrate\":{max_u64},\
          \"uptime\":{max_u64},\
-         \"temperature\":{min_i32},\
          \"ambient\":{min_i32},\
          \"chip_reading_stale\":false,\
          \"temperature_chip_max\":{min_i32},\
@@ -271,7 +268,6 @@ fn api_info_without_ota_leaves_the_key_out() {
         name: "board",
         hashrate: 0,
         uptime: 0,
-        temperature: 0,
         ambient: None,
         chip_reading_stale: true,
         temperature_chip_max: None,

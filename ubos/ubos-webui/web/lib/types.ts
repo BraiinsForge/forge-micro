@@ -28,16 +28,9 @@ export interface Info {
   name: string;
   hashrate?: number;
   uptime?: number;
-  /**
-   * The hottest reading of the last sample, of either kind, in °C. Read
-   * `chip_reading_stale` before showing it: this field holds its last
-   * value when the board stops measuring. The dashboard reads the four
-   * kind temperatures below.
-   */
-  temperature?: number;
   /** Ambient temperature near the board. `null` on a board without a sensor for it. */
   ambient?: number | null;
-  /** `true` when `temperature` is a held or zero value the board did not measure, not a fresh read. */
+  /** `true` when the board has no fresh temperature measurement, so the four kind temperatures are `null`. */
   chip_reading_stale?: boolean;
   /** The hottest and the mean reading of each kind in the last sample, in °C; `null` for a kind it did not read. */
   temperature_chip_max?: number | null;

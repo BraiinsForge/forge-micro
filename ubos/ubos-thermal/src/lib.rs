@@ -158,14 +158,6 @@ impl TempSample {
         }
     }
 
-    /// The hottest reading of either kind, or `None` when the sample
-    /// took none.
-    #[must_use]
-    pub fn hottest(self) -> Option<Temperature> {
-        let chip = self.chip.map(|chip| chip.max);
-        chip.max(self.hashboard.map(|hashboard| hashboard.max))
-    }
-
     /// Judge each kind this sample read against its own threshold, and
     /// answer the edge of the overheat pair it crossed, if any.
     ///
@@ -297,11 +289,6 @@ pub struct ThermalReading {
     /// This tick's sample, or `None` on a tick that measured nothing,
     /// which the fan holds full on rather than on a value never measured.
     pub temps: Option<TempSample>,
-    /// The last sample measured: this tick's on a tick that measured, and
-    /// an earlier one held over on a tick that measured nothing, so a
-    /// consumer reads the last known temperatures. `None` until the first
-    /// measurement.
-    pub last_temps: Option<TempSample>,
     /// The ambient temperature around the board, where the board measures
     /// it. What it is and is not read for: [`AmbientSensor`].
     pub ambient: Option<Temperature>,
@@ -315,11 +302,8 @@ pub struct ThermalReading {
 }
 
 impl ThermalReading {
-    /// Whether this tick measured nothing, so the last sample it carries
-    /// is held over from an earlier one. Derived from
-    /// [`temps`](Self::temps), which is the one field that is never
-    /// held over; a consumer that wants this tick's temperatures reads
-    /// that field for them, not this answer.
+    /// Whether this tick measured nothing, so [`temps`](Self::temps)
+    /// is `None`.
     ///
     /// The mark covers both kinds of silence, because a consumer of
     /// this watch treats them alike: neither one gives a temperature to
@@ -333,20 +317,10 @@ impl ThermalReading {
         self.temps.is_none()
     }
 
-    /// The hottest reading of the last sample in whole degrees Celsius,
-    /// or zero before the first measurement. Both info handlers in
+    /// Ambient temperature in whole degrees Celsius, or `None` where the
+    /// board measures none or the read failed. Both info handlers in
     /// `ubos-api` serialize it, so the derivation lives here rather than
     /// twice there.
-    #[must_use]
-    pub fn hottest_celsius(&self) -> i32 {
-        self.last_temps
-            .and_then(TempSample::hottest)
-            .map_or(0i32, Temperature::celsius_i32)
-    }
-
-    /// Ambient temperature in whole degrees Celsius, or `None` where the
-    /// board measures none or the read failed. Derived here for the same
-    /// reason as [`hottest_celsius`](Self::hottest_celsius).
     #[must_use]
     pub fn ambient_celsius(&self) -> Option<i32> {
         self.ambient.map(Temperature::celsius_i32)
@@ -550,26 +524,18 @@ struct Step {
 #[derive(Debug, PartialEq, Eq)]
 enum Tick {
     /// Publish a reading: this tick's sample, `None` on a tick that
-    /// measured nothing, and the last sample measured beside it.
-    Publish {
-        temps: Option<TempSample>,
-        last_temps: Option<TempSample>,
-    },
+    /// measured nothing.
+    Publish { temps: Option<TempSample> },
     /// Inside the miss budget: say nothing this tick. Silence that short
     /// is a hiccup the loop rides out, and a reading for it would park
     /// the fan at full for a glitch.
     Withhold,
 }
 
-/// What one tick hands the next: the miss budget, and the last sample
-/// measured.
+/// What one tick hands the next: the miss budget.
 #[derive(Default)]
 struct Thermal {
     unreadable_halt: UnreadableHalt,
-    /// The last sample measured, published again on a tick that measured
-    /// nothing, so a consumer in such a gap reads the last known
-    /// temperatures. `None` until the first measurement.
-    last_temps: Option<TempSample>,
 }
 
 impl Thermal {
@@ -581,17 +547,11 @@ impl Thermal {
     /// arguments and the previous tick.
     fn judge(&mut self, reading: Reading, config: &ThermalConfig, held: PauseReasons) -> Step {
         match reading {
-            Reading::Measured(temps) => {
-                self.last_temps = Some(temps);
-                Step {
-                    tick: Tick::Publish {
-                        temps: Some(temps),
-                        last_temps: self.last_temps,
-                    },
-                    unreadable: self.unreadable_halt.clear(held).map(Note::Recovered),
-                    dangerous: temps.judge_dangerous(config, held),
-                }
-            }
+            Reading::Measured(temps) => Step {
+                tick: Tick::Publish { temps: Some(temps) },
+                unreadable: self.unreadable_halt.clear(held).map(Note::Recovered),
+                dangerous: temps.judge_dangerous(config, held),
+            },
             Reading::Unreadable => {
                 // Past the budget the board runs unwatched and every
                 // consumer hears so on every tick.
@@ -604,7 +564,7 @@ impl Thermal {
                 };
                 let note = (!held.contains(PauseReason::TemperatureUnreadable))
                     .then_some(Note::Unreadable(ticks));
-                self.held(note)
+                Self::held(note)
             }
             Reading::Idle => {
                 // Why an idle board releases the halt: "Chain presence" in
@@ -612,20 +572,16 @@ impl Thermal {
                 // consumer hears on the first idle tick that the reading
                 // is held.
                 let note = self.unreadable_halt.clear(held).map(|_| Note::Idle);
-                self.held(note)
+                Self::held(note)
             }
         }
     }
 
-    /// The step of a tick that measured nothing: the last sample goes out
-    /// with no sample of this tick beside it, and `unreadable` is the one
-    /// edge such a tick can cross.
-    fn held(&self, unreadable: Option<Note>) -> Step {
+    /// The step of a tick that measured nothing: a reading goes out with
+    /// no sample, and `unreadable` is the one edge such a tick can cross.
+    fn held(unreadable: Option<Note>) -> Step {
         Step {
-            tick: Tick::Publish {
-                temps: None,
-                last_temps: self.last_temps,
-            },
+            tick: Tick::Publish { temps: None },
             unreadable,
             dangerous: None,
         }
@@ -720,13 +676,11 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatu
         let ambient_temp = read_ambient(&mut ambient).await;
         // A tick inside the miss budget withholds its reading, for the
         // reason `Tick::Withhold` gives.
-        if let Tick::Publish { temps, last_temps } = step.tick {
-            // The chain voltage is not held over the way the last sample
-            // is: it goes out only beside a measurement, and a tick that
-            // measured nothing reports none.
+        if let Tick::Publish { temps } = step.tick {
+            // The chain voltage goes out only beside a measurement, and a
+            // tick that measured nothing reports none.
             publisher.send(ThermalReading {
                 temps,
-                last_temps,
                 ambient: ambient_temp,
                 chain_voltage_mv: temps.and_then(|_| sensor.chain_voltage_mv()),
                 timestamp_ms: now.as_millis(),

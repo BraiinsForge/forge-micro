@@ -47,7 +47,6 @@ function info() {
     name: 'Mock Board',
     hashrate,
     uptime,
-    temperature,
     ambient,
     chip_reading_stale: stale,
     temperature_chip_max: chipQuiet ? null : temperature + 8,

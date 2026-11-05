@@ -49,13 +49,11 @@ pub struct ApiInfo {
     pub hashrate: u64,
     /// Firmware uptime in whole seconds since boot.
     pub uptime: u64,
-    /// The hottest reading of the last sample, of either kind, in whole
-    /// degrees Celsius, or zero before the first measurement.
-    pub temperature: i32,
     /// Ambient temperature in whole degrees Celsius, or `null` where the
     /// board measures none.
     pub ambient: Option<i32>,
-    /// `true` when `temperature` is not a fresh measurement.
+    /// `true` when the board has no fresh temperature measurement, so the
+    /// four chip and hashboard temperatures are `null`.
     pub chip_reading_stale: bool,
     /// The hottest chip reading of this tick in whole degrees Celsius,
     /// or `null` when the tick read no chip.

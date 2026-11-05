@@ -180,7 +180,6 @@ pub(crate) fn moderate_reading(no_reading: bool) -> ThermalReading {
     ThermalReading {
         chain_voltage_mv: None,
         temps: (!no_reading).then_some(temps),
-        last_temps: Some(temps),
         ambient: None,
         timestamp_ms: 0,
     }

@@ -203,9 +203,6 @@ impl RestApiService {
             name: self.board_name,
             hashrate: chain_stats.machine_hashrate(),
             uptime: Instant::now().as_secs(),
-            temperature: thermal_reading
-                .as_ref()
-                .map_or(0, ubos_thermal::ThermalReading::hottest_celsius),
             ambient: thermal_reading
                 .as_ref()
                 .and_then(ubos_thermal::ThermalReading::ambient_celsius),

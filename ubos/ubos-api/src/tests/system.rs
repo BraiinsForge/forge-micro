@@ -720,7 +720,6 @@ fn serialize_system_info_with_ota(
         hostname: "test",
         hashrate: 0,
         uptime_seconds: 0,
-        temperature_celsius: 0,
         ambient_celsius: None,
         chip_reading_stale: false,
         fan_speed_rpm: 0,
@@ -830,7 +829,7 @@ fn system_info_hw_info_serializes_published_versions() {
 /// fails here, and updating this constant is the prompt to check the
 /// comment on `SCRATCH_SIZE`. The `const` block holds the claim that
 /// comment makes, so the pinned length cannot be moved past the buffer.
-const WORST_CASE_SYSTEM_INFO_LEN: usize = 1405;
+const WORST_CASE_SYSTEM_INFO_LEN: usize = 1382;
 const _: () = assert!(WORST_CASE_SYSTEM_INFO_LEN <= super::SCRATCH_SIZE);
 
 /// The scratch buffer `system.rs` serializes into must hold the largest
