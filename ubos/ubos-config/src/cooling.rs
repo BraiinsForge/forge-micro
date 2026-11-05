@@ -177,15 +177,13 @@ impl CoolingConfig {
 /// so the UI has a value to show when the mode is first switched.
 pub(crate) const DEFAULT_FIXED_FAN_PWM: u8 = 50;
 
-/// Accepted ranges for every numeric [`CoolingConfig`] field.
+/// Accepted ranges for every numeric cooling field.
 ///
-/// `mode` carries no range: it is an enum, and serde rejects any variant
-/// outside it. The [`CoolingConfig`] validators check against these ranges
+/// `mode` carries no range: it is an enumeration, and a value outside
+/// it is rejected. The cooling validators check against these ranges
 /// rather than against literals of their own, so this is the single
-/// definition of what the firmware accepts.
-///
-/// Serializable so API endpoints can return the bounds alongside the
-/// current config without a separate hard-coded schema.
+/// definition of what the firmware accepts, and the API reports it
+/// beside the current config.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -208,14 +206,14 @@ pub const BOUNDS: CoolingBounds = CoolingBounds {
 
 /// Static bounds metadata for the cooling config section.
 ///
-/// Carries the accepted ranges for [`CoolingConfig`] so the webui can
-/// pull input `min`/`max` attributes from the same source the firmware
-/// validates against.
+/// Carries the accepted ranges of the cooling fields so a client can
+/// take its input limits from the same source the firmware validates
+/// against.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct CoolingInfo {
-    /// Accepted ranges for [`CoolingConfig`] fields.
+    /// Accepted ranges for the cooling fields.
     pub bounds: &'static CoolingBounds,
 }
 

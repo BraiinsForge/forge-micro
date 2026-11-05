@@ -34,9 +34,8 @@ use crate::schema::state::{ApiMiningState, ApiPauseReason};
 
 /// OTA-related fields embedded in the system-info response.
 ///
-/// Present when the board supplies an [`crate::ota::OtaTarget`]
-/// implementation. Absent (the enclosing `Option` is `None`) on
-/// boards without a dual-partition layout.
+/// Present on a board with a dual-slot layout, and absent on one
+/// without.
 #[derive(Serialize, Clone, Copy)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -57,17 +56,15 @@ pub struct OtaInfo {
 
 /// Hardware-identification fields embedded in the system-info response.
 ///
-/// `psu_model` is detected at runtime, at the PSU driver's first
+/// `psuModel` is detected at runtime, at the PSU driver's first
 /// successful init, and reads `null` where the supply is not
-/// identifiable.
-/// `bootloader_version` and `fan_controller_version` are read once at
-/// boot, on the boards that have both, and reach this struct through
-/// the publish/read cells in `crate::hw_info`; they are `null` before
-/// publication and on every board that publishes neither.
-/// `hashboard_ids` is published by every board's boot-time hashboard
-/// EEPROM read the same way, `product_name` by a board whose stored
-/// identity names the machine, and `nominal_hashrate` by a board that
-/// knows the hashrate its maker rates the machine at.
+/// identifiable. `bootloaderVersion` and `fanControllerVersion` are
+/// read once at boot, on the boards that have both, and are `null`
+/// before that read and on every board that reports neither.
+/// `hashboardIds` comes from every board's boot-time hashboard EEPROM
+/// read the same way, `productName` from a board whose stored identity
+/// names the machine, and `nominalHashrate` from a board that knows
+/// the hashrate its maker rates the machine at.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -113,27 +110,20 @@ pub struct HwInfo {
 }
 
 /// Full system-info snapshot for `GET /api/system/info`.
-///
-/// All borrowed fields live for the duration of the response build
-/// call; callers do not need to keep this struct alive after
-/// serialization.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct SystemInfo<'response> {
-    /// Schema-version discriminator from [`super::API_VARIANT`].
+    /// Schema-version discriminator, `ubos-0.2` for this document.
     pub api_variant: &'static str,
-    /// The control board's product name, reported verbatim from
-    /// `ControlBoardDescriptor::name`, e.g. `"W6100-EVB-Pico2"`.
+    /// The control board's product name, as the board descriptor
+    /// spells it.
     pub board_name: &'response str,
     /// The build id the board stamped: the tip of the checkout it was built
     /// from and the build time, the same id the package file is named by.
-    /// Cut to [`crate::ota::MAX_BUILD_ID_LEN`] bytes, which the body
-    /// buffers are sized for.
     pub build: &'response str,
-    /// Network hostname. Set to the operator-configured hostname from
-    /// `Config.network.hostname` when one has been saved; falls back
-    /// to `board_name` when the stored hostname is empty.
+    /// Network hostname: the configured hostname when one is saved,
+    /// else `boardName`.
     pub hostname: &'response str,
     /// EWMA-smoothed mining rate in hashes per second.
     pub hashrate: u64,
@@ -185,8 +175,8 @@ pub struct SystemInfo<'response> {
     /// Best difficulty nonce found in the current stratum session;
     /// zero until the scoreboard ring buffer is wired.
     pub best_session_nonce_diff: u64,
-    /// OTA partition information. `None` on boards without a
-    /// dual-partition layout or when no `OtaTarget` was supplied.
+    /// OTA slot information, or `null` on a board without a dual-slot
+    /// layout.
     pub ota: Option<OtaInfo>,
     /// The miner's lifecycle state, or `null` before its first publish.
     pub mining_state: Option<ApiMiningState>,

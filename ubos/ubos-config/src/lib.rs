@@ -471,48 +471,46 @@ impl Handle {
     }
 }
 
-/// Partial-update cooling section of [`ConfigUpdate`].
+/// Partial-update cooling section of the config update.
 ///
-/// Only the operator-tunable cooling fields are exposed; the rest of
-/// [`CoolingConfig::pid`] (the PID gains) is factory-set and never patched
-/// from the UI. Each field is `Option` so one can be set without the others.
-/// `mode` and `fixed_fan_pwm` are separate fields rather than one payload
-/// variant so the UI can edit the duty without leaving auto control.
+/// Only the operator-tunable cooling fields are on the wire; the PID
+/// gains are factory-set and never patched. Each key is optional so one
+/// can be set without the others. `mode` and `fixed_fan_pwm` are separate
+/// keys rather than one payload variant so the UI can edit the duty
+/// without leaving auto control.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct CoolingUpdate {
-    /// Replacement for [`CoolingConfig::mode`]; `None` leaves it.
+    /// The fan mode; a missing key leaves it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<FanMode>,
-    /// Replacement for [`CoolingConfig::target`]; `None` leaves it.
+    /// The reading the auto-mode PID follows and the temperature it holds;
+    /// a missing key leaves it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<PidTarget>,
-    /// Replacement for [`CoolingConfig::fixed_fan_pwm`] (the fixed-mode duty,
-    /// 0-100); `None` leaves it.
+    /// The duty held in fixed mode, 0 to 100; a missing key leaves it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fixed_fan_pwm: Option<u8>,
-    /// Replacement for [`PidConfig::min_fan_pwm`] (the fan floor, 0-100);
-    /// `None` leaves it.
+    /// The fan floor in auto mode, 0 to 100; a missing key leaves it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_fan_pwm: Option<u8>,
 }
 
 /// Partial-update wire shape for `GET` and `POST /api/config`.
 ///
-/// All fields are `Option` so callers can patch one section at a time
-/// without round-tripping unrelated state. A missing JSON key deserializes
-/// as `None`; the POST handler merges only the fields that are `Some` into
-/// the running [`Config`]. On `GET`, the response includes all fields with
-/// `api.password` blanked to avoid leaking the stored secret.
+/// Every key is optional, so a caller can patch one section at a time
+/// without round-tripping unrelated state. A missing key leaves that
+/// section unchanged; the POST handler merges only the keys present into
+/// the running config. A GET response carries every section with
+/// `api.password` blanked, so the stored secret never leaves the device.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ConfigUpdate {
-    /// Replacement value for [`Config::pool`]; `None` means leave
-    /// unchanged. `Some(empty Vec)` is the wire shape for "no pools
-    /// configured" and clears all three persisted slots — the webui
-    /// produces this when every URL input is blank.
+    /// The pool slots; a missing key leaves them unchanged. An empty array
+    /// means no pools configured and clears every persisted slot, which is
+    /// what the web UI sends when every URL input is blank.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "Option<&[PoolEntry]>"))]
     pub pool: Option<heapless::Vec<PoolEntry, { pool::MAX_POOLS }>>,
@@ -530,25 +528,24 @@ pub struct ConfigUpdate {
     /// served and the field is not parsed, as `fee` is not.
     #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
     pub fee_permille: Option<i64>,
-    /// Replacement value for [`Config::thermal`]; `None` means leave unchanged.
+    /// The thermal section; a missing key leaves it unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thermal: Option<ThermalConfig>,
-    /// Partial cooling update (mode, setpoint, fixed duty, and fan floor);
-    /// `None` means leave unchanged. The full [`CoolingConfig`] is not
-    /// exposed because the PID gains are factory-tuned and must not be
-    /// overwritten from the UI.
+    /// Partial cooling update: mode, setpoint, fixed duty and fan floor.
+    /// A missing key leaves the section unchanged. The PID gains are
+    /// factory-tuned and are not on the wire.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cooling: Option<CoolingUpdate>,
-    /// Replacement value for [`Config::miner`]; `None` means leave unchanged.
+    /// The miner section; a missing key leaves it unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub miner: Option<MinerConfig>,
-    /// Replacement value for [`Config::api`]; `None` means leave unchanged.
+    /// The API section; a missing key leaves it unchanged.
     ///
-    /// On `GET`, `password` is set to an empty string so the stored secret
-    /// never leaves the device.
+    /// On `GET`, `password` is an empty string so the stored secret never
+    /// leaves the device.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api: Option<ApiConfig>,
-    /// Replacement value for [`Config::network`]; `None` means leave unchanged.
+    /// The network section; a missing key leaves it unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub network: Option<NetworkConfig>,
 }

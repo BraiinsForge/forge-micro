@@ -24,10 +24,9 @@ use super::mining::{FrequencyVoltageTarget, PowerTarget};
 /// Tuner selection and target parameters used at bring-up.
 ///
 /// A variant names a kind of tuning and carries that kind's target.
-/// Which tuner a machine runs for a kind is the firmware's answer, not
-/// this crate's, and a machine need not answer every kind: the firmware
-/// lists the tuners it offers in
-/// [`MiningBounds::tuners`](crate::MiningBounds::tuners). Changing the
+/// Which tuner a machine runs for a kind is the firmware's answer, and
+/// a machine need not answer every kind: the firmware
+/// lists the tuners it offers in the mining bounds. Changing the
 /// variant tears down the chip and restarts under the tuner the
 /// firmware selects for it; changing only the target does not, because
 /// the running tuner reads it at its next step.

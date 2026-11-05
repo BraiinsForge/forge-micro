@@ -29,10 +29,9 @@ use serde::Serialize;
 /// confirmation. `seconds_remaining` counts down to the automatic
 /// revert; it is 0 when no change is pending.
 ///
-/// The address fields carry the live values from the embassy-net stack,
-/// which works for both modes: static returns the configured values,
-/// DHCP returns the current lease. All fields are `None` / empty when
-/// the stack has not yet acquired an address.
+/// The address fields carry the live values of the network stack in
+/// both modes: static reports the configured values, DHCP the current
+/// lease. Every address is `null` or empty until the stack holds one.
 #[derive(Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct SystemNetwork<'a> {

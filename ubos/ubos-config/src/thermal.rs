@@ -134,10 +134,8 @@ impl ThermalConfig {
     }
 }
 
-/// Accepted ranges for each [`ThermalConfig`] field.
-///
-/// Serializable so API endpoints can return the bounds alongside the
-/// current config without a separate hard-coded schema.
+/// Accepted ranges for each thermal field. The API reports them beside
+/// the current config.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -163,14 +161,14 @@ pub const BOUNDS: ThermalBounds = ThermalBounds {
 
 /// Static bounds metadata for the thermal config section.
 ///
-/// Carries the accepted ranges for [`ThermalConfig`] so the webui can
-/// pull input `min`/`max` attributes from the same source the firmware
-/// validates against.
+/// Carries the accepted ranges of the thermal fields so a client can
+/// take its input limits from the same source the firmware validates
+/// against.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ThermalInfo {
-    /// Accepted ranges for [`ThermalConfig`] fields.
+    /// Accepted ranges for the thermal fields.
     pub bounds: &'static ThermalBounds,
 }
 

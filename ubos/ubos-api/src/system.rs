@@ -671,9 +671,8 @@ where
 
 /// Request body for `POST /api/system/network`.
 ///
-/// Mirrors [`ubos_config::NetworkConfig`] field by field (`serde_json_core`
-/// does not support `#[serde(flatten)]`) and adds `confirm_after_switch`.
-/// The caller always sends this field; it is not optional.
+/// Carries the network config fields beside `confirm_after_switch`,
+/// which the caller always sends.
 #[derive(serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 struct NetworkPostRequest {

@@ -44,8 +44,9 @@ pub enum ApiChainState {
 }
 
 /// The miner's lifecycle state as the `mining_state` string of both
-/// info bodies. `MiningState::as_api_str` spells the same strings for
-/// the metrics label, and a test holds the two equal.
+/// info bodies.
+// The metrics label spells the same strings through
+// `MiningState::as_api_str`, and a test holds the two equal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]

@@ -34,9 +34,9 @@ pub const LABELS: &[&str] = &["hashrate", "temperature", "fan_rpm", "fan_pwm", "
 
 /// Statistics time-series snapshot for `GET /api/system/statistics`.
 ///
-/// `statistics` is a slice of row slices; each row contains one
-/// sample per label in [`LABELS`] order. Until the server-side ring
-/// buffer lands, `statistics` is always empty.
+/// `statistics` is an array of rows; each row holds one sample per
+/// entry of `labels`, in that order. Until the server-side ring buffer
+/// lands, `statistics` is always empty.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]

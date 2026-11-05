@@ -42,8 +42,7 @@ use crate::schema::system_info::OtaInfo;
 // folding them into enums would change the keys it reads.
 #[allow(clippy::struct_excessive_bools)]
 pub struct ApiInfo {
-    /// The control board's product name, from
-    /// `ControlBoardDescriptor::name`.
+    /// The control board's product name.
     pub name: &'static str,
     /// Sum of every chain's smoothed hashrate in hashes per second.
     pub hashrate: u64,
@@ -105,8 +104,9 @@ pub struct ApiInfo {
     /// synchronizes.
     #[cfg_attr(feature = "schema", schemars(with = "str"))]
     pub time: String<24>,
-    /// The build id the board stamped, cut to
-    /// [`crate::ota::MAX_BUILD_ID_LEN`] bytes.
+    /// The build id the board stamped: the tip of the checkout it was
+    /// built from and the build time, the same id the package file is
+    /// named by.
     pub build: &'static str,
     /// The machine's product name as its maker names the model, or `null`
     /// before a board publishes one.

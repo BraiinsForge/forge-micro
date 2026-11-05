@@ -32,12 +32,12 @@ use ubos_config::Source;
 pub struct SystemTemperature {
     /// The hottest chip reading, or `null` when the sample read no chip.
     pub chip_max: Option<i32>,
-    /// The mean chip reading, as `chip_max`.
+    /// The mean chip reading, as `chipMax`.
     pub chip_mean: Option<i32>,
     /// The hottest hashboard reading, or `null` when the sample read no
     /// hashboard sensor.
     pub hashboard_max: Option<i32>,
-    /// The mean hashboard reading, as `hashboard_max`.
+    /// The mean hashboard reading, as `hashboardMax`.
     pub hashboard_mean: Option<i32>,
     /// The ambient temperature around the board, or `null` where the
     /// board measures none or the read failed.

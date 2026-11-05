@@ -49,9 +49,8 @@ pub enum NetworkMode {
 
 /// Network interface parameters for both IP assignment and hostname.
 ///
-/// Stored as part of [`crate::Config`] and applied at boot before the
-/// network stack is initialised so the embassy-net stack sees the
-/// correct mode on its first poll.
+/// Stored with the config and applied at boot before the network stack
+/// starts, so the stack sees the right mode on its first poll.
 #[derive(
     Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
 )]

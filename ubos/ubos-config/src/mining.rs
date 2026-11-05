@@ -34,17 +34,17 @@ use crate::miner::Tuning;
 
 pub use crate::versions::live::{FrequencyVoltageTarget, PowerTarget};
 
-/// One tuner a machine offers: the [`Tuning`] variant it reads, the
-/// name the mining form shows for it, and the target fields it reads.
+/// One tuner a machine offers: the tuning kind it reads, the name the
+/// mining form shows for it, and the target fields it reads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all_fields = "camelCase")]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum TunerInfo {
-    /// Reads [`Tuning::Fixed`], both its frequency and its voltage.
+    /// Reads a fixed tuning, both its frequency and its voltage.
     Fixed { name: &'static str },
-    /// Reads [`Tuning::Power`]: its input power, and its efficiency when
-    /// `reads_efficiency` is set.
+    /// Reads a power tuning: its input power, and its efficiency when
+    /// `readsEfficiency` is set.
     Power {
         name: &'static str,
         reads_efficiency: bool,
@@ -70,8 +70,8 @@ impl TunerInfo {
 pub enum DefaultTuning {
     /// The board's default frequency and voltage.
     Fixed,
-    /// `input_power` of PSU input power, at the board's default
-    /// efficiency. The API names it `inputPowerMw`.
+    /// The given PSU input power in mW, at the board's default
+    /// efficiency.
     Power {
         #[serde(rename = "inputPowerMw")]
         input_power: Power,
@@ -95,11 +95,8 @@ impl DefaultTuning {
     }
 }
 
-/// Accepted ranges for each [`Tuning`] field, and the tuners a
-/// [`Tuning`] may select.
-///
-/// Serializable so API endpoints can return the bounds alongside the
-/// current config without a separate hard-coded schema.
+/// Accepted ranges for each tuning target field, and the tuners a
+/// tuning may select. The API reports them beside the current config.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]

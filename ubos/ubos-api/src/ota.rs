@@ -65,20 +65,23 @@ pub use ubos_config::StagedConfig;
 /// risk of reading an indeterminate intermediate value. It serializes as
 /// its variant name in camel case, the string `/api/info` reports.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(
+    feature = "schema",
+    schemars(description = "Phase of the current or most recent firmware upload.")
+)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[repr(u8)]
 pub enum OtaPhase {
     /// No upload is in progress. The board is running normally.
     Idle = 0,
-    /// An upload session has been opened with `begin()` and chunks are
-    /// being received.
+    /// An upload session is open and chunks are being received.
     Uploading = 1,
     /// The last upload session ended with an error. `lastError` holds the
     /// mapped error code.
     Error = 2,
-    /// `finish()` succeeded and the firmware is about to call
-    /// `reboot_into_new()`. The board will reset momentarily.
+    /// The upload finished and the firmware is about to reboot into the
+    /// new image.
     Rebooting = 3,
 }
 
@@ -276,11 +279,17 @@ impl OtaSession {
 /// It serializes as its variant name in camel case, the string
 /// `/api/info` reports.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(
+    feature = "schema",
+    schemars(
+        description = "Cause of the most recent reset, as the watchdog hardware reported it."
+    )
+)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[repr(u8)]
 pub enum ResetReason {
-    /// Watchdog reason register was not checked (pre-publication state).
+    /// The reset reason was not read before this report.
     Unknown = 0,
     /// Watchdog reason bits were both clear: power-on reset or `sys_reset`.
     Clean = 1,
@@ -301,6 +310,10 @@ pub enum ResetReason {
 /// `ubos/ubos-ota/src/rp.rs`. It serializes as its variant name in camel
 /// case, the string `/api/info` reports.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(
+    feature = "schema",
+    schemars(description = "Where in a flash write the most recent reset landed.")
+)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[serde(rename_all = "camelCase")]
@@ -308,14 +321,14 @@ pub enum ResetReason {
 pub enum OtaWritePhase {
     /// No OTA write was in progress at the time of reset.
     None = 0,
-    /// Reset occurred inside the embassy-boot flash write call; the write had
-    /// not returned when the watchdog fired.
+    /// Reset occurred inside the flash write; the write had not returned
+    /// when the watchdog fired.
     InFlash = 1,
     /// Reset occurred after the flash write returned successfully; the offset
     /// was updated and the breadcrumb was written before the board reset.
     FlashDone = 2,
-    /// A panic handler ran before the reset; the panic breadcrumb was written
-    /// to SCRATCH2 by `ota_target::record_panic_breadcrumb`.
+    /// A panic handler ran before the reset and recorded where the write
+    /// stood.
     Panic = 3,
 }
 

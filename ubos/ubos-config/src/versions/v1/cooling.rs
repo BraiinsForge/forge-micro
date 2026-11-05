@@ -52,10 +52,10 @@ pub struct PidTarget {
 
 /// How the cooling loop decides the fan duty.
 ///
-/// [`FanMode::Auto`] runs the PID against [`CoolingConfig::target`];
-/// [`FanMode::Fixed`] holds the fan at [`CoolingConfig::fixed_fan_pwm`] and
-/// ignores the temperature. Neither mode disables the cooling failsafes: a
-/// sensor fault and a stalled thermal task force the fan to full in both.
+/// `Auto` runs the PID against `target`; `Fixed` holds the fan at
+/// `fixed_fan_pwm` and ignores the temperature. Neither mode disables
+/// the cooling failsafes: a sensor fault and a stalled thermal task force
+/// the fan to full in both.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
 )]

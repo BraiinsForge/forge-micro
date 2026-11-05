@@ -19,13 +19,11 @@
 
 //! The HTTP API credentials of version 1.
 
-/// HTTP API credentials.
-///
-/// `heapless::String<N>` has a `const fn new()` but no const
-/// constructor that accepts content, so `ApiConfig::default` is a
-/// regular `Default` impl rather than a `const`. The shadow step
-/// publishes the value at runtime; no call site needs it at
-/// compile time.
+/// HTTP API credentials: the user name and password a client
+/// presents.
+// The default is built at runtime: a heapless string has no const
+// constructor that takes content, and no call site needs the value at
+// compile time.
 #[derive(
     Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
 )]

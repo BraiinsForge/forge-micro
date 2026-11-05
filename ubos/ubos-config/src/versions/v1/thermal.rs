@@ -49,10 +49,8 @@ pub struct TemperatureDescriptor {
     // once a reading of theirs is judged.
 }
 
-/// Tunable parameters for the thermal monitor loop.
-///
-/// `sample_interval_ms` is stored as milliseconds for serde
-/// simplicity; the runtime converts to `Duration` at the boundary.
+/// Tunable parameters for the thermal monitor loop. Temperatures are
+/// in millidegrees Celsius.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(try_from = "ThermalConfigJson", into = "ThermalConfigJson")]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -76,9 +74,19 @@ pub struct ThermalConfig {
 #[derive(Clone, serde::Serialize, serde::Deserialize, postcard_schema::Schema)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ThermalConfigJson {
+    /// Poll interval in milliseconds.
     sample_interval_ms: u32,
+    /// Temperature above which mining is halted when the safety reading is
+    /// a hashboard reading, or `null` on a machine that reads none. The
+    /// board descriptor sets it, and validation holds it at or below
+    /// `dangerous_chip_temp`.
     dangerous_hashboard_temp: Option<Temperature>,
+    /// Temperature above which mining is halted when the safety reading is
+    /// a real die temperature, or `null` on a machine that reads none. This
+    /// is the junction ceiling of the chip family, which the board
+    /// descriptor sets.
     dangerous_chip_temp: Option<Temperature>,
+    /// Temperature below which a halted miner may resume.
     cooldown_temp: Temperature,
 }
 

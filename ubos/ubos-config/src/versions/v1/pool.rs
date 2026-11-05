@@ -29,18 +29,16 @@
 pub enum ProtocolKind {
     /// Stratum V1 with an optional worker password.
     Sv1 {
-        /// `None` means no password sent; most pools authorise by
-        /// worker name alone.
+        /// Worker password, or `null` to send none; most pools authorise
+        /// by worker name alone.
         #[cfg_attr(feature = "schema", schemars(with = "Option<&str>"))]
         password: Option<heapless::String<128>>,
     },
     /// Stratum V2 with an optional authority public key.
     Sv2 {
-        /// `None` means `ValidateNothing`; `Some` means
-        /// `ValidateSignature` against the supplied 32-byte key. Over
-        /// JSON this is the SV2 base58check string; in flash it is the
-        /// raw 32 bytes. See [`crate::pubkey`] and
-        /// [`crate::pool::sv2_pubkey_serde`].
+        /// The pool's authority public key as an SV2 base58check string,
+        /// which the client validates the pool's signature against, or
+        /// `null` to validate nothing. In flash it is the raw 32 bytes.
         #[serde(with = "crate::pool::sv2_pubkey_serde")]
         #[cfg_attr(feature = "schema", schemars(with = "Option<&str>"))]
         pool_pubkey: Option<[u8; 32]>,
@@ -65,11 +63,9 @@ pub struct PoolEntry {
     /// Protocol selection and its parameters.
     pub protocol: ProtocolKind,
     /// Scheduler dispatch weight for this slot. Zero marks a
-    /// backup-only slot: mined only while no weighted slot has
-    /// work. An absent JSON key deserializes as zero, so
-    /// weightless configs keep the primary-plus-backups
-    /// behavior. See the config-driven weights section of
-    /// `docs/MULTIPOOL_DESIGN.md`.
+    /// backup-only slot, mined only while no weighted slot has work. A
+    /// missing key means zero, so a config without weights keeps the
+    /// primary-plus-backups behavior.
     #[serde(default)]
     pub weight: u32,
 }
