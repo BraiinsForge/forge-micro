@@ -586,3 +586,48 @@ fn api_info_chain_schema_uses_uint8() {
     assert_eq!(value["properties"]["chain"]["format"], "uint8");
     assert_eq!(value["properties"]["pool"]["format"], "uint8");
 }
+
+// --- the ack struct is the literal the handlers write ---
+
+#[test]
+fn ack_matches_the_literal_body() {
+    let mut buffer = [0u8; 16];
+    let len =
+        serde_json_core::to_slice(&crate::schema::Ack { ok: true }, &mut buffer).expect("ack fits");
+    assert_eq!(&buffer[..len], super::CONFIG_ACK_BODY);
+}
+
+/// The chunk ack struct serializes to the bytes the handler writes.
+#[test]
+fn ota_chunk_ack_matches_the_literal_body() {
+    let mut buffer = [0u8; 40];
+    let ack = crate::schema::OtaChunkAck {
+        ok: true,
+        next: Some(8192),
+    };
+    let len = serde_json_core::to_slice(&ack, &mut buffer).expect("ack fits");
+    assert_eq!(&buffer[..len], b"{\"ok\":true,\"next\":8192}");
+}
+
+/// The final chunk answers without `next`, the same bytes as the config ack.
+#[test]
+fn ota_chunk_ack_without_next_matches_the_final_literal() {
+    let mut buffer = [0u8; 40];
+    let ack = crate::schema::OtaChunkAck {
+        ok: true,
+        next: None,
+    };
+    let len = serde_json_core::to_slice(&ack, &mut buffer).expect("ack fits");
+    assert_eq!(&buffer[..len], super::CONFIG_ACK_BODY);
+}
+
+/// The chunk ack schema leaves `next` optional, since the final chunk
+/// answers without it, and types it as the byte offset's width.
+#[cfg(feature = "schema")]
+#[test]
+fn ota_chunk_ack_schema_marks_next_optional() {
+    let schema = schemars::schema_for!(crate::schema::OtaChunkAck);
+    let value = serde_json::to_value(&schema).expect("schema is JSON");
+    assert_eq!(value["required"], serde_json::json!(["ok"]));
+    assert_eq!(value["properties"]["next"]["format"], "uint32");
+}

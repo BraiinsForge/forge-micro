@@ -24,6 +24,7 @@
 //! `serde-json-core` so they compile in `no_std` environments without
 //! heap allocation.
 
+pub mod ack;
 pub mod events;
 pub mod generic_response;
 pub mod info;
@@ -34,6 +35,7 @@ pub mod system_scoreboard;
 pub mod system_statistics;
 pub mod system_temperature;
 
+pub use ack::{Ack, OtaChunkAck};
 pub use generic_response::GenericResponse;
 pub use info::ApiInfo;
 pub use system_info::SystemInfo;
