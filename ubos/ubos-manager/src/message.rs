@@ -31,21 +31,6 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Message {
-    /// Thermal: chip-max crossed the dangerous threshold.
-    DangerousTemperature,
-    /// Thermal: chip-max returned below the cooldown threshold.
-    TemperatureNormal,
-    /// API: the operator has seen the dangerous-temperature halt and
-    /// accepts the restart, via `POST /api/system/thermal/clear`.
-    ///
-    /// See "Two ways out of an overheat halt" in `docs/MINING.md`.
-    TemperatureAcknowledged,
-    /// Thermal: a sensor that owes a reading has not given one for the
-    /// tolerated number of ticks.
-    TemperatureUnreadable,
-    /// Thermal: the sensor answered again, or the board now has nothing
-    /// to watch, so no reading is owed.
-    TemperatureReadable,
     /// Cooling: fan tach signal lost or out-of-range.
     BrokenFan,
     /// Cooling: fan tach signal recovered.

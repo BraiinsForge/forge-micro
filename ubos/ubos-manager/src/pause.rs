@@ -20,11 +20,13 @@
 //! Pause reason types and bitmask type.
 //!
 //! Both are manager-private vocabulary: only `run_manager` constructs
-//! them, from the [`Message`]s it receives.
+//! them, from the [`Message`]s it receives. The dangerous temperature
+//! flag of `ubos-thermal` and the unreadable temperature rail cut of
+//! `ubos-mining` halt mining without passing through here.
 
 use crate::message::Message;
 
-/// Every condition that causes mining to halt.
+/// Every condition that causes the manager to halt mining.
 ///
 /// Each variant maps to one bit in [`PauseReasons`], and any non-empty
 /// mask means mining must be halted; there is no observation-only pause
@@ -36,8 +38,6 @@ use crate::message::Message;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum PauseReason {
-    /// Chip temperature at or above the dangerous threshold.
-    DangerousTemperature = 0,
     /// Fan tachometer signal lost or out-of-range.
     BrokenFan = 1,
     /// Operator-requested halt via `POST /api/system/pause`.
@@ -46,13 +46,6 @@ pub enum PauseReason {
     OtaUpdate = 4,
     /// The tuner reported a fault it cannot recover from.
     TunerFault = 5,
-    /// A temperature sensor that owes a reading is not giving one, so
-    /// the board would run unwatched.
-    ///
-    /// Separate from [`Self::DangerousTemperature`] because the two
-    /// recover differently. See "Two ways out of an overheat halt" in
-    /// `docs/MINING.md`.
-    TemperatureUnreadable = 6,
 }
 
 impl PauseReason {
@@ -61,12 +54,10 @@ impl PauseReason {
     /// not compile until it is ranked.
     const fn severity(self) -> usize {
         match self {
-            Self::DangerousTemperature => 0,
-            Self::TemperatureUnreadable => 1,
-            Self::BrokenFan => 2,
-            Self::TunerFault => 3,
-            Self::OtaUpdate => 4,
-            Self::UserRequest => 5,
+            Self::BrokenFan => 0,
+            Self::TunerFault => 1,
+            Self::OtaUpdate => 2,
+            Self::UserRequest => 3,
         }
     }
 }
@@ -115,9 +106,9 @@ impl PauseReasons {
     }
 
     /// The highest-priority active reason, or `None` when the mask is
-    /// empty. The order is [`PauseReason::severity`], and the two
-    /// temperature reasons lead it because a board that is too hot and a
-    /// board nobody is watching are the two that damage hardware.
+    /// empty. The order is [`PauseReason::severity`]. The overheat halt is
+    /// the flag of `ubos-thermal`, and the API reports it in front of every
+    /// reason in this mask.
     #[must_use]
     pub fn dominant(self) -> Option<PauseReason> {
         PRIORITY.into_iter().find(|&r| self.contains(r))
@@ -128,19 +119,12 @@ impl PauseReasons {
 /// This is the whole of the manager's interpretation.
 pub(crate) const fn effect(message: Message) -> (PauseReason, bool) {
     match message {
-        Message::DangerousTemperature => (PauseReason::DangerousTemperature, true),
-        // See "Two ways out of an overheat halt" in docs/MINING.md.
-        Message::TemperatureNormal | Message::TemperatureAcknowledged => {
-            (PauseReason::DangerousTemperature, false)
-        }
         Message::BrokenFan => (PauseReason::BrokenFan, true),
         Message::FanRestored => (PauseReason::BrokenFan, false),
         Message::TunerFault => (PauseReason::TunerFault, true),
         Message::TunerRecovered => (PauseReason::TunerFault, false),
         Message::OtaBegin => (PauseReason::OtaUpdate, true),
         Message::OtaEnd => (PauseReason::OtaUpdate, false),
-        Message::TemperatureUnreadable => (PauseReason::TemperatureUnreadable, true),
-        Message::TemperatureReadable => (PauseReason::TemperatureUnreadable, false),
         Message::Stop => (PauseReason::UserRequest, true),
         Message::Start => (PauseReason::UserRequest, false),
     }
@@ -149,8 +133,6 @@ pub(crate) const fn effect(message: Message) -> (PauseReason, bool) {
 /// Every [`PauseReason`] in [`PauseReason::severity`] order, which is
 /// what [`PauseReasons::dominant`] walks.
 const PRIORITY: [PauseReason; REASON_COUNT] = [
-    PauseReason::DangerousTemperature,
-    PauseReason::TemperatureUnreadable,
     PauseReason::BrokenFan,
     PauseReason::TunerFault,
     PauseReason::OtaUpdate,
@@ -162,12 +144,10 @@ const PRIORITY: [PauseReason; REASON_COUNT] = [
 /// in turn fails [`PRIORITY`]'s array literal until the new reason is
 /// ranked. A hand-written count would catch neither.
 const REASON_COUNT: usize = match PauseReason::UserRequest {
-    PauseReason::DangerousTemperature
-    | PauseReason::TemperatureUnreadable
-    | PauseReason::BrokenFan
+    PauseReason::BrokenFan
     | PauseReason::TunerFault
     | PauseReason::OtaUpdate
-    | PauseReason::UserRequest => 6,
+    | PauseReason::UserRequest => 4,
 };
 
 // `severity` and `REASON_COUNT` already rule out an unranked or missing

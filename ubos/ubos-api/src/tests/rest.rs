@@ -466,18 +466,10 @@ fn mining_state_serializes_as_api_str() {
 fn pause_reason_serializes_as_before() {
     let mut buf = [0u8; 32];
     for (reason, expected) in [
-        (
-            PauseReason::DangerousTemperature,
-            "\"dangerousTemperature\"",
-        ),
         (PauseReason::BrokenFan, "\"brokenFan\""),
         (PauseReason::UserRequest, "\"userRequest\""),
         (PauseReason::OtaUpdate, "\"otaUpdate\""),
         (PauseReason::TunerFault, "\"tunerFault\""),
-        (
-            PauseReason::TemperatureUnreadable,
-            "\"temperatureUnreadable\"",
-        ),
     ] {
         let n = serde_json_core::to_slice(&ApiPauseReason::from(reason), &mut buf).expect("fits");
         assert_eq!(core::str::from_utf8(&buf[..n]).expect("utf8"), expected);

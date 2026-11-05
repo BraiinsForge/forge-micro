@@ -26,7 +26,7 @@ use super::pause::{PauseReason, PauseReasons};
 fn default_is_empty() {
     let reasons = PauseReasons::default();
     assert!(reasons.is_empty());
-    assert!(!reasons.contains(PauseReason::DangerousTemperature));
+    assert!(!reasons.contains(PauseReason::OtaUpdate));
 }
 
 #[test]
@@ -34,7 +34,7 @@ fn assert_sets_bit() {
     let reasons = PauseReasons::default().assert(PauseReason::BrokenFan);
     assert!(!reasons.is_empty());
     assert!(reasons.contains(PauseReason::BrokenFan));
-    assert!(!reasons.contains(PauseReason::DangerousTemperature));
+    assert!(!reasons.contains(PauseReason::OtaUpdate));
 }
 
 #[test]
@@ -61,9 +61,9 @@ fn clear_unset_bit_is_noop() {
 #[test]
 fn multiple_reasons_coexist() {
     let reasons = PauseReasons::default()
-        .assert(PauseReason::DangerousTemperature)
+        .assert(PauseReason::OtaUpdate)
         .assert(PauseReason::BrokenFan);
-    assert!(reasons.contains(PauseReason::DangerousTemperature));
+    assert!(reasons.contains(PauseReason::OtaUpdate));
     assert!(reasons.contains(PauseReason::BrokenFan));
     assert!(!reasons.is_empty());
 }
@@ -71,10 +71,10 @@ fn multiple_reasons_coexist() {
 #[test]
 fn clear_one_leaves_others_set() {
     let reasons = PauseReasons::default()
-        .assert(PauseReason::DangerousTemperature)
+        .assert(PauseReason::OtaUpdate)
         .assert(PauseReason::BrokenFan)
         .clear(PauseReason::BrokenFan);
-    assert!(reasons.contains(PauseReason::DangerousTemperature));
+    assert!(reasons.contains(PauseReason::OtaUpdate));
     assert!(!reasons.contains(PauseReason::BrokenFan));
     assert!(!reasons.is_empty());
 }
@@ -90,11 +90,11 @@ fn empty_edge_after_clearing_last_bit() {
 #[test]
 fn all_variants_occupy_distinct_bits() {
     let all = PauseReasons::default()
-        .assert(PauseReason::DangerousTemperature)
+        .assert(PauseReason::OtaUpdate)
         .assert(PauseReason::BrokenFan)
         .assert(PauseReason::UserRequest)
         .assert(PauseReason::TunerFault);
-    assert!(all.contains(PauseReason::DangerousTemperature));
+    assert!(all.contains(PauseReason::OtaUpdate));
     assert!(all.contains(PauseReason::BrokenFan));
     assert!(all.contains(PauseReason::UserRequest));
     assert!(all.contains(PauseReason::TunerFault));
@@ -112,18 +112,17 @@ fn dominant_returns_single_active_reason() {
 }
 
 #[test]
-fn dominant_prefers_dangerous_temperature_over_all() {
+fn dominant_prefers_broken_fan_over_all() {
     let reasons = PauseReasons::default()
-        .assert(PauseReason::DangerousTemperature)
         .assert(PauseReason::BrokenFan)
         .assert(PauseReason::TunerFault)
         .assert(PauseReason::OtaUpdate)
         .assert(PauseReason::UserRequest);
-    assert_eq!(reasons.dominant(), Some(PauseReason::DangerousTemperature));
+    assert_eq!(reasons.dominant(), Some(PauseReason::BrokenFan));
 }
 
 #[test]
-fn dominant_priority_order_without_dangerous_temperature() {
+fn dominant_priority_order_below_broken_fan() {
     let reasons = PauseReasons::default()
         .assert(PauseReason::BrokenFan)
         .assert(PauseReason::TunerFault)
@@ -141,53 +140,12 @@ fn dominant_priority_order_without_dangerous_temperature() {
 }
 
 #[test]
-fn unreadable_is_a_distinct_bit_from_dangerous() {
-    let reasons = PauseReasons::default().assert(PauseReason::TemperatureUnreadable);
-    assert!(reasons.contains(PauseReason::TemperatureUnreadable));
-    assert!(!reasons.contains(PauseReason::DangerousTemperature));
-}
-
-#[test]
-fn unreadable_outranks_everything_but_dangerous() {
-    let reasons = PauseReasons::default()
-        .assert(PauseReason::TemperatureUnreadable)
-        .assert(PauseReason::BrokenFan)
-        .assert(PauseReason::UserRequest);
-    assert_eq!(reasons.dominant(), Some(PauseReason::TemperatureUnreadable));
-
-    let reasons = reasons.assert(PauseReason::DangerousTemperature);
-    assert_eq!(reasons.dominant(), Some(PauseReason::DangerousTemperature));
-}
-
-#[test]
-fn acknowledging_clears_the_overheat_halt_and_nothing_else() {
-    // See "Two ways out of an overheat halt" in docs/MINING.md.
-    let reasons = PauseReasons::default()
-        .assert(PauseReason::DangerousTemperature)
-        .assert(PauseReason::BrokenFan)
-        .apply(Message::TemperatureAcknowledged);
-    assert!(!reasons.contains(PauseReason::DangerousTemperature));
-    assert!(reasons.contains(PauseReason::BrokenFan));
-}
-
-#[test]
-fn an_idle_board_releases_its_own_unreadable_halt() {
-    // See "Chain presence" in docs/MINING.md.
-    let halted = PauseReasons::default().apply(Message::TemperatureUnreadable);
-    assert!(!halted.is_empty());
-    let released = halted.apply(Message::TemperatureReadable);
-    assert!(released.is_empty());
-}
-
-#[test]
-fn a_user_resume_does_not_lift_an_overheat_halt() {
-    // `Start` answers for the operator's own pause alone; an overheat
-    // halt needs the acknowledgement.
+fn a_user_resume_lifts_only_the_users_own_pause() {
     let reasons = PauseReasons::default()
         .apply(Message::Stop)
-        .apply(Message::DangerousTemperature)
+        .apply(Message::BrokenFan)
         .apply(Message::Start);
     assert!(!reasons.contains(PauseReason::UserRequest));
-    assert!(reasons.contains(PauseReason::DangerousTemperature));
+    assert!(reasons.contains(PauseReason::BrokenFan));
     assert!(!reasons.is_empty());
 }

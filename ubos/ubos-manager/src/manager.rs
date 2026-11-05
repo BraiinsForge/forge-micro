@@ -26,24 +26,6 @@ use crate::Runner;
 use crate::message::Message;
 use crate::pause::{PauseReason, PauseReasons, effect};
 
-/// Log a `DangerousTemperature` bit transition.
-///
-/// Only this reason carries a dedicated log line, because a thermal halt
-/// originates inside the manager from a sensor reading and the operator
-/// has no other surface to see it; every other reason is asserted by a
-/// caller that already logs its own context. The clearing edge is an
-/// event rather than a trace, because it reports the release whether or
-/// not another reason still holds mining, which `mining_resumed` cannot.
-/// Extracted from the loop body so each log call site is unique and
-/// `clippy::if_same_then_else` does not fire.
-fn log_transition(was_halted: bool, now_halted: bool) {
-    if !was_halted && now_halted {
-        info!("manager: halt (DangerousTemperature)");
-    } else if was_halted && !now_halted {
-        crate::events::mining_dangerous_temperature_cleared();
-    }
-}
-
 /// The `PauseReason` an asserting `Message` sets, or `None` for a
 /// clearing one, so the halt event can carry the discriminant of the
 /// newly-active reason. Read off [`effect`], the one table that
@@ -77,28 +59,17 @@ pub async fn run_manager(runner: &mut Runner, mining: MiningHandle) -> ! {
     loop {
         let message = runner.next_message().await;
         let was_empty = reasons.is_empty();
-        let was_danger = reasons.contains(PauseReason::DangerousTemperature);
         let triggering_reason = halt_reason(message);
         reasons = reasons.apply(message);
-        log_transition(
-            was_danger,
-            reasons.contains(PauseReason::DangerousTemperature),
-        );
         publisher.send(reasons);
         let is_empty = reasons.is_empty();
         if was_empty && !is_empty {
             if let Some(reason) = triggering_reason {
                 match reason {
-                    PauseReason::DangerousTemperature => {
-                        crate::events::mining_halted_dangerous_temperature();
-                    }
                     PauseReason::BrokenFan => crate::events::mining_halted_broken_fan(),
                     PauseReason::UserRequest => crate::events::mining_halted_user_request(),
                     PauseReason::OtaUpdate => crate::events::mining_halted_ota_update(),
                     PauseReason::TunerFault => crate::events::mining_halted_tuner_fault(),
-                    PauseReason::TemperatureUnreadable => {
-                        crate::events::mining_halted_temperature_unreadable();
-                    }
                 }
             }
             mining.halt().await;

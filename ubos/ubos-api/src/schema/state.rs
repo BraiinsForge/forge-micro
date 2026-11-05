@@ -96,12 +96,10 @@ pub enum ApiPauseReason {
 impl From<PauseReason> for ApiPauseReason {
     fn from(reason: PauseReason) -> Self {
         match reason {
-            PauseReason::DangerousTemperature => Self::DangerousTemperature,
             PauseReason::BrokenFan => Self::BrokenFan,
             PauseReason::UserRequest => Self::UserRequest,
             PauseReason::OtaUpdate => Self::OtaUpdate,
             PauseReason::TunerFault => Self::TunerFault,
-            PauseReason::TemperatureUnreadable => Self::TemperatureUnreadable,
         }
     }
 }
