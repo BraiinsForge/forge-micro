@@ -338,6 +338,9 @@ const INPUT_DEPTH: usize = 16;
 /// [`Handle::submit`]. [`run_thermal`] is the only reader.
 static INPUT: Channel<CSMutex, TempReading, INPUT_DEPTH> = Channel::new();
 
+/// The filtered temperatures the firmware's one thermal task publishes.
+static WATCHES: Watches = Watches::new();
+
 /// Consumer-side handle for the thermal subsystem.
 ///
 /// The handle holds no data: its methods are the only way to the private
@@ -589,29 +592,45 @@ impl Thermal {
     }
 }
 
-/// Write the metric of each reading that a source submits, and never
-/// return. A source awaits on a full channel, so this runs beside the
-/// source and not after it.
-async fn drain_input() -> Infallible {
+/// Take each reading that a source submits as a reading of the tick at
+/// `tick`, and never return. A source awaits on a full channel, so this
+/// runs beside the source and not after it.
+async fn drain_input(temperatures: &mut Temperatures, tick: Instant) -> Infallible {
     loop {
-        publish_sensor_reading(INPUT.receive().await);
+        take(INPUT.receive().await, temperatures, tick);
     }
 }
 
-/// Read the ambient temperature and publish its reading series. It gates
-/// nothing, so it is read after every decision a tick makes and never
-/// before one: a sensor that takes its time answering must not hold up
-/// the sample the halt turns on, nor the halt itself. Every tick reads
+/// Write the metric of a submitted reading and fold it into the filters
+/// at `tick`, the time of the tick that took it. A sample can take longer
+/// than the window of a filter, so a reading stamped with the time it
+/// arrived at could leave the window before its own tick publishes.
+fn take(reading: TempReading, temperatures: &mut Temperatures, tick: Instant) {
+    publish_sensor_reading(reading);
+    temperatures.update(reading, tick);
+}
+
+/// Read the ambient temperature and take it as a submitted reading. It
+/// gates nothing, so it is read after every decision a tick makes and
+/// never before one: a sensor that takes its time answering must not hold
+/// up the sample the halt turns on, nor the halt itself. Every tick reads
 /// it, including one that publishes no reading, because the chip
-/// sensor's silence says nothing about this sensor; the watch carries
-/// the value of the last tick that published.
-async fn read_ambient<A: AmbientSensor>(ambient: &mut A) -> Option<Temperature> {
+/// sensor's silence says nothing about this sensor.
+async fn read_ambient<A: AmbientSensor>(
+    ambient: &mut A,
+    temperatures: &mut Temperatures,
+    tick: Instant,
+) -> Option<Temperature> {
     let reading = ambient.ambient().await;
     if let Some(value) = reading {
-        publish_sensor_reading(TempReading {
-            source: TempSource::Ambient,
-            value,
-        });
+        take(
+            TempReading {
+                source: TempSource::Ambient,
+                value,
+            },
+            temperatures,
+            tick,
+        );
     }
     reading
 }
@@ -653,6 +672,7 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatu
     let mut ticker = Ticker::every(sample_interval);
     let mut late_threshold = sample_interval * 2;
 
+    let mut temperatures = Temperatures::for_interval(sample_interval);
     let mut thermal = Thermal::default();
     let mut prev_tick = Instant::now();
 
@@ -665,6 +685,7 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatu
             if new_thermal.sample_interval_ms != config.sample_interval_ms {
                 sample_interval = Duration::from_millis(u64::from(new_thermal.sample_interval_ms));
                 ticker = Ticker::every(sample_interval);
+                temperatures = Temperatures::for_interval(sample_interval);
                 late_threshold = sample_interval * 2;
                 prev_tick = Instant::now();
                 info!(
@@ -683,18 +704,23 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatu
 
         // The sensor submits readings while it samples, so they are
         // drained in step with it, and what it left behind afterwards.
-        let reading = match select(sensor.sample(), drain_input()).await {
+        let reading = match select(sensor.sample(), drain_input(&mut temperatures, now)).await {
             Either::First(reading) => reading,
             Either::Second(never) => match never {},
         };
         while let Ok(submitted) = INPUT.try_receive() {
-            publish_sensor_reading(submitted);
+            take(submitted, &mut temperatures, now);
         }
+        // The readings carry the time of this tick, so the filters are
+        // read at that time and hold every reading of this tick, however
+        // long the sample took.
+        temperatures.publish_filtered(now, &WATCHES);
         let step = thermal.judge(reading, &config, manager_handle.pause_reasons());
         for note in [step.unreadable, step.dangerous].into_iter().flatten() {
             note.report(manager_handle).await;
         }
-        let ambient_temp = read_ambient(&mut ambient).await;
+        let ambient_temp = read_ambient(&mut ambient, &mut temperatures, now).await;
+        temperatures.publish_ambient(now, &WATCHES);
         // A tick inside the miss budget withholds its reading, for the
         // reason `Tick::Withhold` gives.
         if let Tick::Publish { temps } = step.tick {

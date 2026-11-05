@@ -459,3 +459,107 @@ rusty_fork_test! {
         );
     }
 }
+
+/// Sample intervals that [`SlowSensor`] waits for after it submits, which
+/// is longer than the window of a filter.
+const SLOW_SAMPLE_INTERVALS: u32 = 4;
+
+/// A sensor that submits one chip reading of 70 °C and then takes longer
+/// than the window of a filter to end its sample.
+struct SlowSensor;
+
+impl TemperatureSensor for SlowSensor {
+    async fn sample(&mut self) -> Reading {
+        let reading = ChipSensor.sample().await;
+        let interval = u64::from(crate::default_config().thermal.sample_interval_ms);
+        embassy_time::Timer::after(Duration::from_millis(interval) * SLOW_SAMPLE_INTERVALS).await;
+        reading
+    }
+}
+
+rusty_fork_test! {
+    #[test]
+    fn a_reading_of_a_slow_sample_is_published_on_its_tick() {
+        let _clock = clock();
+        let driver = MockDriver::get();
+        driver.reset();
+        let (mut manager_runner, manager) = ManagerHandle::take();
+        let (_mining_runner, mining) = ubos_mining::Handle::take();
+        let (mut thermal_runner, _thermal_handle) = crate::Handle::take();
+        let (mut config_runner, config) = ubos_config::Handle::take();
+        let store = StoreDir::new();
+        let mut config_task = pin!(run_config(&store, &mut config_runner));
+        settle(&mut config_task);
+        let mut manager_task = pin!(run_manager(&mut manager_runner, mining));
+        let mut thermal = pin!(run_thermal(
+            SlowSensor,
+            NoAmbient,
+            NoMcu,
+            &mut thermal_runner,
+            manager,
+            config
+        ));
+        prime(&mut thermal);
+        prime(&mut manager_task);
+        tick(driver, &mut thermal, &mut manager_task);
+        let published = || super::WATCHES.filtered.try_get().flatten();
+        assert_eq!(published(), None, "the sample has not ended");
+        for _ in 0..SLOW_SAMPLE_INTERVALS {
+            tick(driver, &mut thermal, &mut manager_task);
+        }
+        let chip = published().and_then(|sample| sample.chip);
+        assert_eq!(chip.map(|chip| chip.max), Some(Temperature::from_celsius(70)));
+    }
+}
+
+/// A sensor that submits one chip reading of 70 °C while it samples.
+struct ChipSensor;
+
+impl TemperatureSensor for ChipSensor {
+    async fn sample(&mut self) -> Reading {
+        let chain = ubos_core::index::HashboardIndex(0);
+        let source =
+            ubos_temperature::TempSource::chip(chain, ubos_core::index::ChipAddress::One(0));
+        let value = Temperature::from_celsius(70);
+        crate::Handle(())
+            .submit(ubos_temperature::Reading { source, value })
+            .await;
+        Reading::Idle
+    }
+}
+
+rusty_fork_test! {
+    #[test]
+    fn a_submitted_reading_reaches_the_watches_on_the_tick() {
+        let _clock = clock();
+        let driver = MockDriver::get();
+        driver.reset();
+        let (mut manager_runner, manager) = ManagerHandle::take();
+        let (_mining_runner, mining) = ubos_mining::Handle::take();
+        let (mut thermal_runner, _thermal_handle) = crate::Handle::take();
+        let (mut config_runner, config) = ubos_config::Handle::take();
+        let store = StoreDir::new();
+        let mut config_task = pin!(run_config(&store, &mut config_runner));
+        settle(&mut config_task);
+        let mut manager_task = pin!(run_manager(&mut manager_runner, mining));
+        let mut thermal = pin!(run_thermal(
+            ChipSensor,
+            NoAmbient,
+            NoMcu,
+            &mut thermal_runner,
+            manager,
+            config
+        ));
+        prime(&mut thermal);
+        prime(&mut manager_task);
+        tick(driver, &mut thermal, &mut manager_task);
+        let watches = &super::WATCHES;
+        let seventy = Temperature::from_celsius(70);
+        let sample = watches.filtered.try_get().flatten();
+        assert_eq!(
+            sample.and_then(|sample| sample.chip).map(|chip| chip.max),
+            Some(seventy)
+        );
+        assert_eq!(watches.ambient.try_get(), Some(None));
+    }
+}
