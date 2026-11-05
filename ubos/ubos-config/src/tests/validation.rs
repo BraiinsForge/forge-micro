@@ -1036,6 +1036,83 @@ fn cooling_mode_and_duty_apply_and_roundtrip() {
     );
 }
 
+/// A posted `target` decodes from its JSON shape and replaces what the
+/// PID follows and the temperature it holds.
+#[test]
+fn cooling_target_json_applies() {
+    let json = r#"{"cooling":{"target":{"source":"chip","statistic":"mean","temp":70000}}}"#;
+    let (update, _) =
+        serde_json_core::de::from_str::<ConfigUpdate>(json).expect("deserialize succeeds");
+    let mut config = Config::default();
+    update.apply(&mut config);
+    assert_eq!(
+        config.cooling.target,
+        PidTarget {
+            source: Source::Chip,
+            statistic: Statistic::Mean,
+            temp: Temperature::from_celsius(70),
+        }
+    );
+}
+
+/// The cooling update of a chip target at `temp`.
+fn chip_target(temp: Temperature) -> CoolingUpdate {
+    CoolingUpdate {
+        mode: None,
+        target: Some(PidTarget {
+            source: Source::Chip,
+            statistic: Statistic::Max,
+            temp,
+        }),
+        fixed_fan_pwm: None,
+        min_fan_pwm: None,
+    }
+}
+
+/// On a machine that reads both kinds, a chip target is held below the
+/// chip threshold and not the hashboard one, so 80 °C passes under a
+/// 75 °C hashboard halt.
+#[test]
+fn cooling_chip_target_above_the_hashboard_threshold_passes() {
+    let mut current = Config::default();
+    current.thermal.dangerous = both_kinds();
+    let mut update = empty_update();
+    update.cooling = Some(chip_target(Temperature::from_celsius(80)));
+    assert!(update.validate(&current, &crate::mining::BOUNDS).is_ok());
+}
+
+/// A chip target at the chip threshold is rejected.
+#[test]
+fn cooling_chip_target_at_the_chip_threshold_rejected() {
+    let mut current = Config::default();
+    current.thermal.dangerous = TemperatureDescriptor {
+        chip: Some(Temperature::from_celsius(80)),
+        hashboard: Some(Temperature::from_celsius(75)),
+    };
+    let mut update = empty_update();
+    update.cooling = Some(chip_target(Temperature::from_celsius(80)));
+    assert_eq!(
+        update.validate(&current, &crate::mining::BOUNDS),
+        Err("cooling.target.temp must be less than the dangerous temperature of its kind")
+    );
+}
+
+/// A target of a kind the machine does not read is rejected.
+#[test]
+fn cooling_target_of_a_kind_the_machine_does_not_read_rejected() {
+    let mut current = Config::default();
+    current.thermal.dangerous = TemperatureDescriptor {
+        chip: None,
+        hashboard: Some(Temperature::from_celsius(83)),
+    };
+    let mut update = empty_update();
+    update.cooling = Some(chip_target(Temperature::from_celsius(70)));
+    assert_eq!(
+        update.validate(&current, &crate::mining::BOUNDS),
+        Err("cooling.target.source must be a kind of reading that the machine measures")
+    );
+}
+
 // --- API credentials ---
 
 /// Valid API credentials pass.
