@@ -1235,3 +1235,23 @@ fn streamed_events_body_matches_the_envelope_struct() {
     streamed.extend_from_slice(super::EVENTS_CLOSE);
     assert_eq!(&whole[..whole_len], streamed.as_slice());
 }
+
+// --- Route names its own method and path ---
+
+/// Every route the enum lists round-trips through the router by the
+/// method and path it names, and the list holds each variant once.
+#[test]
+fn every_route_round_trips() {
+    for (i, r) in Route::ALL.iter().enumerate() {
+        let (method, path) = r.endpoint();
+        assert_eq!(
+            route(method, path),
+            DispatchOutcome::Handled(*r),
+            "{method} {path} does not reach {r:?}"
+        );
+        assert!(
+            !Route::ALL[..i].contains(r),
+            "{r:?} is listed twice in Route::ALL"
+        );
+    }
+}

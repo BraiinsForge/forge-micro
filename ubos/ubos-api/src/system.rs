@@ -1752,6 +1752,72 @@ pub(crate) enum Route {
     NetworkRevert,
 }
 
+// The host tests read the surface off the enum: the OpenAPI route
+// table takes each operation's method and path from `endpoint`, and
+// `ALL` lets a test walk every variant. The firmware never asks.
+#[cfg(test)]
+impl Route {
+    /// Every variant once, in the order the enum declares them.
+    pub(crate) const ALL: [Self; 25] = [
+        Self::SystemInfo,
+        Self::SystemAsic,
+        Self::SystemThermal,
+        Self::SystemTemperature,
+        Self::SystemCooling,
+        Self::SystemStatistics,
+        Self::SystemScoreboard,
+        Self::SystemEvents,
+        Self::SystemEventsCatalog,
+        Self::SystemWifiScan,
+        Self::SystemOta,
+        Self::SystemOtaChunk,
+        Self::SystemOtaWww,
+        Self::PauseAck,
+        Self::ResumeAck,
+        Self::ThermalClearAck,
+        Self::RestartAck,
+        Self::IdentifyAck,
+        Self::BlockFoundDismissAck,
+        Self::PatchSystem,
+        Self::FactoryReset,
+        Self::NetworkGet,
+        Self::NetworkPost,
+        Self::NetworkConfirm,
+        Self::NetworkRevert,
+    ];
+
+    /// The method and path `route` answers this variant for.
+    pub(crate) const fn endpoint(self) -> (&'static str, &'static str) {
+        match self {
+            Self::SystemInfo => ("GET", "/api/system/info"),
+            Self::SystemAsic => ("GET", "/api/system/asic"),
+            Self::SystemThermal => ("GET", "/api/system/thermal"),
+            Self::SystemTemperature => ("GET", "/api/system/temperature"),
+            Self::SystemCooling => ("GET", "/api/system/cooling"),
+            Self::SystemStatistics => ("GET", "/api/system/statistics"),
+            Self::SystemScoreboard => ("GET", "/api/system/scoreboard"),
+            Self::SystemEvents => ("GET", "/api/system/events"),
+            Self::SystemEventsCatalog => ("GET", "/api/system/events/catalog"),
+            Self::SystemWifiScan => ("GET", "/api/system/wifi/scan"),
+            Self::SystemOta => ("POST", "/api/system/OTA"),
+            Self::SystemOtaChunk => ("POST", "/api/system/OTA/chunk"),
+            Self::SystemOtaWww => ("POST", "/api/system/OTAWWW"),
+            Self::PauseAck => ("POST", "/api/system/pause"),
+            Self::ResumeAck => ("POST", "/api/system/resume"),
+            Self::ThermalClearAck => ("POST", "/api/system/thermal/clear"),
+            Self::RestartAck => ("POST", "/api/system/restart"),
+            Self::IdentifyAck => ("POST", "/api/system/identify"),
+            Self::BlockFoundDismissAck => ("POST", "/api/system/blockFound/dismiss"),
+            Self::PatchSystem => ("PATCH", "/api/system"),
+            Self::FactoryReset => ("POST", "/api/system/factory_reset"),
+            Self::NetworkGet => ("GET", "/api/system/network"),
+            Self::NetworkPost => ("POST", "/api/system/network"),
+            Self::NetworkConfirm => ("POST", "/api/system/network/confirm"),
+            Self::NetworkRevert => ("POST", "/api/system/network/revert"),
+        }
+    }
+}
+
 /// Outcome of `route()` for a single method+path pair.
 ///
 /// Separates the pure routing decision from the response-writing so
