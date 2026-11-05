@@ -675,7 +675,7 @@ where
 /// which the caller always sends.
 #[derive(serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-struct NetworkPostRequest {
+pub(crate) struct NetworkPostRequest {
     /// Network mode to apply (DHCP or static).
     mode: ubos_config::NetworkMode,
     /// Desired hostname for the device on the network.

@@ -1,0 +1,3783 @@
+{
+  "components": {
+    "schemas": {
+      "Ack": {
+        "description": "Acknowledgement of a write that took effect.",
+        "properties": {
+          "ok": {
+            "description": "Always `true`; a failed write answers an error status instead.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "type": "object"
+      },
+      "ApiArgWidth": {
+        "description": "Width of one argument in a record's payload, as the catalog names it.",
+        "oneOf": [
+          {
+            "const": "u8",
+            "description": "Unsigned 8-bit integer.",
+            "type": "string"
+          },
+          {
+            "const": "u16",
+            "description": "Unsigned 16-bit integer.",
+            "type": "string"
+          },
+          {
+            "const": "u32",
+            "description": "Unsigned 32-bit integer.",
+            "type": "string"
+          },
+          {
+            "const": "i8",
+            "description": "Signed 8-bit integer.",
+            "type": "string"
+          },
+          {
+            "const": "i16",
+            "description": "Signed 16-bit integer.",
+            "type": "string"
+          },
+          {
+            "const": "i32",
+            "description": "Signed 32-bit integer.",
+            "type": "string"
+          },
+          {
+            "const": "temperature",
+            "description": "A temperature as a signed 32-bit integer in millidegrees Celsius.",
+            "type": "string"
+          },
+          {
+            "const": "frequency",
+            "description": "A frequency as an unsigned 32-bit integer in kHz.",
+            "type": "string"
+          },
+          {
+            "const": "voltage",
+            "description": "A voltage as an unsigned 32-bit integer in mV.",
+            "type": "string"
+          },
+          {
+            "const": "power",
+            "description": "A power as an unsigned 32-bit integer in mW.",
+            "type": "string"
+          },
+          {
+            "const": "efficiency",
+            "description": "An efficiency as an unsigned 32-bit integer in mJ/TH.",
+            "type": "string"
+          }
+        ]
+      },
+      "ApiChainState": {
+        "description": "A chain's presence as the `/api/info` `chains[].state` string.",
+        "oneOf": [
+          {
+            "const": "unknown",
+            "description": "No enumeration attempt has completed yet.",
+            "type": "string"
+          },
+          {
+            "const": "present",
+            "description": "The chain answered with the expected chip count.",
+            "type": "string"
+          },
+          {
+            "const": "absent",
+            "description": "The connector answered with zero chips.",
+            "type": "string"
+          },
+          {
+            "const": "faulted",
+            "description": "The chain failed enumeration or its safe-boot configuration.",
+            "type": "string"
+          }
+        ]
+      },
+      "ApiConfig": {
+        "description": "HTTP API credentials: the user name and password a client\npresents.",
+        "properties": {
+          "password": {
+            "description": "Login password; maximum 32 bytes.",
+            "maxLength": 32,
+            "type": "string"
+          },
+          "username": {
+            "description": "Login username; maximum 32 bytes.",
+            "maxLength": 32,
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ],
+        "type": "object"
+      },
+      "ApiInfo": {
+        "description": "Full snapshot for `GET /api/info`.",
+        "properties": {
+          "build": {
+            "description": "The build id the board stamped: the tip of the checkout it was\nbuilt from and the build time, the same id the package file is\nnamed by.",
+            "type": "string"
+          },
+          "chain_voltage_mv": {
+            "description": "Chain voltage, or zero where the board measures none. The body\ncarries it as integer millivolts under `chain_voltage_mv`.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "chains": {
+            "description": "One entry per chain the board wired up, in chain order.",
+            "items": {
+              "$ref": "#/components/schemas/ApiInfoChain"
+            },
+            "type": "array"
+          },
+          "fan_pwm": {
+            "description": "Fan PWM duty cycle, or zero where no fan reports. The body carries\nit as integer percent.",
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "fan_rpm": {
+            "description": "Fan speed, or zero where no fan reports. The body carries it as\ninteger RPM.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "hashrate": {
+            "description": "Sum of every chain's smoothed hashrate in hashes per second.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "ip": {
+            "description": "IPv4 address as a dotted quad, or empty before DHCP assigns one.",
+            "maxLength": 16,
+            "type": "string"
+          },
+          "mac": {
+            "description": "MAC address as six colon-separated lowercase hex pairs, or empty\nbefore the board publishes one.",
+            "maxLength": 17,
+            "type": "string"
+          },
+          "mining_state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ApiMiningState"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The miner's lifecycle state, or `null` before its first publish."
+          },
+          "name": {
+            "description": "The control board's product name.",
+            "type": "string"
+          },
+          "net_confirm_seconds": {
+            "description": "Seconds left in the network confirm window, or zero when no change\nis pending.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "nominal_hashrate": {
+            "description": "The hashrate the machine's maker rates it at, in hashes per second,\nor `null` before a board publishes one.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "ota": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ApiInfoOta"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "OTA slot and session state. The key is left out on a board with no\nOTA target, and the dashboard renders its firmware card only when\nthe key is present."
+          },
+          "pause_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ApiPauseReason"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The highest-priority active pause reason, or `null` when `paused`\nis `false`."
+          },
+          "paused": {
+            "description": "`true` while at least one pause reason is active.",
+            "type": "boolean"
+          },
+          "pools": {
+            "description": "Bitmask of live pool slots: bit N is set when pool N is alive.",
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "power_in_mw": {
+            "description": "Supply input power, or zero before the first reading. The body\ncarries it as integer milliwatts under `power_in_mw`.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "power_out_mw": {
+            "description": "Supply output power, or zero before the first reading. The body\ncarries it as integer milliwatts under `power_out_mw`.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "product_name": {
+            "description": "The machine's product name as its maker names the model, or `null`\nbefore a board publishes one.",
+            "maxLength": 40,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "psu_fault": {
+            "description": "`true` when the supply reports a sensor fault.",
+            "type": "boolean"
+          },
+          "psu_voltage_measured_mv": {
+            "description": "Output voltage the supply measured. The body carries it as\ninteger millivolts under `psu_voltage_measured_mv`.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "psu_voltage_set_mv": {
+            "description": "Output voltage the supply was set to. The body carries it as\ninteger millivolts under `psu_voltage_set_mv`.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "running": {
+            "description": "`true` while the miner is in its running state.",
+            "type": "boolean"
+          },
+          "time": {
+            "description": "UTC wall-clock time as `HH:MM:SS UTC`, or empty before NTP\nsynchronizes.",
+            "maxLength": 24,
+            "type": "string"
+          },
+          "uptime": {
+            "description": "Firmware uptime in whole seconds since boot.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "hashrate",
+          "uptime",
+          "fan_rpm",
+          "fan_pwm",
+          "power_in_mw",
+          "power_out_mw",
+          "psu_voltage_set_mv",
+          "psu_voltage_measured_mv",
+          "chain_voltage_mv",
+          "psu_fault",
+          "pools",
+          "net_confirm_seconds",
+          "running",
+          "mining_state",
+          "paused",
+          "pause_reason",
+          "chains",
+          "ip",
+          "mac",
+          "time",
+          "build",
+          "product_name",
+          "nominal_hashrate"
+        ],
+        "type": "object"
+      },
+      "ApiInfoChain": {
+        "description": "One chain's entry in the `/api/info` `chains` array.",
+        "properties": {
+          "chain": {
+            "description": "The chain's index on the board.",
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "chips": {
+            "description": "Chips the chain enumerated.",
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "frequency_khz": {
+            "description": "The chain's clock. The body carries it as integer kHz under\n`frequency_khz`.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "hashrate": {
+            "description": "The chain's smoothed hashrate in hashes per second.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "hottest_c": {
+            "description": "The chain's hottest die in whole degrees Celsius, or `null` before\na reading lands.",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "pool": {
+            "description": "The pool slot the chain mines for, or `null` when it mines for none.",
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/ApiChainState",
+            "description": "The chain's most recently recorded presence."
+          }
+        },
+        "required": [
+          "chain",
+          "state",
+          "chips",
+          "frequency_khz",
+          "hashrate",
+          "hottest_c",
+          "pool"
+        ],
+        "type": "object"
+      },
+      "ApiInfoOta": {
+        "description": "The `/api/info` `ota` block: the slot state, the live upload session\nand the reset diagnostics in one flat object.",
+        "properties": {
+          "bytesWritten": {
+            "description": "Bytes written in the current or most recent upload.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "chunks": {
+            "description": "Chunks written in the current or most recent upload.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "hasPreviousImage": {
+            "description": "`true` when the inactive slot holds a previous image.",
+            "type": "boolean"
+          },
+          "lastError": {
+            "description": "Mapped error code of the last failed upload, or zero when none.",
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxImageBytes": {
+            "description": "Largest image in bytes the board accepts for an upload.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "phase": {
+            "$ref": "#/components/schemas/OtaPhase",
+            "description": "Phase of the current or most recent upload."
+          },
+          "previousVersion": {
+            "description": "Version number of the previous image, or `null` when there is none.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "resetOtaActive": {
+            "description": "`true` when an upload was active at the most recent reset.",
+            "type": "boolean"
+          },
+          "resetOtaOffset": {
+            "description": "Byte offset the upload had reached at the most recent reset.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "resetReason": {
+            "$ref": "#/components/schemas/ResetReason",
+            "description": "Cause of the most recent reset."
+          },
+          "resetWritePhase": {
+            "$ref": "#/components/schemas/OtaWritePhase",
+            "description": "Where in a flash write the most recent reset landed."
+          },
+          "runningSlot": {
+            "description": "Label of the running firmware slot.",
+            "type": "string"
+          },
+          "runningVersion": {
+            "description": "Version number embedded in the running image.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "runningSlot",
+          "runningVersion",
+          "hasPreviousImage",
+          "previousVersion",
+          "maxImageBytes",
+          "phase",
+          "bytesWritten",
+          "chunks",
+          "lastError",
+          "resetReason",
+          "resetOtaActive",
+          "resetOtaOffset",
+          "resetWritePhase"
+        ],
+        "type": "object"
+      },
+      "ApiMiningState": {
+        "description": "The miner's lifecycle state as the `mining_state` string of both\ninfo bodies.",
+        "oneOf": [
+          {
+            "const": "waitingForPool",
+            "description": "Chips are held in reset until a pool slot holds a job.",
+            "type": "string"
+          },
+          {
+            "const": "starting",
+            "description": "Bring-up is in progress.",
+            "type": "string"
+          },
+          {
+            "const": "running",
+            "description": "Every present chain receives work.",
+            "type": "string"
+          },
+          {
+            "const": "stopped",
+            "description": "Chips are held in reset, or no mining hardware is configured.",
+            "type": "string"
+          }
+        ]
+      },
+      "ApiPauseReason": {
+        "description": "Why mining is paused, as the `pause_reason` string of both info\nbodies. The dashboard reads these strings as an enum, so a rename\nis a schema change.",
+        "oneOf": [
+          {
+            "const": "dangerousTemperature",
+            "description": "Chip temperature at or above the dangerous threshold.",
+            "type": "string"
+          },
+          {
+            "const": "brokenFan",
+            "description": "Fan tachometer signal lost or out of range.",
+            "type": "string"
+          },
+          {
+            "const": "userRequest",
+            "description": "An operator asked for the halt.",
+            "type": "string"
+          },
+          {
+            "const": "otaUpdate",
+            "description": "A firmware update is erasing flash.",
+            "type": "string"
+          },
+          {
+            "const": "tunerFault",
+            "description": "The tuner reported a fault it cannot recover from.",
+            "type": "string"
+          },
+          {
+            "const": "temperatureUnreadable",
+            "description": "A temperature sensor that owes a reading is not giving one.",
+            "type": "string"
+          }
+        ]
+      },
+      "ApiSeverity": {
+        "description": "Severity of an event as the `sev` string.",
+        "oneOf": [
+          {
+            "const": "info",
+            "description": "A state transition that needs no action.",
+            "type": "string"
+          },
+          {
+            "const": "warn",
+            "description": "A condition that warrants attention but did not stop mining.",
+            "type": "string"
+          },
+          {
+            "const": "error",
+            "description": "A condition that stopped mining or caused a fault.",
+            "type": "string"
+          }
+        ]
+      },
+      "ConfigUpdate": {
+        "description": "Partial-update wire shape for `GET` and `POST /api/config`.\n\nEvery key is optional, so a caller can patch one section at a time\nwithout round-tripping unrelated state. A missing key leaves that\nsection unchanged; the POST handler merges only the keys present into\nthe running config. A GET response carries every section with\n`api.password` blanked, so the stored secret never leaves the device.",
+        "properties": {
+          "api": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ApiConfig"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The API section; a missing key leaves it unchanged.\n\nOn `GET`, `password` is an empty string so the stored secret never\nleaves the device."
+          },
+          "cooling": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CoolingUpdate"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Partial cooling update: mode, setpoint, fixed duty and fan floor.\nA missing key leaves the section unchanged. The PID gains are\nfactory-tuned and are not on the wire."
+          },
+          "fee": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PoolEntry"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The entry the fee slot runs, which the board states and the\noperator cannot edit. `GET` carries it beside the operator's\nlist, and leaves it out on a board with no fee slot. A `POST`\ncarries it back as served and the field is not even parsed, so\na `POST` of the `GET` body is an identity whatever the entry\nholds.",
+            "readOnly": true
+          },
+          "fee_permille": {
+            "description": "The share of the work the fee slot takes, in thousandths, which\nthe board states with the entry. `GET` carries it beside `fee`\nand leaves it out with it, and a `POST` carries it back as\nserved and the field is not parsed, as `fee` is not.",
+            "format": "int64",
+            "readOnly": true,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "miner": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MinerConfig"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The miner section; a missing key leaves it unchanged."
+          },
+          "network": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NetworkConfig"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The network section; a missing key leaves it unchanged."
+          },
+          "pool": {
+            "description": "The pool slots; a missing key leaves them unchanged. An empty array\nmeans no pools configured and clears every persisted slot, which is\nwhat the web UI sends when every URL input is blank.",
+            "items": {
+              "$ref": "#/components/schemas/PoolEntry"
+            },
+            "maxItems": 3,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "thermal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ThermalConfig"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The thermal section; a missing key leaves it unchanged."
+          }
+        },
+        "type": "object"
+      },
+      "CoolingBounds": {
+        "description": "Accepted ranges for every numeric cooling field.\n\n`mode` carries no range: it is an enumeration, and a value outside\nit is rejected. The cooling validators check against these ranges\nrather than against literals of their own, so this is the single\ndefinition of what the firmware accepts, and the API reports it\nbeside the current config.",
+        "properties": {
+          "fixedFanPwm": {
+            "$ref": "#/components/schemas/Range_of_uint8",
+            "description": "Accepted range for `fixed_fan_pwm` as a duty percent."
+          },
+          "minFanPwm": {
+            "$ref": "#/components/schemas/Range_of_uint8",
+            "description": "Accepted range for `pid.min_fan_pwm` as a duty percent."
+          },
+          "targetTemp": {
+            "$ref": "#/components/schemas/Range_of_Temperature",
+            "description": "Accepted range for `target.temp`."
+          }
+        },
+        "required": [
+          "targetTemp",
+          "minFanPwm",
+          "fixedFanPwm"
+        ],
+        "type": "object"
+      },
+      "CoolingInfo": {
+        "description": "Static bounds metadata for the cooling config section.\n\nCarries the accepted ranges of the cooling fields so a client can\ntake its input limits from the same source the firmware validates\nagainst.",
+        "properties": {
+          "bounds": {
+            "$ref": "#/components/schemas/CoolingBounds",
+            "description": "Accepted ranges for the cooling fields."
+          }
+        },
+        "required": [
+          "bounds"
+        ],
+        "type": "object"
+      },
+      "CoolingUpdate": {
+        "description": "Partial-update cooling section of the config update.\n\nOnly the operator-tunable cooling fields are on the wire; the PID\ngains are factory-set and never patched. Each key is optional so one\ncan be set without the others. `mode` and `fixed_fan_pwm` are separate\nkeys rather than one payload variant so the UI can edit the duty\nwithout leaving auto control.",
+        "properties": {
+          "fixed_fan_pwm": {
+            "description": "The duty held in fixed mode, 0 to 100; a missing key leaves it.",
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "min_fan_pwm": {
+            "description": "The fan floor in auto mode, 0 to 100; a missing key leaves it.",
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FanMode"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The fan mode; a missing key leaves it."
+          },
+          "target": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PidTarget"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The reading the auto-mode PID follows and the temperature it holds;\na missing key leaves it."
+          }
+        },
+        "type": "object"
+      },
+      "DefaultTuning": {
+        "description": "The tuning a new config starts on.",
+        "oneOf": [
+          {
+            "const": "Fixed",
+            "description": "The board's default frequency and voltage.",
+            "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The given PSU input power in mW, at the board's default\nefficiency.",
+            "properties": {
+              "Power": {
+                "properties": {
+                  "inputPowerMw": {
+                    "description": "A power in mW.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "inputPowerMw"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Power"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "EventDefJson": {
+        "description": "One catalog entry: how to decode a record with this `code`.",
+        "properties": {
+          "args": {
+            "description": "Width of each arg in the payload, in order.",
+            "items": {
+              "$ref": "#/components/schemas/ApiArgWidth"
+            },
+            "type": "array"
+          },
+          "code": {
+            "description": "FNV-1a hash of the event slug.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "fmt": {
+            "description": "Format string with one placeholder per arg.",
+            "type": "string"
+          },
+          "sev": {
+            "$ref": "#/components/schemas/ApiSeverity",
+            "description": "Severity of the event."
+          }
+        },
+        "required": [
+          "code",
+          "sev",
+          "fmt",
+          "args"
+        ],
+        "type": "object"
+      },
+      "EventRecordJson": {
+        "description": "One ring record. `args` is the raw payload as lower-case hex.",
+        "properties": {
+          "args": {
+            "description": "Argument payload as lower-case hex, decoded with the widths the\ncatalog lists.",
+            "maxLength": 22,
+            "type": "string"
+          },
+          "code": {
+            "description": "FNV-1a hash of the event slug, resolved through the catalog.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "seq": {
+            "description": "Position in the ring, increasing by one per record.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "sev": {
+            "$ref": "#/components/schemas/ApiSeverity",
+            "description": "Severity of the event."
+          },
+          "ts": {
+            "description": "Timestamp of the record in the firmware's event clock.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "seq",
+          "ts",
+          "sev",
+          "code",
+          "args"
+        ],
+        "type": "object"
+      },
+      "EventsResponse": {
+        "description": "The `{\"events\":[...]}` body of `GET /api/system/events`.",
+        "properties": {
+          "events": {
+            "description": "Records after the cursor, oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/EventRecordJson"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "events"
+        ],
+        "type": "object"
+      },
+      "FanMode": {
+        "description": "How the cooling loop decides the fan duty.\n\n`Auto` runs the PID against `target`; `Fixed` holds the fan at\n`fixed_fan_pwm` and ignores the temperature. Neither mode disables\nthe cooling failsafes: a sensor fault and a stalled thermal task force\nthe fan to full in both.",
+        "oneOf": [
+          {
+            "const": "auto",
+            "description": "PID control against the thermal setpoint.",
+            "type": "string"
+          },
+          {
+            "const": "fixed",
+            "description": "Operator-selected constant duty.",
+            "type": "string"
+          }
+        ]
+      },
+      "FrequencyVoltageTarget": {
+        "description": "ASIC frequency and voltage overrides.",
+        "properties": {
+          "frequency_khz": {
+            "description": "Target ASIC core frequency. The PLL grid steps by a fraction of\na megahertz, so a megahertz field cannot name every point on it.\nIt is stored and exchanged as integer kHz under `frequency_khz`.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "voltage_mv": {
+            "description": "Core supply voltage, stored and exchanged as integer mV under\n`voltage_mv`.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "frequency_khz",
+          "voltage_mv"
+        ],
+        "type": "object"
+      },
+      "GenericResponse": {
+        "description": "A response body carrying a single human-readable message string.\n\nSerialized as `{\"message\":\"…\"}`. Used wherever the firmware cannot\nor does not perform the requested operation and needs to explain\nwhy in a machine-readable envelope.",
+        "properties": {
+          "message": {
+            "description": "Short description of the outcome.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "type": "object"
+      },
+      "HwInfo": {
+        "description": "Hardware-identification fields embedded in the system-info response.\n\n`psuModel` is detected at runtime, at the PSU driver's first\nsuccessful init, and reads `null` where the supply is not\nidentifiable. `bootloaderVersion` and `fanControllerVersion` are\nread once at boot, on the boards that have both, and are `null`\nbefore that read and on every board that reports neither.\n`hashboardIds` comes from every board's boot-time hashboard EEPROM\nread the same way, `productName` from a board whose stored identity\nnames the machine, and `nominalHashrate` from a board that knows\nthe hashrate its maker rates the machine at.",
+        "properties": {
+          "bootloaderVersion": {
+            "description": "Bootloader CRC-32 fingerprint as 8-char lowercase hex, or `null`\nbefore the boot-time capture runs or on boards that do not\npublish one.",
+            "maxLength": 40,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "chainsPresent": {
+            "description": "Count of chains whose most recently recorded presence is\npresent.",
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "fanControllerVersion": {
+            "description": "Fan-controller co-processor version string, or `null`\nbefore the boot-time capture runs or on boards that do not\npublish one.",
+            "maxLength": 40,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hashboardIds": {
+            "description": "Per-chain hashboard serials, index-positional: element N is the\nserial read off physical chain N. An element is `null` when that\nchain's boot-time probe or read failed — an absent board and an\nunreadable one both report `null`, distinct from a successful\nread of a corrupt record, which still returns `\"INVALID\"`. The\nwhole field is `null` until the boot-time read publishes, and\nstays `null` forever on a board with no EEPROM producer wired up.",
+            "items": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "maxItems": 3,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "nominalHashrate": {
+            "description": "The hashrate the machine's maker rates it at, in hashes per\nsecond, or `null` before the boot-time read publishes it and on\nboards that publish none.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "productName": {
+            "description": "The machine's product name as its maker names the model, or\n`null` before the boot-time read publishes it and on boards that\npublish none.",
+            "maxLength": 40,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "psuModel": {
+            "description": "PSU model name, detected at the PSU driver's first successful\ninit. A driver whose protocol exposes one reports the part\ntogether with its revision letter. `null` where the supply is\nnot identifiable.",
+            "maxLength": 40,
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "productName",
+          "nominalHashrate",
+          "bootloaderVersion",
+          "fanControllerVersion",
+          "psuModel",
+          "hashboardIds",
+          "chainsPresent"
+        ],
+        "type": "object"
+      },
+      "MinerConfig": {
+        "description": "Miner-level tuning configuration.",
+        "properties": {
+          "tuning": {
+            "$ref": "#/components/schemas/Tuning",
+            "description": "Tuner variant and target selected for the next bring-up."
+          }
+        },
+        "required": [
+          "tuning"
+        ],
+        "type": "object"
+      },
+      "MiningBounds": {
+        "description": "Accepted ranges for each tuning target field, and the tuners a\ntuning may select. The API reports them beside the current config.",
+        "properties": {
+          "frequencyKhz": {
+            "$ref": "#/components/schemas/Range_of_Frequency",
+            "description": "Accepted range for the target frequency. The API names it\n`frequencyKhz`."
+          },
+          "inputPowerMw": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Range_of_Power"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Accepted range for the target input power. Present exactly when\none of `tuners` reads a power target. The API names it\n`inputPowerMw`."
+          },
+          "tuners": {
+            "description": "The tuners the machine offers, in the order the mining form\nshows them.",
+            "items": {
+              "$ref": "#/components/schemas/TunerInfo"
+            },
+            "type": "array"
+          },
+          "voltageMv": {
+            "$ref": "#/components/schemas/Range_of_Voltage",
+            "description": "Accepted range for the target voltage. The API names it\n`voltageMv`."
+          }
+        },
+        "required": [
+          "frequencyKhz",
+          "voltageMv",
+          "inputPowerMw",
+          "tuners"
+        ],
+        "type": "object"
+      },
+      "MiningInfo": {
+        "description": "Static capability metadata for the ASIC and board.\n\nGroups the chip-specific constants (model, board name, swarm color,\nchip count) with the tuning defaults and bounds so the REST API can\nserve them from a single serializable value without touching runtime\nstate.",
+        "properties": {
+          "asicCount": {
+            "description": "Number of ASIC chips on the hashboard.",
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "asicModel": {
+            "description": "ASIC chip model name.",
+            "type": "string"
+          },
+          "bounds": {
+            "$ref": "#/components/schemas/MiningBounds",
+            "description": "Accepted tuning ranges."
+          },
+          "defaultEfficiencyMjPerTh": {
+            "description": "Default power-target efficiency. The API names it\n`defaultEfficiencyMjPerTh`.",
+            "format": "uint32",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "defaultFrequencyKhz": {
+            "description": "Default mining frequency. The API names it\n`defaultFrequencyKhz`.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "defaultTuning": {
+            "$ref": "#/components/schemas/DefaultTuning",
+            "description": "The tuning a new config starts on."
+          },
+          "defaultVoltageMv": {
+            "description": "Default core voltage. The API names it `defaultVoltageMv`.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "deviceModel": {
+            "description": "Board product name reported to external clients.",
+            "type": "string"
+          },
+          "swarmColor": {
+            "description": "Swarm color assigned to this device type for UI grouping.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asicModel",
+          "deviceModel",
+          "swarmColor",
+          "asicCount",
+          "defaultFrequencyKhz",
+          "defaultVoltageMv",
+          "defaultEfficiencyMjPerTh",
+          "defaultTuning",
+          "bounds"
+        ],
+        "type": "object"
+      },
+      "NetworkConfig": {
+        "description": "Network interface parameters for both IP assignment and hostname.\n\nStored with the config and applied at boot before the network stack\nstarts, so the stack sees the right mode on its first poll.",
+        "properties": {
+          "hostname": {
+            "description": "mDNS hostname for the device; empty means use the build-time\ndefault.",
+            "maxLength": 32,
+            "type": "string"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/NetworkMode",
+            "description": "IP assignment mode; defaults to DHCP."
+          }
+        },
+        "required": [
+          "mode",
+          "hostname"
+        ],
+        "type": "object"
+      },
+      "NetworkMode": {
+        "description": "Selects the IP address assignment mode and carries the parameters\nfor each variant.",
+        "oneOf": [
+          {
+            "const": "Dhcp",
+            "description": "Address is assigned by a DHCP server on the local network.",
+            "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Address is configured statically by the operator.",
+            "properties": {
+              "Static": {
+                "properties": {
+                  "address": {
+                    "description": "IPv4 address as four octets.",
+                    "items": {
+                      "format": "uint8",
+                      "maximum": 255,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "maxItems": 4,
+                    "minItems": 4,
+                    "type": "array"
+                  },
+                  "dns": {
+                    "description": "DNS resolver addresses; up to three entries.",
+                    "items": {
+                      "items": {
+                        "format": "uint8",
+                        "maximum": 255,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "maxItems": 4,
+                      "minItems": 4,
+                      "type": "array"
+                    },
+                    "maxItems": 3,
+                    "type": "array"
+                  },
+                  "gateway": {
+                    "description": "Default gateway address.",
+                    "items": {
+                      "format": "uint8",
+                      "maximum": 255,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "maxItems": 4,
+                    "minItems": 4,
+                    "type": "array"
+                  },
+                  "prefix_len": {
+                    "description": "Network prefix length (1–32).",
+                    "format": "uint8",
+                    "maximum": 255,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "address",
+                  "prefix_len",
+                  "gateway",
+                  "dns"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Static"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "NetworkPostRequest": {
+        "description": "Request body for `POST /api/system/network`.\n\nCarries the network config fields beside `confirm_after_switch`,\nwhich the caller always sends.",
+        "properties": {
+          "confirm_after_switch": {
+            "description": "When `true`, arm the 120 s confirm-or-revert window. When `false`,\napply the change live and persist it immediately with no revert.",
+            "type": "boolean"
+          },
+          "hostname": {
+            "description": "Desired hostname for the device on the network.",
+            "maxLength": 32,
+            "type": "string"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/NetworkMode",
+            "description": "Network mode to apply (DHCP or static)."
+          }
+        },
+        "required": [
+          "mode",
+          "hostname",
+          "confirm_after_switch"
+        ],
+        "type": "object"
+      },
+      "OtaChunkAck": {
+        "description": "Acknowledgement of one accepted OTA chunk.",
+        "properties": {
+          "next": {
+            "description": "Image offset the next chunk must start at; absent on the final\nchunk, which ends the upload.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "ok": {
+            "description": "Always `true`; a rejected chunk answers an error status instead.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "type": "object"
+      },
+      "OtaInfo": {
+        "description": "OTA-related fields embedded in the system-info response.\n\nPresent on a board with a dual-slot layout, and absent on one\nwithout.",
+        "properties": {
+          "hasPreviousImage": {
+            "description": "`true` when a previous image is present in the inactive slot.",
+            "type": "boolean"
+          },
+          "maxImageBytes": {
+            "description": "Maximum firmware image size in bytes this board accepts for an OTA\nupload, so a client can cap its file picker at the real slot size.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "previousVersion": {
+            "description": "Version number of the image in the inactive slot, or `null`\nwhen no previous image exists.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "runningSlot": {
+            "description": "Label of the currently-running firmware slot, e.g. `\"ACTIVE\"`.",
+            "type": "string"
+          },
+          "runningVersion": {
+            "description": "Version number embedded in the currently-running firmware image.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "runningSlot",
+          "runningVersion",
+          "hasPreviousImage",
+          "previousVersion",
+          "maxImageBytes"
+        ],
+        "type": "object"
+      },
+      "OtaPhase": {
+        "description": "Phase of the current or most recent firmware upload.",
+        "oneOf": [
+          {
+            "const": "idle",
+            "description": "No upload is in progress. The board is running normally.",
+            "type": "string"
+          },
+          {
+            "const": "uploading",
+            "description": "An upload session is open and chunks are being received.",
+            "type": "string"
+          },
+          {
+            "const": "error",
+            "description": "The last upload session ended with an error. `lastError` holds the\nmapped error code.",
+            "type": "string"
+          },
+          {
+            "const": "rebooting",
+            "description": "The upload finished and the firmware is about to reboot into the\nnew image.",
+            "type": "string"
+          }
+        ]
+      },
+      "OtaWritePhase": {
+        "description": "Where in a flash write the most recent reset landed.",
+        "oneOf": [
+          {
+            "const": "none",
+            "description": "No OTA write was in progress at the time of reset.",
+            "type": "string"
+          },
+          {
+            "const": "inFlash",
+            "description": "Reset occurred inside the flash write; the write had not returned\nwhen the watchdog fired.",
+            "type": "string"
+          },
+          {
+            "const": "flashDone",
+            "description": "Reset occurred after the flash write returned successfully; the offset\nwas updated and the breadcrumb was written before the board reset.",
+            "type": "string"
+          },
+          {
+            "const": "panic",
+            "description": "A panic handler ran before the reset and recorded where the write\nstood.",
+            "type": "string"
+          }
+        ]
+      },
+      "PidTarget": {
+        "description": "What the cooling PID holds: one statistic of one kind of reading, at\none temperature. That kind is the only reading the PID follows.",
+        "properties": {
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          },
+          "statistic": {
+            "$ref": "#/components/schemas/Statistic"
+          },
+          "temp": {
+            "description": "A temperature in millidegrees Celsius.",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "source",
+          "statistic",
+          "temp"
+        ],
+        "type": "object"
+      },
+      "PoolEntry": {
+        "description": "A single pool endpoint entry.",
+        "properties": {
+          "host": {
+            "description": "DNS name or IPv4 literal of the pool host.",
+            "maxLength": 128,
+            "type": "string"
+          },
+          "port": {
+            "description": "TCP port.",
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "protocol": {
+            "$ref": "#/components/schemas/ProtocolKind",
+            "description": "Protocol selection and its parameters."
+          },
+          "user": {
+            "description": "Worker name sent in `mining.authorize`.",
+            "maxLength": 128,
+            "type": "string"
+          },
+          "weight": {
+            "default": 0,
+            "description": "Scheduler dispatch weight for this slot. Zero marks a\nbackup-only slot, mined only while no weighted slot has work. A\nmissing key means zero, so a config without weights keeps the\nprimary-plus-backups behavior.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "host",
+          "port",
+          "user",
+          "protocol",
+          "weight"
+        ],
+        "type": "object"
+      },
+      "PowerTarget": {
+        "description": "The power a power tuner holds the machine at.\n\nPSU input power, so it is the figure a site meters and bills, not\nthe hashboard draw. What range a machine accepts follows from its\nsupply and its boards, and the tuner that reads this is the only\nthing that knows it.",
+        "properties": {
+          "efficiency_mj_per_th": {
+            "description": "Target input power per theoretical hashrate, which caps the clock\nthe tuner ramps to. It is stored and exchanged as integer mJ/TH\nunder `efficiency_mj_per_th`.",
+            "format": "uint32",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "input_power_mw": {
+            "description": "Target PSU input power, stored and exchanged as integer mW under\n`input_power_mw`.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "input_power_mw",
+          "efficiency_mj_per_th"
+        ],
+        "type": "object"
+      },
+      "ProtocolKind": {
+        "description": "Selects the pool mining protocol and carries its protocol-specific\nparameters.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "Stratum V1 with an optional worker password.",
+            "properties": {
+              "Sv1": {
+                "properties": {
+                  "password": {
+                    "description": "Worker password, or `null` to send none; most pools authorise\nby worker name alone.",
+                    "maxLength": 128,
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "password"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Sv1"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Stratum V2 with an optional authority public key.",
+            "properties": {
+              "Sv2": {
+                "properties": {
+                  "pool_pubkey": {
+                    "description": "The pool's authority public key as an SV2 base58check string,\nwhich the client validates the pool's signature against, or\n`null` to validate nothing. In flash it is the raw 32 bytes.",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "pool_pubkey"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Sv2"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "Range_of_Frequency": {
+        "properties": {
+          "end": {
+            "description": "A frequency in kHz.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "start": {
+            "description": "A frequency in kHz.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ],
+        "type": "object"
+      },
+      "Range_of_Power": {
+        "properties": {
+          "end": {
+            "description": "A power in mW.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "start": {
+            "description": "A power in mW.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ],
+        "type": "object"
+      },
+      "Range_of_Temperature": {
+        "properties": {
+          "end": {
+            "description": "A temperature in millidegrees Celsius.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "start": {
+            "description": "A temperature in millidegrees Celsius.",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ],
+        "type": "object"
+      },
+      "Range_of_Voltage": {
+        "properties": {
+          "end": {
+            "description": "A voltage in mV.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "start": {
+            "description": "A voltage in mV.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ],
+        "type": "object"
+      },
+      "Range_of_uint32": {
+        "properties": {
+          "end": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "start": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ],
+        "type": "object"
+      },
+      "Range_of_uint8": {
+        "properties": {
+          "end": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "start": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ],
+        "type": "object"
+      },
+      "ResetReason": {
+        "description": "Cause of the most recent reset, as the watchdog hardware reported it.",
+        "oneOf": [
+          {
+            "const": "unknown",
+            "description": "The reset reason was not read before this report.",
+            "type": "string"
+          },
+          {
+            "const": "clean",
+            "description": "Watchdog reason bits were both clear: power-on reset or `sys_reset`.",
+            "type": "string"
+          },
+          {
+            "const": "watchdogTimeout",
+            "description": "The watchdog timer reached zero before the next feed.",
+            "type": "string"
+          },
+          {
+            "const": "watchdogForced",
+            "description": "The watchdog force bit was set (software-triggered watchdog reset).",
+            "type": "string"
+          }
+        ]
+      },
+      "Source": {
+        "description": "What a temperature reading measures. `metrics` in `ubos-thermal`\nturns it into the `source` label.",
+        "oneOf": [
+          {
+            "const": "hashboard",
+            "description": "A sensor on the hashboard.",
+            "type": "string"
+          },
+          {
+            "const": "chip",
+            "description": "A chip's own die.",
+            "type": "string"
+          }
+        ]
+      },
+      "Statistic": {
+        "description": "Which reduction of one kind's readings the cooling PID follows.",
+        "oneOf": [
+          {
+            "const": "max",
+            "description": "The hottest reading.",
+            "type": "string"
+          },
+          {
+            "const": "mean",
+            "description": "The mean of the readings.",
+            "type": "string"
+          }
+        ]
+      },
+      "SystemInfo": {
+        "description": "Full system-info snapshot for `GET /api/system/info`.",
+        "properties": {
+          "apiVariant": {
+            "description": "Schema-version discriminator, `ubos-0.2` for this document.",
+            "type": "string"
+          },
+          "asicCount": {
+            "description": "Number of BM1362 chips on the hashboard.",
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "asicModel": {
+            "description": "ASIC chip model name.",
+            "type": "string"
+          },
+          "bestNonceDiff": {
+            "description": "Best difficulty nonce found since boot; zero until the\nscoreboard ring buffer is wired.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "bestSessionNonceDiff": {
+            "description": "Best difficulty nonce found in the current stratum session;\nzero until the scoreboard ring buffer is wired.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "boardName": {
+            "description": "The control board's product name, as the board descriptor\nspells it.",
+            "type": "string"
+          },
+          "build": {
+            "description": "The build id the board stamped: the tip of the checkout it was built\nfrom and the build time, the same id the package file is named by.",
+            "type": "string"
+          },
+          "defaultFrequencyKhz": {
+            "description": "Default mining frequency programmed at boot. The body carries it\nas integer kHz under `defaultFrequencyKhz`.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "defaultVoltageMv": {
+            "description": "Default ASIC core voltage programmed at boot. The body carries it\nas integer millivolts under `defaultVoltageMv`.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "fanPwmPercent": {
+            "description": "Fan PWM duty cycle; zero if no fan is present. The body carries it\nas integer percent under `fanPwmPercent`.",
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "fanSpeedRpm": {
+            "description": "Fan rotational speed; zero if no fan is present. The body carries\nit as integer RPM under `fanSpeedRpm`.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "hashrate": {
+            "description": "EWMA-smoothed mining rate in hashes per second.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "hostname": {
+            "description": "Network hostname: the configured hostname when one is saved,\nelse `boardName`.",
+            "type": "string"
+          },
+          "hwInfo": {
+            "$ref": "#/components/schemas/HwInfo",
+            "description": "Hardware-identification fields: PSU model and the\nboot-time-captured version strings a board may publish."
+          },
+          "ip": {
+            "description": "IPv4 address as a dotted-quad string, or empty if DHCP has not\nyet assigned an address.",
+            "maxLength": 16,
+            "type": "string"
+          },
+          "miningState": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ApiMiningState"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The miner's lifecycle state, or `null` before its first publish."
+          },
+          "ota": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OtaInfo"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "OTA slot information, or `null` on a board without a dual-slot\nlayout."
+          },
+          "pauseReason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ApiPauseReason"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The highest-priority active pause reason, or `null` when `paused`\nis `false`."
+          },
+          "paused": {
+            "description": "`true` when mining is halted because at least one pause reason is\nactive; `false` when mining is running normally.",
+            "type": "boolean"
+          },
+          "poolsBitmap": {
+            "description": "Bitmask of connected pool slots; bit N is set when pool N is\nalive.",
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "sharesAccepted": {
+            "description": "Accepted shares since boot, sourced from the stratum-client\nsession counter.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "sharesRejected": {
+            "description": "Rejected shares since boot, sourced from the stratum-client\nsession counter.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "sharesTotal": {
+            "description": "Total chip shares since boot, in units of 2^32 expected\nhashes: a solution at chip difficulty `d` counts `d`.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "time": {
+            "description": "UTC wall-clock time as an `HH:MM:SS UTC` string, or empty if NTP\nhas not yet synchronized.",
+            "maxLength": 24,
+            "type": "string"
+          },
+          "uptimeSeconds": {
+            "description": "Firmware uptime in whole seconds since boot.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "apiVariant",
+          "boardName",
+          "build",
+          "hostname",
+          "hashrate",
+          "uptimeSeconds",
+          "fanSpeedRpm",
+          "fanPwmPercent",
+          "poolsBitmap",
+          "ip",
+          "time",
+          "asicCount",
+          "asicModel",
+          "defaultFrequencyKhz",
+          "defaultVoltageMv",
+          "sharesAccepted",
+          "sharesRejected",
+          "sharesTotal",
+          "bestNonceDiff",
+          "bestSessionNonceDiff",
+          "ota",
+          "miningState",
+          "paused",
+          "pauseReason",
+          "hwInfo"
+        ],
+        "type": "object"
+      },
+      "SystemNetwork": {
+        "description": "Live network status returned by `GET /api/system/network`.\n\n`mode` reflects the currently configured IP assignment mode.\n`pending` is `true` while a live change is awaiting operator\nconfirmation. `seconds_remaining` counts down to the automatic\nrevert; it is 0 when no change is pending.\n\nThe address fields carry the live values of the network stack in\nboth modes: static reports the configured values, DHCP the current\nlease. Every address is `null` or empty until the stack holds one.",
+        "properties": {
+          "address": {
+            "description": "IPv4 address as four octets, or `null` when no address is assigned.",
+            "items": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "maxItems": 4,
+            "minItems": 4,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "dns": {
+            "description": "DNS resolver addresses; each entry is four octets. Empty when none are configured.",
+            "items": {
+              "items": {
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "maxItems": 4,
+              "minItems": 4,
+              "type": "array"
+            },
+            "maxItems": 3,
+            "type": "array"
+          },
+          "gateway": {
+            "description": "Default gateway as four octets, or `null` when none is configured.",
+            "items": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "maxItems": 4,
+            "minItems": 4,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "mode": {
+            "description": "Current network mode: `\"dhcp\"` or `\"static\"`.",
+            "type": "string"
+          },
+          "pending": {
+            "description": "Whether a live change is awaiting confirmation.",
+            "type": "boolean"
+          },
+          "prefix_len": {
+            "description": "Network prefix length (1–32), or `null` when no address is assigned.",
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "seconds_remaining": {
+            "description": "Seconds remaining in the confirm window, or 0 when nothing is pending.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "mode",
+          "pending",
+          "seconds_remaining",
+          "address",
+          "prefix_len",
+          "gateway",
+          "dns"
+        ],
+        "type": "object"
+      },
+      "SystemScoreboardEntry": {
+        "description": "One entry in the best-shares scoreboard.\n\nFields match the stratum protocol metadata for the solution so\nclients can reconstruct and verify the block candidate if needed.",
+        "properties": {
+          "difficulty": {
+            "description": "Share difficulty as an integer (not compact target).",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "extranonce2": {
+            "description": "Extranonce2 value used when the solution was found, hex-encoded.",
+            "maxLength": 32,
+            "type": "string"
+          },
+          "jobId": {
+            "description": "Stratum job identifier for this solution.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "nonce": {
+            "description": "Winning nonce value.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "ntime": {
+            "description": "`nTime` field from the solved block header.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "rank": {
+            "description": "Position in the ranked list, starting at 1.",
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "sinceSeconds": {
+            "description": "Seconds elapsed since this share was found.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "versionBits": {
+            "description": "Version-rolling bits applied to the block header.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rank",
+          "sinceSeconds",
+          "difficulty",
+          "jobId",
+          "extranonce2",
+          "ntime",
+          "nonce",
+          "versionBits"
+        ],
+        "type": "object"
+      },
+      "SystemStatistics": {
+        "description": "Statistics time-series snapshot for `GET /api/system/statistics`.\n\n`statistics` is an array of rows; each row holds one sample per\nentry of `labels`, in that order. Until the server-side ring buffer\nlands, `statistics` is always empty.",
+        "properties": {
+          "currentTimestamp": {
+            "description": "Unix epoch timestamp in milliseconds at the time of the\nresponse; zero if NTP has not yet synchronized.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "labels": {
+            "description": "Column label names; stable across firmware updates.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "statistics": {
+            "description": "Sample rows, one entry per historical snapshot. Empty until the\nserver-side ring buffer is wired in a later phase.",
+            "items": {
+              "items": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "currentTimestamp",
+          "labels",
+          "statistics"
+        ],
+        "type": "object"
+      },
+      "SystemTemperature": {
+        "description": "The temperatures of the last thermal sample, the ambient reading and\nthe kind the cooling PID follows, returned by\n`GET /api/system/temperature`. Each temperature is in whole degrees\nCelsius, and one the last sample did not read is `null`.",
+        "properties": {
+          "ambient": {
+            "description": "The ambient temperature around the board, or `null` where the\nboard measures none or the read failed.",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "chipMax": {
+            "description": "The hottest chip reading, or `null` when the sample read no chip.",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "chipMean": {
+            "description": "The mean chip reading, as `chipMax`.",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "hashboardMax": {
+            "description": "The hottest hashboard reading, or `null` when the sample read no\nhashboard sensor.",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "hashboardMean": {
+            "description": "The mean hashboard reading, as `hashboardMax`.",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "pidSource": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Source"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The kind of reading the cooling PID follows, or `null` under a\nfixed duty and while a failsafe holds the fan at full."
+          }
+        },
+        "required": [
+          "chipMax",
+          "chipMean",
+          "hashboardMax",
+          "hashboardMean",
+          "ambient",
+          "pidSource"
+        ],
+        "type": "object"
+      },
+      "ThermalBounds": {
+        "description": "Accepted ranges for each thermal field. The API reports them beside\nthe current config.",
+        "properties": {
+          "cooldownTemp": {
+            "$ref": "#/components/schemas/Range_of_Temperature",
+            "description": "Accepted range for `cooldown_temp`."
+          },
+          "dangerousChipTemp": {
+            "$ref": "#/components/schemas/Range_of_Temperature",
+            "description": "Accepted range for `dangerous_chip_temp`."
+          },
+          "dangerousHashboardTemp": {
+            "$ref": "#/components/schemas/Range_of_Temperature",
+            "description": "Accepted range for `dangerous_hashboard_temp`."
+          },
+          "sampleIntervalMs": {
+            "$ref": "#/components/schemas/Range_of_uint32",
+            "description": "Accepted range for `sample_interval_ms` in milliseconds."
+          }
+        },
+        "required": [
+          "sampleIntervalMs",
+          "dangerousHashboardTemp",
+          "dangerousChipTemp",
+          "cooldownTemp"
+        ],
+        "type": "object"
+      },
+      "ThermalConfig": {
+        "description": "Tunable parameters for the thermal monitor loop. Temperatures are\nin millidegrees Celsius.",
+        "properties": {
+          "cooldown_temp": {
+            "description": "Temperature below which a halted miner may resume.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "dangerous_chip_temp": {
+            "description": "Temperature above which mining is halted when the safety reading is\na real die temperature, or `null` on a machine that reads none. This\nis the junction ceiling of the chip family, which the board\ndescriptor sets.",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "dangerous_hashboard_temp": {
+            "description": "Temperature above which mining is halted when the safety reading is\na hashboard reading, or `null` on a machine that reads none. The\nboard descriptor sets it, and validation holds it at or below\n`dangerous_chip_temp`.",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "sample_interval_ms": {
+            "description": "Poll interval in milliseconds.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sample_interval_ms",
+          "dangerous_hashboard_temp",
+          "dangerous_chip_temp",
+          "cooldown_temp"
+        ],
+        "type": "object"
+      },
+      "ThermalInfo": {
+        "description": "Static bounds metadata for the thermal config section.\n\nCarries the accepted ranges of the thermal fields so a client can\ntake its input limits from the same source the firmware validates\nagainst.",
+        "properties": {
+          "bounds": {
+            "$ref": "#/components/schemas/ThermalBounds",
+            "description": "Accepted ranges for the thermal fields."
+          }
+        },
+        "required": [
+          "bounds"
+        ],
+        "type": "object"
+      },
+      "TunerInfo": {
+        "description": "One tuner a machine offers: the tuning kind it reads, the name the\nmining form shows for it, and the target fields it reads.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "Reads a fixed tuning, both its frequency and its voltage.",
+            "properties": {
+              "Fixed": {
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Fixed"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Reads a power tuning: its input power, and its efficiency when\n`readsEfficiency` is set.",
+            "properties": {
+              "Power": {
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "readsEfficiency": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "name",
+                  "readsEfficiency"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Power"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "Tuning": {
+        "description": "Tuner selection and target parameters used at bring-up.\n\nA variant names a kind of tuning and carries that kind's target.\nWhich tuner a machine runs for a kind is the firmware's answer, and\na machine need not answer every kind: the firmware\nlists the tuners it offers in the mining bounds. Changing the\nvariant tears down the chip and restarts under the tuner the\nfirmware selects for it; changing only the target does not, because\nthe running tuner reads it at its next step.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "Hold one frequency and one rail voltage, reached by a ramp.",
+            "properties": {
+              "Fixed": {
+                "$ref": "#/components/schemas/FrequencyVoltageTarget"
+              }
+            },
+            "required": [
+              "Fixed"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Hold a power draw, leaving the frequency and the rail to the\ntuner.",
+            "properties": {
+              "Power": {
+                "$ref": "#/components/schemas/PowerTarget"
+              }
+            },
+            "required": [
+              "Power"
+            ],
+            "type": "object"
+          }
+        ]
+      }
+    },
+    "securitySchemes": {
+      "basic": {
+        "scheme": "basic",
+        "type": "http"
+      },
+      "session": {
+        "in": "cookie",
+        "name": "session",
+        "type": "apiKey"
+      }
+    }
+  },
+  "info": {
+    "description": "The /api/* surface of the ubos firmware. Generated from the Rust wire types by the ubos-api host tests.",
+    "title": "ubos REST API",
+    "version": "ubos-0.3"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/config": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigUpdate"
+                }
+              }
+            },
+            "description": "Snapshot with api.password blanked"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Not on the allow-list or not authenticated"
+          },
+          "405": {
+            "description": "Method not allowed on this path"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Body exceeds its buffer"
+          }
+        },
+        "summary": "Configuration snapshot"
+      },
+      "post": {
+        "parameters": [
+          {
+            "description": "Required for a session client; a Basic client is exempt.",
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ack"
+                }
+              }
+            },
+            "description": "Applied and persisted"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Invalid JSON or validation failed"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Not on the allow-list or not authenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "CSRF token invalid or missing"
+          },
+          "405": {
+            "description": "Method not allowed on this path"
+          },
+          "413": {
+            "description": "Body exceeds the request buffer"
+          }
+        },
+        "summary": "Partial configuration update"
+      }
+    },
+    "/api/info": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiInfo"
+                }
+              }
+            },
+            "description": "Telemetry"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Not on the allow-list or not authenticated"
+          },
+          "405": {
+            "description": "Method not allowed on this path"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Body exceeds its buffer"
+          }
+        },
+        "summary": "Dashboard telemetry poll"
+      }
+    },
+    "/api/system": {
+      "patch": {
+        "parameters": [
+          {
+            "description": "Required for a session client; a Basic client is exempt.",
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "Read and discarded.",
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Acknowledged"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Not on the allow-list or not authenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "CSRF token invalid or missing"
+          },
+          "405": {
+            "description": "Method not allowed on this path"
+          },
+          "413": {
+            "description": "Body exceeds the request buffer"
+          }
+        },
+        "summary": "No-op stub: acknowledges and applies nothing"
+      }
+    },
+    "/api/system/OTA": {
+      "post": {
+        "parameters": [
+          {
+            "description": "Required for a session client; a Basic client is exempt.",
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ack"
+                }
+              }
+            },
+            "description": "Image accepted"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Image or chunk malformed"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Not on the allow-list or not authenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "CSRF token invalid or missing"
+          },
+          "405": {
+            "description": "Method not allowed on this path"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "An update is in progress, the device is not provisioned, or the chunk offset does not match"
+          },
+          "411": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Content-Length required"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Image or chunk exceeds its limit"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Flash write failed"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "OTA not available on this board"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Mining did not stop in time; retry"
+          }
+        },
+        "summary": "Upload a firmware image in one request"
+      }
+    },
+    "/api/system/OTA/chunk": {
+      "post": {
+        "parameters": [
+          {
+            "description": "Decimal byte offset where this chunk begins in the image.",
+            "in": "header",
+            "name": "X-OTA-Offset",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Set to \"1\" on the last chunk only.",
+            "in": "header",
+            "name": "X-OTA-Final",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required for a session client; a Basic client is exempt.",
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OtaChunkAck"
+                }
+              }
+            },
+            "description": "Image accepted"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Image or chunk malformed"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Not on the allow-list or not authenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "CSRF token invalid or missing"
+          },
+          "405": {
+            "description": "Method not allowed on this path"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "An update is in progress, the device is not provisioned, or the chunk offset does not match"
+          },
+          "411": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Content-Length required"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Image or chunk exceeds its limit"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Flash write failed"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "OTA not available on this board"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Mining did not stop in time; retry"
+          }
+        },
+        "summary": "Upload one sector of a firmware image; a continuation chunk, offset above 0, needs no CSRF token"
+      }
+    },
+    "/api/system/OTAWWW": {
+      "post": {
+        "parameters": [
+          {
+            "description": "Required for a session client; a Basic client is exempt.",
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Not on the allow-list or not authenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "CSRF token invalid or missing"
+          },
+          "405": {
+            "description": "Method not allowed on this path"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Not available on this platform"
+          }
+        },
+        "summary": "Upload a web UI image"
+      }
+    },
+    "/api/system/asic": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MiningInfo"
+                }
+              }
+            },
+            "description": "Chip facts"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Not on the allow-list or not authenticated"
+          },
+          "405": {
+            "description": "Method not allowed on this path"
+          }
+        },
+        "summary": "Chip facts and tuning bounds"
+      }
+    },
+    "/api/system/blockFound/dismiss": {
+      "post": {
+        "parameters": [
+          {
+            "description": "Required for a session client; a Basic client is exempt.",
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Acknowledged"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Not on the allow-list or not authenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "CSRF token invalid or missing"
+          },
+          "405": {
+            "description": "Method not allowed on this path"
+          },
+          "413": {
+            "description": "Body exceeds the request buffer"
+          }
+        },
+        "summary": "Block-found dismissal stub: logs and acknowledges the request"
+      }
+    },
+    "/api/system/cooling": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoolingInfo"
+                }
+              }
+            },
+            "description": "Cooling setpoints"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Not on the allow-list or not authenticated"
+          },
+          "405": {
+            "description": "Method not allowed on this path"
+          }
+        },
+        "summary": "Cooling setpoints and bounds"
+      }
+    },
+    "/api/system/events": {
+      "get": {
+        "parameters": [
+          {
+            "description": "Return only records whose seq is greater than this cursor.",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventsResponse"
+                }
+              }
+            },
+            "description": "Records after the cursor"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Not on the allow-list or not authenticated"
+          },
+          "405": {
+            "description": "Method not allowed on this path"
+          }
+        },
+        "summary": "Event ring snapshot, oldest first"
+      }
+    },
+    "/api/system/events/catalog": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/EventDefJson"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "One entry per event code"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Not on the allow-list or not authenticated"
+          },
+          "405": {
+            "description": "Method not allowed on this path"
+          }
+        },
+        "summary": "Event catalog"
+      }
+    },
+    "/api/system/factory_reset": {
+      "post": {
+        "parameters": [
+          {
+            "description": "Required for a session client; a Basic client is exempt.",
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Acknowledged"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Not on the allow-list or not authenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "CSRF token invalid or missing"
+          },
+          "405": {
+            "description": "Method not allowed on this path"
+          },
+          "413": {
+            "description": "Body exceeds the request buffer"
+          }
+        },
+        "summary": "Wipe persisted config and reboot"
+      }
+    },
+    "/api/system/identify": {
+      "post": {
+        "parameters": [
+          {
+            "description": "Required for a session client; a Basic client is exempt.",
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Acknowledged"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Not on the allow-list or not authenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "CSRF token invalid or missing"
+          },
+          "405": {
+            "description": "Method not allowed on this path"
+          },
+          "413": {
+            "description": "Body exceeds the request buffer"
+          }
+        },
+        "summary": "Identify stub: logs and acknowledges the request"
+      }
+    },
+    "/api/system/info": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemInfo"
+                }
+              }
+            },
+            "description": "Versioned telemetry"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Not on the allow-list or not authenticated"
+          },
+          "405": {
+            "description": "Method not allowed on this path"
+          }
+        },
+        "summary": "System telemetry"
+      }
+    },
+    "/api/system/network": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemNetwork"
+                }
+              }
+            },
+            "description": "Network state"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Not on the allow-list or not authenticated"
+          },
+          "405": {
+            "description": "Method not allowed on this path"
+          }
+        },
+        "summary": "Network mode and pending change"
+      },
+      "post": {
+        "parameters": [
+          {
+            "description": "Required for a session client; a Basic client is exempt.",
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NetworkPostRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ack"
+                }
+              }
+            },
+            "description": "Applied"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Invalid JSON, validation failed, or a static change needs the confirm window"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Not on the allow-list or not authenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "CSRF token invalid or missing"
+          },
+          "405": {
+            "description": "Method not allowed on this path"
+          },
+          "413": {
+            "description": "Body exceeds the request buffer"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Config task busy; retry"
+          }
+        },
+        "summary": "Apply a network change, previewed or final"
+      }
+    },
+    "/api/system/network/confirm": {
+      "post": {
+        "parameters": [
+          {
+            "description": "Required for a session client; a Basic client is exempt.",
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Acknowledged"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Not on the allow-list or not authenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "CSRF token invalid or missing"
+          },
+          "405": {
+            "description": "Method not allowed on this path"
+          },
+          "413": {
+            "description": "Body exceeds the request buffer"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Config task busy; retry"
+          }
+        },
+        "summary": "Confirm a pending network preview"
+      }
+    },
+    "/api/system/network/revert": {
+      "post": {
+        "parameters": [
+          {
+            "description": "Required for a session client; a Basic client is exempt.",
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Acknowledged"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Not on the allow-list or not authenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "CSRF token invalid or missing"
+          },
+          "405": {
+            "description": "Method not allowed on this path"
+          },
+          "413": {
+            "description": "Body exceeds the request buffer"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Config task busy; retry"
+          }
+        },
+        "summary": "Revert a pending network preview"
+      }
+    },
+    "/api/system/pause": {
+      "post": {
+        "parameters": [
+          {
+            "description": "Required for a session client; a Basic client is exempt.",
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Acknowledged"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Not on the allow-list or not authenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "CSRF token invalid or missing"
+          },
+          "405": {
+            "description": "Method not allowed on this path"
+          },
+          "413": {
+            "description": "Body exceeds the request buffer"
+          }
+        },
+        "summary": "Stop mining"
+      }
+    },
+    "/api/system/restart": {
+      "post": {
+        "parameters": [
+          {
+            "description": "Required for a session client; a Basic client is exempt.",
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Acknowledged"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Not on the allow-list or not authenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "CSRF token invalid or missing"
+          },
+          "405": {
+            "description": "Method not allowed on this path"
+          },
+          "413": {
+            "description": "Body exceeds the request buffer"
+          }
+        },
+        "summary": "Reboot once the response is sent"
+      }
+    },
+    "/api/system/resume": {
+      "post": {
+        "parameters": [
+          {
+            "description": "Required for a session client; a Basic client is exempt.",
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Acknowledged"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Not on the allow-list or not authenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "CSRF token invalid or missing"
+          },
+          "405": {
+            "description": "Method not allowed on this path"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "An overheat halt stands; clear it first"
+          },
+          "413": {
+            "description": "Body exceeds the request buffer"
+          }
+        },
+        "summary": "Start mining"
+      }
+    },
+    "/api/system/scoreboard": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SystemScoreboardEntry"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Scoreboard entries"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Not on the allow-list or not authenticated"
+          },
+          "405": {
+            "description": "Method not allowed on this path"
+          }
+        },
+        "summary": "Best shares"
+      }
+    },
+    "/api/system/statistics": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemStatistics"
+                }
+              }
+            },
+            "description": "Label set and samples"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Not on the allow-list or not authenticated"
+          },
+          "405": {
+            "description": "Method not allowed on this path"
+          }
+        },
+        "summary": "Time series ring"
+      }
+    },
+    "/api/system/temperature": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemTemperature"
+                }
+              }
+            },
+            "description": "Temperatures and PID source"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Not on the allow-list or not authenticated"
+          },
+          "405": {
+            "description": "Method not allowed on this path"
+          }
+        },
+        "summary": "Last thermal sample"
+      }
+    },
+    "/api/system/thermal": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThermalInfo"
+                }
+              }
+            },
+            "description": "Thermal limits"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Not on the allow-list or not authenticated"
+          },
+          "405": {
+            "description": "Method not allowed on this path"
+          }
+        },
+        "summary": "Thermal limits and bounds"
+      }
+    },
+    "/api/system/thermal/clear": {
+      "post": {
+        "parameters": [
+          {
+            "description": "Required for a session client; a Basic client is exempt.",
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Acknowledged"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Not on the allow-list or not authenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "CSRF token invalid or missing"
+          },
+          "405": {
+            "description": "Method not allowed on this path"
+          },
+          "413": {
+            "description": "Body exceeds the request buffer"
+          }
+        },
+        "summary": "Clear an overheat halt and start mining"
+      }
+    },
+    "/api/system/wifi/scan": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Not on the allow-list or not authenticated"
+          },
+          "405": {
+            "description": "Method not allowed on this path"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            },
+            "description": "Not available on this platform"
+          }
+        },
+        "summary": "Wi-Fi scan"
+      }
+    }
+  },
+  "security": [
+    {
+      "basic": []
+    },
+    {
+      "session": []
+    }
+  ],
+  "servers": [
+    {
+      "url": "http://{host}",
+      "variables": {
+        "host": {
+          "default": "ubos.local"
+        }
+      }
+    }
+  ]
+}

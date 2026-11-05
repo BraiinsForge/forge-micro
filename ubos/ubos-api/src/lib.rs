@@ -69,6 +69,10 @@ pub use rest::{
     RestApiService, run_ota_session_watchdog, run_sync_credentials, seed_api_credentials,
 };
 
+#[cfg(all(test, feature = "schema"))]
+#[path = "tests/openapi.rs"]
+mod openapi_tests;
+
 #[cfg(test)]
 mod test_time_stubs {
     // `rest` and `system` call `embassy_time::Instant::now()` directly,

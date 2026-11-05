@@ -101,6 +101,8 @@ let
     || (builtins.match ".*\\.svg$" path != null)
     || (builtins.match ".*/tests/fixtures/.*\\.bin$" path != null)
     || (builtins.match ".*/tests/fixtures/.*\\.json$" path != null)
+    # The generated OpenAPI document, read by the ubos-api host tests.
+    || (builtins.match ".*/openapi\\.json$" path != null)
     || (baseNameOf path == "build.rs");
 
   # The top-level nix/ directory holds only flake modules; crane's
