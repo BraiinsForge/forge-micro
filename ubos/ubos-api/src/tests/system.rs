@@ -1120,3 +1120,118 @@ fn system_info_schema_uses_camel_case() {
     let hw = &value["$defs"]["HwInfo"]["properties"]["hashboardIds"];
     assert_eq!(hw["type"], serde_json::json!(["array", "null"]));
 }
+
+// --- event bodies serialize from structs ---
+
+/// A record serializes to the bytes the hand-written writer produced.
+#[test]
+fn event_record_serializes_the_documented_bytes() {
+    let record = ubos_events::EventRecord {
+        seq: 7,
+        ts: 99,
+        code: 0xdead_beef,
+        severity: 1,
+        args: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    };
+    let json = crate::schema::events::EventRecordJson::from(&record);
+    let mut buffer = [0u8; 128];
+    let len = serde_json_core::to_slice(&json, &mut buffer).expect("record fits");
+    assert_eq!(
+        std::str::from_utf8(&buffer[..len]).expect("valid UTF-8"),
+        "{\"seq\":7,\"ts\":99,\"sev\":\"warn\",\"code\":3735928559,\
+         \"args\":\"000102030405060708090a\"}"
+    );
+}
+
+/// A catalog entry escapes its format string and names its arg widths.
+#[test]
+fn event_def_serializes_the_documented_bytes() {
+    let def = ubos_events::EventDef {
+        code: 5,
+        severity: ubos_events::Severity::Error,
+        fmt: "say \"hi\" \\ now",
+        args: &[ubos_events::ArgWidth::U8, ubos_events::ArgWidth::I32],
+    };
+    let json = crate::schema::events::EventDefJson::from(&def);
+    let mut buffer = [0u8; 256];
+    let len = serde_json_core::to_slice(&json, &mut buffer).expect("def fits");
+    assert_eq!(
+        std::str::from_utf8(&buffer[..len]).expect("valid UTF-8"),
+        "{\"code\":5,\"sev\":\"error\",\"fmt\":\"say \\\"hi\\\" \\\\ now\",\
+         \"args\":[\"u8\",\"i32\"]}"
+    );
+}
+
+/// A catalog entry wider than its buffer fails to serialize, which is
+/// the path that skips it and keeps the streamed array valid.
+#[test]
+fn oversized_event_def_does_not_fit_its_buffer() {
+    let fmt: &'static str =
+        std::boxed::Box::leak("\"".repeat(ubos_events::MAX_FMT_LEN).into_boxed_str());
+    let def = ubos_events::EventDef {
+        code: 1,
+        severity: ubos_events::Severity::Info,
+        fmt,
+        args: &[],
+    };
+    let mut buffer = [0u8; super::DEF_JSON_MAX];
+    assert!(
+        serde_json_core::to_slice(
+            &crate::schema::events::EventDefJson::from(&def),
+            &mut buffer
+        )
+        .is_err()
+    );
+}
+
+/// The severity serializes to the three lower-case strings the ring
+/// has always reported.
+#[test]
+fn event_severity_serializes_lowercase() {
+    let mut buf = [0u8; 8];
+    for (severity, expected) in [
+        (ubos_events::Severity::Info, "\"info\""),
+        (ubos_events::Severity::Warn, "\"warn\""),
+        (ubos_events::Severity::Error, "\"error\""),
+    ] {
+        let n = serde_json_core::to_slice(
+            &crate::schema::events::ApiSeverity::from(severity),
+            &mut buf,
+        )
+        .expect("fits");
+        assert_eq!(core::str::from_utf8(&buf[..n]).expect("utf8"), expected);
+    }
+}
+
+/// The streamed body is the envelope struct's serialization: the
+/// handler writes the opening, the comma and the closing as literals,
+/// and this holds them to the struct the document describes.
+#[test]
+fn streamed_events_body_matches_the_envelope_struct() {
+    let record = ubos_events::EventRecord {
+        seq: 1,
+        ts: 2,
+        code: 3,
+        severity: 0,
+        args: [0; 11],
+    };
+    let entries = [
+        crate::schema::events::EventRecordJson::from(&record),
+        crate::schema::events::EventRecordJson::from(&record),
+    ];
+    let mut whole = [0u8; 256];
+    let whole_len = serde_json_core::to_slice(
+        &crate::schema::events::EventsResponse { events: &entries },
+        &mut whole,
+    )
+    .expect("fits");
+    let mut one = [0u8; 128];
+    let one_len = serde_json_core::to_slice(&entries[0], &mut one).expect("fits");
+    let mut streamed = std::vec::Vec::new();
+    streamed.extend_from_slice(super::EVENTS_OPEN);
+    streamed.extend_from_slice(&one[..one_len]);
+    streamed.extend_from_slice(b",");
+    streamed.extend_from_slice(&one[..one_len]);
+    streamed.extend_from_slice(super::EVENTS_CLOSE);
+    assert_eq!(&whole[..whole_len], streamed.as_slice());
+}

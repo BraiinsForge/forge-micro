@@ -86,6 +86,7 @@ use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
 use ubos_thermal::Handle as ThermalHandle;
 
 use crate::ota::{OtaError, ota_session};
+use crate::schema::events::{EventDefJson, EventRecordJson};
 use crate::schema::{
     API_VARIANT, GenericResponse, SystemInfo, SystemNetwork, SystemScoreboardEntry,
     SystemStatistics, SystemTemperature, system_info::HwInfo, system_statistics::LABELS,
@@ -1550,35 +1551,6 @@ where
         .await
 }
 
-/// Map a severity byte to its JSON string representation.
-///
-/// Values follow the `Severity` repr: 1 is warn, 2 is error,
-/// all others (including 0) are info.
-fn severity_str(value: u8) -> &'static str {
-    match value {
-        1 => "warn",
-        2 => "error",
-        _ => "info",
-    }
-}
-
-/// Map an `ArgWidth` variant to its JSON string representation.
-fn argwidth_str(width: ubos_events::ArgWidth) -> &'static str {
-    match width {
-        ubos_events::ArgWidth::U8 => "u8",
-        ubos_events::ArgWidth::U16 => "u16",
-        ubos_events::ArgWidth::U32 => "u32",
-        ubos_events::ArgWidth::I8 => "i8",
-        ubos_events::ArgWidth::I16 => "i16",
-        ubos_events::ArgWidth::I32 => "i32",
-        ubos_events::ArgWidth::Temperature => "temperature",
-        ubos_events::ArgWidth::Frequency => "frequency",
-        ubos_events::ArgWidth::Voltage => "voltage",
-        ubos_events::ArgWidth::Power => "power",
-        ubos_events::ArgWidth::Efficiency => "efficiency",
-    }
-}
-
 /// Parse the `since` query parameter from a path+query string.
 ///
 /// Returns the numeric value of `?since=<u32>`. A value that overflows
@@ -1627,7 +1599,7 @@ where
     let mut cursor = parse_since(path);
 
     begin_streamed_json(connection).await?;
-    embedded_io_async::Write::write_all(connection, b"{\"events\":[").await?;
+    embedded_io_async::Write::write_all(connection, EVENTS_OPEN).await?;
 
     let mut first_emitted = true;
     let mut batch = [ubos_events::EventRecord::EMPTY; EVENT_BATCH];
@@ -1637,39 +1609,26 @@ where
             break;
         }
         for record in &batch[..count] {
+            cursor = record.seq;
             let mut buffer = [0u8; EVENT_JSON_MAX];
-            let written = {
-                let mut writer = ubos_http::BufferWriter::new(&mut buffer);
-                if !first_emitted {
-                    let _ = core::write!(writer, ",");
-                }
-                let _ = core::write!(
-                    writer,
-                    "{{\"seq\":{},\"ts\":{},\"sev\":\"{}\",\"code\":{},\"args\":\"",
-                    record.seq,
-                    record.ts,
-                    severity_str(record.severity),
-                    record.code,
+            let Ok(written) =
+                serde_json_core::to_slice(&EventRecordJson::from(record), &mut buffer)
+            else {
+                warn!(
+                    "events: record seq {} exceeds {}B buffer; skipped",
+                    record.seq, EVENT_JSON_MAX
                 );
-                for byte in record.args {
-                    let _ = core::write!(writer, "{byte:02x}");
-                }
-                let _ = core::write!(writer, "\"}}");
-                if writer.overflowed() {
-                    warn!(
-                        "events: record seq {} exceeded {}B buffer; emitting truncated JSON",
-                        record.seq, EVENT_JSON_MAX
-                    );
-                }
-                writer.len()
+                continue;
             };
+            if !first_emitted {
+                embedded_io_async::Write::write_all(connection, b",").await?;
+            }
             embedded_io_async::Write::write_all(connection, &buffer[..written]).await?;
             first_emitted = false;
-            cursor = record.seq;
         }
     }
 
-    embedded_io_async::Write::write_all(connection, b"]}").await?;
+    embedded_io_async::Write::write_all(connection, EVENTS_CLOSE).await?;
     Ok(())
 }
 
@@ -1691,49 +1650,17 @@ where
     for catalog in ubos_events::catalogs() {
         for def in *catalog {
             let mut buffer = [0u8; DEF_JSON_MAX];
-            let written = {
-                let mut writer = ubos_http::BufferWriter::new(&mut buffer);
-                if !first_def {
-                    let _ = core::write!(writer, ",");
-                }
-                let _ = core::write!(
-                    writer,
-                    "{{\"code\":{},\"sev\":\"{}\",\"fmt\":\"",
-                    def.code,
-                    severity_str(def.severity as u8),
+            let Ok(written) = serde_json_core::to_slice(&EventDefJson::from(def), &mut buffer)
+            else {
+                warn!(
+                    "events: catalog def code {} exceeds {}B buffer; skipped",
+                    def.code, DEF_JSON_MAX
                 );
-                // Escape the format string: `"` becomes `\"`, `\` becomes `\\`.
-                for ch in def.fmt.chars() {
-                    match ch {
-                        '"' => {
-                            let _ = core::write!(writer, "\\\"");
-                        }
-                        '\\' => {
-                            let _ = core::write!(writer, "\\\\");
-                        }
-                        other => {
-                            let _ = core::write!(writer, "{other}");
-                        }
-                    }
-                }
-                let _ = core::write!(writer, "\",\"args\":[");
-                let mut first_arg = true;
-                for arg_width in def.args {
-                    if !first_arg {
-                        let _ = core::write!(writer, ",");
-                    }
-                    let _ = core::write!(writer, "\"{}\"", argwidth_str(*arg_width));
-                    first_arg = false;
-                }
-                let _ = core::write!(writer, "]}}");
-                if writer.overflowed() {
-                    warn!(
-                        "events: catalog def code {} exceeded {}B buffer; emitting truncated JSON",
-                        def.code, DEF_JSON_MAX
-                    );
-                }
-                writer.len()
+                continue;
             };
+            if !first_def {
+                embedded_io_async::Write::write_all(connection, b",").await?;
+            }
             embedded_io_async::Write::write_all(connection, &buffer[..written]).await?;
             first_def = false;
         }
@@ -1743,6 +1670,12 @@ where
     Ok(())
 }
 
+/// The framing the events handler streams around its records: the
+/// opening of [`crate::schema::events::EventsResponse`] and its close.
+/// A test holds them to that struct's serialization.
+pub(crate) const EVENTS_OPEN: &[u8] = b"{\"events\":[";
+pub(crate) const EVENTS_CLOSE: &[u8] = b"]}";
+
 /// Records copied from the ring per streaming batch. Sized for a small stack
 /// buffer rather than the full ring, so the events endpoint costs no RAM that
 /// scales with `EVENT_LOG_CAPACITY` on any board.
@@ -1750,9 +1683,9 @@ const EVENT_BATCH: usize = 16;
 
 /// Maximum byte length of one serialised event record in the streaming JSON body.
 ///
-/// The longest record serialises, with a leading comma, as
-/// `,{"seq":4294967295,"ts":4294967295,"sev":"error","code":4294967295,"args":"<22 hex chars>"}`,
-/// which is 99 bytes. 128 leaves conservative headroom.
+/// The longest record serialises as
+/// `{"seq":4294967295,"ts":4294967295,"sev":"error","code":4294967295,"args":"<22 hex chars>"}`,
+/// which is 98 bytes. 128 leaves conservative headroom.
 const EVENT_JSON_MAX: usize = 128;
 
 /// Maximum byte length of one serialised event definition in the streaming JSON body.

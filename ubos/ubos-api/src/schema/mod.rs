@@ -24,6 +24,7 @@
 //! `serde-json-core` so they compile in `no_std` environments without
 //! heap allocation.
 
+pub mod events;
 pub mod generic_response;
 pub mod info;
 pub mod state;
