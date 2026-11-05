@@ -31,6 +31,8 @@ use ubos_core::units::{Efficiency, FanPwm, FanRpm, Frequency, Power, Temperature
 use crate::ota::{MAX_BUILD_ID_LEN, OtaPhase, OtaWritePhase, ResetReason};
 use crate::rest::{API_INFO_BODY_BUFFER_SIZE, CONFIG_RESPONSE_BUFFER_SIZE};
 use crate::schema::info::{ApiInfo, ApiInfoChain, ApiInfoOta};
+use crate::schema::state::ApiChainState;
+use ubos_metrics::chain::ChainPresence;
 
 // --- N6: API_INFO_BODY_BUFFER_SIZE covers the worst-case body ---
 
@@ -98,7 +100,7 @@ fn api_info_body_fits_in_buffer() {
     let chains = (0..ubos_metrics::chain::MAX_CHAINS)
         .map(|chain| ApiInfoChain {
             chain,
-            state: "unknown",
+            state: ApiChainState::Unknown,
             chips: u16::MAX,
             frequency: Frequency::from_khz(u32::MAX),
             hashrate: u64::MAX,
@@ -509,4 +511,20 @@ pub(crate) fn enum_values(schema: &serde_json::Value) -> std::vec::Vec<std::stri
         .iter()
         .map(|v| v.as_str().expect("string value").to_string())
         .collect()
+}
+
+/// The chain state serializes to the strings the dashboard reads,
+/// one per presence, so the enum changes nothing on the wire.
+#[test]
+fn chain_state_serializes_as_before() {
+    let mut buf = [0u8; 16];
+    for (presence, expected) in [
+        (ChainPresence::Unknown, "\"unknown\""),
+        (ChainPresence::Present { chips: 1 }, "\"present\""),
+        (ChainPresence::Absent, "\"absent\""),
+        (ChainPresence::Faulted { found: 0 }, "\"faulted\""),
+    ] {
+        let n = serde_json_core::to_slice(&ApiChainState::from(presence), &mut buf).expect("fits");
+        assert_eq!(core::str::from_utf8(&buf[..n]).expect("utf8"), expected);
+    }
 }

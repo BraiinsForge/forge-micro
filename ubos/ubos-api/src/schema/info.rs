@@ -27,10 +27,11 @@
 use heapless::{String, Vec};
 use serde::Serialize;
 use ubos_core::units::{FanPwm, FanRpm, Frequency, Power, Temperature, Voltage};
-use ubos_metrics::chain::{ChainPresence, ChainStats, MAX_CHAINS};
+use ubos_metrics::chain::{ChainStats, MAX_CHAINS};
 
 use crate::hw_info::HwString;
 use crate::ota::{OtaPhase, OtaSessionSnapshot, OtaWritePhase, ResetDiag, ResetReason};
+use crate::schema::state::ApiChainState;
 use crate::schema::system_info::OtaInfo;
 
 /// Full snapshot for `GET /api/info`.
@@ -127,9 +128,8 @@ pub struct ApiInfo {
 pub struct ApiInfoChain {
     /// The chain's index on the board.
     pub chain: usize,
-    /// `unknown`, `present`, `absent` or `faulted`, from the chain's most
-    /// recently recorded presence.
-    pub state: &'static str,
+    /// The chain's most recently recorded presence.
+    pub state: ApiChainState,
     /// Chips the chain enumerated.
     pub chips: u16,
     /// The chain's clock. The body carries it as integer kHz under
@@ -151,12 +151,7 @@ impl ApiInfoChain {
     pub fn new(chain: usize, stats: &ChainStats) -> Self {
         Self {
             chain,
-            state: match stats.presence() {
-                ChainPresence::Unknown => "unknown",
-                ChainPresence::Present { .. } => "present",
-                ChainPresence::Absent => "absent",
-                ChainPresence::Faulted { .. } => "faulted",
-            },
+            state: stats.presence().into(),
             chips: stats.chips(),
             frequency: stats.frequency(),
             hashrate: stats.hashrate(),

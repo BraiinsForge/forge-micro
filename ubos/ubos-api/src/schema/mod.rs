@@ -26,6 +26,7 @@
 
 pub mod generic_response;
 pub mod info;
+pub mod state;
 pub mod system_info;
 pub mod system_network;
 pub mod system_scoreboard;
