@@ -361,7 +361,7 @@ where
 
     let mining_state = ubos_mining::handle()
         .state()
-        .map(ubos_mining::MiningState::as_api_str);
+        .map(crate::schema::state::ApiMiningState::from);
     let pause_reasons = ubos_manager::handle().pause_reasons();
     let paused = !pause_reasons.is_empty();
     let pause_reason = pause_reasons

@@ -40,6 +40,7 @@ use ubos_thermal::Handle as ThermalHandle;
 use ubos_http::{RequestParts, Service, read_body, write_json_response, write_status_only};
 
 use crate::schema::info::{ApiInfo, ApiInfoChain, ApiInfoOta};
+use crate::schema::state::ApiMiningState;
 
 #[cfg(test)]
 #[path = "tests/rest.rs"]
@@ -206,7 +207,7 @@ impl RestApiService {
             pools: stratum_client::pool_alive_bitmap(),
             net_confirm_seconds: ubos_config::pending_seconds_remaining(),
             running: matches!(mining_state, Some(ubos_mining::MiningState::Running)),
-            mining_state: mining_state.map(ubos_mining::MiningState::as_api_str),
+            mining_state: mining_state.map(ApiMiningState::from),
             paused: !pause_reasons.is_empty(),
             pause_reason: pause_reasons
                 .dominant()

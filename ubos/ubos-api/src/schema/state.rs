@@ -25,6 +25,7 @@
 
 use serde::Serialize;
 use ubos_metrics::chain::ChainPresence;
+use ubos_mining::MiningState;
 
 /// A chain's presence as the `/api/info` `chains[].state` string.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -39,6 +40,34 @@ pub enum ApiChainState {
     Absent,
     /// The chain failed enumeration or its safe-boot configuration.
     Faulted,
+}
+
+/// The miner's lifecycle state as the `mining_state` string of both
+/// info bodies. `MiningState::as_api_str` spells the same strings for
+/// the metrics label, and a test holds the two equal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum ApiMiningState {
+    /// Chips are held in reset until a pool slot holds a job.
+    WaitingForPool,
+    /// Bring-up is in progress.
+    Starting,
+    /// Every present chain receives work.
+    Running,
+    /// Chips are held in reset, or no mining hardware is configured.
+    Stopped,
+}
+
+impl From<MiningState> for ApiMiningState {
+    fn from(state: MiningState) -> Self {
+        match state {
+            MiningState::WaitingForPool => Self::WaitingForPool,
+            MiningState::Starting => Self::Starting,
+            MiningState::Running => Self::Running,
+            MiningState::Stopped => Self::Stopped,
+        }
+    }
 }
 
 impl From<ChainPresence> for ApiChainState {

@@ -31,8 +31,9 @@ use ubos_core::units::{Efficiency, FanPwm, FanRpm, Frequency, Power, Temperature
 use crate::ota::{MAX_BUILD_ID_LEN, OtaPhase, OtaWritePhase, ResetReason};
 use crate::rest::{API_INFO_BODY_BUFFER_SIZE, CONFIG_RESPONSE_BUFFER_SIZE};
 use crate::schema::info::{ApiInfo, ApiInfoChain, ApiInfoOta};
-use crate::schema::state::ApiChainState;
+use crate::schema::state::{ApiChainState, ApiMiningState};
 use ubos_metrics::chain::ChainPresence;
+use ubos_mining::MiningState;
 
 // --- N6: API_INFO_BODY_BUFFER_SIZE covers the worst-case body ---
 
@@ -124,7 +125,7 @@ fn api_info_body_fits_in_buffer() {
         pools: u8::MAX,
         net_confirm_seconds: u64::MAX,
         running: true,
-        mining_state: Some("waitingForPool"),
+        mining_state: Some(ApiMiningState::WaitingForPool),
         paused: true,
         pause_reason: Some("temperatureUnreadable"),
         chains,
@@ -526,5 +527,26 @@ fn chain_state_serializes_as_before() {
     ] {
         let n = serde_json_core::to_slice(&ApiChainState::from(presence), &mut buf).expect("fits");
         assert_eq!(core::str::from_utf8(&buf[..n]).expect("utf8"), expected);
+    }
+}
+
+/// The mining state serializes to the string `as_api_str` gives, which
+/// the metrics label still uses, so the wire enum and the label agree.
+#[test]
+fn mining_state_serializes_as_api_str() {
+    let mut buf = [0u8; 24];
+    for state in [
+        MiningState::WaitingForPool,
+        MiningState::Starting,
+        MiningState::Running,
+        MiningState::Stopped,
+    ] {
+        let n = serde_json_core::to_slice(&ApiMiningState::from(state), &mut buf).expect("fits");
+        let mut expected: heapless::String<24> = heapless::String::new();
+        write!(expected, "\"{}\"", state.as_api_str()).expect("fits");
+        assert_eq!(
+            core::str::from_utf8(&buf[..n]).expect("utf8"),
+            expected.as_str()
+        );
     }
 }

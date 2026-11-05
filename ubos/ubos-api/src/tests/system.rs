@@ -744,7 +744,7 @@ fn serialize_system_info_with_ota(
         ota,
         // The widest state string, so the worst-case measurement below
         // covers it.
-        mining_state: Some("waitingForPool"),
+        mining_state: Some(crate::schema::state::ApiMiningState::WaitingForPool),
         paused,
         pause_reason,
         hw_info,

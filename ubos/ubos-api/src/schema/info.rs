@@ -31,7 +31,7 @@ use ubos_metrics::chain::{ChainStats, MAX_CHAINS};
 
 use crate::hw_info::HwString;
 use crate::ota::{OtaPhase, OtaSessionSnapshot, OtaWritePhase, ResetDiag, ResetReason};
-use crate::schema::state::ApiChainState;
+use crate::schema::state::{ApiChainState, ApiMiningState};
 use crate::schema::system_info::OtaInfo;
 
 /// Full snapshot for `GET /api/info`.
@@ -84,8 +84,7 @@ pub struct ApiInfo {
     /// `true` while the miner is in its running state.
     pub running: bool,
     /// The miner's lifecycle state, or `null` before its first publish.
-    /// `MiningState::as_api_str` gives the strings.
-    pub mining_state: Option<&'static str>,
+    pub mining_state: Option<ApiMiningState>,
     /// `true` while at least one pause reason is active.
     pub paused: bool,
     /// The highest-priority active pause reason, or `null` when `paused`
