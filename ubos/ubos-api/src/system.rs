@@ -75,6 +75,8 @@ use embassy_net::Stack;
 use embassy_time::{Duration, Instant, Timer};
 use embedded_io_async::{Read, Write};
 use heapless::String;
+use ubos_config::{Source, Statistic};
+use ubos_core::units::Temperature;
 use ubos_http::write_json_response;
 use ubos_logging::{info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
@@ -83,7 +85,7 @@ use ubos_thermal::Handle as ThermalHandle;
 use crate::ota::{OtaError, ota_session};
 use crate::schema::{
     API_VARIANT, GenericResponse, SystemInfo, SystemNetwork, SystemScoreboardEntry,
-    SystemStatistics, system_info::HwInfo, system_statistics::LABELS,
+    SystemStatistics, SystemTemperature, system_info::HwInfo, system_statistics::LABELS,
 };
 
 #[cfg(test)]
@@ -423,6 +425,40 @@ where
     T: Read + Write + TcpSplit,
 {
     serialize_and_respond(connection, scratch, &ubos_config::THERMAL_INFO).await
+}
+
+/// Handle `GET /api/system/temperature`.
+///
+/// Returns the temperatures of the last thermal sample, the ambient
+/// reading and the kind the cooling PID follows.
+async fn handle_temperature<T, const N: usize>(
+    connection: &mut Connection<'_, T, N>,
+    scratch: &mut [u8],
+    thermal: ThermalHandle,
+) -> Result<(), HttpError<T::Error>>
+where
+    T: Read + Write + TcpSplit,
+{
+    let reading = thermal.current();
+    let temps = reading.as_ref().and_then(|reading| reading.temps);
+    let celsius = |source: Source, statistic: Statistic| {
+        temps
+            .and_then(|temps| temps.temp_stats(source))
+            .map(|stats| stats.temp(statistic).celsius_i32())
+    };
+    let body = SystemTemperature {
+        chip_max: celsius(Source::Chip, Statistic::Max),
+        chip_mean: celsius(Source::Chip, Statistic::Mean),
+        hashboard_max: celsius(Source::Hashboard, Statistic::Max),
+        hashboard_mean: celsius(Source::Hashboard, Statistic::Mean),
+        ambient: reading
+            .and_then(|reading| reading.ambient)
+            .map(Temperature::celsius_i32),
+        pid_source: ubos_cooling::handle()
+            .current()
+            .and_then(|fan| fan.pid_source),
+    };
+    serialize_and_respond(connection, scratch, &body).await
 }
 
 /// Handle `GET /api/system/cooling`.
@@ -1718,6 +1754,8 @@ pub(crate) enum Route {
     SystemAsic,
     /// `GET /api/system/thermal`
     SystemThermal,
+    /// `GET /api/system/temperature`
+    SystemTemperature,
     /// `GET /api/system/cooling`
     SystemCooling,
     /// `GET /api/system/statistics`
@@ -1787,6 +1825,10 @@ pub(crate) enum DispatchOutcome {
 /// it on a top-level `GET`, and a `GET` that acted would act for the
 /// site that linked. Nothing checks this; it holds by convention. The
 /// cookie is issued in `ubos-webui`, which states the reason in full.
+///
+/// It is one arm per route, so its length grows with the table and not
+/// with any logic.
+#[allow(clippy::too_many_lines)]
 pub(crate) fn route(method: &str, path: &str) -> DispatchOutcome {
     // Strip any query string so routes always match on the path only.
     let path = path.split_once('?').map_or(path, |(prefix, _)| prefix);
@@ -1801,6 +1843,10 @@ pub(crate) fn route(method: &str, path: &str) -> DispatchOutcome {
         },
         "/api/system/thermal" => match method {
             "GET" => DispatchOutcome::Handled(Route::SystemThermal),
+            _ => DispatchOutcome::MethodNotAllowed { allowed: "GET" },
+        },
+        "/api/system/temperature" => match method {
+            "GET" => DispatchOutcome::Handled(Route::SystemTemperature),
             _ => DispatchOutcome::MethodNotAllowed { allowed: "GET" },
         },
         "/api/system/cooling" => match method {
@@ -1954,6 +2000,9 @@ where
         }
         DispatchOutcome::Handled(Route::SystemThermal) => {
             handle_thermal(connection, scratch).await?;
+        }
+        DispatchOutcome::Handled(Route::SystemTemperature) => {
+            handle_temperature(connection, scratch, thermal).await?;
         }
         DispatchOutcome::Handled(Route::SystemCooling) => {
             handle_cooling(connection, scratch).await?;

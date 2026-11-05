@@ -30,6 +30,7 @@ pub mod system_info;
 pub mod system_network;
 pub mod system_scoreboard;
 pub mod system_statistics;
+pub mod system_temperature;
 
 pub use generic_response::GenericResponse;
 pub use info::ApiInfo;
@@ -37,6 +38,7 @@ pub use system_info::SystemInfo;
 pub use system_network::SystemNetwork;
 pub use system_scoreboard::SystemScoreboardEntry;
 pub use system_statistics::SystemStatistics;
+pub use system_temperature::SystemTemperature;
 
 /// Schema version discriminator published on every versioned response.
 ///

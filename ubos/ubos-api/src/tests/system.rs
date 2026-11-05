@@ -407,6 +407,7 @@ const ROUTES: &[(&str, &str, Route)] = &[
     ("GET", "/api/system/info", Route::SystemInfo),
     ("GET", "/api/system/asic", Route::SystemAsic),
     ("GET", "/api/system/thermal", Route::SystemThermal),
+    ("GET", "/api/system/temperature", Route::SystemTemperature),
     ("GET", "/api/system/cooling", Route::SystemCooling),
     ("GET", "/api/system/statistics", Route::SystemStatistics),
     ("GET", "/api/system/scoreboard", Route::SystemScoreboard),
@@ -898,6 +899,30 @@ fn worst_case_system_info_fits_the_scratch_buffer() {
         json.len(),
         WORST_CASE_SYSTEM_INFO_LEN,
         "the worst-case SystemInfo moved; check the comment on SCRATCH_SIZE"
+    );
+}
+
+/// The temperature body names its fields in camelCase, writes a reading
+/// the sample did not take as `null`, and at its widest, every value at
+/// `i32::MIN`, fits the scratch buffer.
+#[test]
+fn system_temperature_body_at_its_widest() {
+    let body = crate::schema::SystemTemperature {
+        chip_max: Some(i32::MIN),
+        chip_mean: Some(i32::MIN),
+        hashboard_max: Some(i32::MIN),
+        hashboard_mean: None,
+        ambient: Some(i32::MIN),
+        pid_source: Some(ubos_config::Source::Hashboard),
+    };
+    let mut buf = [0u8; super::SCRATCH_SIZE];
+    let len = serde_json_core::to_slice(&body, &mut buf)
+        .expect("BUG: SystemTemperature serialize failed");
+    assert_eq!(
+        core::str::from_utf8(&buf[..len]),
+        Ok("{\"chipMax\":-2147483648,\"chipMean\":-2147483648,\
+            \"hashboardMax\":-2147483648,\"hashboardMean\":null,\
+            \"ambient\":-2147483648,\"pidSource\":\"hashboard\"}")
     );
 }
 

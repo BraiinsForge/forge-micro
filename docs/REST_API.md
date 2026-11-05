@@ -136,6 +136,7 @@ chain value only when the PSU reading is unavailable.
 | GET    | `/api/system/info`                | any       | 200    | `SystemInfo`; full telemetry with `apiVariant: "ubos-0.3"`, plus `hwInfo` (`productName` the name of the machine, `null` on a board that does not report it; `nominalHashrate` the hashrate in hashes per second that the maker rates the machine at, `null` on a board that does not report it; `psuModel` detected at runtime, `null` where the supply is not identifiable; `bootloaderVersion`/`fanControllerVersion` populated only on platforms that report them, `null` elsewhere; `hashboardIds` per-chain hashboard EEPROM serials, `null` slot when a chain's board is absent or unreadable; `chainsPresent` count of chains currently enumerated `Present`) |
 | GET    | `/api/system/asic`                | any       | 200    | `MiningInfo`; chip facts (`asicModel`, `deviceModel`, `swarmColor`, `asicCount`), tuning defaults (`defaultFrequencyKhz`, `defaultVoltageMv`, `defaultEfficiencyMjPerTh`, and `defaultTuning`, the tuning a new config starts on: `"Fixed"` or `{ Power: { inputPowerMw } }`), `bounds: { frequencyKhz: { start, end }, voltageMv: { start, end }, inputPowerMw, tuners }`, where `inputPowerMw` is `{ start, end }`, or `null` when no tuner reads a power target, and `tuners` lists the tuners the machine offers, each `{ Fixed: { name } }` or `{ Power: { name, readsEfficiency } }` |
 | GET    | `/api/system/thermal`             | any       | 200    | `ThermalInfo`; accepted ranges as `bounds: { sampleIntervalMs, dangerousHashboardTempC, dangerousChipTempC, cooldownTempC }` |
+| GET    | `/api/system/temperature`         | any       | 200    | `SystemTemperature`; the last thermal sample in whole °C as `chipMax`, `chipMean`, `hashboardMax` and `hashboardMean`, each `null` when the sample has no reading of that kind, `ambient`, `null` where the board measures none, and `pidSource`, the kind that the cooling PID follows (`"chip"` or `"hashboard"`, or `null` under a fixed duty or a failsafe) |
 | GET    | `/api/system/cooling`             | any       | 200    | `CoolingInfo`; accepted ranges as `bounds: { targetTempC, minFanPwm, fixedFanPwm }` |
 | GET    | `/api/system/statistics`          | any       | 200    | `SystemStatistics`; label set + (currently empty) ring of samples        |
 | GET    | `/api/system/scoreboard`          | any       | 200    | `SystemScoreboardEntry[]`; currently empty                               |
@@ -269,13 +270,14 @@ publishes no temperature to steer by.
 | `SystemInfo`            | `GET /api/system/info`                             |
 | `MiningInfo`            | `GET /api/system/asic`                             |
 | `ThermalInfo`           | `GET /api/system/thermal`                          |
+| `SystemTemperature`     | `GET /api/system/temperature`                      |
 | `CoolingInfo`           | `GET /api/system/cooling`                          |
 | `SystemStatistics`      | `GET /api/system/statistics`                       |
 | `SystemScoreboardEntry` | `GET /api/system/scoreboard`                       |
 | `ConfigUpdate`          | `GET /api/config`, `POST /api/config`              |
 | `GenericResponse`       | action stubs, 501 responses, errors                |
 
-`API_VARIANT = "ubos-0.3"` (`ubos-api/src/schema/mod.rs:45`) ships on
+`API_VARIANT = "ubos-0.3"` (`ubos-api/src/schema/mod.rs:47`) ships on
 every versioned response. Clients dispatch on this string rather than
 treating ubos as a reference-device; the minor bumps on each schema-breaking
 change while pre-1.0.
