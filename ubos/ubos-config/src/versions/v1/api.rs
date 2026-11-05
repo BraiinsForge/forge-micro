@@ -31,9 +31,9 @@
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ApiConfig {
     /// Login username; maximum 32 bytes.
-    #[cfg_attr(feature = "schema", schemars(with = "str"))]
+    #[cfg_attr(feature = "schema", schemars(with = "str", length(max = 32)))]
     pub username: heapless::String<32>,
     /// Login password; maximum 32 bytes.
-    #[cfg_attr(feature = "schema", schemars(with = "str"))]
+    #[cfg_attr(feature = "schema", schemars(with = "str", length(max = 32)))]
     pub password: heapless::String<32>,
 }

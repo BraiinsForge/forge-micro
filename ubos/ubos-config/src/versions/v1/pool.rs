@@ -31,7 +31,7 @@ pub enum ProtocolKind {
     Sv1 {
         /// Worker password, or `null` to send none; most pools authorise
         /// by worker name alone.
-        #[cfg_attr(feature = "schema", schemars(with = "Option<&str>"))]
+        #[cfg_attr(feature = "schema", schemars(with = "Option<&str>", length(max = 128)))]
         password: Option<heapless::String<128>>,
     },
     /// Stratum V2 with an optional authority public key.
@@ -53,12 +53,12 @@ pub enum ProtocolKind {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct PoolEntry {
     /// DNS name or IPv4 literal of the pool host.
-    #[cfg_attr(feature = "schema", schemars(with = "str"))]
+    #[cfg_attr(feature = "schema", schemars(with = "str", length(max = NAME_CAPACITY)))]
     pub host: heapless::String<NAME_CAPACITY>,
     /// TCP port.
     pub port: u16,
     /// Worker name sent in `mining.authorize`.
-    #[cfg_attr(feature = "schema", schemars(with = "str"))]
+    #[cfg_attr(feature = "schema", schemars(with = "str", length(max = NAME_CAPACITY)))]
     pub user: heapless::String<NAME_CAPACITY>,
     /// Protocol selection and its parameters.
     pub protocol: ProtocolKind,

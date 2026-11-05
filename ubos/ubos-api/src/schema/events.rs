@@ -53,7 +53,7 @@ pub struct EventRecordJson<'r> {
     /// Argument payload as lower-case hex, decoded with the widths the
     /// catalog lists.
     #[serde(serialize_with = "hex_bytes")]
-    #[cfg_attr(feature = "schema", schemars(with = "str"))]
+    #[cfg_attr(feature = "schema", schemars(with = "str", length(max = 2 * ARGS_LEN)))]
     pub args: &'r [u8; ARGS_LEN],
 }
 

@@ -679,7 +679,7 @@ struct NetworkPostRequest {
     /// Network mode to apply (DHCP or static).
     mode: ubos_config::NetworkMode,
     /// Desired hostname for the device on the network.
-    #[cfg_attr(feature = "schema", schemars(with = "str"))]
+    #[cfg_attr(feature = "schema", schemars(with = "str", length(max = ubos_config::network::HOSTNAME_MAX)))]
     hostname: heapless::String<{ ubos_config::network::HOSTNAME_MAX }>,
     /// When `true`, arm the 120 s confirm-or-revert window. When `false`,
     /// apply the change live and persist it immediately with no revert.

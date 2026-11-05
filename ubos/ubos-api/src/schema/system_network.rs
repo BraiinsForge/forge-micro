@@ -48,6 +48,9 @@ pub struct SystemNetwork<'a> {
     /// Default gateway as four octets, or `null` when none is configured.
     pub gateway: Option<[u8; 4]>,
     /// DNS resolver addresses; each entry is four octets. Empty when none are configured.
-    #[cfg_attr(feature = "schema", schemars(with = "&[[u8; 4]]"))]
-    pub dns: Vec<[u8; 4], 3>,
+    #[cfg_attr(
+        feature = "schema",
+        schemars(with = "&[[u8; 4]]", length(max = ubos_config::network::DNS_SERVERS))
+    )]
+    pub dns: Vec<[u8; 4], { ubos_config::network::DNS_SERVERS }>,
 }

@@ -25,7 +25,7 @@
 //! the rest of [`crate::Config`] and loaded at boot before the network
 //! stack is created.
 
-pub use crate::versions::live::{HOSTNAME_MAX, NetworkConfig, NetworkMode};
+pub use crate::versions::live::{DNS_SERVERS, HOSTNAME_MAX, NetworkConfig, NetworkMode};
 
 impl NetworkConfig {
     /// Validate the network configuration.

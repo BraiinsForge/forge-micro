@@ -512,7 +512,7 @@ pub struct ConfigUpdate {
     /// means no pools configured and clears every persisted slot, which is
     /// what the web UI sends when every URL input is blank.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "schema", schemars(with = "Option<&[PoolEntry]>"))]
+    #[cfg_attr(feature = "schema", schemars(with = "Option<&[PoolEntry]>", length(max = pool::MAX_POOLS)))]
     pub pool: Option<heapless::Vec<PoolEntry, { pool::MAX_POOLS }>>,
     /// The entry the fee slot runs, which the board states and the
     /// operator cannot edit. `GET` carries it beside the operator's

@@ -72,7 +72,7 @@ pub struct HwInfo {
     /// The machine's product name as its maker names the model, or
     /// `null` before the boot-time read publishes it and on boards that
     /// publish none.
-    #[cfg_attr(feature = "schema", schemars(with = "Option<&str>"))]
+    #[cfg_attr(feature = "schema", schemars(with = "Option<&str>", length(max = crate::hw_info::HW_STRING_LEN)))]
     pub product_name: Option<HwString>,
     /// The hashrate the machine's maker rates it at, in hashes per
     /// second, or `null` before the boot-time read publishes it and on
@@ -81,18 +81,18 @@ pub struct HwInfo {
     /// Bootloader CRC-32 fingerprint as 8-char lowercase hex, or `null`
     /// before the boot-time capture runs or on boards that do not
     /// publish one.
-    #[cfg_attr(feature = "schema", schemars(with = "Option<&str>"))]
+    #[cfg_attr(feature = "schema", schemars(with = "Option<&str>", length(max = crate::hw_info::HW_STRING_LEN)))]
     pub bootloader_version: Option<HwString>,
     /// Fan-controller co-processor version string, or `null`
     /// before the boot-time capture runs or on boards that do not
     /// publish one.
-    #[cfg_attr(feature = "schema", schemars(with = "Option<&str>"))]
+    #[cfg_attr(feature = "schema", schemars(with = "Option<&str>", length(max = crate::hw_info::HW_STRING_LEN)))]
     pub fan_controller_version: Option<HwString>,
     /// PSU model name, detected at the PSU driver's first successful
     /// init. A driver whose protocol exposes one reports the part
     /// together with its revision letter. `null` where the supply is
     /// not identifiable.
-    #[cfg_attr(feature = "schema", schemars(with = "Option<&str>"))]
+    #[cfg_attr(feature = "schema", schemars(with = "Option<&str>", length(max = crate::hw_info::HW_STRING_LEN)))]
     pub psu_model: Option<HwString>,
     /// Per-chain hashboard serials, index-positional: element N is the
     /// serial read off physical chain N. An element is `null` when that
@@ -101,11 +101,13 @@ pub struct HwInfo {
     /// read of a corrupt record, which still returns `"INVALID"`. The
     /// whole field is `null` until the boot-time read publishes, and
     /// stays `null` forever on a board with no EEPROM producer wired up.
-    #[cfg_attr(feature = "schema", schemars(with = "Option<&[Option<&str>]>"))]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(with = "Option<&[Option<&str>]>", length(max = ubos_metrics::chain::MAX_CHAINS))
+    )]
     pub hashboard_ids: Option<HashboardIds>,
     /// Count of chains whose most recently recorded presence is
-    /// `Present`, from
-    /// `ubos_metrics::chain::ChainStatsHandle::present_chain_count`.
+    /// present.
     pub chains_present: u8,
 }
 
@@ -142,11 +144,11 @@ pub struct SystemInfo<'response> {
     pub pools_bitmap: u8,
     /// IPv4 address as a dotted-quad string, or empty if DHCP has not
     /// yet assigned an address.
-    #[cfg_attr(feature = "schema", schemars(with = "str"))]
+    #[cfg_attr(feature = "schema", schemars(with = "str", length(max = 16)))]
     pub ip: String<16>,
     /// UTC wall-clock time as an `HH:MM:SS UTC` string, or empty if NTP
     /// has not yet synchronized.
-    #[cfg_attr(feature = "schema", schemars(with = "str"))]
+    #[cfg_attr(feature = "schema", schemars(with = "str", length(max = 24)))]
     pub time: String<24>,
     /// Number of BM1362 chips on the hashboard.
     pub asic_count: u8,

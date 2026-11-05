@@ -22,6 +22,9 @@
 /// Maximum length in bytes of a network hostname.
 pub const HOSTNAME_MAX: usize = 32;
 
+/// Most DNS resolver addresses a static configuration holds.
+pub const DNS_SERVERS: usize = 3;
+
 /// Selects the IP address assignment mode and carries the parameters
 /// for each variant.
 #[derive(
@@ -42,8 +45,8 @@ pub enum NetworkMode {
         /// Default gateway address.
         gateway: [u8; 4],
         /// DNS resolver addresses; up to three entries.
-        #[cfg_attr(feature = "schema", schemars(with = "&[[u8; 4]]"))]
-        dns: heapless::Vec<[u8; 4], 3>,
+        #[cfg_attr(feature = "schema", schemars(with = "&[[u8; 4]]", length(max = DNS_SERVERS)))]
+        dns: heapless::Vec<[u8; 4], DNS_SERVERS>,
     },
 }
 
@@ -61,6 +64,6 @@ pub struct NetworkConfig {
     pub mode: NetworkMode,
     /// mDNS hostname for the device; empty means use the build-time
     /// default.
-    #[cfg_attr(feature = "schema", schemars(with = "str"))]
+    #[cfg_attr(feature = "schema", schemars(with = "str", length(max = HOSTNAME_MAX)))]
     pub hostname: heapless::String<HOSTNAME_MAX>,
 }

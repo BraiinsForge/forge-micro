@@ -94,15 +94,15 @@ pub struct ApiInfo {
     #[cfg_attr(feature = "schema", schemars(with = "&[ApiInfoChain]"))]
     pub chains: Vec<ApiInfoChain, MAX_CHAINS>,
     /// IPv4 address as a dotted quad, or empty before DHCP assigns one.
-    #[cfg_attr(feature = "schema", schemars(with = "str"))]
+    #[cfg_attr(feature = "schema", schemars(with = "str", length(max = 16)))]
     pub ip: String<16>,
     /// MAC address as six colon-separated lowercase hex pairs, or empty
     /// before the board publishes one.
-    #[cfg_attr(feature = "schema", schemars(with = "str"))]
+    #[cfg_attr(feature = "schema", schemars(with = "str", length(max = 17)))]
     pub mac: String<17>,
     /// UTC wall-clock time as `HH:MM:SS UTC`, or empty before NTP
     /// synchronizes.
-    #[cfg_attr(feature = "schema", schemars(with = "str"))]
+    #[cfg_attr(feature = "schema", schemars(with = "str", length(max = 24)))]
     pub time: String<24>,
     /// The build id the board stamped: the tip of the checkout it was
     /// built from and the build time, the same id the package file is
@@ -110,7 +110,7 @@ pub struct ApiInfo {
     pub build: &'static str,
     /// The machine's product name as its maker names the model, or `null`
     /// before a board publishes one.
-    #[cfg_attr(feature = "schema", schemars(with = "Option<&str>"))]
+    #[cfg_attr(feature = "schema", schemars(with = "Option<&str>", length(max = crate::hw_info::HW_STRING_LEN)))]
     pub product_name: Option<HwString>,
     /// The hashrate the machine's maker rates it at, in hashes per second,
     /// or `null` before a board publishes one.

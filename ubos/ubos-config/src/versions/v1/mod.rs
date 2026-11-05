@@ -35,7 +35,7 @@ pub use api::ApiConfig;
 pub use cooling::{CoolingConfig, FanMode, PidConfig, PidTarget, Statistic};
 pub use miner::{MinerConfig, Tuning};
 pub use mining::{FrequencyVoltageTarget, PowerTarget};
-pub use network::{HOSTNAME_MAX, NetworkConfig, NetworkMode};
+pub use network::{DNS_SERVERS, HOSTNAME_MAX, NetworkConfig, NetworkMode};
 pub use pool::{MAX_POOLS, NAME_CAPACITY, PoolEntry, ProtocolKind};
 pub use thermal::{Source, TemperatureDescriptor, ThermalConfig};
 

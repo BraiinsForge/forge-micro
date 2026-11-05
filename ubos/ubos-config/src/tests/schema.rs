@@ -22,7 +22,18 @@
 extern crate std;
 use std::vec::Vec;
 
-use crate::ConfigUpdate;
+use crate::{ConfigUpdate, NAME_CAPACITY, PoolEntry};
+
+/// The pool entry schema states the host and worker name capacity, so
+/// a client rejects an over-long name before the device does.
+#[test]
+fn pool_entry_schema_states_the_capacity() {
+    let schema = schemars::schema_for!(PoolEntry);
+    let value = serde_json::to_value(&schema).expect("schema is JSON");
+    let properties = value["properties"].as_object().expect("root is an object");
+    assert_eq!(properties["host"]["maxLength"], NAME_CAPACITY);
+    assert_eq!(properties["user"]["maxLength"], NAME_CAPACITY);
+}
 
 /// The config schema names every section and keeps the tagged
 /// tuning shape, so a client generator reads the same keys the

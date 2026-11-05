@@ -45,7 +45,7 @@ pub struct SystemScoreboardEntry {
     /// Stratum job identifier for this solution.
     pub job_id: u32,
     /// Extranonce2 value used when the solution was found, hex-encoded.
-    #[cfg_attr(feature = "schema", schemars(with = "str"))]
+    #[cfg_attr(feature = "schema", schemars(with = "str", length(max = 32)))]
     pub extranonce2: String<32>,
     /// `nTime` field from the solved block header.
     pub ntime: u32,
