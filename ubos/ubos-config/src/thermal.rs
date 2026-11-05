@@ -29,9 +29,13 @@ use core::ops::RangeInclusive;
 use ubos_asic::HashboardDescriptor;
 use ubos_core::units::Temperature;
 
-/// What a reading measures. `metrics` in `ubos-thermal` turns it into
-/// the `source` label.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+/// What a temperature reading measures. `metrics` in `ubos-thermal`
+/// turns it into the `source` label.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
+)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Source {
     /// A sensor on the hashboard.
     Hashboard,

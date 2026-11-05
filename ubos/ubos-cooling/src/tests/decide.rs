@@ -24,8 +24,9 @@
 
 use embassy_time::{Duration, Instant};
 use ubos_config::{Config, FanMode};
+use ubos_config::{Source, Statistic};
 use ubos_core::units::{FanPwm, Temperature};
-use ubos_thermal::{Source, Statistic, TempSample, TempStats};
+use ubos_thermal::{TempSample, TempStats};
 
 use super::{Cooling, Hold, Note, PidInput, Step, stale_timeout};
 
@@ -107,7 +108,7 @@ fn a_measurement_after_a_hold_reaches_the_pid_unsmoothed() {
     // A proportional-only PID whose duty reads back the temperature it
     // saw, behind a smoother that would otherwise blend 80 into 40.
     let mut config = Config::default();
-    config.cooling.target_temp = Temperature::from_millicelsius(0);
+    config.cooling.target.temp = Temperature::from_millicelsius(0);
     config.cooling.pid.p_gain = -1.0;
     config.cooling.pid.i_gain = 0.0;
     config.cooling.pid.d_gain = 0.0;
@@ -221,7 +222,7 @@ fn leaving_fixed_mode_raises_the_fan_to_the_floor_on_the_next_tick() {
 }
 
 #[test]
-fn the_pid_follows_the_hashboard_max_and_without_one_the_hottest_die() {
+fn the_pid_follows_the_hashboard_max_and_never_the_die() {
     let config = Config::default();
     let mut cooling = Cooling::new(&config, START);
     let hot = Temperature::from_celsius(90);
@@ -247,22 +248,25 @@ fn the_pid_follows_the_hashboard_max_and_without_one_the_hottest_die() {
             source: Source::Hashboard,
             statistic: Statistic::Max,
             temp: COOL,
-            target: config.cooling.target_temp,
+            target: config.cooling.target.temp,
         })
     );
 
-    // The hottest die once the hashboard is gone.
-    cooling.on_reading(
-        Some(TempSample {
-            chip: Some(chip),
-            hashboard: None,
-        }),
-        START,
-    );
+    // A sample without the hashboard does not hand the PID the die: it
+    // measured nothing the PID follows, so the fan runs at full.
     assert_eq!(
-        cooling.pid_input().map(|input| (input.source, input.temp)),
-        Some((Source::Chip, hot))
+        cooling
+            .on_reading(
+                Some(TempSample {
+                    chip: Some(chip),
+                    hashboard: None,
+                }),
+                START,
+            )
+            .pwm,
+        FanPwm::FULL
     );
+    assert_eq!(cooling.pid_input(), None);
 }
 
 #[test]

@@ -103,14 +103,14 @@ fn corrupted_payload_returns_corrupt() {
 /// factory defaults; setting any override shifts the encoded payload.
 // Schema hash for ubos_config::Config as of this commit.
 // Update this when Config's shape changes.
-const EXPECTED_HASH: [u8; 8] = [140, 222, 159, 57, 17, 87, 4, 241];
+const EXPECTED_HASH: [u8; 8] = [22, 94, 167, 65, 122, 95, 186, 108];
 
 // Postcard encoding of Config::default() with the schema-hash prefix.
-// 127 bytes total: 8-byte hash + 117-byte pre-network payload + 2-byte
+// 129 bytes total: 8-byte hash + 119-byte pre-network payload + 2-byte
 // network section.
 // Update this when Config's default values or shape changes.
 const EXPECTED_BLOB: &[u8] = &[
-    140, 222, 159, 57, 17, 87, 4, 241, // schema hash
+    22, 94, 167, 65, 122, 95, 186, 108, // schema hash
     1,   // pool: heapless::Vec<PoolEntry, 3> (length=1)
     19, 115, 116, 114, 97, 116, 117, 109, 46, 98, 114, 97, 105, 105, 110, 115, 46, 99, 111,
     109, // pool[0].host = "stratum.braiins.com" (len 19)
@@ -127,7 +127,9 @@ const EXPECTED_BLOB: &[u8] = &[
     0,  // thermal.dangerous_chip_temp = None: a BMM101 reads no die
     144, 191, 5, // thermal.cooldown_temp = 45000 (zigzag varint)
     0, // cooling.mode = Auto (variant 0)
-    192, 169, 7,  // cooling.target_temp = 60000 (zigzag varint)
+    0, // cooling.target.source = Hashboard (variant 0)
+    0, // cooling.target.statistic = Max (variant 0)
+    192, 169, 7,  // cooling.target.temp = 60000 (zigzag varint)
     50, // cooling.fixed_fan_pwm = 50 (varint)
     20, // cooling.pid.min_fan_pwm = 20 (varint)
     0, 0, 0, 0, 0, 0, 20, 192, // cooling.pid.p_gain = -5.0f64

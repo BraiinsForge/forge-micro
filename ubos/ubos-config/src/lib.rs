@@ -68,12 +68,11 @@ pub mod thermal;
 use seed::Taken;
 use storage::SEED_KEY;
 use ubos_asic::HashboardDescriptor;
-use ubos_core::units::Temperature;
 
 pub use api::ApiConfig;
 pub use cooling::{
     BOUNDS as COOLING_BOUNDS, CoolingBounds, CoolingConfig, CoolingInfo, FanMode,
-    INFO as COOLING_INFO, PidConfig,
+    INFO as COOLING_INFO, PidConfig, PidTarget, Statistic,
 };
 pub use fee::{FEE_DEN, FeePool, FeeSlot, MAX_FEE_PERMILLE, MIN_FEE_SLOTS, REPAY_SPACING};
 pub use miner::{MinerConfig, Tuning};
@@ -417,9 +416,9 @@ pub struct CoolingUpdate {
     /// Replacement for [`CoolingConfig::mode`]; `None` leaves it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<FanMode>,
-    /// Replacement for [`CoolingConfig::target_temp`]; `None` leaves it.
+    /// Replacement for [`CoolingConfig::target`]; `None` leaves it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub target_temp: Option<Temperature>,
+    pub target: Option<PidTarget>,
     /// Replacement for [`CoolingConfig::fixed_fan_pwm`] (the fixed-mode duty,
     /// 0-100); `None` leaves it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -500,8 +499,8 @@ impl ConfigUpdate {
             if let Some(mode) = cooling.mode {
                 target.cooling.mode = mode;
             }
-            if let Some(temp) = cooling.target_temp {
-                target.cooling.target_temp = temp;
+            if let Some(pid_target) = cooling.target {
+                target.cooling.target = pid_target;
             }
             if let Some(pwm) = cooling.fixed_fan_pwm {
                 target.cooling.fixed_fan_pwm = pwm;
@@ -539,7 +538,7 @@ impl ConfigUpdate {
             thermal: Some(config.thermal.clone()),
             cooling: Some(CoolingUpdate {
                 mode: Some(config.cooling.mode),
-                target_temp: Some(config.cooling.target_temp),
+                target: Some(config.cooling.target),
                 fixed_fan_pwm: Some(config.cooling.fixed_fan_pwm),
                 min_fan_pwm: Some(config.cooling.pid.min_fan_pwm),
             }),
@@ -558,15 +557,15 @@ impl ConfigUpdate {
     /// An incoming `thermal` must name the same reading kinds as `current`,
     /// because the kinds belong to the machine.
     ///
-    /// For `cooling.target_temp`, the dangerous temperatures are those of
-    /// the incoming `thermal` field when present, otherwise of
+    /// For `cooling.target`, the dangerous temperature is the threshold of
+    /// its kind in the incoming `thermal` field when present, otherwise in
     /// `current.thermal`.
     ///
     /// The cross-field rule covers both directions:
-    /// - When `cooling.target_temp` is in the update, the incoming target
-    ///   must be strictly less than each of them.
-    /// - When only `thermal` is in the update, the current `cooling.target_temp`
-    ///   must still be strictly less than each incoming one.
+    /// - When `cooling.target` is in the update, the incoming target must
+    ///   name a kind the machine reads and stay strictly below its threshold.
+    /// - When only `thermal` is in the update, the current `cooling.target`
+    ///   must still be strictly below the incoming threshold of its kind.
     ///
     /// Returns `Ok(())` when every present field is within its allowed range.
     /// Returns `Err(msg)` with a static, operator-readable message on the
@@ -602,10 +601,7 @@ impl ConfigUpdate {
         if let Some(network) = &self.network {
             network.validate()?;
         }
-        let cooling_target = self
-            .cooling
-            .as_ref()
-            .and_then(|cooling| cooling.target_temp);
+        let cooling_target = self.cooling.as_ref().and_then(|cooling| cooling.target);
         if let Some(pwm) = self
             .cooling
             .as_ref()
@@ -628,12 +624,10 @@ impl ConfigUpdate {
                 .map_or(current.thermal.dangerous, |thermal| thermal.dangerous);
 
             if let Some(target) = cooling_target {
-                CoolingConfig::validate_target_temp(target, dangerous)?;
-            } else if CoolingConfig::validate_target_temp(current.cooling.target_temp, dangerous)
-                .is_err()
-            {
+                CoolingConfig::validate_target(target, dangerous)?;
+            } else if CoolingConfig::validate_target(current.cooling.target, dangerous).is_err() {
                 return Err(
-                    "current cooling.target_temp must remain less than each dangerous temperature",
+                    "current cooling.target.temp must remain less than the dangerous temperature of its kind",
                 );
             }
         }
@@ -716,10 +710,10 @@ impl Config {
                 // Every board boots under PID control; a fixed duty is an
                 // explicit operator choice, never a factory default.
                 mode: FanMode::Auto,
-                // The board's cooling profile lives on its descriptor, so a
-                // board whose PID tracks a hashboard reading carries its own lower
-                // setpoint. Runtime-editable via the UI afterwards.
-                target_temp: board.cooling.target_temp,
+                // The board's setpoints live on its descriptor, see
+                // `PidTarget::default_for`.
+                // Runtime-editable via the UI afterwards.
+                target: PidTarget::default_for(board),
                 fixed_fan_pwm: cooling::DEFAULT_FIXED_FAN_PWM,
                 pid: PidConfig {
                     min_fan_pwm: board.cooling.min_fan_pwm,
@@ -752,8 +746,8 @@ impl Config {
     ///
     /// Runs the pool, thermal, miner, api, and network
     /// sub-validators, bounds both cooling duties, and enforces the
-    /// cross-field rule that `cooling.target_temp` is below each dangerous
-    /// temperature in `thermal`.
+    /// cross-field rule that `cooling.target` names a kind of reading in
+    /// `thermal` and stays below its dangerous temperature.
     /// Stored blobs pass through serde and can carry out-of-range or
     /// non-finite floats in those fields; [`load_initial`] calls this after
     /// [`decode_blob`] so a corrupted blob falls back to defaults instead of
@@ -776,7 +770,7 @@ impl Config {
         self.miner.validate(bounds)?;
         self.api.validate()?;
         self.network.validate()?;
-        CoolingConfig::validate_target_temp(self.cooling.target_temp, self.thermal.dangerous)?;
+        CoolingConfig::validate_target(self.cooling.target, self.thermal.dangerous)?;
         CoolingConfig::validate_fixed_fan_pwm(self.cooling.fixed_fan_pwm)?;
         CoolingConfig::validate_min_fan_pwm(self.cooling.pid.min_fan_pwm)?;
         Ok(())
@@ -1053,6 +1047,19 @@ fn decode_stored<E>(
             "config: stored dangerous temperatures name other reading kinds than the machine, using the default ones"
         );
         config.thermal.dangerous = dangerous;
+    }
+    // The target follows one kind, so a target of a kind the machine does
+    // not read is replaced with the board's, as the thresholds are.
+    if config
+        .thermal
+        .dangerous
+        .temp(config.cooling.target.source)
+        .is_none()
+    {
+        warn!(
+            "config: stored cooling target follows a reading kind the machine does not measure, using the default target"
+        );
+        config.cooling.target = PidTarget::default_for(board);
     }
     if config.validate(info.bounds).is_err() {
         warn!("config: stored config failed validation, using defaults");

@@ -24,12 +24,76 @@
 
 use core::ops::RangeInclusive;
 
-use crate::thermal::TemperatureDescriptor;
+use crate::thermal::{Source, TemperatureDescriptor};
+use ubos_asic::HashboardDescriptor;
 use ubos_core::units::Temperature;
+
+/// Which reduction of one kind's readings the cooling PID follows.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
+)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Statistic {
+    /// The hottest reading.
+    Max,
+    /// The mean of the readings.
+    Mean,
+}
+
+impl Statistic {
+    /// The `stat` label of this reduction in the metrics.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Max => "max",
+            Self::Mean => "mean",
+        }
+    }
+}
+
+/// What the cooling PID holds: one statistic of one kind of reading, at
+/// one temperature. That kind is the only reading the PID follows.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
+)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct PidTarget {
+    pub source: Source,
+    pub statistic: Statistic,
+    pub temp: Temperature,
+}
+
+impl PidTarget {
+    /// The target `board` starts with: its setpoint on the hottest
+    /// hashboard reading where it names one, and its setpoint on the
+    /// hottest die otherwise.
+    ///
+    /// # Panics
+    ///
+    /// Panics on a board that names neither setpoint, which the machine
+    /// test in `ubos-machine` rules out for every machine.
+    #[must_use]
+    pub const fn default_for(board: &HashboardDescriptor) -> Self {
+        let (source, temp) = match (
+            board.cooling.target_hashboard_temp,
+            board.cooling.target_chip_temp,
+        ) {
+            (Some(temp), _) => (Source::Hashboard, temp),
+            (None, Some(temp)) => (Source::Chip, temp),
+            (None, None) => panic!("BUG: board names no cooling setpoint"),
+        };
+        Self {
+            source,
+            statistic: Statistic::Max,
+            temp,
+        }
+    }
+}
 
 /// How the cooling loop decides the fan duty.
 ///
-/// [`FanMode::Auto`] runs the PID against [`CoolingConfig::target_temp`];
+/// [`FanMode::Auto`] runs the PID against [`CoolingConfig::target`];
 /// [`FanMode::Fixed`] holds the fan at [`CoolingConfig::fixed_fan_pwm`] and
 /// ignores the temperature. Neither mode disables the cooling failsafes: a
 /// sensor fault and a stalled thermal task force the fan to full in both.
@@ -107,8 +171,10 @@ impl Default for PidConfig {
 pub struct CoolingConfig {
     /// Whether the loop runs the PID or holds a fixed duty.
     pub mode: FanMode,
-    /// PID setpoint temperature. Ignored in [`FanMode::Fixed`].
-    pub target_temp: Temperature,
+    /// What the PID holds, and the only reading it follows: a sample that
+    /// lacks the target's kind gives the PID nothing to follow. Ignored in
+    /// [`FanMode::Fixed`].
+    pub target: PidTarget,
     /// Duty cycle held in [`FanMode::Fixed`], 0-100. Not floored by
     /// [`PidConfig::min_fan_pwm`]: the floor is a bound on PID output, and a
     /// fixed duty is what the operator asked for. A board whose hardware
@@ -119,11 +185,16 @@ pub struct CoolingConfig {
 }
 
 impl Default for CoolingConfig {
-    /// Factory default: PID control at a 67 °C setpoint with tuned gains.
+    /// Factory default: PID control of the hottest hashboard reading at a
+    /// 67 °C setpoint with tuned gains.
     fn default() -> Self {
         Self {
             mode: FanMode::Auto,
-            target_temp: Temperature::from_celsius(67),
+            target: PidTarget {
+                source: Source::Hashboard,
+                statistic: Statistic::Max,
+                temp: Temperature::from_celsius(67),
+            },
             fixed_fan_pwm: DEFAULT_FIXED_FAN_PWM,
             pid: PidConfig::default(),
         }
@@ -131,27 +202,31 @@ impl Default for CoolingConfig {
 }
 
 impl CoolingConfig {
-    /// Validate the proposed `target` temperature against [`BOUNDS`] and
-    /// `dangerous`, the halt thresholds the caller resolves from the same
-    /// update or from the current live config.
+    /// Validate the proposed `target` against [`BOUNDS`] and `dangerous`, the
+    /// halt thresholds the caller resolves from the same update or from the
+    /// current live config.
     ///
     /// # Errors
     ///
-    /// Returns `Err` when `target` is outside `BOUNDS.target_temp`, or
-    /// not strictly less than each threshold in `dangerous`.
-    pub fn validate_target_temp(
-        target: Temperature,
+    /// Returns `Err` when the temperature is outside `BOUNDS.target_temp`,
+    /// when the machine does not read the target's kind, or when the
+    /// temperature is not strictly less than that kind's threshold.
+    pub fn validate_target(
+        target: PidTarget,
         dangerous: TemperatureDescriptor,
     ) -> Result<(), &'static str> {
-        if !BOUNDS.target_temp.contains(&target) {
-            return Err("cooling.target_temp must be between 30000 and 85000");
+        if !BOUNDS.target_temp.contains(&target.temp) {
+            return Err("cooling.target.temp must be between 30000 and 85000");
         }
-        if [dangerous.chip, dangerous.hashboard]
-            .into_iter()
-            .flatten()
-            .any(|threshold| target >= threshold)
-        {
-            return Err("cooling.target_temp must be less than each dangerous temperature");
+        let Some(threshold) = dangerous.temp(target.source) else {
+            return Err(
+                "cooling.target.source must be a kind of reading that the machine measures",
+            );
+        };
+        if target.temp >= threshold {
+            return Err(
+                "cooling.target.temp must be less than the dangerous temperature of its kind",
+            );
         }
         Ok(())
     }
@@ -210,7 +285,7 @@ pub(crate) const DEFAULT_FIXED_FAN_PWM: u8 = 50;
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CoolingBounds {
-    /// Accepted range for `target_temp`.
+    /// Accepted range for `target.temp`.
     pub target_temp: RangeInclusive<Temperature>,
     /// Accepted range for `pid.min_fan_pwm` as a duty percent.
     pub min_fan_pwm: RangeInclusive<u8>,

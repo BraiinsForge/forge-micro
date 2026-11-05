@@ -314,7 +314,7 @@ fn filled<const N: usize>() -> heapless::String<N> {
 /// addition that still fits the buffer fails here, and updating this constant
 /// is the prompt to update that comment. The probe carries the `fee` entry
 /// whatever the build's switch, so the pin is the same in both states.
-const WORST_CASE_BODY_LEN: usize = 2573;
+const WORST_CASE_BODY_LEN: usize = 2617;
 
 /// The `GET /api/config` handler serializes a `ConfigUpdate` into a fixed
 /// `[u8; CONFIG_RESPONSE_BUFFER_SIZE]`. `serde_json_core::to_slice` returns
@@ -405,7 +405,11 @@ fn config_response_body_fits_in_buffer() {
         }),
         cooling: Some(ubos_config::CoolingUpdate {
             mode: Some(ubos_config::FanMode::Fixed),
-            target_temp: Some(Temperature::from_millicelsius(i32::MIN)),
+            target: Some(ubos_config::PidTarget {
+                source: ubos_config::Source::Hashboard,
+                statistic: ubos_config::Statistic::Mean,
+                temp: Temperature::from_millicelsius(i32::MIN),
+            }),
             fixed_fan_pwm: Some(u8::MAX),
             min_fan_pwm: Some(u8::MAX),
         }),

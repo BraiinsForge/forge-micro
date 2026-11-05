@@ -43,12 +43,17 @@ mod tests;
 
 /// Per-board cooling profile. Grouped onto [`HashboardDescriptor`] so the
 /// cooling defaults travel with the board rather than as loose fields.
-/// The setpoint is compared with what the board's PID tracks, so a board
+/// A setpoint is compared with the kind of reading it names, so a board
 /// that tracks a hashboard reading sets it below the die temperature it means.
 #[derive(Clone, Copy)]
 pub struct BoardCooling {
-    /// Cooling PID setpoint.
-    pub target_temp: Temperature,
+    /// Cooling PID setpoint on the hottest die, or `None` where the board
+    /// does not name one.
+    pub target_chip_temp: Option<Temperature>,
+    /// Cooling PID setpoint on the hottest hashboard reading, or `None`
+    /// where the board does not name one. The PID starts on this one where
+    /// the board names both.
+    pub target_hashboard_temp: Option<Temperature>,
     /// Cooling PID fan-floor (minimum duty).
     pub min_fan_pwm: u8,
     /// Half-decay time of the smoother on the temperature the cooling PID
@@ -161,7 +166,8 @@ pub const BMM101_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     ),
     swarm_color: "blue",
     cooling: BoardCooling {
-        target_temp: Temperature::from_celsius(60),
+        target_chip_temp: None,
+        target_hashboard_temp: Some(Temperature::from_celsius(60)),
         min_fan_pwm: 20,
         input_smoother_half_decay_secs: 0,
     },
@@ -192,7 +198,8 @@ pub const BFMX4_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     ),
     swarm_color: "blue",
     cooling: BoardCooling {
-        target_temp: Temperature::from_celsius(47),
+        target_chip_temp: None,
+        target_hashboard_temp: Some(Temperature::from_celsius(47)),
         min_fan_pwm: 20,
         input_smoother_half_decay_secs: 0,
     },
@@ -224,7 +231,8 @@ pub const FORGE_AXE_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     // Same cooling profile and hashboard halt threshold as the hashnode until
     // tuned on hardware.
     cooling: BoardCooling {
-        target_temp: Temperature::from_celsius(47),
+        target_chip_temp: None,
+        target_hashboard_temp: Some(Temperature::from_celsius(47)),
         min_fan_pwm: 20,
         input_smoother_half_decay_secs: 0,
     },

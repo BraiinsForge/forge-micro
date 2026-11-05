@@ -19,7 +19,7 @@
 
 //! Tests for [`crate::ConfigUpdate::validate`].
 
-use crate::TemperatureDescriptor;
+use crate::{PidTarget, Source, Statistic, TemperatureDescriptor};
 use ubos_core::units::Temperature;
 
 use crate::{
@@ -56,6 +56,15 @@ fn valid_pool_entry() -> PoolEntry {
         user,
         protocol: ProtocolKind::Sv1 { password: None },
         weight: 0,
+    }
+}
+
+/// A PID target on the hottest hashboard reading, at `temp`.
+fn hashboard_max(temp: Temperature) -> PidTarget {
+    PidTarget {
+        source: Source::Hashboard,
+        statistic: Statistic::Max,
+        temp,
     }
 }
 
@@ -473,7 +482,7 @@ fn thermal_json_without_a_dangerous_temperature_rejected() {
 
 // --- Cooling target cross-field rule ---
 
-/// `cooling.target_temp` below the dangerous limit passes.
+/// `cooling.target` below the dangerous limit passes.
 ///
 /// Default current config has `dangerous_hashboard_temp` at 83 °C; 70 °C is
 /// below that and within the 30..=85 °C range.
@@ -482,7 +491,7 @@ fn cooling_target_below_dangerous_passes() {
     let mut update = empty_update();
     update.cooling = Some(CoolingUpdate {
         mode: None,
-        target_temp: Some(Temperature::from_celsius(70)),
+        target: Some(hashboard_max(Temperature::from_celsius(70))),
         fixed_fan_pwm: None,
         min_fan_pwm: None,
     });
@@ -493,9 +502,9 @@ fn cooling_target_below_dangerous_passes() {
     );
 }
 
-/// On a machine that reads only its dies, `cooling.target_temp` is held
-/// below the chip threshold alone, so a target above the hashboard
-/// threshold of the default machine passes.
+/// On a machine that reads only its dies, a chip target is held below the
+/// chip threshold, so a target above the hashboard threshold of the
+/// default machine passes.
 #[test]
 fn cooling_target_on_a_chip_only_machine_uses_the_chip_threshold() {
     let mut current = Config::default();
@@ -506,14 +515,18 @@ fn cooling_target_on_a_chip_only_machine_uses_the_chip_threshold() {
     let mut update = empty_update();
     update.cooling = Some(CoolingUpdate {
         mode: None,
-        target_temp: Some(Temperature::from_celsius(84)),
+        target: Some(PidTarget {
+            source: Source::Chip,
+            statistic: Statistic::Max,
+            temp: Temperature::from_celsius(84),
+        }),
         fixed_fan_pwm: None,
         min_fan_pwm: None,
     });
     assert!(update.validate(&current, &crate::mining::BOUNDS).is_ok());
 }
 
-/// `cooling.target_temp` equal to `dangerous_hashboard_temp` is rejected.
+/// `cooling.target` equal to `dangerous_hashboard_temp` is rejected.
 ///
 /// Build a current config with dangerous = 80.0 and set target = 80.0
 /// so the cross-field rule fires.
@@ -528,17 +541,17 @@ fn cooling_target_equal_to_dangerous_rejected() {
     // 80.0 is within 30..=85 but equals the dangerous limit.
     update.cooling = Some(CoolingUpdate {
         mode: None,
-        target_temp: Some(Temperature::from_celsius(80)),
+        target: Some(hashboard_max(Temperature::from_celsius(80))),
         fixed_fan_pwm: None,
         min_fan_pwm: None,
     });
     assert_eq!(
         update.validate(&current, &crate::mining::BOUNDS),
-        Err("cooling.target_temp must be less than each dangerous temperature")
+        Err("cooling.target.temp must be less than the dangerous temperature of its kind")
     );
 }
 
-/// When both thermal and `cooling.target_temp` are set, the cross-field
+/// When both thermal and `cooling.target` are set, the cross-field
 /// rule uses the incoming `dangerous_hashboard_temp`, not the current config.
 #[test]
 fn cooling_target_cross_field_uses_incoming_dangerous() {
@@ -553,7 +566,7 @@ fn cooling_target_cross_field_uses_incoming_dangerous() {
     update.thermal = Some(thermal);
     update.cooling = Some(CoolingUpdate {
         mode: None,
-        target_temp: Some(Temperature::from_celsius(75)),
+        target: Some(hashboard_max(Temperature::from_celsius(75))),
         fixed_fan_pwm: None,
         min_fan_pwm: None,
     });
@@ -564,35 +577,35 @@ fn cooling_target_cross_field_uses_incoming_dangerous() {
     );
 }
 
-/// `cooling.target_temp` below 30 °C is rejected.
+/// `cooling.target` below 30 °C is rejected.
 #[test]
 fn cooling_target_too_low() {
     let mut update = empty_update();
     update.cooling = Some(CoolingUpdate {
         mode: None,
-        target_temp: Some(Temperature::from_millicelsius(29_900)),
+        target: Some(hashboard_max(Temperature::from_millicelsius(29_900))),
         fixed_fan_pwm: None,
         min_fan_pwm: None,
     });
     assert_eq!(
         update.validate(&Config::default(), &crate::mining::BOUNDS),
-        Err("cooling.target_temp must be between 30000 and 85000")
+        Err("cooling.target.temp must be between 30000 and 85000")
     );
 }
 
-/// `cooling.target_temp` above 85 °C is rejected.
+/// `cooling.target` above 85 °C is rejected.
 #[test]
 fn cooling_target_too_high() {
     let mut update = empty_update();
     update.cooling = Some(CoolingUpdate {
         mode: None,
-        target_temp: Some(Temperature::from_millicelsius(85_100)),
+        target: Some(hashboard_max(Temperature::from_millicelsius(85_100))),
         fixed_fan_pwm: None,
         min_fan_pwm: None,
     });
     assert_eq!(
         update.validate(&Config::default(), &crate::mining::BOUNDS),
-        Err("cooling.target_temp must be between 30000 and 85000")
+        Err("cooling.target.temp must be between 30000 and 85000")
     );
 }
 
@@ -814,13 +827,13 @@ fn tuning_voltage_out_of_range() {
 
 /// Thermal-only update rejected when current cooling target >= new dangerous temp.
 ///
-/// Build a current config with `cooling.target_temp` at 80 °C then send only
+/// Build a current config with `cooling.target` at 80 °C then send only
 /// `thermal.dangerous_hashboard_temp` at 70 °C. The current target is above the new
 /// dangerous limit, so validation must reject the update.
 #[test]
 fn thermal_only_update_rejected_when_current_target_above_new_dangerous() {
     let mut current = Config::default();
-    current.cooling.target_temp = Temperature::from_celsius(80);
+    current.cooling.target.temp = Temperature::from_celsius(80);
     let mut update = empty_update();
     let mut thermal = valid_thermal();
     thermal.dangerous = TemperatureDescriptor {
@@ -831,7 +844,9 @@ fn thermal_only_update_rejected_when_current_target_above_new_dangerous() {
     update.thermal = Some(thermal);
     assert_eq!(
         update.validate(&current, &crate::mining::BOUNDS),
-        Err("current cooling.target_temp must remain less than each dangerous temperature")
+        Err(
+            "current cooling.target.temp must remain less than the dangerous temperature of its kind"
+        )
     );
 }
 
@@ -879,7 +894,7 @@ fn cooling_min_fan_pwm_100_passes() {
     let mut update = empty_update();
     update.cooling = Some(CoolingUpdate {
         mode: None,
-        target_temp: None,
+        target: None,
         fixed_fan_pwm: None,
         min_fan_pwm: Some(100),
     });
@@ -897,7 +912,7 @@ fn cooling_min_fan_pwm_101_rejected() {
     let mut update = empty_update();
     update.cooling = Some(CoolingUpdate {
         mode: None,
-        target_temp: None,
+        target: None,
         fixed_fan_pwm: None,
         min_fan_pwm: Some(101),
     });
@@ -918,7 +933,7 @@ fn cooling_fixed_fan_pwm_range_ends_pass() {
         let mut update = empty_update();
         update.cooling = Some(CoolingUpdate {
             mode: Some(FanMode::Fixed),
-            target_temp: None,
+            target: None,
             fixed_fan_pwm: Some(duty),
             min_fan_pwm: None,
         });
@@ -937,7 +952,7 @@ fn cooling_fixed_fan_pwm_101_rejected() {
     let mut update = empty_update();
     update.cooling = Some(CoolingUpdate {
         mode: None,
-        target_temp: None,
+        target: None,
         fixed_fan_pwm: Some(101),
         min_fan_pwm: None,
     });
@@ -955,7 +970,7 @@ fn cooling_fixed_fan_pwm_below_floor_passes() {
     let mut update = empty_update();
     update.cooling = Some(CoolingUpdate {
         mode: Some(FanMode::Fixed),
-        target_temp: None,
+        target: None,
         fixed_fan_pwm: Some(current.cooling.pid.min_fan_pwm - 1),
         min_fan_pwm: None,
     });
@@ -970,7 +985,7 @@ fn cooling_mode_json_round_trip() {
     let update = ConfigUpdate {
         cooling: Some(CoolingUpdate {
             mode: Some(FanMode::Fixed),
-            target_temp: None,
+            target: None,
             fixed_fan_pwm: Some(70),
             min_fan_pwm: None,
         }),
@@ -996,7 +1011,7 @@ fn cooling_mode_and_duty_apply_and_roundtrip() {
     let mut update = empty_update();
     update.cooling = Some(CoolingUpdate {
         mode: Some(FanMode::Fixed),
-        target_temp: None,
+        target: None,
         fixed_fan_pwm: Some(35),
         min_fan_pwm: None,
     });
@@ -1014,7 +1029,7 @@ fn cooling_mode_and_duty_apply_and_roundtrip() {
         ConfigUpdate::from_config(&config).cooling,
         Some(CoolingUpdate {
             mode: Some(FanMode::Fixed),
-            target_temp: Some(config.cooling.target_temp),
+            target: Some(config.cooling.target),
             fixed_fan_pwm: Some(35),
             min_fan_pwm: Some(config.cooling.pid.min_fan_pwm),
         })
@@ -1284,10 +1299,10 @@ fn config_cooling_target_above_dangerous_rejected() {
         chip: None,
         hashboard: Some(Temperature::from_celsius(60)),
     };
-    config.cooling.target_temp = Temperature::from_celsius(80);
+    config.cooling.target.temp = Temperature::from_celsius(80);
     assert_eq!(
         config.validate(&crate::mining::BOUNDS),
-        Err("cooling.target_temp must be less than each dangerous temperature")
+        Err("cooling.target.temp must be less than the dangerous temperature of its kind")
     );
 }
 

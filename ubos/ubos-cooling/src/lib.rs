@@ -73,10 +73,11 @@ use embassy_sync::watch::Watch;
 use embassy_time::{Duration, Instant, Ticker};
 use ubos_config::Handle as ConfigHandle;
 use ubos_config::{Config, CoolingConfig, FanMode};
+use ubos_config::{PidTarget, Source, Statistic};
 use ubos_core::units::{FanPwm, FanRpm, Temperature};
 use ubos_logging::{error, info};
 use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value};
-use ubos_thermal::{Handle as ThermalHandle, Source, Statistic, TempSample};
+use ubos_thermal::{Handle as ThermalHandle, TempSample};
 
 use crate::pid::TempControl;
 
@@ -231,7 +232,7 @@ fn refresh_control(control: &mut TempControl, old: &CoolingConfig, new: &Cooling
     if rebuild {
         control.reconfigure(new);
     } else {
-        control.set_target(new.target_temp);
+        control.set_target(new.target.temp);
     }
     log_cooling("cooling: updated", new);
 }
@@ -242,10 +243,12 @@ fn refresh_control(control: &mut TempControl, old: &CoolingConfig, new: &Cooling
 /// operator reading the log actually has.
 fn log_cooling(prefix: &str, config: &CoolingConfig) {
     info!(
-        "{} (mode={}, target={}°C, floor={}%, fixed={}%)",
+        "{} (mode={}, target={} {} {}°C, floor={}%, fixed={}%)",
         prefix,
         config.mode.as_str(),
-        config.target_temp.celsius_f64(),
+        config.target.source.as_str(),
+        config.target.statistic.as_str(),
+        config.target.temp.celsius_f64(),
         config.pid.min_fan_pwm,
         config.fixed_fan_pwm
     );
@@ -394,31 +397,6 @@ impl Cooling {
         }
     }
 
-    /// What `temps` gives the PID: the hottest hashboard reading where
-    /// it has one, the hottest die otherwise, and `None` when it read
-    /// neither.
-    fn input(&self, temps: TempSample) -> Option<PidInput> {
-        let (source, stats) = match temps {
-            TempSample {
-                hashboard: Some(hashboard),
-                ..
-            } => (Source::Hashboard, hashboard),
-            TempSample {
-                chip: Some(chip), ..
-            } => (Source::Chip, chip),
-            TempSample {
-                chip: None,
-                hashboard: None,
-            } => return None,
-        };
-        Some(PidInput {
-            source,
-            statistic: Statistic::Max,
-            temp: stats.max,
-            target: self.config.target_temp,
-        })
-    }
-
     /// What the PID follows, for the metrics. `None` under
     /// [`FanMode::Fixed`] and while a failsafe holds the fan at full.
     fn pid_input(&self) -> Option<PidInput> {
@@ -430,6 +408,11 @@ impl Cooling {
     /// controller, the thermal sample interval into the stale window.
     fn reconfigure(&mut self, updated: &Config) {
         refresh_control(&mut self.control, &self.config, &updated.cooling);
+        // The first reading of another kind would reach the input smoother
+        // as a jump, so the smoother starts afresh, as after a hold.
+        if updated.cooling.target.source != self.config.target.source {
+            self.control.forget_input();
+        }
         self.config = updated.cooling.clone();
         self.stale = stale_timeout(updated.thermal.sample_interval_ms);
     }
@@ -438,8 +421,10 @@ impl Cooling {
     /// measured something. A fresh reading always carries a sample and a
     /// held one never does, see
     /// `ThermalReading::temps`, so the one field answers both whether
-    /// this tick measured and what it measured.
-    /// [`input`](Self::input) picks what the PID follows from it.
+    /// this tick measured and what it measured. The PID follows only the
+    /// target's kind, so a reading without that kind measured nothing the
+    /// PID can follow. A fixed duty ignores which kinds a reading measured,
+    /// so only a reading that measured nothing holds it at full.
     ///
     /// A run of readings with no measurement skips `control.update()`
     /// each time, so the smoother and ring buffer keep the last good
@@ -456,30 +441,56 @@ impl Cooling {
     fn on_reading(&mut self, temps: Option<TempSample>, now: Instant) -> Step {
         self.last_reading = now;
         let note = (self.hold == Hold::Stalled).then_some(Note::Recovered);
-        self.pwm = match temps.and_then(|temps| self.input(temps)) {
-            None => {
-                self.hold = Hold::NoMeasurement;
-                FanPwm::FULL
+        let PidTarget {
+            source,
+            statistic,
+            temp: target,
+        } = self.config.target;
+        let temp = temps
+            .and_then(|temps| temps.temp_stats(source))
+            .map(|stats| stats.temp(statistic));
+        self.pwm = match (self.config.mode, temp) {
+            (FanMode::Fixed, _) if temps.is_none() => self.hold_full(),
+            // Fixed ignores the reading and never advances the PID; the
+            // mode transition back to auto rebuilds the controller, so no
+            // state is carried across.
+            (FanMode::Fixed, _) => {
+                self.leave_hold();
+                fixed_pwm(&self.config)
             }
-            Some(input) => {
-                if self.hold != Hold::None {
-                    self.control.forget_input();
-                }
-                self.hold = Hold::None;
-                self.pid_input = Some(input);
-                match self.config.mode {
-                    // Fixed ignores the reading and never advances the
-                    // PID; the mode transition back to auto rebuilds the
-                    // controller, so no state is carried across.
-                    FanMode::Fixed => fixed_pwm(&self.config),
-                    FanMode::Auto => FanPwm::from_percent(self.control.update(input.temp)),
-                }
+            (FanMode::Auto, None) => self.hold_full(),
+            (FanMode::Auto, Some(temp)) => {
+                self.leave_hold();
+                let pid_input = PidInput {
+                    source,
+                    statistic,
+                    temp,
+                    target,
+                };
+                self.pid_input = Some(pid_input);
+                FanPwm::from_percent(self.control.update(pid_input.temp))
             }
         };
         Step {
             pwm: self.pwm,
             note,
         }
+    }
+
+    /// Hold the fan at full on a reading that left nothing to steer by.
+    fn hold_full(&mut self) -> FanPwm {
+        self.hold = Hold::NoMeasurement;
+        FanPwm::FULL
+    }
+
+    /// Leave a hold on a reading that measured, restarting the input
+    /// smoother, because a stale input would drive the fan until the
+    /// smoother caught up.
+    fn leave_hold(&mut self) {
+        if self.hold != Hold::None {
+            self.control.forget_input();
+        }
+        self.hold = Hold::None;
     }
 
     /// The control tick fired at `now`, independent of the thermal task.

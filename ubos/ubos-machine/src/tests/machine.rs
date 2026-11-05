@@ -39,24 +39,30 @@ fn sources(sensor: &SensorDescriptor) -> [Option<TempSource>; 5] {
 }
 
 /// Whether `machine` has a threshold for a kind exactly when one of its
-/// sensors reads that kind.
-fn thresholds_match_sensors<Psu: Copy>(machine: &MachineDescriptor<Psu>) -> bool {
+/// sensors reads that kind, and names a cooling setpoint, only for a kind
+/// it has a threshold for, so its default target follows a kind it reads.
+fn kinds_match_sensors<Psu: Copy>(machine: &MachineDescriptor<Psu>) -> bool {
     let reads =
         |kind: fn(TempSource) -> bool| machine.temp.iter().flat_map(sources).flatten().any(kind);
     let board = machine.hashboard;
     board.dangerous_chip_temp.is_some() == reads(|source| matches!(source, TempSource::Chip(_)))
         && board.dangerous_hashboard_temp.is_some()
             == reads(|source| source == TempSource::Hashboard)
+        && (board.cooling.target_chip_temp.is_some()
+            || board.cooling.target_hashboard_temp.is_some())
+        && (board.cooling.target_chip_temp.is_none() || board.dangerous_chip_temp.is_some())
+        && (board.cooling.target_hashboard_temp.is_none()
+            || board.dangerous_hashboard_temp.is_some())
 }
 
 #[test]
 fn every_machine_has_a_threshold_for_each_kind_it_reads() {
-    assert!(thresholds_match_sensors(&MINIMINER_RP2040));
-    assert!(thresholds_match_sensors(&MINIMINER_RP2350));
-    assert!(thresholds_match_sensors(&MINIMINER_BMM_ADAPTER));
-    assert!(thresholds_match_sensors(&MINIMINER_ESP32S3));
-    assert!(thresholds_match_sensors(&MINIMINER_STM32F407));
-    assert!(thresholds_match_sensors(&MINIMINER_STM32F439));
-    assert!(thresholds_match_sensors(&HASHNODE));
-    assert!(thresholds_match_sensors(&FORGE_AXE));
+    assert!(kinds_match_sensors(&MINIMINER_RP2040));
+    assert!(kinds_match_sensors(&MINIMINER_RP2350));
+    assert!(kinds_match_sensors(&MINIMINER_BMM_ADAPTER));
+    assert!(kinds_match_sensors(&MINIMINER_ESP32S3));
+    assert!(kinds_match_sensors(&MINIMINER_STM32F407));
+    assert!(kinds_match_sensors(&MINIMINER_STM32F439));
+    assert!(kinds_match_sensors(&HASHNODE));
+    assert!(kinds_match_sensors(&FORGE_AXE));
 }

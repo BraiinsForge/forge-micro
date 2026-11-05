@@ -135,25 +135,8 @@ type CSMutex = CriticalSectionRawMutex;
 /// What a reading measures. `metrics` turns it into the `source` label.
 pub use ubos_config::Source;
 
-/// A reduction of one kind's readings in a sample.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Statistic {
-    /// The hottest reading.
-    Max,
-    /// The mean of the readings.
-    Mean,
-}
-
-impl Statistic {
-    /// The `stat` label of this reduction in the metrics.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Max => "max",
-            Self::Mean => "mean",
-        }
-    }
-}
+/// Which reduction of one kind's readings the cooling PID follows.
+pub use ubos_config::Statistic;
 
 /// One sample from a board temperature sensor: the hottest and the mean
 /// of each kind of reading it took, and `None` for a kind it took none of.
