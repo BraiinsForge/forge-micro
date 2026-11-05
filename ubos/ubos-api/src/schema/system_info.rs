@@ -129,16 +129,6 @@ pub struct SystemInfo<'response> {
     pub hashrate: u64,
     /// Firmware uptime in whole seconds since boot.
     pub uptime_seconds: u64,
-    /// Ambient temperature around the board in degrees Celsius, on a
-    /// board that measures it. `None` where the board has no sensor for
-    /// it. What the reading is for is `AmbientSensor`'s doc in
-    /// `ubos-thermal` to say.
-    pub ambient_celsius: Option<i32>,
-    /// `true` when the board has no fresh temperature measurement: either
-    /// no sensor has answered a read yet, or the sensors went silent. See
-    /// "Two ways out of an overheat halt" in `docs/MINING.md` for why a
-    /// board whose chips are its thermometer can go silent for a while.
-    pub chip_reading_stale: bool,
     /// Fan rotational speed in RPM; zero if no fan is present.
     pub fan_speed_rpm: u32,
     /// Fan PWM duty cycle in percent; zero if no fan is present.

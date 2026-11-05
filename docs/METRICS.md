@@ -148,7 +148,8 @@ overheat halt" in `docs/MINING.md`.
 
 No gauge marks a held value. A gauge keeps what was last written to it,
 so a consumer that must tell a held value from a fresh one reads
-`chip_reading_stale` from `/api/info` instead. The ambient gauge can
+`/api/system/temperature` instead, which reports `null` for a kind the
+last sample did not read. The ambient gauge can
 also run ahead of the watch: a tick that publishes no reading still
 writes the gauge, so the two carry different ambient values until the
 next tick that publishes.

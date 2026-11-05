@@ -32,7 +32,6 @@ use edge_nal::TcpSplit;
 use embassy_net::Stack;
 use embassy_time::{Duration, Instant, Timer};
 use embedded_io_async::{Read, Write};
-use ubos_config::{Source, Statistic};
 use ubos_logging::{info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
 use ubos_thermal::Handle as ThermalHandle;
@@ -54,8 +53,7 @@ mod tests;
 /// OTA diagnostic fields including the `resetWritePhase` string +
 /// `product_name` string + `nominal_hashrate` number + `running` bool + `paused` bool +
 /// `pause_reason` string up to
-/// `"temperatureUnreadable"` + `chip_reading_stale` bool + the four chip
-/// and hashboard temperatures + `pid_source` string + a `chains`
+/// `"temperatureUnreadable"` + a `chains`
 /// array with one entry per chain the board actually owns, up to
 /// `ubos_metrics::chain::MAX_CHAINS` + JSON framing). The
 /// `api_info_body_fits_in_buffer` test builds the absolute worst case
@@ -65,18 +63,13 @@ mod tests;
 /// `WORST_CASE_INFO_BODY_LEN`. 512 bytes overflowed
 /// once the OTA diagnostic fields were added, silently truncating the
 /// tail, 1280 stopped covering the worst case once the OTA block
-/// carried a build id, 1408 once each chain reported its pool, 1536
+/// carried a build id, 1408 once each chain reported its pool, and 1536
 /// once the body carried a product name, whose every control character
-/// escapes to six bytes, and 1792 once it carried the chip and hashboard
-/// temperatures; 2048 bytes covers the synthetic worst case while
-/// staying on the stack. A body that outgrows the buffer is caught
+/// escapes to six bytes; 1792 bytes covers the synthetic worst case
+/// while staying on the stack. A body that outgrows the buffer is caught
 /// rather than truncated: `to_slice` returns `Err` and the handler
 /// answers 500.
-const API_INFO_BODY_BUFFER_SIZE: usize = 2048;
-// Holds this buffer at or under the `GET /api/config` one. Each is held
-// across one await of the handler, so both sit in the space its suspend
-// points share, and only the larger one sizes an HTTP worker.
-const _: () = assert!(API_INFO_BODY_BUFFER_SIZE <= CONFIG_RESPONSE_BUFFER_SIZE);
+const API_INFO_BODY_BUFFER_SIZE: usize = 1792;
 
 /// Body buffer for the POST /api/config acknowledgement.
 const CONFIG_ACK_BODY: &[u8] = b"{\"ok\":true}";
@@ -185,12 +178,6 @@ impl RestApiService {
         let fan = ubos_cooling::handle().current();
         let psu_reading = self.psu.current();
         let pause_reasons = self.manager.pause_reasons();
-        let temps = thermal_reading.as_ref().and_then(|reading| reading.temps);
-        let celsius = |source: Source, statistic: Statistic| {
-            temps
-                .and_then(|temps| temps.temp_stats(source))
-                .map(|stats| stats.temp(statistic).celsius_i32())
-        };
         let mining_state = ubos_mining::handle().state();
         let ota = crate::ota::ota_info().map(|info| {
             ApiInfoOta::new(
@@ -203,17 +190,6 @@ impl RestApiService {
             name: self.board_name,
             hashrate: chain_stats.machine_hashrate(),
             uptime: Instant::now().as_secs(),
-            ambient: thermal_reading
-                .as_ref()
-                .and_then(ubos_thermal::ThermalReading::ambient_celsius),
-            chip_reading_stale: thermal_reading
-                .as_ref()
-                .is_none_or(ubos_thermal::ThermalReading::chip_reading_stale),
-            temperature_chip_max: celsius(Source::Chip, Statistic::Max),
-            temperature_chip_mean: celsius(Source::Chip, Statistic::Mean),
-            temperature_hashboard_max: celsius(Source::Hashboard, Statistic::Max),
-            temperature_hashboard_mean: celsius(Source::Hashboard, Statistic::Mean),
-            pid_source: fan.and_then(|f| f.pid_source),
             fan_rpm: fan.map_or(0, |f| f.rpm.rpm()),
             fan_pwm: fan.map_or(0, |f| f.pwm.percent()),
             power_in_mw: psu_reading.map_or(0, |r| r.input_power.mw()),

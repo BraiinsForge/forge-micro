@@ -28,17 +28,6 @@ export interface Info {
   name: string;
   hashrate?: number;
   uptime?: number;
-  /** Ambient temperature near the board. `null` on a board without a sensor for it. */
-  ambient?: number | null;
-  /** `true` when the board has no fresh temperature measurement, so the four kind temperatures are `null`. */
-  chip_reading_stale?: boolean;
-  /** The hottest and the mean reading of each kind in the last sample, in °C; `null` for a kind it did not read. */
-  temperature_chip_max?: number | null;
-  temperature_chip_mean?: number | null;
-  temperature_hashboard_max?: number | null;
-  temperature_hashboard_mean?: number | null;
-  /** The kind the cooling PID follows; `null` under a fixed duty or while a failsafe holds the fan at full. */
-  pid_source?: Source | null;
   fan_rpm?: number;
   fan_pwm?: number;
   power_in_mw?: number;

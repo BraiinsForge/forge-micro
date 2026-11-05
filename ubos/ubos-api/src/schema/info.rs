@@ -26,7 +26,6 @@
 
 use heapless::{String, Vec};
 use serde::Serialize;
-use ubos_config::Source;
 use ubos_metrics::chain::{ChainPresence, ChainStats, MAX_CHAINS};
 
 use crate::hw_info::HwString;
@@ -49,26 +48,6 @@ pub struct ApiInfo {
     pub hashrate: u64,
     /// Firmware uptime in whole seconds since boot.
     pub uptime: u64,
-    /// Ambient temperature in whole degrees Celsius, or `null` where the
-    /// board measures none.
-    pub ambient: Option<i32>,
-    /// `true` when the board has no fresh temperature measurement, so the
-    /// four chip and hashboard temperatures are `null`.
-    pub chip_reading_stale: bool,
-    /// The hottest chip reading of this tick in whole degrees Celsius,
-    /// or `null` when the tick read no chip.
-    pub temperature_chip_max: Option<i32>,
-    /// The mean chip reading of this tick, as `temperature_chip_max`.
-    pub temperature_chip_mean: Option<i32>,
-    /// The hottest hashboard reading of this tick in whole degrees
-    /// Celsius, or `null` when the tick read no hashboard sensor.
-    pub temperature_hashboard_max: Option<i32>,
-    /// The mean hashboard reading of this tick, as
-    /// `temperature_hashboard_max`.
-    pub temperature_hashboard_mean: Option<i32>,
-    /// The kind of reading the cooling PID follows, or `null` under a
-    /// fixed duty and while a failsafe holds the fan at full.
-    pub pid_source: Option<Source>,
     /// Fan speed in RPM, or zero where no fan reports.
     pub fan_rpm: u32,
     /// Fan PWM duty cycle in percent, or zero where no fan reports.

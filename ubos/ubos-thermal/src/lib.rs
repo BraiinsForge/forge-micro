@@ -301,32 +301,6 @@ pub struct ThermalReading {
     pub timestamp_ms: u64,
 }
 
-impl ThermalReading {
-    /// Whether this tick measured nothing, so [`temps`](Self::temps)
-    /// is `None`.
-    ///
-    /// The mark covers both kinds of silence, because a consumer of
-    /// this watch treats them alike: neither one gives a temperature to
-    /// act on. Which kind it is decides whether mining stops, and that
-    /// is the manager's pause mask to carry, not this one. The PSU
-    /// reading's `sensor_fault` is not mirrored here: a supply that
-    /// gives no reading has failed, while a board sensor that gives none
-    /// may be watching nothing.
-    #[must_use]
-    pub const fn chip_reading_stale(&self) -> bool {
-        self.temps.is_none()
-    }
-
-    /// Ambient temperature in whole degrees Celsius, or `None` where the
-    /// board measures none or the read failed. Both info handlers in
-    /// `ubos-api` serialize it, so the derivation lives here rather than
-    /// twice there.
-    #[must_use]
-    pub fn ambient_celsius(&self) -> Option<i32> {
-        self.ambient.map(Temperature::celsius_i32)
-    }
-}
-
 /// Subscriber capacity for the thermal watch. Four receivers covers
 /// cooling, API, display, and manager without enlarging the watch
 /// further for today's consumers.

@@ -300,7 +300,7 @@ where
 
 /// Handle `GET /api/system/info`.
 ///
-/// Populates all fields from the shared atomics and the thermal handle.
+/// Populates all fields from the shared atomics.
 /// When `ota` is `Some`, the `ota` field in the response carries the
 /// running-slot label, running version, and previous-image information.
 async fn handle_info<T, const N: usize>(
@@ -310,7 +310,6 @@ async fn handle_info<T, const N: usize>(
     build: &'static str,
     psu: ubos_psu::Handle,
     mining_info: &'static ubos_config::MiningInfo,
-    thermal: ThermalHandle,
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
@@ -318,13 +317,6 @@ where
     let uptime_seconds = Instant::now().as_secs();
     let chain_stats = ubos_metrics::chain::handle();
     let hashrate_hps = chain_stats.machine_hashrate();
-    let thermal_reading = thermal.current();
-    let ambient_celsius = thermal_reading
-        .as_ref()
-        .and_then(ubos_thermal::ThermalReading::ambient_celsius);
-    let chip_reading_stale = thermal_reading
-        .as_ref()
-        .is_none_or(ubos_thermal::ThermalReading::chip_reading_stale);
     let fan = ubos_cooling::handle().current();
     let fan_speed_rpm = fan.map_or(0, |f| f.rpm.rpm());
     let fan_pwm_percent = fan.map_or(0, |f| f.pwm.percent());
@@ -372,8 +364,6 @@ where
         hostname,
         hashrate: hashrate_hps,
         uptime_seconds,
-        ambient_celsius,
-        chip_reading_stale,
         fan_speed_rpm,
         fan_pwm_percent,
         pools_bitmap,
@@ -1984,16 +1974,7 @@ where
             write_method_not_allowed(connection, allowed).await?;
         }
         DispatchOutcome::Handled(Route::SystemInfo) => {
-            handle_info(
-                connection,
-                scratch,
-                board_name,
-                build,
-                psu,
-                mining_info,
-                thermal,
-            )
-            .await?;
+            handle_info(connection, scratch, board_name, build, psu, mining_info).await?;
         }
         DispatchOutcome::Handled(Route::SystemAsic) => {
             handle_asic(connection, scratch, mining_info).await?;
