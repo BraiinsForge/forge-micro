@@ -61,23 +61,6 @@ pub enum PauseReason {
 }
 
 impl PauseReason {
-    /// The camelCase wire string for this reason used in the REST API.
-    ///
-    /// This is the canonical API/wire representation of the reason.
-    /// The frontend treats these strings as an enum and must not be
-    /// changed without a corresponding schema version bump.
-    #[must_use]
-    pub fn as_api_str(self) -> &'static str {
-        match self {
-            Self::DangerousTemperature => "dangerousTemperature",
-            Self::BrokenFan => "brokenFan",
-            Self::UserRequest => "userRequest",
-            Self::OtaUpdate => "otaUpdate",
-            Self::TunerFault => "tunerFault",
-            Self::TemperatureUnreadable => "temperatureUnreadable",
-        }
-    }
-
     /// Rank among the reasons, most severe first, and the order
     /// [`PRIORITY`] lists them in. A match, so that a new variant does
     /// not compile until it is ranked.

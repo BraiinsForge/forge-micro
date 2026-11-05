@@ -75,9 +75,9 @@ export interface Temperature {
 }
 
 // The reasons the board halts mining for, as the API spells them. The
-// board treats these strings as an enum and the manager's
-// `PauseReason::as_api_str` is their source; a rename there is a schema
-// change. Every reader of `pause_reason` types against this union and
+// board treats these strings as an enum and `ApiPauseReason` in
+// `ubos-api/src/schema/state.rs` is their source; a rename there is a
+// schema change. Every reader of `pause_reason` types against this union and
 // takes its label from the map below, so a misspelling on this page is
 // a type error rather than a control that silently never enables. The
 // guard is one-sided: it covers what this page writes, not what the
@@ -100,9 +100,9 @@ export const PAUSE_LABEL: Record<PauseReason, string> = {
   userRequest: 'Stopped - User',
 };
 
-// The miner's lifecycle states, as the API spells them. The board's
-// `MiningState::as_api_str` is their source, so a rename there is a
-// schema change. The fallback for a state this page lacks is a plain
+// The miner's lifecycle states, as the API spells them. `ApiMiningState`
+// in `ubos-api/src/schema/state.rs` is their source, so a rename there
+// is a schema change. The fallback for a state this page lacks is a plain
 // stop, the same way `PAUSE_LABEL` falls back.
 export type MiningState = 'waitingForPool' | 'starting' | 'running' | 'stopped';
 

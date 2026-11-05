@@ -103,18 +103,6 @@ fn all_variants_occupy_distinct_bits() {
 }
 
 #[test]
-fn as_api_str_returns_camel_case() {
-    assert_eq!(
-        PauseReason::DangerousTemperature.as_api_str(),
-        "dangerousTemperature"
-    );
-    assert_eq!(PauseReason::BrokenFan.as_api_str(), "brokenFan");
-    assert_eq!(PauseReason::UserRequest.as_api_str(), "userRequest");
-    assert_eq!(PauseReason::OtaUpdate.as_api_str(), "otaUpdate");
-    assert_eq!(PauseReason::TunerFault.as_api_str(), "tunerFault");
-}
-
-#[test]
 fn dominant_returns_none_when_empty() {
     assert_eq!(PauseReasons::default().dominant(), None);
 }
@@ -164,10 +152,6 @@ fn unreadable_is_a_distinct_bit_from_dangerous() {
     let reasons = PauseReasons::default().assert(PauseReason::TemperatureUnreadable);
     assert!(reasons.contains(PauseReason::TemperatureUnreadable));
     assert!(!reasons.contains(PauseReason::DangerousTemperature));
-    assert_eq!(
-        PauseReason::TemperatureUnreadable.as_api_str(),
-        "temperatureUnreadable"
-    );
 }
 
 #[test]
