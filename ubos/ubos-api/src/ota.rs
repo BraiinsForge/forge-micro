@@ -64,6 +64,7 @@ pub use ubos_config::StagedConfig;
 /// any valid discriminant can be loaded atomically and cast back without
 /// risk of reading an indeterminate intermediate value. It serializes as
 /// its variant name in camel case, the string `/api/info` reports.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[repr(u8)]
@@ -274,6 +275,7 @@ impl OtaSession {
 ///
 /// It serializes as its variant name in camel case, the string
 /// `/api/info` reports.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[repr(u8)]
@@ -298,6 +300,7 @@ pub enum ResetReason {
 /// Discriminant values must match the `WRITE_PHASE_*` constants in
 /// `ubos/ubos-ota/src/rp.rs`. It serializes as its variant name in camel
 /// case, the string `/api/info` reports.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[serde(rename_all = "camelCase")]

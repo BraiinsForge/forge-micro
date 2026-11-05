@@ -474,3 +474,39 @@ fn api_info_chain_renders_each_chain() {
         "chain 1 fields missing or wrong: {json}"
     );
 }
+
+/// The `/api/info` schema carries the `ota` block and lists the phase
+/// strings, so a client generated from it reads the live body.
+#[cfg(feature = "schema")]
+#[test]
+fn api_info_schema_names_the_ota_block() {
+    let schema = schemars::schema_for!(ApiInfo);
+    let value = serde_json::to_value(&schema).expect("schema is JSON");
+    let properties = value["properties"].as_object().expect("root is an object");
+    assert!(properties.contains_key("ota"));
+    assert_eq!(
+        enum_values(&value["$defs"]["OtaPhase"]),
+        ["idle", "uploading", "error", "rebooting"]
+    );
+}
+
+/// The string values a schema admits, whether it lists them as `enum`
+/// or, when the variants carry descriptions, as `oneOf` constants.
+#[cfg(feature = "schema")]
+pub(crate) fn enum_values(schema: &serde_json::Value) -> std::vec::Vec<std::string::String> {
+    extern crate std;
+    use std::string::ToString;
+    let values = schema["enum"]
+        .as_array()
+        .cloned()
+        .or_else(|| {
+            schema["oneOf"]
+                .as_array()
+                .map(|variants| variants.iter().map(|v| v["const"].clone()).collect())
+        })
+        .unwrap_or_else(|| panic!("no enum or oneOf in {schema}"));
+    values
+        .iter()
+        .map(|v| v.as_str().expect("string value").to_string())
+        .collect()
+}

@@ -35,6 +35,7 @@ use crate::schema::system_info::OtaInfo;
 
 /// Full snapshot for `GET /api/info`.
 #[derive(Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 // Mirrors the body the dashboard reads, whose flags are JSON booleans;
 // folding them into enums would change the keys it reads.
 #[allow(clippy::struct_excessive_bools)]
@@ -90,20 +91,25 @@ pub struct ApiInfo {
     /// is `false`. `PauseReason::as_api_str` gives the strings.
     pub pause_reason: Option<&'static str>,
     /// One entry per chain the board wired up, in chain order.
+    #[cfg_attr(feature = "schema", schemars(with = "&[ApiInfoChain]"))]
     pub chains: Vec<ApiInfoChain, MAX_CHAINS>,
     /// IPv4 address as a dotted quad, or empty before DHCP assigns one.
+    #[cfg_attr(feature = "schema", schemars(with = "str"))]
     pub ip: String<16>,
     /// MAC address as six colon-separated lowercase hex pairs, or empty
     /// before the board publishes one.
+    #[cfg_attr(feature = "schema", schemars(with = "str"))]
     pub mac: String<17>,
     /// UTC wall-clock time as `HH:MM:SS UTC`, or empty before NTP
     /// synchronizes.
+    #[cfg_attr(feature = "schema", schemars(with = "str"))]
     pub time: String<24>,
     /// The build id the board stamped, cut to
     /// [`crate::ota::MAX_BUILD_ID_LEN`] bytes.
     pub build: &'static str,
     /// The machine's product name as its maker names the model, or `null`
     /// before a board publishes one.
+    #[cfg_attr(feature = "schema", schemars(with = "Option<&str>"))]
     pub product_name: Option<HwString>,
     /// The hashrate the machine's maker rates it at, in hashes per second,
     /// or `null` before a board publishes one.
@@ -117,6 +123,7 @@ pub struct ApiInfo {
 
 /// One chain's entry in the `/api/info` `chains` array.
 #[derive(Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ApiInfoChain {
     /// The chain's index on the board.
     pub chain: usize,
@@ -162,6 +169,7 @@ impl ApiInfoChain {
 /// The `/api/info` `ota` block: the slot state, the live upload session
 /// and the reset diagnostics in one flat object.
 #[derive(Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct ApiInfoOta {
     /// Label of the running firmware slot.
