@@ -165,7 +165,8 @@ gzip delta (`## Size is the first constraint`) before committing.
 
 ### Fetching — one poll, one signal
 
-- `web/lib/store.ts` runs a **single 2 s poll** of `/api/info`
+- `web/lib/store.ts` runs a **single 2 s poll** of `/api/info` and
+  `/api/system/temperature`, one after the other on each tick
   (`startPoll`, `setInterval`), keeps 150-sample rolling buffers
   (`SAMPLES` = 150 × 2 s = 5 min) for the charts, and marks the link
   dead after 3 consecutive misses. The whole page reads from this one
@@ -183,7 +184,7 @@ on one listener, so every call is a relative path on the page origin
 (`API = ''`) and the session cookie rides along by default. In dev the
 same relative paths hit the mock/proxy.
 - `getJSON(path)` — GET, throws on non-ok. Helpers: `getInfo`,
-  `getConfig`.
+  `getTemperature`, `getConfig`.
 - `csrfToken()` — `HEAD /` on the page origin returns a **single-use**
   `X-CSRF-Token`.
 - `postJSON(path, body)` — fetches a fresh CSRF token, POSTs, and
@@ -195,6 +196,7 @@ same relative paths hit the mock/proxy.
 | Call | Endpoint |
 |------|----------|
 | `getInfo` | `GET /api/info` (the 2 s poll) |
+| `getTemperature` | `GET /api/system/temperature` (the 2 s poll) |
 | `getConfig` | `GET /api/config` |
 | bounds/events | `GET /api/system/{asic,thermal,cooling,network,events,events/catalog}` |
 | `postConfig` | `POST /api/config` (partial config) |

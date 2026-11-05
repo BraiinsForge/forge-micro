@@ -29,17 +29,8 @@ function info() {
   // an independent figure, so the dashboard's total and per-chain rows
   // never disagree.
   const hashrate = CHAINS.reduce((sum, chain) => sum + chain.hashrate, 0);
-  const temperature = 62 + Math.round(Math.sin(tick / 9) * 3);
-  const ambient = 28 + Math.round(Math.sin(tick / 13) * 2);
   const powerIn = 3200 + Math.round(Math.sin(tick / 7) * 120);
-  // Cycles the halt so the thermal clear control and the
-  // temperatureUnreadable label stay reachable against the mock, the
-  // same way `ambient` cycles above without a live board.
-  const pauseReason = PAUSE_CYCLE[Math.floor(tick / 20) % PAUSE_CYCLE.length];
-  const stale = pauseReason !== null;
-  // The chip, the kind the mock's target names, goes quiet for a stretch,
-  // so the hold while the PID has no reading stays reachable.
-  const chipQuiet = stale || Math.floor(tick / 15) % 3 === 2;
+  const pauseReason = pauseAt(tick);
   return {
     // The board name the API reports, not the brand: the brand reaches
     // the page from the declared brand directory, and a fixture that
@@ -47,13 +38,6 @@ function info() {
     name: 'Mock Board',
     hashrate,
     uptime,
-    ambient,
-    chip_reading_stale: stale,
-    temperature_chip_max: chipQuiet ? null : temperature + 8,
-    temperature_chip_mean: chipQuiet ? null : temperature + 4,
-    temperature_hashboard_max: stale ? null : temperature - 15,
-    temperature_hashboard_mean: stale ? null : temperature - 17,
-    pid_source: chipQuiet ? null : 'chip',
     fan_rpm: 4200,
     fan_pwm: 65,
     power_in_mw: powerIn * 1000,
@@ -75,6 +59,31 @@ function info() {
     nominal_hashrate: 2.4e12,
     ota: { runningSlot: 'A', runningVersion: 42, maxImageBytes: 952 * 1024 },
     chains: CHAINS,
+  };
+}
+
+// Cycles the halt so the thermal clear control and the
+// temperatureUnreadable label stay reachable against the mock, the same
+// way the temperatures cycle without a live board.
+function pauseAt(at: number): PauseReason | null {
+  return PAUSE_CYCLE[Math.floor(at / 20) % PAUSE_CYCLE.length];
+}
+
+// The temperatures of the tick `info()` last counted. No kind reads
+// while a halt stands, and the chip, the kind the mock's target names,
+// also goes quiet for a stretch, so the hold while the PID has no reading
+// stays reachable.
+function temperatures() {
+  const temperature = 62 + Math.round(Math.sin(tick / 9) * 3);
+  const stale = pauseAt(tick) !== null;
+  const chipQuiet = stale || Math.floor(tick / 15) % 3 === 2;
+  return {
+    chipMax: chipQuiet ? null : temperature + 8,
+    chipMean: chipQuiet ? null : temperature + 4,
+    hashboardMax: stale ? null : temperature - 15,
+    hashboardMean: stale ? null : temperature - 17,
+    ambient: 28 + Math.round(Math.sin(tick / 13) * 2),
+    pidSource: chipQuiet ? null : 'chip',
   };
 }
 
@@ -238,6 +247,7 @@ export function mockApi(): Middleware {
       case '/api/config': return send(res, CONFIG);
       case '/api/system/asic': return send(res, ASIC);
       case '/api/system/thermal': return send(res, THERMAL);
+      case '/api/system/temperature': return send(res, temperatures());
       case '/api/system/cooling': return send(res, COOLING);
       case '/api/system/network': return send(res, NETWORK);
       case '/api/system/events': return send(res, EVENTS);

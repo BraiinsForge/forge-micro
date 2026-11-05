@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import Chart from './Chart';
-import { useDash } from '../lib/store';
+import { tempKey, useDash } from '../lib/store';
 import { getConfig } from '../lib/api';
 import { fmtHr, fmtUp, fmtPower, fmtVolts } from '../lib/format';
 import { MC_PER_C, MINING_STATE_CLASS, MINING_STATE_LABEL, PAUSE_LABEL, SOURCE_LABEL, SOURCES } from '../lib/types';
@@ -115,6 +115,7 @@ export interface DashboardProps {
 export default function Dashboard({ shown }: DashboardProps) {
   const dash = useDash();
   const info = dash.info;
+  const temperature = dash.temperature;
   const status = statusOf(info);
   const measuredVoltage = info?.psu_voltage_measured_mv || info?.chain_voltage_mv;
 
@@ -162,7 +163,7 @@ export default function Dashboard({ shown }: DashboardProps) {
   const pidTarget = cooling?.target;
   const statisticOf = (kind: Source): Statistic => (pidTarget?.source === kind ? pidTarget.statistic : 'max');
   // One line for each kind with a reading in the window.
-  const tempLines = SOURCES.map((kind) => ({ kind, buf: dash.temp[`temperature_${kind}_${statisticOf(kind)}`] }))
+  const tempLines = SOURCES.map((kind) => ({ kind, buf: dash.temp[tempKey(kind, statisticOf(kind))] }))
     .filter(({ buf }) => buf.some((value) => value != null))
     .map(({ kind, buf }) => ({
       buf,
@@ -172,17 +173,17 @@ export default function Dashboard({ shown }: DashboardProps) {
     }));
   // The kind the PID follows, or the target's kind while the PID does not
   // run, which then has no target in force.
-  const active = info?.pid_source;
+  const active = temperature?.pidSource;
   const cardKind = active ?? pidTarget?.source;
-  const cardTemp = cardKind ? info?.[`temperature_${cardKind}_${statisticOf(cardKind)}`] : null;
+  const cardTemp = cardKind ? temperature?.[tempKey(cardKind, statisticOf(cardKind))] : null;
   const cardTarget = active && pidTarget ? `${pidTarget.temp / MC_PER_C} °C` : '–';
 
   function tempCls(): string {
     if (cardTemp == null || !tempThresh) return '';
     const hot = (value: number | null | undefined, limit: number | null) =>
       value != null && limit !== null && value >= limit;
-    return hot(info?.temperature_chip_max, tempThresh.chipC) ||
-      hot(info?.temperature_hashboard_max, tempThresh.hashboardC)
+    return hot(temperature?.chipMax, tempThresh.chipC) ||
+      hot(temperature?.hashboardMax, tempThresh.hashboardC)
       ? 'temp-red'
       : 'temp-ok';
   }
@@ -277,7 +278,7 @@ export default function Dashboard({ shown }: DashboardProps) {
           <StatusDot text={dash.link ? 'Alive' : 'Dead'} />
         </div>
         <StatCard label="Time UTC" value={info?.time ? info.time.replace(/ UTC$/, '') : '–'} />
-        <StatCard label="Ambient Temperature" value={info?.ambient != null ? info.ambient + ' °C' : '–'} />
+        <StatCard label="Ambient Temperature" value={temperature?.ambient != null ? temperature.ambient + ' °C' : '–'} />
       </aside>
 
       {visibleChains(info).length > 0 && (

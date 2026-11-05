@@ -26,6 +26,10 @@ export default function ActionMenu({ boardNotice }: ActionMenuProps) {
   // runs, so Start would resume a manager that is not halted. The
   // miner leaves that state by itself once a pool holds a job.
   const waitingForPool = dash.info?.mining_state === 'waitingForPool';
+  // The last sample read neither kind, so the chip temperature stopped
+  // with the board.
+  const temperature = dash.temperature;
+  const noReading = temperature?.chipMax == null && temperature?.hashboardMax == null;
   // See "Two ways out of an overheat halt" in docs/MINING.md. An
   // overheat stop does not answer to a bare resume, so Start opens
   // the confirm step below and the confirm clears the halt and starts.
@@ -192,9 +196,9 @@ export default function ActionMenu({ boardNotice }: ActionMenuProps) {
 
         <div class={'actConfirm' + (confirming === 'thermal' ? '' : ' hide')}>
           <p class="actConfirmText">
-            {dash.info?.chip_reading_stale
+            {noReading
               ? 'The chip temperature stopped when the board stopped. It cannot show if the chips are cool now.' +
-                (dash.info?.ambient != null
+                (temperature?.ambient != null
                   ? ' The ambient temperature still updates, but it shows the air around the board and not the chips.'
                   : '')
               : 'The chips still report the temperature that tripped this stop.'}{' '}

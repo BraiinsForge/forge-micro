@@ -70,6 +70,21 @@ export interface Info {
   chains: ChainInfo[];
 }
 
+/**
+ * `GET /api/system/temperature` — polled beside `/api/info`. The readings
+ * of the last sample in °C, `null` for a kind it did not read.
+ */
+export interface Temperature {
+  chipMax: number | null;
+  chipMean: number | null;
+  hashboardMax: number | null;
+  hashboardMean: number | null;
+  /** Ambient temperature near the board. `null` on a board without a sensor for it. */
+  ambient: number | null;
+  /** The kind the cooling PID follows; `null` under a fixed duty or while a failsafe holds the fan at full. */
+  pidSource: Source | null;
+}
+
 // The reasons the board halts mining for, as the API spells them. The
 // board treats these strings as an enum and the manager's
 // `PauseReason::as_api_str` is their source; a rename there is a schema

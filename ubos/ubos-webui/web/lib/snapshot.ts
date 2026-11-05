@@ -12,6 +12,7 @@ const SECTIONS: [string, string][] = [
   ['system_info', '/api/system/info'],
   ['asic', '/api/system/asic'],
   ['thermal', '/api/system/thermal'],
+  ['temperature', '/api/system/temperature'],
   ['cooling', '/api/system/cooling'],
   ['statistics', '/api/system/statistics'],
   ['scoreboard', '/api/system/scoreboard'],
