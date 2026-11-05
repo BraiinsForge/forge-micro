@@ -24,6 +24,7 @@
 //! and the domain crates carry no serde dependency.
 
 use serde::Serialize;
+use ubos_manager::PauseReason;
 use ubos_metrics::chain::ChainPresence;
 use ubos_mining::MiningState;
 
@@ -66,6 +67,40 @@ impl From<MiningState> for ApiMiningState {
             MiningState::Starting => Self::Starting,
             MiningState::Running => Self::Running,
             MiningState::Stopped => Self::Stopped,
+        }
+    }
+}
+
+/// Why mining is paused, as the `pause_reason` string of both info
+/// bodies. The dashboard reads these strings as an enum, so a rename
+/// is a schema change.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum ApiPauseReason {
+    /// Chip temperature at or above the dangerous threshold.
+    DangerousTemperature,
+    /// Fan tachometer signal lost or out of range.
+    BrokenFan,
+    /// An operator asked for the halt.
+    UserRequest,
+    /// A firmware update is erasing flash.
+    OtaUpdate,
+    /// The tuner reported a fault it cannot recover from.
+    TunerFault,
+    /// A temperature sensor that owes a reading is not giving one.
+    TemperatureUnreadable,
+}
+
+impl From<PauseReason> for ApiPauseReason {
+    fn from(reason: PauseReason) -> Self {
+        match reason {
+            PauseReason::DangerousTemperature => Self::DangerousTemperature,
+            PauseReason::BrokenFan => Self::BrokenFan,
+            PauseReason::UserRequest => Self::UserRequest,
+            PauseReason::OtaUpdate => Self::OtaUpdate,
+            PauseReason::TunerFault => Self::TunerFault,
+            PauseReason::TemperatureUnreadable => Self::TemperatureUnreadable,
         }
     }
 }

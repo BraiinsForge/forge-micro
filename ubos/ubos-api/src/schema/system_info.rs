@@ -30,7 +30,7 @@ use serde::Serialize;
 use ubos_core::units::{FanPwm, FanRpm, Frequency, Voltage};
 
 use crate::hw_info::{HashboardIds, HwString};
-use crate::schema::state::ApiMiningState;
+use crate::schema::state::{ApiMiningState, ApiPauseReason};
 
 /// OTA-related fields embedded in the system-info response.
 ///
@@ -193,10 +193,9 @@ pub struct SystemInfo<'response> {
     /// `true` when mining is halted because at least one pause reason is
     /// active; `false` when mining is running normally.
     pub paused: bool,
-    /// The highest-priority active pause reason as a camelCase string, or
-    /// `null` when `paused` is `false`. See `PauseReason::as_api_str` for
-    /// the canonical string values.
-    pub pause_reason: Option<&'static str>,
+    /// The highest-priority active pause reason, or `null` when `paused`
+    /// is `false`.
+    pub pause_reason: Option<ApiPauseReason>,
     /// Hardware-identification fields: PSU model and the
     /// boot-time-captured version strings a board may publish.
     pub hw_info: HwInfo,

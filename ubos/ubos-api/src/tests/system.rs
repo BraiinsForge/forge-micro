@@ -707,7 +707,7 @@ fn default_hw_info() -> crate::schema::system_info::HwInfo {
 /// the JSON string.
 fn serialize_system_info(
     paused: bool,
-    pause_reason: Option<&'static str>,
+    pause_reason: Option<crate::schema::state::ApiPauseReason>,
     hw_info: crate::schema::system_info::HwInfo,
 ) -> std::string::String {
     serialize_system_info_with_ota(paused, pause_reason, hw_info, "test", None)
@@ -715,7 +715,7 @@ fn serialize_system_info(
 
 fn serialize_system_info_with_ota(
     paused: bool,
-    pause_reason: Option<&'static str>,
+    pause_reason: Option<crate::schema::state::ApiPauseReason>,
     hw_info: crate::schema::system_info::HwInfo,
     build: &'static str,
     ota: Option<crate::schema::system_info::OtaInfo>,
@@ -788,7 +788,11 @@ fn system_info_units_serialize_as_integers_under_their_names() {
 /// `pauseReason` carries the camelCase wire string.
 #[test]
 fn system_info_user_request_serializes_paused_true_and_reason() {
-    let json = serialize_system_info(true, Some("userRequest"), default_hw_info());
+    let json = serialize_system_info(
+        true,
+        Some(crate::schema::state::ApiPauseReason::UserRequest),
+        default_hw_info(),
+    );
     assert!(
         json.contains("\"paused\":true"),
         "expected paused:true in {json}"
@@ -909,7 +913,7 @@ fn worst_case_system_info_fits_the_scratch_buffer() {
 
     let json = serialize_system_info_with_ota(
         true,
-        Some("temperatureUnreadable"),
+        Some(crate::schema::state::ApiPauseReason::TemperatureUnreadable),
         hw_info,
         leaked(b'"', MAX_BUILD_ID_LEN),
         Some(ota),

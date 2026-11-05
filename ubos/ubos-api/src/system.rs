@@ -366,7 +366,7 @@ where
     let paused = !pause_reasons.is_empty();
     let pause_reason = pause_reasons
         .dominant()
-        .map(ubos_manager::PauseReason::as_api_str);
+        .map(crate::schema::state::ApiPauseReason::from);
 
     let hw_info = HwInfo {
         product_name: crate::hw_info::product_name(),

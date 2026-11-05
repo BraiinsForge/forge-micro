@@ -31,7 +31,8 @@ use ubos_core::units::{Efficiency, FanPwm, FanRpm, Frequency, Power, Temperature
 use crate::ota::{MAX_BUILD_ID_LEN, OtaPhase, OtaWritePhase, ResetReason};
 use crate::rest::{API_INFO_BODY_BUFFER_SIZE, CONFIG_RESPONSE_BUFFER_SIZE};
 use crate::schema::info::{ApiInfo, ApiInfoChain, ApiInfoOta};
-use crate::schema::state::{ApiChainState, ApiMiningState};
+use crate::schema::state::{ApiChainState, ApiMiningState, ApiPauseReason};
+use ubos_manager::PauseReason;
 use ubos_metrics::chain::ChainPresence;
 use ubos_mining::MiningState;
 
@@ -127,7 +128,7 @@ fn api_info_body_fits_in_buffer() {
         running: true,
         mining_state: Some(ApiMiningState::WaitingForPool),
         paused: true,
-        pause_reason: Some("temperatureUnreadable"),
+        pause_reason: Some(ApiPauseReason::TemperatureUnreadable),
         chains,
         ip: "255.255.255.255".parse().expect("BUG: an IPv4 fits ip"),
         mac: "ff:ff:ff:ff:ff:ff".parse().expect("BUG: a MAC fits mac"),
@@ -548,5 +549,29 @@ fn mining_state_serializes_as_api_str() {
             core::str::from_utf8(&buf[..n]).expect("utf8"),
             expected.as_str()
         );
+    }
+}
+
+/// The pause reason serializes to the strings the dashboard treats as
+/// an enum, spelled here as literals so the test outlives their source.
+#[test]
+fn pause_reason_serializes_as_before() {
+    let mut buf = [0u8; 32];
+    for (reason, expected) in [
+        (
+            PauseReason::DangerousTemperature,
+            "\"dangerousTemperature\"",
+        ),
+        (PauseReason::BrokenFan, "\"brokenFan\""),
+        (PauseReason::UserRequest, "\"userRequest\""),
+        (PauseReason::OtaUpdate, "\"otaUpdate\""),
+        (PauseReason::TunerFault, "\"tunerFault\""),
+        (
+            PauseReason::TemperatureUnreadable,
+            "\"temperatureUnreadable\"",
+        ),
+    ] {
+        let n = serde_json_core::to_slice(&ApiPauseReason::from(reason), &mut buf).expect("fits");
+        assert_eq!(core::str::from_utf8(&buf[..n]).expect("utf8"), expected);
     }
 }

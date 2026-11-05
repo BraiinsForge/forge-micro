@@ -40,7 +40,7 @@ use ubos_thermal::Handle as ThermalHandle;
 use ubos_http::{RequestParts, Service, read_body, write_json_response, write_status_only};
 
 use crate::schema::info::{ApiInfo, ApiInfoChain, ApiInfoOta};
-use crate::schema::state::ApiMiningState;
+use crate::schema::state::{ApiMiningState, ApiPauseReason};
 
 #[cfg(test)]
 #[path = "tests/rest.rs"]
@@ -209,9 +209,7 @@ impl RestApiService {
             running: matches!(mining_state, Some(ubos_mining::MiningState::Running)),
             mining_state: mining_state.map(ApiMiningState::from),
             paused: !pause_reasons.is_empty(),
-            pause_reason: pause_reasons
-                .dominant()
-                .map(ubos_manager::PauseReason::as_api_str),
+            pause_reason: pause_reasons.dominant().map(ApiPauseReason::from),
             // One entry per chain the board wired up rather than one per
             // slot in the table behind `chain_stats`, so a single-chain
             // board does not report phantom chains 1 and 2. The table is

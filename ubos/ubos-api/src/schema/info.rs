@@ -31,7 +31,7 @@ use ubos_metrics::chain::{ChainStats, MAX_CHAINS};
 
 use crate::hw_info::HwString;
 use crate::ota::{OtaPhase, OtaSessionSnapshot, OtaWritePhase, ResetDiag, ResetReason};
-use crate::schema::state::{ApiChainState, ApiMiningState};
+use crate::schema::state::{ApiChainState, ApiMiningState, ApiPauseReason};
 use crate::schema::system_info::OtaInfo;
 
 /// Full snapshot for `GET /api/info`.
@@ -88,8 +88,8 @@ pub struct ApiInfo {
     /// `true` while at least one pause reason is active.
     pub paused: bool,
     /// The highest-priority active pause reason, or `null` when `paused`
-    /// is `false`. `PauseReason::as_api_str` gives the strings.
-    pub pause_reason: Option<&'static str>,
+    /// is `false`.
+    pub pause_reason: Option<ApiPauseReason>,
     /// One entry per chain the board wired up, in chain order.
     #[cfg_attr(feature = "schema", schemars(with = "&[ApiInfoChain]"))]
     pub chains: Vec<ApiInfoChain, MAX_CHAINS>,
