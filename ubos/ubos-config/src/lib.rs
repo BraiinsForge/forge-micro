@@ -1058,41 +1058,44 @@ async fn load_initial<S: Storage>(
     info: &'static MiningInfo,
     seed: Option<Seed>,
 ) -> Config {
-    // The buffer is scoped to the load, so the task does not hold it
-    // across the seed writes. An empty store reads as the defaults, so
-    // `None` is a record this build cannot read.
-    let loaded = {
-        let mut buffer = [0u8; LOAD_BUFFER_SIZE];
-        match storage.load(CONFIG_KEY, &mut buffer).await {
-            Ok(Some(blob)) => decode_stored::<S::Error>(blob, board, info),
-            Ok(None) => {
-                info!("config: no stored config, using defaults");
-                Some(Loaded::Live(Config::for_board(board, info.default_tuning)))
+    // The loaded record is scoped to the load and its upgrade, so the task
+    // does not hold it across the seed writes.
+    let (stored, lost) = {
+        // The buffer is scoped to the load, so the task does not hold it
+        // across the upgrade's store. An empty store reads as the defaults,
+        // so `None` is a record this build cannot read.
+        let loaded = {
+            let mut buffer = [0u8; LOAD_BUFFER_SIZE];
+            match storage.load(CONFIG_KEY, &mut buffer).await {
+                Ok(Some(blob)) => decode_stored::<S::Error>(blob, board, info),
+                Ok(None) => {
+                    info!("config: no stored config, using defaults");
+                    Some(Loaded::Live(Config::for_board(board, info.default_tuning)))
+                }
+                Err(_) => {
+                    warn!("config: load failed, using defaults");
+                    crate::events::config_unusable();
+                    return Config::for_board(board, info.default_tuning);
+                }
             }
-            Err(_) => {
-                warn!("config: load failed, using defaults");
-                crate::events::config_unusable();
-                return Config::for_board(board, info.default_tuning);
-            }
+        };
+        // An upgraded record is stored again in this build's schema, so a
+        // later build reads it after it drops the version that wrote it.
+        // The store borrows the config, so the task holds one copy of it.
+        if let Some(Loaded::Upgraded(config)) = &loaded {
+            persist(config, storage).await;
         }
-    };
-    // An upgraded record is stored again in this build's schema, so a later
-    // build reads it after it drops the version that wrote it.
-    let stored = match loaded {
-        Some(Loaded::Upgraded(config)) => {
-            persist(&config, storage).await;
-            Some(config)
-        }
-        Some(Loaded::Live(config)) => Some(config),
-        None => None,
+        let lost = loaded.is_none();
+        (loaded.map(Loaded::into_config), lost)
     };
     let Some(seed) = &seed else {
         return stored.unwrap_or_else(|| Config::for_board(board, info.default_tuning));
     };
     // The boot config is scoped to the merge, so the task holds one config
-    // across the writes below rather than two.
+    // across the writes below rather than two. The merge moves `stored`
+    // whole and never borrows it, because a borrowed local keeps its room
+    // in the task until its scope ends.
     let (config, taken, store) = {
-        let lost = stored.is_none();
         let base = stored.unwrap_or_else(|| Config::for_board(board, info.default_tuning));
         let Some(taken) = load_taken(storage).await else {
             return base;
@@ -1125,6 +1128,15 @@ enum Loaded {
     Live(Config),
     /// A record that an older version stored, upgraded to the live schema.
     Upgraded(Config),
+}
+
+impl Loaded {
+    /// The config in the live schema, whichever path it took, for the
+    /// boot to merge the seed into once the upgrade is stored.
+    fn into_config(self) -> Config {
+        let (Self::Live(config) | Self::Upgraded(config)) = self;
+        config
+    }
 }
 
 /// The config in a stored `blob`, or `None` after a logged reason when
