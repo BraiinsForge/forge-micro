@@ -84,7 +84,10 @@ map and the dependency direction.
     variants, a public `State` snapshot, a `Copy` handle, a runner, and
     one `run` task. The handle is the API. The statics are not. The
     commands of the PSU are the methods of its handle over a private
-    `Command` enum.
+    `Command` enum. Thermal takes readings where another module takes
+    commands: its handle submits each reading to a private input
+    channel, and its state is one private watch for each filtered
+    temperature that it publishes.
 11. **One consumer per channel.** Exactly one task, `run`, drains each
     module's `COMMAND_CHANNEL` and owns that module's policy. Slow
     work delegates inside the module via a sibling `Signal` or worker

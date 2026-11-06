@@ -56,11 +56,13 @@ mod array;
 mod filter;
 mod metrics;
 mod stats;
+mod temps;
 mod threshold;
 
 pub use array::SensorArray;
 pub use filter::TempFilter;
 pub use stats::{Accumulator, TempStats};
+pub use temps::{FilteredWatch, TempWatch, Temperatures, Watches};
 
 #[cfg(test)]
 #[path = "tests/threshold.rs"]
