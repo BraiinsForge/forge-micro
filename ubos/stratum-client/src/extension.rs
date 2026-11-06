@@ -32,9 +32,9 @@ use mining_protocol::{Error, ExtensionFrame};
 
 /// One protocol riding a mining session beside the mining traffic.
 pub trait SessionExtension {
-    /// A session has connected. Whatever the extension held from an
-    /// earlier session is gone.
-    fn connected(&mut self);
+    /// A session has connected, authorised as `user`. Whatever the
+    /// extension held from an earlier session is gone.
+    fn connected(&mut self, user: &str);
 
     /// A frame of a foreign extension arrived.
     fn frame(&mut self, frame: ExtensionFrame<'_>);
@@ -58,7 +58,7 @@ pub trait SessionExtension {
 pub struct NoExtension;
 
 impl SessionExtension for NoExtension {
-    fn connected(&mut self) {}
+    fn connected(&mut self, _user: &str) {}
 
     fn frame(&mut self, _frame: ExtensionFrame<'_>) {}
 

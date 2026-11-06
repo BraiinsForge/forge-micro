@@ -41,6 +41,10 @@ impl MiningClient for Stub {
         Ok(())
     }
 
+    fn user(&self) -> &'static str {
+        "stub"
+    }
+
     async fn drive<T>(&mut self, _transport: &mut T) -> Result<crate::DriveEvent, Error>
     where
         T: Read + Write,

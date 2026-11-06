@@ -124,9 +124,10 @@ pub const NTIME_ROLL_MAX_SECS: u32 = 7_200;
 ///
 /// `extension` is the protocol riding the session beside the mining
 /// traffic, [`crate::NoExtension`] when there is none. It is told when
-/// the session connects, handed every frame of another extension, and
-/// woken at its own deadline; the frame it holds is offered to the
-/// adapter after any pending share until the adapter takes it.
+/// the session connects and as which user, handed every frame of
+/// another extension, and woken at its own deadline; the frame it
+/// holds is offered to the adapter after any pending share until the
+/// adapter takes it.
 ///
 /// # Errors
 ///
@@ -187,7 +188,7 @@ where
     // stand now, so only a later change needs a push from this loop.
     let mut pushed = asic.counters();
     client.connect(transport).await?;
-    extension.connected();
+    extension.connected(client.user());
 
     // A caller passing `Some(0)` most likely means "publish as fast as
     // possible", not "don't roll" — that's what `None` is for.

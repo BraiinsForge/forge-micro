@@ -259,6 +259,10 @@ impl<'a, R: Rng, C: secp256k1::Signing + secp256k1::Verification> StratumV2Clien
 impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
     for StratumV2Client<'_, R, C>
 {
+    fn user(&self) -> &str {
+        self.config.user.as_str()
+    }
+
     /// Drive the noise handshake to completion, then send the two
     /// post-handshake messages every standard-channel session needs:
     /// `SetupConnection` followed by `OpenStandardMiningChannel`.

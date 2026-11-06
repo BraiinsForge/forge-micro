@@ -92,6 +92,10 @@ pub trait MiningClient {
     /// encoded share exceeds its capacity.
     fn submit(&mut self, share: &Share<'_>) -> Result<(), Error>;
 
+    /// The user the session authorises as, which the pool knows the
+    /// session by.
+    fn user(&self) -> &str;
+
     /// Encode and queue one frame of another extension. Synchronous:
     /// no I/O. The bytes are flushed by the next `drive` call, after
     /// any share queued before them. An adapter whose protocol carries

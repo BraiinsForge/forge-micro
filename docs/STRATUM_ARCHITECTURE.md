@@ -307,12 +307,13 @@ opaque frames: `MiningClient::send_extension` seals one frame of any
 other extension into the outbound slot, and `accept` hands every
 frame of another extension to `visit_extension_frame` instead of the
 mining dispatch. `SessionExtension` in `stratum-client` is the hook
-the loop drives. The loop tells it when the session connects, hands
-it each foreign frame, offers the frame it holds to the adapter when
-no share waits for the slot, and wakes it at its own deadline through
-the fourth arm of `select4` while it holds no frame. A session that
-carries nothing names `NoExtension`. The adapter never reads a frame
-it carries, so the protocol stays with the code that owns it.
+the loop drives. The loop tells it when the session connects and as
+which user, hands it each foreign frame, offers the frame it holds to
+the adapter when no share waits for the slot, and wakes it at its own
+deadline through the fourth arm of `select4` while it holds no frame.
+A session that carries nothing names `NoExtension`. The adapter never
+reads a frame it carries, so the protocol stays with the code that
+owns it.
 
 The frame descriptor preserves the extension number, message type and
 channel flag. A busy outbound slot returns `Busy`. A frame that exceeds

@@ -192,6 +192,10 @@ impl MiningClient for FailingClient {
         Ok(())
     }
 
+    fn user(&self) -> &'static str {
+        "failing"
+    }
+
     async fn drive<T: Read + Write>(&mut self, _transport: &mut T) -> Result<DriveEvent, Error> {
         Err(Error::Transport)
     }
@@ -252,7 +256,7 @@ struct Recording {
 }
 
 impl SessionExtension for Recording {
-    fn connected(&mut self) {}
+    fn connected(&mut self, _user: &str) {}
 
     fn frame(&mut self, frame: ExtensionFrame<'_>) {
         self.frames
@@ -301,7 +305,7 @@ fn the_session_visitor_routes_extension_frames_and_mining_events_apart() {
 #[test]
 fn no_extension_has_no_deadline_and_nothing_to_send() {
     let mut none = NoExtension;
-    none.connected();
+    none.connected("none");
     none.frame(ExtensionFrame {
         is_channel_message: false,
         extension_type: 0x1234,
@@ -340,6 +344,10 @@ struct ScriptedClient<'a> {
 impl MiningClient for ScriptedClient<'_> {
     async fn connect<T: Read + Write>(&mut self, _transport: &mut T) -> Result<(), Error> {
         Ok(())
+    }
+
+    fn user(&self) -> &'static str {
+        "scripted"
     }
 
     fn submit(&mut self, share: &Share<'_>) -> Result<(), Error> {
@@ -404,7 +412,7 @@ struct QueuedExtension {
 }
 
 impl SessionExtension for QueuedExtension {
-    fn connected(&mut self) {}
+    fn connected(&mut self, _user: &str) {}
     fn frame(&mut self, _frame: ExtensionFrame<'_>) {}
     fn deadline(&self) -> Option<Instant> {
         None

@@ -191,6 +191,10 @@ impl<'cfg> StratumV1Client<'cfg> {
 }
 
 impl MiningClient for StratumV1Client<'_> {
+    fn user(&self) -> &str {
+        self.config.user.as_str()
+    }
+
     /// V1 has no transport-level handshake (no Noise, no certificate
     /// validation). `connect` pipelines the three handshake
     /// requests — `mining.configure`, `mining.subscribe`,
