@@ -80,7 +80,10 @@ pub use cooling::{
     BOUNDS as COOLING_BOUNDS, CoolingBounds, CoolingConfig, CoolingInfo, FanMode,
     INFO as COOLING_INFO, PidConfig, PidTarget, Statistic,
 };
-pub use fee::{FEE_DEN, FeePool, FeeSlot, MAX_FEE_PERMILLE, MIN_FEE_SLOTS, REPAY_SPACING};
+pub use fee::{
+    FEE_DEN, FeePool, FeeSlot, FeeWorker, Fixed, MAX_FEE_PERMILLE, MIN_FEE_SLOTS, REPAY_SPACING,
+    UNREGISTERED,
+};
 pub use miner::{MinerConfig, Tuning};
 pub use mining::{
     BOUNDS as MINING_BOUNDS, DefaultTuning, FrequencyVoltageTarget, MiningBounds, MiningInfo,
@@ -350,24 +353,30 @@ impl Handle {
     /// The entry a session slot runs: the operator's entry below the
     /// fee slot, the fee pool's entry at it, and `None` for a slot the
     /// list does not fill and past the board's slots. Owned, because
-    /// the fee entry is built on each read over the current config.
+    /// the fee entry is built on each read over the current config:
+    /// its worker name follows the operator pools the board runs,
+    /// which are the slots below the fee's.
     #[must_use]
     pub fn pool_slot(&self, slot: usize) -> Option<PoolEntry> {
+        let current = self.current();
         if let Some(fee) = self.fee.try_get()
             && fee.slot == slot
         {
-            return Some(fee.pool.entry());
+            let operator = &current.pool[..fee.slot.min(current.pool.len())];
+            return Some(fee.pool.entry(operator));
         }
-        self.current().pool.get(slot).cloned()
+        current.pool.get(slot).cloned()
     }
 
     /// The config as `GET /api/config` serves it: the current config
     /// with the fee entry and its share beside the operator's list.
     #[must_use]
     pub fn view(&self) -> ConfigUpdate {
-        let mut view = ConfigUpdate::from_config(&self.current());
+        let current = self.current();
+        let mut view = ConfigUpdate::from_config(&current);
         if let Some(fee) = self.fee.try_get() {
-            view.fee = Some(fee.pool.entry());
+            let operator = &current.pool[..fee.slot.min(current.pool.len())];
+            view.fee = Some(fee.pool.entry(operator));
             view.fee_permille = Some(fee.pool.permille);
         }
         view

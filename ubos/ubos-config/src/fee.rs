@@ -20,12 +20,13 @@
 //! The fee pool a build ships: a product's values, the build-time
 //! overrides, the worker name and the entry the fee slot runs.
 //!
-//! A product names a [`FeePool`] with its server, key, device code,
-//! build id and share, applies the `DEVFEE_*` variables of the build
-//! with [`FeePool::with_overrides`], places it at its last session
-//! slot with [`FeeSlot::last_of`] and hands that to [`crate::run`].
-//! [`crate::Handle::pool_slot`] then builds the entry for that slot on
-//! every read.
+//! A product names a [`FeePool`] with its server, key, share and the
+//! [`FeeWorker`] that builds its worker name, applies the `DEVFEE_*`
+//! variables of the build with [`FeePool::with_overrides`], places it
+//! at its last session slot with [`FeeSlot::last_of`] and hands that
+//! to [`crate::run`]. [`crate::Handle::pool_slot`] then builds the
+//! entry for that slot on every read, and asks the worker for the
+//! name each time.
 
 #[cfg(test)]
 #[path = "tests/fee.rs"]
@@ -33,6 +34,7 @@ mod tests;
 
 use crate::pool::{DEVFEE, NAME_CAPACITY, PoolEntry, ProtocolKind};
 use crate::pubkey;
+use core::fmt::Debug;
 use embassy_sync::once_lock::OnceLock;
 
 /// Denominator of [`FeePool::permille`]: a share is counted in
@@ -65,9 +67,6 @@ const SLOTS_BAD: &str = "a fee slot needs an operator slot beside it";
 /// Build error for a `DEVFEE_POOL_PORT` outside the TCP port range.
 const PORT_BAD: &str = "DEVFEE_POOL_PORT must be a number from 1 to 65535";
 
-/// Build error for a `DEVFEE_VARIANT` past the account's variant field.
-const VARIANT_BAD: &str = "DEVFEE_VARIANT must be a number from 0 to 65535";
-
 /// Build error for a `DEVFEE_PERMILLE` past [`MAX_FEE_PERMILLE`].
 const PERMILLE_BAD: &str = "DEVFEE_PERMILLE must be a number from 0 to 499";
 
@@ -76,6 +75,9 @@ const HOST_BAD: &str = "DEVFEE_POOL_HOST must be at most 128 bytes";
 
 /// Build error for a `DEVFEE_POOL_USER` the entry cannot hold.
 const USER_BAD: &str = "DEVFEE_POOL_USER must be at most 128 bytes";
+
+/// Build error for a fixed worker name the entry cannot hold.
+const WORKER_BAD: &str = "a fee worker name must be at most 128 bytes";
 
 /// Build error for a key override without the host it belongs to.
 const KEY_BAD: &str = "DEVFEE_POOL_PUBKEY needs DEVFEE_POOL_HOST";
@@ -88,26 +90,63 @@ const KEY_SHAPE_BAD: &str = "DEVFEE_POOL_PUBKEY must be 51 base58 characters";
 /// many.
 const KEY_LEN: usize = 51;
 
-/// The pool account every fee worker belongs to.
-const FEE_ACCOUNT: &str = "bdf_000";
+/// The worker name a fee session authorises with.
+///
+/// The product that states the fee pool builds the name from the
+/// operator's pools as currently configured, so a name can follow
+/// the operator's account. The config crate asks on every read of
+/// the fee entry and keeps nothing of the answer, and a config change
+/// restarts the fee session with the name the next read gives.
+pub trait FeeWorker: Debug + Sync {
+    /// The name, over `operator`, the operator pools the board runs,
+    /// in slot order.
+    fn worker(&self, operator: &[PoolEntry]) -> heapless::String<NAME_CAPACITY>;
+}
 
-/// The first bytes of a worker name, which read `ubos` in base64url.
-const WORKER_MARK: [u8; 3] = [0xB9, 0xBA, 0x2C];
+/// A worker name that is the same whatever the operator runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Fixed(&'static str);
 
-/// Bytes of the build's revision a worker name carries: the hex digits
-/// the build id starts with.
-const REVISION_LEN: usize = 6;
+impl Fixed {
+    /// `name` as the worker.
+    ///
+    /// # Panics
+    ///
+    /// Panics on a name past the entry's capacity. In a const
+    /// initializer that is a build error.
+    #[must_use]
+    pub const fn new(name: &'static str) -> Self {
+        assert!(name.len() <= NAME_CAPACITY, "{}", WORKER_BAD);
+        Self(name)
+    }
+}
 
-/// The byte before the device code, which puts a `_` where the pool
-/// reads the code.
-const CODE_MARK: u8 = 0xFF;
+impl FeeWorker for Fixed {
+    fn worker(&self, _operator: &[PoolEntry]) -> heapless::String<NAME_CAPACITY> {
+        heapless::String::try_from(self.0).expect("BUG: Fixed::new bounds the name")
+    }
+}
+
+/// The worker the pool reads as a device it has not registered, whose
+/// fee it pays to the fee account as a whole. The boards of this tree
+/// send it, and a product states a worker of its own.
+pub static UNREGISTERED: Fixed = Fixed::new("bdf_000.K7Qo2x3lAEoA_wAA");
+
+/// The worker the build's `DEVFEE_POOL_USER` names, when it names one.
+static USER_OVERRIDE: Option<Fixed> = match option_env!("DEVFEE_POOL_USER") {
+    Some(user) => {
+        assert!(user.len() <= NAME_CAPACITY, "{}", USER_BAD);
+        Some(Fixed(user))
+    }
+    None => None,
+};
 
 /// The fee pool a product mines for: the server, its authority key,
-/// the device variant the pool reads, and the share of the work.
+/// the worker it authorises with, and the share of the work.
 ///
 /// A product states one as a const and applies the build's overrides
 /// with [`Self::with_overrides`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy)]
 pub struct FeePool {
     /// The fee server.
     pub host: &'static str,
@@ -116,57 +155,49 @@ pub struct FeePool {
     /// Its authority key as base58check. `None` trusts the server, as
     /// an operator entry with no key does.
     pub pubkey: Option<&'static str>,
-    /// The worker name. `None` builds it with [`Self::worker`].
-    pub user: Option<&'static str>,
-    /// The build id of the firmware, `env!("BUILD_ID")` in the board
-    /// that states the pool. The hex digits it starts with name the
-    /// revision the worker name carries.
-    pub build: &'static str,
-    /// The fee account's variant, which the pool reads as the device
-    /// kind. 0 reads as an unknown device until the pool allocates a
-    /// value for the product.
-    pub variant: u16,
+    /// What builds the worker name.
+    pub worker: &'static dyn FeeWorker,
     /// The fee slot's share of the delivered work, in thousandths.
     /// Below [`FEE_DEN`]: a whole share would leave the operator
     /// nothing.
     pub permille: i64,
 }
 
+/// Two pools are equal when they name the same values and the same
+/// worker object, which a product names as a static of its own.
+impl PartialEq for FeePool {
+    fn eq(&self, other: &Self) -> bool {
+        self.host == other.host
+            && self.port == other.port
+            && self.pubkey == other.pubkey
+            && core::ptr::addr_eq(self.worker, other.worker)
+            && self.permille == other.permille
+    }
+}
+
+impl Eq for FeePool {}
+
 /// The Braiins authority key as base58check, which decodes to
 /// [`crate::DEFAULT_POOL_SV2_PUBKEY`].
 pub const BRAIINS_KEY: &str = "9awtMD5KQgvRUh2yFbjVeT7b6hjipWcAsQHd6wEhgtDT9soosna";
 
-/// The Braiins fee pool the boards of this tree mine for, with no
-/// device code and none of the build's overrides. A board states its
-/// code and build id over it and applies the overrides: `FeePool {
-/// variant: OPEN_CODES + 1, build: env!("BUILD_ID"), ..BRAIINS_POOL
-/// }.with_overrides()`. The values are consts of this crate because
-/// every board of this tree shares them; a product outside the tree
-/// states its own.
+/// The Braiins fee pool the boards of this tree mine for, with the
+/// unregistered worker and none of the build's overrides. A board
+/// applies the overrides: `BRAIINS_POOL.with_overrides()`. The values
+/// are consts of this crate because every board of this tree shares
+/// them; a product outside the tree states its own.
 pub const BRAIINS_POOL: FeePool = FeePool {
     host: "a830bcc3.bos.braiins.com",
     port: 3336,
     pubkey: Some(BRAIINS_KEY),
-    user: None,
-    build: "",
-    variant: 0,
+    worker: &UNREGISTERED,
     permille: 25,
 };
-
-/// The bit of a device code that marks a board of this firmware. The
-/// codes without it belong to the devices the pool knew before.
-pub const UBOS_CODE: u16 = 0x0100;
-
-/// The first device code of the boards of this tree: [`UBOS_CODE`]
-/// with the bit that marks the tree. A board adds its index in the
-/// alphabetical order of the firmware directories. The codes between
-/// [`UBOS_CODE`] and this one belong to the products outside the tree.
-pub const OPEN_CODES: u16 = UBOS_CODE | 0x0080;
 
 impl FeePool {
     /// `self` with every `DEVFEE_*` variable of the build applied:
     /// `DEVFEE_POOL_HOST`, `DEVFEE_POOL_PORT`, `DEVFEE_POOL_PUBKEY`,
-    /// `DEVFEE_POOL_USER`, `DEVFEE_VARIANT` and `DEVFEE_PERMILLE`. A
+    /// `DEVFEE_POOL_USER` and `DEVFEE_PERMILLE`. A
     /// key is for one server, so a host override drops the product's
     /// key unless the build names one too, and a key override without
     /// a host stops the build. A host override keeps the port, so a
@@ -176,7 +207,7 @@ impl FeePool {
     ///
     /// # Panics
     ///
-    /// Panics on a port outside 1 to 65535, a variant past 65535, a
+    /// Panics on a port outside 1 to 65535, a
     /// share past [`MAX_FEE_PERMILLE`], a host or user past 128 bytes,
     /// or a key without the length and the alphabet of a base58check
     /// key. In a const initializer that is a build error.
@@ -201,12 +232,9 @@ impl FeePool {
             (None, Some(_)) => None,
             (None, None) => self.pubkey,
         };
-        let user = match option_env!("DEVFEE_POOL_USER") {
-            Some(user) => {
-                assert!(user.len() <= NAME_CAPACITY, "{}", USER_BAD);
-                Some(user)
-            }
-            None => self.user,
+        let worker: &'static dyn FeeWorker = match &USER_OVERRIDE {
+            Some(user) => user,
+            None => self.worker,
         };
         let port = match option_env!("DEVFEE_POOL_PORT") {
             Some(port) => {
@@ -220,12 +248,6 @@ impl FeePool {
             }
             None => self.port,
         };
-        let variant = match option_env!("DEVFEE_VARIANT") {
-            // Bounded by the parse.
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            Some(variant) => parse_decimal(variant, u16::MAX as i64, VARIANT_BAD) as u16,
-            None => self.variant,
-        };
         let permille = match option_env!("DEVFEE_PERMILLE") {
             Some(permille) => parse_decimal(permille, MAX_FEE_PERMILLE, PERMILLE_BAD),
             None => self.permille,
@@ -234,31 +256,26 @@ impl FeePool {
             host,
             port,
             pubkey,
-            user,
-            build: self.build,
-            variant,
+            worker,
             permille,
         }
     }
 
-    /// The entry the fee slot runs: this pool, with the worker from
-    /// [`Self::worker`] unless [`Self::user`] names one.
+    /// The entry the fee slot runs: this pool, with the name
+    /// [`Self::worker`] builds over `operator`, the configured operator
+    /// pools.
     ///
     /// # Panics
     ///
-    /// Panics on a value that does not fit the entry: a host or a user
-    /// past the entry's capacity, or a key that is not base58check.
-    /// Each is a build configuration error, caught on the first boot
-    /// of that build.
+    /// Panics on a value that does not fit the entry: a host past the
+    /// entry's capacity, or a key that is not base58check. Each is a
+    /// build configuration error, caught on the first boot of that
+    /// build.
     #[must_use]
-    pub fn entry(&self) -> PoolEntry {
+    pub fn entry(&self, operator: &[PoolEntry]) -> PoolEntry {
         let host = heapless::String::try_from(self.host)
             .expect("BUG: the fee host exceeds PoolEntry::host capacity");
-        let user = match self.user {
-            Some(user) => heapless::String::try_from(user)
-                .expect("BUG: the fee user exceeds PoolEntry::user capacity"),
-            None => self.worker(),
-        };
+        let user = self.worker.worker(operator);
         let pool_pubkey = self
             .pubkey
             .map(|key| pubkey::decode(key).expect("BUG: the fee key is not base58check"));
@@ -269,38 +286,6 @@ impl FeePool {
             protocol: ProtocolKind::Sv2 { pool_pubkey },
             weight: 0,
         }
-    }
-
-    /// The worker name the fee slot authorises with.
-    ///
-    /// `bdf_000.` followed by base64url of twelve bytes: the mark that
-    /// reads `ubos`, the revision from [`Self::build`], the code mark
-    /// and [`Self::variant`] little-endian. The encoding is fixed
-    /// width, so character 13 of it is always `_`, the top six bits
-    /// of the code mark, and characters 14 to 16 are the device code.
-    /// The pool reads the code at that position, as it does for every
-    /// `bdf_000` worker, and stores the rest as an opaque identifier.
-    // The only panics are `.expect()` on the worker's fixed 24 bytes
-    // fitting a 128-byte string (BUG-class, not caller-facing), so a
-    // `# Panics` doc section would mislead.
-    #[allow(clippy::missing_panics_doc)]
-    #[must_use]
-    pub fn worker(&self) -> heapless::String<NAME_CAPACITY> {
-        const REVISION: usize = WORKER_MARK.len();
-        const MARK: usize = REVISION + REVISION_LEN;
-        let mut raw = [0u8; MARK + 1 + 2];
-        raw[..REVISION].copy_from_slice(&WORKER_MARK);
-        revision(self.build, &mut raw[REVISION..MARK]);
-        raw[MARK] = CODE_MARK;
-        raw[MARK + 1..].copy_from_slice(&self.variant.to_le_bytes());
-
-        let mut worker = heapless::String::new();
-        worker
-            .push_str(FEE_ACCOUNT)
-            .expect("BUG: the account fits the worker name");
-        worker.push('.').expect("BUG: the dot fits the worker name");
-        base64url(&raw, &mut worker);
-        worker
     }
 }
 
@@ -348,46 +333,6 @@ impl FeeSlot {
         match fee {
             Some(fee) => Some(fee.slot),
             None => None,
-        }
-    }
-}
-
-/// Writes the revision `build` starts with into `out`, two hex digits
-/// per byte. A build id that starts otherwise, `nogit` or one too
-/// short, leaves `out` zero.
-fn revision(build: &str, out: &mut [u8]) {
-    let digits = build.as_bytes();
-    if digits.len() < 2 * out.len() {
-        return;
-    }
-    for (i, byte) in out.iter_mut().enumerate() {
-        let (Some(hi), Some(lo)) = (hex(digits[2 * i]), hex(digits[2 * i + 1])) else {
-            out.fill(0);
-            return;
-        };
-        *byte = hi << 4 | lo;
-    }
-}
-
-/// The value of one hex digit, or `None` for another character.
-fn hex(digit: u8) -> Option<u8> {
-    match digit {
-        b'0'..=b'9' => Some(digit - b'0'),
-        b'a'..=b'f' => Some(digit - b'a' + 10),
-        b'A'..=b'F' => Some(digit - b'A' + 10),
-        _ => None,
-    }
-}
-
-/// Appends `bytes` to `out` as base64url. The input is a whole number
-/// of three-byte groups, so there is no padding to write.
-fn base64url(bytes: &[u8; 12], out: &mut heapless::String<NAME_CAPACITY>) {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-    for group in bytes.as_chunks::<3>().0 {
-        let bits = usize::from(group[0]) << 16 | usize::from(group[1]) << 8 | usize::from(group[2]);
-        for shift in [18, 12, 6, 0] {
-            out.push(char::from(ALPHABET[(bits >> shift) & 0x3f]))
-                .expect("BUG: the suffix fits the worker name");
         }
     }
 }

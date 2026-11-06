@@ -22,16 +22,39 @@
 use super::*;
 use crate::DEFAULT_POOL_SV2_PUBKEY;
 
-/// A product's pool, with the built worker and the pool's key.
+/// A worker that answers with the user of the operator's first pool,
+/// so a test sees what the entry hands a product.
+#[derive(Debug)]
+struct FirstOperator;
+
+impl FeeWorker for FirstOperator {
+    fn worker(&self, operator: &[PoolEntry]) -> heapless::String<NAME_CAPACITY> {
+        operator
+            .first()
+            .map_or_else(heapless::String::new, |pool| pool.user.clone())
+    }
+}
+
+/// A product's pool, with a worker that reads the operator's pools
+/// and the pool's key.
 const POOL: FeePool = FeePool {
     host: "fee.example.com",
     port: 4444,
     pubkey: Some(BRAIINS_KEY),
-    user: None,
-    build: "0123456789ab-251012170000",
-    variant: 0,
+    worker: &FirstOperator,
     permille: 20,
 };
+
+/// An operator's pool at `user`.
+fn operator(user: &str) -> PoolEntry {
+    PoolEntry {
+        host: heapless::String::try_from("pool.example.com").expect("fits"),
+        port: 3333,
+        user: heapless::String::try_from(user).expect("fits"),
+        protocol: ProtocolKind::Sv2 { pool_pubkey: None },
+        weight: 1,
+    }
+}
 
 /// Whether this build sets no `DEVFEE_*` variable, which is what the
 /// override tests pin.
@@ -41,7 +64,6 @@ fn plain_build() -> bool {
         option_env!("DEVFEE_POOL_PORT"),
         option_env!("DEVFEE_POOL_PUBKEY"),
         option_env!("DEVFEE_POOL_USER"),
-        option_env!("DEVFEE_VARIANT"),
         option_env!("DEVFEE_PERMILLE"),
     ]
     .iter()
@@ -106,7 +128,7 @@ fn a_key_override_needs_the_shape_of_a_key() {
 
 #[test]
 fn the_entry_is_weightless_and_keyed() {
-    let entry = POOL.entry();
+    let entry = POOL.entry(&[]);
     assert_eq!(entry.weight, 0);
     assert_eq!(entry.host.as_str(), POOL.host);
     assert_eq!(entry.port, POOL.port);
@@ -118,48 +140,44 @@ fn the_entry_is_weightless_and_keyed() {
     );
 }
 
+/// Live only in a build that names a user, which is the one input the
+/// override changes an answer for.
 #[test]
-fn a_named_user_replaces_the_built_worker() {
-    let pool = FeePool {
-        user: Some("bdf_000.bench"),
-        ..POOL
+fn a_user_override_replaces_the_worker() {
+    let Some(user) = option_env!("DEVFEE_POOL_USER") else {
+        return;
     };
-    assert_eq!(pool.entry().user.as_str(), "bdf_000.bench");
+    assert_eq!(POOL.with_overrides().entry(&[]).user.as_str(), user);
 }
 
 #[test]
-fn the_worker_carries_the_mark_the_revision_and_the_code() {
-    let pool = FeePool {
-        build: "87e21019d62a-251012170000",
-        variant: 0x0185,
-        ..POOL
-    };
-    assert_eq!(pool.worker().as_str(), "bdf_000.ubosh-IQGdYq_4UB");
+fn the_entry_carries_the_name_the_worker_builds() {
+    let entry = POOL.entry(&[operator("account.worker"), operator("other.worker")]);
+    assert_eq!(entry.user.as_str(), "account.worker");
+    assert_eq!(POOL.entry(&[]).user.as_str(), "");
 }
 
 #[test]
-fn a_build_without_a_revision_carries_zero_bytes() {
-    let pool = FeePool {
-        build: "nogit-251012170000",
-        ..POOL
-    };
-    assert_eq!(pool.worker().as_str(), "bdf_000.ubosAAAAAAAA_wAA");
-    let pool = FeePool { build: "", ..POOL };
-    assert_eq!(pool.worker().as_str(), "bdf_000.ubosAAAAAAAA_wAA");
+fn a_fixed_worker_is_the_same_over_any_operator() {
+    let fixed = Fixed::new("bdf_000.bench");
+    assert_eq!(fixed.worker(&[]).as_str(), "bdf_000.bench");
+    assert_eq!(
+        fixed.worker(&[operator("account.worker")]).as_str(),
+        "bdf_000.bench"
+    );
 }
 
 #[test]
-fn the_worker_has_the_layout_the_pool_parses() {
-    let worker = POOL.worker();
-    let suffix = worker.strip_prefix("bdf_000.").expect("the account prefix");
-    assert_eq!(suffix.len(), 16);
-    assert_eq!(&suffix[..4], "ubos", "the mark names the firmware");
-    assert_eq!(&suffix[12..13], "_", "the code mark marks the device code");
+fn the_unregistered_worker_is_the_name_the_pool_reads_as_one() {
+    assert_eq!(
+        UNREGISTERED.worker(&[]).as_str(),
+        "bdf_000.K7Qo2x3lAEoA_wAA"
+    );
 }
 
 #[test]
 fn the_braiins_pool_carries_the_open_default_key() {
-    let entry = BRAIINS_POOL.entry();
+    let entry = BRAIINS_POOL.entry(&[]);
     assert_eq!(
         entry.protocol,
         ProtocolKind::Sv2 {

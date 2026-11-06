@@ -314,23 +314,25 @@ mod pubkey_serde_tests {
 #[cfg(test)]
 mod fee_slot_tests {
     use super::*;
-    use crate::fee::{FeePool, FeeSlot};
+    use crate::fee::{FeePool, FeeSlot, FeeWorker, Fixed};
     use crate::{
         ConfigCommandChannel, ConfigWatch, FeeSlotCell, GenerationWatch, Handle, NetworkWatch,
     };
+    use core::fmt::Write as _;
     use embassy_sync::channel::Channel;
     use embassy_sync::once_lock::OnceLock;
     use embassy_sync::watch::Watch;
 
-    /// The pool a fee board states: here one with a fixed worker, so
-    /// the entry reads nothing from the build.
+    /// The worker a fee board states: here a fixed one, so the entry
+    /// reads nothing from the operator's pools.
+    static WORKER: Fixed = Fixed::new("fee.worker");
+
+    /// The pool a fee board states.
     const FEE: FeePool = FeePool {
         host: "fee.example.com",
         port: 4444,
         pubkey: None,
-        user: Some("fee.worker"),
-        build: "",
-        variant: 0,
+        worker: &WORKER,
         permille: 20,
     };
 
@@ -386,15 +388,65 @@ mod fee_slot_tests {
         let config = handle.current();
         assert_eq!(handle.pool_slot(0), config.pool.first().cloned());
         assert_eq!(handle.pool_slot(MAX_POOLS - 1), None);
-        assert_eq!(handle.pool_slot(FOUR_SESSIONS - 1), Some(FEE.entry()));
+        assert_eq!(handle.pool_slot(FOUR_SESSIONS - 1), Some(FEE.entry(&[])));
         assert_eq!(handle.pool_slot(FOUR_SESSIONS), None);
         // The GET view serves the fee entry as its own field, beside
         // the operator list, and a POST that echoes it back validates.
         let view = handle.view();
         assert_eq!(view.pool.as_ref(), Some(&config.pool));
-        assert_eq!(view.fee, Some(FEE.entry()));
+        assert_eq!(view.fee, Some(FEE.entry(&[])));
         assert_eq!(view.fee_permille, Some(FEE.permille));
         assert_eq!(view.validate(&config, &crate::mining::BOUNDS), Ok(()));
+    }
+
+    /// A worker that answers with how many operator pools it was
+    /// handed, so a test sees which slots reach it.
+    #[derive(Debug)]
+    struct Counting;
+
+    impl FeeWorker for Counting {
+        fn worker(&self, operator: &[PoolEntry]) -> heapless::String<NAME_CAPACITY> {
+            let mut count = heapless::String::new();
+            write!(count, "{}", operator.len()).expect("fits");
+            count
+        }
+    }
+
+    /// The fee worker is handed the slots below the fee's, which are
+    /// the ones the board runs: on a three-session board the fee
+    /// shadows the third configured pool.
+    #[test]
+    fn the_fee_worker_sees_the_operator_slots_the_board_runs() {
+        static STATE: ConfigWatch = Watch::new();
+        static NETWORK: NetworkWatch = Watch::new();
+        static COMMANDS: ConfigCommandChannel = Channel::new();
+        static GENERATION: GenerationWatch = Watch::new();
+        static CELL: FeeSlotCell = OnceLock::new();
+        if !DEVFEE {
+            return;
+        }
+        let fee = FeeSlot::last_of(
+            FeePool {
+                worker: &Counting,
+                ..FEE
+            },
+            MAX_POOLS,
+        )
+        .expect("the switch is on");
+        CELL.init(fee).expect("BUG: the cell is this test's own");
+        let handle = Handle::new(&STATE, &NETWORK, &COMMANDS, &GENERATION, &CELL);
+        let mut config = handle.current();
+        let primary = config
+            .pool
+            .first()
+            .cloned()
+            .expect("the default config has a pool");
+        while config.pool.push(primary.clone()).is_ok() {}
+        assert_eq!(config.pool.len(), MAX_POOLS);
+        STATE.sender().send(config);
+        let fee_entry = handle.pool_slot(MAX_POOLS - 1).expect("the fee slot");
+        assert_eq!(fee_entry.user.as_str(), "2");
+        assert_eq!(handle.view().fee, Some(fee_entry));
     }
 
     #[test]
@@ -406,7 +458,7 @@ mod fee_slot_tests {
         let fee = FeeSlot::last_of(FEE, MAX_POOLS).expect("the switch is on");
         CELL.init(fee).expect("BUG: the cell is this test's own");
         let handle = handle_over(&CELL);
-        assert_eq!(handle.pool_slot(MAX_POOLS - 1), Some(FEE.entry()));
+        assert_eq!(handle.pool_slot(MAX_POOLS - 1), Some(FEE.entry(&[])));
         assert_eq!(handle.pool_slot(MAX_POOLS), None);
     }
 }

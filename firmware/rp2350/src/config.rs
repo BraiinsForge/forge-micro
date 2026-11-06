@@ -122,15 +122,10 @@ pub const BOUNDS: ubos_config::MiningBounds = ubos_config::bounds(
 pub const MINING_INFO: ubos_config::MiningInfo =
     ubos_config::mining_info(BOARD, &BOUNDS, ubos_config::DefaultTuning::Fixed);
 
-/// The fee pool this board mines for: the Braiins fee pool with this
-/// board's device code, the sixth of the tree in alphabetical
-/// order, under the build's `DEVFEE_*` overrides.
-pub const FEE_POOL: ubos_config::FeePool = ubos_config::FeePool {
-    variant: ubos_config::fee::OPEN_CODES + 5,
-    build: env!("BUILD_ID"),
-    ..ubos_config::fee::BRAIINS_POOL
-}
-.with_overrides();
+/// The fee pool this board mines for: the Braiins fee pool with the
+/// worker the pool reads as an unregistered device, under the build's
+/// `DEVFEE_*` overrides.
+pub const FEE_POOL: ubos_config::FeePool = ubos_config::fee::BRAIINS_POOL.with_overrides();
 
 /// Distinct series the Prometheus exposition map holds. The map is keyed
 /// by the label-expanded series, and a series that does not fit is
