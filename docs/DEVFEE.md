@@ -13,11 +13,11 @@ The shape inside the pool stack is the fee slot section of
 `docs/MULTIPOOL_DESIGN.md`.
 
 The boards of this tree mine the Braiins fee server. Its host, port,
-key and share live once, as `ubos_config::fee::BRAIINS_POOL`, and a
-board states its device code over them. A product outside the tree
-states its own server, key, code and share the same way, in the
-firmware that runs them. The fee takes a board's last session slot,
-after its operator slots.
+key, share and worker name live once, as
+`ubos_config::fee::BRAIINS_POOL`. A product outside the tree states
+its own server, key and share the same way, in the firmware that runs
+them, with a worker of its own that builds the name the pool reads.
+The fee takes a board's last session slot, after its operator slots.
 
 ## The switch
 
@@ -84,28 +84,22 @@ board no RAM: the session count does not change.
 
 ## Build
 
-A board of this tree states its device code over the shared pool in
-its `config.rs` and applies the build's overrides to it:
+A board of this tree applies the build's overrides to the shared pool
+in its `config.rs`:
 
 ```rust
-pub const FEE_POOL: ubos_config::FeePool = ubos_config::FeePool {
-    variant: ubos_config::fee::OPEN_CODES + 5,
-    build: env!("BUILD_ID"),
-    ..ubos_config::fee::BRAIINS_POOL
-}
-.with_overrides();
+pub const FEE_POOL: ubos_config::FeePool = ubos_config::fee::BRAIINS_POOL.with_overrides();
 ```
 
-A product outside the tree states every field:
+A product outside the tree states every field, with a worker of its
+own:
 
 ```rust
 pub const FEE_POOL: ubos_config::FeePool = ubos_config::FeePool {
     host: "fee.example.com",
     port: 4444,
     pubkey: Some("<base58check>"),
-    user: None,
-    build: env!("BUILD_ID"),
-    variant: 0,
+    worker: &PRODUCT_WORKER,
     permille: 20,
 }
 .with_overrides();
@@ -137,9 +131,8 @@ An unset variable keeps the board's value.
 |---|---|
 | `DEVFEE_POOL_HOST` | host of the fee pool |
 | `DEVFEE_POOL_PORT` | TCP port, 1 to 65535 |
-| `DEVFEE_POOL_USER` | the whole worker name, in place of the derived one |
+| `DEVFEE_POOL_USER` | the whole worker name, in place of the worker's |
 | `DEVFEE_POOL_PUBKEY` | SV2 authority key, base58check |
-| `DEVFEE_VARIANT` | device code in the worker name, 0 to 65535 |
 | `DEVFEE_PERMILLE` | share of the work, in thousandths, 0 to 499 |
 
 An authority key belongs to one operator's servers. A build that
@@ -155,9 +148,9 @@ Every override is checked when the config crate compiles, so a wrong
 one stops the build. A share that is not a number from 0 to 499 stops
 it with `DEVFEE_PERMILLE must be a number from 0 to 499`. The bound
 is the largest share the scheduler can repay after an outage, which
-`MAX_FEE_PERMILLE` in the config crate states. A variant past 65535
-and a port outside 1 to 65535 stop it with the same kind of message,
-and so does a host or a worker name past 128 bytes. A key that is not
+`MAX_FEE_PERMILLE` in the config crate states. A port outside 1 to
+65535 stops it with the same kind of message, and so does a host or a
+worker name past 128 bytes. A key that is not
 51 characters of the base58 alphabet stops it with
 `DEVFEE_POOL_PUBKEY must be 51 base58 characters`. A key of the right
 shape and a wrong checksum passes the build and stops the first boot
@@ -172,67 +165,20 @@ DEVFEE_POOL_USER=fee.worker DEVFEE_PERMILLE=20 cargo build --release
 
 ## The worker name
 
-The fee pool identifies a miner by its worker name. The name is
-`bdf_000.` followed by 16 characters of base64url over twelve bytes:
+The fee pool identifies a miner by its worker name. The product that
+states the fee pool builds the name, as a `FeeWorker` the pool
+carries. The config crate asks it on every read of the fee entry. It
+hands the worker the operator's pools as currently configured, so a
+name can follow the operator's account. A config change restarts the
+fee session, which then authorises with the name the next read gives.
 
-```
-bdf_000.ubosh-IQGdYq_4UB
-        └──┘└──────┘└──┘
-        mark revision device code
-```
+The boards of this tree send one fixed name,
+`ubos_config::fee::UNREGISTERED`, which the pool reads as a device it
+has not registered. The pool pays such a fee to the fee account as a
+whole and credits it to no board. A product outside the tree states a
+worker that builds the name the pool registered for it.
 
-The twelve bytes are four fields, each a whole number of three-byte
-groups, so each one maps to its own four base64url characters:
-
-| Bytes | Field | Value | Characters |
-|---|---|---|---|
-| 0 to 2 | mark | `B9 BA 2C`, which base64url reads as `ubos` | 1 to 4 |
-| 3 to 8 | revision | the first six bytes of the commit, from the twelve hex digits the build id starts with | 5 to 12 |
-| 9 | separator | `FF`, which puts a `_` at character 13 | 13 |
-| 10 to 11 | device code | the board's code as a 16-bit value, little-endian | 14 to 16 |
-
-So the name is `bdf_000.` followed by
-`base64url(mark || revision || separator || code)`, with no padding,
-because twelve bytes are four full groups. The example above is the
-`rp2350` board, code `0x0185`, at revision `87e21019d62a`: the
-revision bytes `87 E2 10 19 D6 2A` encode as `h-IQGdYq`, and `FF 85
-01` encodes as `_4UB`. A build with no revision, `nogit`, carries six
-zero bytes there and encodes them as `AAAAAAAA`.
-
-The encoded part is fixed width. Character 13 is always `_`, the top
-six bits of the code mark, and characters 14 to 16 are the device
-code. The pool reads the code at that position, as it does for every
-`bdf_000` worker, and stores the rest as an opaque identifier. A `_`
-among the revision characters changes nothing, because the pool reads
-by position. The name carries nothing about the operator or their
-pool.
-
-The name is fixed at build time, so one image sends one name.
 `DEVFEE_POOL_USER` replaces the whole name, for a bench build.
-
-### Device codes
-
-The code is a 16-bit value, little-endian in the name. The low byte
-alone belongs to the devices the pool knew before this firmware. A
-board of this firmware sets bit 8, `UBOS_CODE` in `ubos_config::fee`.
-A board of this tree sets bit 7 as well, `OPEN_CODES`, and adds its
-index in the alphabetical order of the firmware directories. A new
-board takes the next free index, and an index is never reused. The
-codes from `UBOS_CODE` up to `OPEN_CODES` belong to the products
-outside this tree, which allocate them the same way.
-
-The last column is how the code ends the name, the same in every
-build of the board, so a pool-side check can match a board without
-decoding.
-
-| Board | Code | Last characters |
-|---|---|---|
-| `bmm-pico` | `0x0180` | `_4AB` |
-| `esp32s3` | `0x0181` | `_4EB` |
-| `forge-axe` | `0x0182` | `_4IB` |
-| `hashnode` | `0x0183` | `_4MB` |
-| `rp2040` | `0x0184` | `_4QB` |
-| `rp2350` | `0x0185` | `_4UB` |
 
 ## How the share is kept
 
@@ -350,9 +296,12 @@ rejected, and the teardown on a config change.
   once, and the slot count, the wire list, the fee slot and the
   scheduler all follow that one const.
 - The values are one `FeePool` const. The boards of this tree share
-  the Braiins pool and state a code each, and a product with another
-  server states its own const; the config crate builds the entry and
-  the worker name from whichever it is handed.
+  the Braiins pool, and a product with another server states its own
+  const; the config crate builds the entry from whichever it is
+  handed.
+- The worker name is the product's. The pool reads a layout it agreed
+  with the product, so the product builds it, and the config crate
+  hands it the operator's pools and keeps nothing of the answer.
 - The fee slot is a boot argument of the config task, not a static
   another crate fills. The config module owns it, and the handle is
   the one door to its entry, as for every other config fact.

@@ -558,10 +558,10 @@ state over the operator's third entry.
 ## The fee slot
 
 A board can run one pool the operator cannot edit: a fee pool at a
-fixed share of the work. The server, its key, the device code and the
+fixed share of the work. The server, its key, the worker name and the
 share are data a board states, and the firmware that runs them is the
 one that holds them; the boards of this tree share the Braiins pool
-and state a code each. How to build with it and how to read it is
+and its fixed name. How to build with it and how to read it is
 `docs/DEVFEE.md`.
 
 - `ubos_config::DEVFEE` is the switch, read once from the build
