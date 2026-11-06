@@ -53,11 +53,13 @@ extern crate std;
 pub mod chain;
 pub use chain::ChainTemperature;
 mod array;
+mod filter;
 mod metrics;
 mod stats;
 mod threshold;
 
 pub use array::SensorArray;
+pub use filter::TempFilter;
 pub use stats::{Accumulator, TempStats};
 
 #[cfg(test)]
