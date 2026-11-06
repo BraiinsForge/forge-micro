@@ -186,7 +186,7 @@ fn empty_store_takes_and_persists_the_seed() {
     let dir = fresh_dir("empty");
     let mut storage = FileStorage::new(&dir);
 
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(seed())));
+    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(&seed())));
     assert_eq!(
         loaded,
         seeded(),
@@ -207,16 +207,16 @@ fn empty_store_takes_and_persists_the_seed() {
 fn seed_already_taken_keeps_the_operator_changes() {
     let dir = fresh_dir("taken");
     let mut storage = FileStorage::new(&dir);
-    block_on(load_initial(&mut storage, BOARD, &INFO, Some(seed())));
+    block_on(load_initial(&mut storage, BOARD, &INFO, Some(&seed())));
 
     let mut edited = seeded();
     edited.api = login("edited");
     save(&mut storage, &edited);
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(seed())));
+    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(&seed())));
     assert_eq!(loaded, edited, "an unchanged seed must not touch the store");
 
     save(&mut storage, &Config::for_board(BOARD, INFO.default_tuning));
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(seed())));
+    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(&seed())));
     assert_eq!(
         loaded,
         Config::for_board(BOARD, INFO.default_tuning),
@@ -233,7 +233,7 @@ fn seed_already_taken_keeps_the_operator_changes() {
 fn changed_field_is_taken_again_alone() {
     let dir = fresh_dir("changed");
     let mut storage = FileStorage::new(&dir);
-    block_on(load_initial(&mut storage, BOARD, &INFO, Some(seed())));
+    block_on(load_initial(&mut storage, BOARD, &INFO, Some(&seed())));
 
     let mut edited = seeded();
     edited.api = login("edited");
@@ -249,16 +249,11 @@ fn changed_field_is_taken_again_alone() {
     };
     let mut expected = edited.clone();
     expected.network.mode = static_mode([192, 168, 1, 20]);
-    let loaded = block_on(load_initial(
-        &mut storage,
-        BOARD,
-        &INFO,
-        Some(changed.clone()),
-    ));
+    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(&changed)));
     assert_eq!(loaded, expected, "only the changed field must be taken");
     assert_eq!(stored(&mut storage), Some(expected.clone()));
 
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(changed)));
+    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(&changed)));
     assert_eq!(loaded, expected, "a field is taken once per change");
 
     let _ = fs::remove_dir_all(&dir);
@@ -283,7 +278,7 @@ fn stored_config_without_a_record_takes_the_seed() {
         chip: None,
         hashboard: Some(Temperature::from_celsius(80)),
     };
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(seed())));
+    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(&seed())));
     assert_eq!(loaded, expected);
     assert_eq!(stored(&mut storage), Some(expected));
 
@@ -297,12 +292,12 @@ fn failed_config_write_takes_the_seed_again() {
     let dir = fresh_dir("failed-write");
     let mut storage = Probe::new(&dir);
     storage.refuse_config = true;
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(seed())));
+    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(&seed())));
     assert_eq!(loaded, seeded(), "the boot still runs on the seed");
     assert_eq!(storage.writes, 0, "the fingerprints wait for the config");
 
     storage.refuse_config = false;
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(seed())));
+    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(&seed())));
     assert_eq!(loaded, seeded());
     assert_eq!(stored(&mut storage.inner), Some(seeded()));
 
@@ -324,14 +319,9 @@ fn seed_matching_the_defaults_is_recorded_once() {
         ..Seed::default()
     };
 
-    block_on(load_initial(
-        &mut storage,
-        BOARD,
-        &INFO,
-        Some(unchanged.clone()),
-    ));
+    block_on(load_initial(&mut storage, BOARD, &INFO, Some(&unchanged)));
     assert_eq!(storage.writes, 1, "only the fingerprints are saved");
-    block_on(load_initial(&mut storage, BOARD, &INFO, Some(unchanged)));
+    block_on(load_initial(&mut storage, BOARD, &INFO, Some(&unchanged)));
     assert_eq!(storage.writes, 1, "an unchanged seed writes nothing");
 
     let _ = fs::remove_dir_all(&dir);
@@ -344,7 +334,7 @@ fn seed_matching_the_defaults_is_recorded_once() {
 fn field_left_out_keeps_its_value_and_fingerprint() {
     let dir = fresh_dir("left-out");
     let mut storage = FileStorage::new(&dir);
-    block_on(load_initial(&mut storage, BOARD, &INFO, Some(seed())));
+    block_on(load_initial(&mut storage, BOARD, &INFO, Some(&seed())));
 
     let mut edited = seeded();
     edited.api = login("edited");
@@ -354,9 +344,9 @@ fn field_left_out_keeps_its_value_and_fingerprint() {
         api: None,
         ..seed()
     };
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(without_api)));
+    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(&without_api)));
     assert_eq!(loaded, edited);
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(seed())));
+    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(&seed())));
     assert_eq!(loaded, edited, "the api fingerprint must still be taken");
 
     let _ = fs::remove_dir_all(&dir);
@@ -390,7 +380,7 @@ fn seed_that_changes_nothing_stays_unstored() {
         )),
         ..Seed::default()
     };
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(unchanged)));
+    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(&unchanged)));
     assert_eq!(loaded, Config::for_board(BOARD, INFO.default_tuning));
     assert_eq!(stored(&mut storage), None, "defaults are not persisted");
 
@@ -408,7 +398,7 @@ fn invalid_seed_keeps_the_config() {
         api: Some(field(login(""), SOURCE)),
         ..Seed::default()
     };
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(bad.clone())));
+    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(&bad)));
     assert_eq!(loaded, Config::for_board(BOARD, INFO.default_tuning));
     assert_eq!(
         stored(&mut storage),
@@ -422,7 +412,7 @@ fn invalid_seed_keeps_the_config() {
         hashboard: Some(Temperature::from_celsius(80)),
     };
     save(&mut storage, &existing);
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(bad)));
+    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(&bad)));
     assert_eq!(loaded, existing);
     assert_eq!(stored(&mut storage), Some(existing));
 
@@ -459,7 +449,7 @@ fn stored_thresholds_of_other_kinds_take_the_machine_ones() {
 fn unreadable_config_takes_every_seed_field() {
     let dir = fresh_dir("unreadable");
     let mut storage = FileStorage::new(&dir);
-    block_on(load_initial(&mut storage, BOARD, &INFO, Some(seed())));
+    block_on(load_initial(&mut storage, BOARD, &INFO, Some(&seed())));
 
     let mut edited = seeded();
     edited.thermal.dangerous = TemperatureDescriptor {
@@ -467,7 +457,7 @@ fn unreadable_config_takes_every_seed_field() {
         hashboard: Some(Temperature::from_celsius(80)),
     };
     save_unreadable(&mut storage, &edited);
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(seed())));
+    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(&seed())));
     assert_eq!(loaded, seeded(), "the defaults take every seed field");
     assert_eq!(
         stored(&mut storage),
@@ -501,7 +491,7 @@ fn failed_config_read_takes_no_seed() {
     let mut storage = Probe::new(&dir);
     storage.fail_config_read = true;
 
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(seed())));
+    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(&seed())));
     assert_eq!(loaded, Config::for_board(BOARD, INFO.default_tuning));
     assert_eq!(storage.writes, 0, "a failed read writes nothing");
 

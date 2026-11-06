@@ -834,7 +834,9 @@ impl Config {
 /// reset keeps the fingerprints, so the seed stays out until its
 /// source changes. A fallback for any reason but an I/O error takes
 /// every seed field, whatever the fingerprints say. A seed whose result
-/// fails validation is dropped with a warning.
+/// fails validation is dropped with a warning. The seed is borrowed from
+/// the task, because an async fn that takes it by value holds it twice,
+/// as the argument and as the local the body binds it to.
 ///
 /// A board hands in the `fee` slot it runs, from [`FeeSlot::last_of`],
 /// and the handle answers for it from then on: [`Handle::pool_slot`]
@@ -863,7 +865,7 @@ pub async fn run<S: Storage>(
     mut storage: S,
     board: &'static HashboardDescriptor,
     info: &'static MiningInfo,
-    seed: Option<Seed>,
+    seed: Option<&Seed>,
     fee: Option<FeeSlot>,
 ) -> ! {
     // Before the first publish, which every reader of the fee slot
@@ -1013,7 +1015,7 @@ macro_rules! config_task {
     ($storage:ty, $board:expr, $info:expr, $fee:expr) => {
         #[embassy_executor::task]
         async fn config_task(storage: $storage, seed: Option<ubos_config::Seed>) -> ! {
-            ubos_config::run(storage, $board, $info, seed, $fee).await
+            ubos_config::run(storage, $board, $info, seed.as_ref(), $fee).await
         }
     };
 }
@@ -1056,7 +1058,7 @@ async fn load_initial<S: Storage>(
     storage: &mut S,
     board: &'static HashboardDescriptor,
     info: &'static MiningInfo,
-    seed: Option<Seed>,
+    seed: Option<&Seed>,
 ) -> Config {
     // The loaded record is scoped to the load and its upgrade, so the task
     // does not hold it across the seed writes.
@@ -1088,7 +1090,7 @@ async fn load_initial<S: Storage>(
         let lost = loaded.is_none();
         (loaded.map(Loaded::into_config), lost)
     };
-    let Some(seed) = &seed else {
+    let Some(seed) = seed else {
         return stored.unwrap_or_else(|| Config::for_board(board, info.default_tuning));
     };
     // The boot config is scoped to the merge, so the task holds one config
