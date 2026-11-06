@@ -35,7 +35,7 @@
 //! on an unpowered board is no fault is under "Chain presence" in
 //! `docs/MINING.md`.
 //!
-//! This task is also the sole writer of the ambient gauge and of the MCU
+//! This task also writes the series of the ambient sensor, and the MCU
 //! temperature gauge, which it reads from the board's
 //! [`McuTemperatureSensor`] on each tick.
 //! `array` aggregates a board's I2C sensor table into the reading the
@@ -128,9 +128,8 @@ use ubos_config::ThermalConfig;
 use ubos_core::units::{Temperature, Voltage};
 use ubos_logging::{error, info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage, PauseReason, PauseReasons};
-use ubos_metrics::catalog::AMBIENT_TEMPERATURE;
 use ubos_metrics::metric;
-use ubos_temperature::Reading as TempReading;
+use ubos_temperature::{Reading as TempReading, TempSource};
 
 ubos_events::events! {
     dangerous_temperature(temp: Temperature)  error = "Critical temperature {} °C, mining halted",
@@ -268,8 +267,8 @@ impl AmbientSensor for NoAmbient {
 /// The thermometer on the MCU die, which measures the control board.
 /// Every board hands [`run_thermal`] one, for the reason
 /// [`AmbientSensor`] gives, and a board whose MCU has none hands
-/// [`NoMcu`]. The reading feeds a gauge and nothing else: no control
-/// loop reads it.
+/// [`NoMcu`]. The reading feeds its reading series and nothing else: no
+/// control loop reads it.
 #[allow(async_fn_in_trait)]
 pub trait McuTemperatureSensor {
     /// Read the current MCU die temperature, or `None` if the reading
@@ -279,7 +278,7 @@ pub trait McuTemperatureSensor {
 }
 
 /// The MCU sensor of a board whose MCU has no thermometer: the reading
-/// stays `None`, so the gauge is never pushed.
+/// stays `None`, so its series is never written.
 pub struct NoMcu;
 
 impl McuTemperatureSensor for NoMcu {
@@ -597,7 +596,7 @@ async fn drain_input() -> Infallible {
     }
 }
 
-/// Read the ambient temperature and publish its gauge. It gates
+/// Read the ambient temperature and publish its reading series. It gates
 /// nothing, so it is read after every decision a tick makes and never
 /// before one: a sensor that takes its time answering must not hold up
 /// the sample the halt turns on, nor the halt itself. Every tick reads
@@ -606,8 +605,11 @@ async fn drain_input() -> Infallible {
 /// the value of the last tick that published.
 async fn read_ambient<A: AmbientSensor>(ambient: &mut A) -> Option<Temperature> {
     let reading = ambient.ambient().await;
-    if let Some(reading) = reading {
-        metric!(AMBIENT_TEMPERATURE, reading).try_push();
+    if let Some(value) = reading {
+        publish_sensor_reading(TempReading {
+            source: TempSource::Ambient,
+            value,
+        });
     }
     reading
 }
