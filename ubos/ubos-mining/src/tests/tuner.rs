@@ -183,7 +183,7 @@ fn walk_visits_every_25mhz_grid_point_with_pll_table_match() {
     let range = BMM101_HASHBOARD.chip.frequency_range;
     for (f_khz, _) in steps.iter().copied() {
         assert!(
-            PllParameterReg::from_freq(f_khz, range).is_some(),
+            PllParameterReg::from_freq(Frequency::from_khz(f_khz), range).is_some(),
             "walk emits {f_khz} kHz but calculator rejects it",
         );
     }

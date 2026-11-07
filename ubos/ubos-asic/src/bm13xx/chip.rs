@@ -394,8 +394,8 @@ pub trait ChipProtocol {
     /// number follows on the fast UART via [`Self::set_hcn`].
     async fn set_pll(&self, bus: &mut impl ChipBus, freq: Frequency) -> Result<(), ChipError> {
         let range = self.descriptor().chip.frequency_range;
-        let pll = PllParameterReg::from_freq(freq.khz(), range)
-            .ok_or(ChipError::UnsupportedFrequency(freq))?;
+        let pll =
+            PllParameterReg::from_freq(freq, range).ok_or(ChipError::UnsupportedFrequency(freq))?;
         let fence = Pll0DividerReg::zeroed();
         // The trailing duplicate covers a PLL write that arrives garbled
         // because the PLL itself shifted mid-reception.
@@ -419,7 +419,7 @@ pub trait ChipProtocol {
     /// the baud switch, never at the boot baud.
     async fn set_hcn(&self, bus: &mut impl ChipBus, freq: Frequency) -> Result<(), ChipError> {
         let range = self.descriptor().chip.frequency_range;
-        let hcn = HashCountingNumberReg::from_freq(freq.khz(), range)
+        let hcn = HashCountingNumberReg::from_freq(freq, range)
             .ok_or(ChipError::UnsupportedFrequency(freq))?;
         bus.write_register(ChipAddress::All, hcn).await;
         Ok(())

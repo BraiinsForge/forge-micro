@@ -26,7 +26,7 @@
 //! See `docs/REGISTERS.md` for a per-register reference.
 
 use bitfield_struct::bitfield;
-use ubos_core::units::FrequencyRange;
+use ubos_core::units::{Frequency, FrequencyRange};
 
 #[cfg(test)]
 #[path = "tests/registers.rs"]
@@ -217,8 +217,8 @@ pub struct HashCountingNumberReg {
 }
 
 impl HashCountingNumberReg {
-    /// Returns the hash-counting-number for `target_khz`, or `None`
-    /// outside the passed `range`. The value scales inversely with the
+    /// Returns the hash-counting-number for `target`, or `None` outside
+    /// the passed `range`. The value scales inversely with the
     /// target clock:
     ///
     /// `hcn = HCN_NUMERATOR_KHZ / freq_khz`
@@ -227,7 +227,8 @@ impl HashCountingNumberReg {
     /// (floor) division performed in `u64` since the numerator
     /// exceeds `u32::MAX`.
     #[must_use]
-    pub const fn from_freq(target_khz: u32, range: FrequencyRange) -> Option<Self> {
+    pub const fn from_freq(target: Frequency, range: FrequencyRange) -> Option<Self> {
+        let target_khz = target.khz();
         if target_khz < range.min().khz() || target_khz > range.max().khz() {
             return None;
         }
@@ -1207,8 +1208,8 @@ impl PllParameterReg {
     }
 
     /// Returns the PLL parameter register value that drives the chip
-    /// closest to `target_khz`, or `None` if `target_khz` is outside
-    /// the passed `range`.
+    /// closest to `target`, or `None` if `target` is outside the passed
+    /// `range`.
     ///
     /// Iterates the `(POSTDIV2_stored, POSTDIV1_stored)` divider pairs
     /// and solves FBDIV directly from the PLL formula for each rather
@@ -1223,7 +1224,8 @@ impl PllParameterReg {
     /// requirements. The chosen FBDIV also sets [`Self::vco_high`] via
     /// [`PLL_VCO_HIGH_THRESHOLD_HZ`].
     #[must_use]
-    pub fn from_freq(target_khz: u32, range: FrequencyRange) -> Option<Self> {
+    pub fn from_freq(target: Frequency, range: FrequencyRange) -> Option<Self> {
+        let target_khz = target.khz();
         if !(range.min().khz()..=range.max().khz()).contains(&target_khz) {
             return None;
         }
