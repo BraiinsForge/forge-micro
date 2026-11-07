@@ -55,12 +55,24 @@ pub struct McuTempSensor {
 /// interrupts enabled.
 impl McuTemperatureSensor for McuTempSensor {
     async fn read(&mut self) -> Option<ubos_core::units::Temperature> {
-        let raw = self.adc.blocking_read(&mut self.channel, TEMP_SAMPLE_TIME);
-        let vsense_uv = i64::from(raw) * VREF_UV / ADC_FULL_SCALE;
+        let sample = self.adc.blocking_read(&mut self.channel, TEMP_SAMPLE_TIME);
+        RawDieSample(sample).try_into().ok()
+    }
+}
+
+/// A 12-bit ADC sample of the die thermometer.
+#[derive(Clone, Copy)]
+struct RawDieSample(u16);
+
+/// A reading whose millicelsius value does not fit `i32` is an error, so
+/// the thermal loop skips it rather than act on a made-up temperature.
+impl TryFrom<RawDieSample> for ubos_core::units::Temperature {
+    type Error = core::num::TryFromIntError;
+
+    fn try_from(raw: RawDieSample) -> Result<Self, Self::Error> {
+        let vsense_uv = i64::from(raw.0) * VREF_UV / ADC_FULL_SCALE;
         let millicelsius = CALIBRATION_MC + (vsense_uv - V25_UV) * 1000 / SLOPE_UV_PER_C;
-        i32::try_from(millicelsius)
-            .ok()
-            .map(ubos_core::units::Temperature::from_millicelsius)
+        i32::try_from(millicelsius).map(Self::from_millicelsius)
     }
 }
 
