@@ -232,11 +232,10 @@ impl<const CHAINS: usize> Tuner<CHAINS> for FixedTuner {
                         .max()
                         .expect("BUG: present chain checked above");
                     // Snap the last voltage command exactly, leaving no square-root residual.
-                    #[allow(clippy::cast_precision_loss)]
                     let next_voltage = if frequency == target.frequency {
                         target.voltage
                     } else {
-                        curve_voltage(power_target as f64, frequency, target.voltage)
+                        curve_voltage(power_target, frequency, target.voltage)
                     };
                     (
                         Phase::Curve,
@@ -289,8 +288,13 @@ fn frequency_at_target_power(
 /// Voltage that keeps `V^2 * f = power_target` at `f`, with `power_target`
 /// in mV²·kHz. Clamped to `target_voltage` so the curve walk converges
 /// instead of overshooting past the target on the last step.
-fn curve_voltage(power_target: f64, frequency: Frequency, target_voltage: Voltage) -> Voltage {
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let curve_mv = sqrt(power_target / f64::from(frequency.khz())) as u32;
+fn curve_voltage(power_target: u64, frequency: Frequency, target_voltage: Voltage) -> Voltage {
+    // The product is far below 2^53, so the float holds it exactly.
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
+    let curve_mv = sqrt(power_target as f64 / f64::from(frequency.khz())) as u32;
     Voltage::from_mv(curve_mv).max(target_voltage)
 }
