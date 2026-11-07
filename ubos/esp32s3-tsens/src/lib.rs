@@ -38,6 +38,7 @@
 
 use embassy_time::{Duration, Timer};
 use esp_hal::peripherals::SENS;
+use ubos_core::units::Temperature;
 
 unsafe extern "C" {
     fn esp_rom_regi2c_read(block: u8, block_hostid: u8, reg_add: u8) -> u8;
@@ -95,7 +96,7 @@ impl Range {
 /// Owns the `SENS` peripheral token for the lifetime of the driver.
 /// Call [`Tsens::new`] to run the hardware initialization sequence,
 /// then use [`read_raw`](Tsens::read_raw) or
-/// [`read_millicelsius`](Tsens::read_millicelsius) to take readings.
+/// [`read_temperature`](Tsens::read_temperature) to take readings.
 ///
 /// The driver does not implement [`Drop`]: dropping the handle returns
 /// the `SENS` token but leaves the sensor powered. Power it down
@@ -259,18 +260,39 @@ impl<'d> Tsens<'d> {
         raw
     }
 
-    /// Read the die temperature in millidegrees Celsius.
+    /// Read the die temperature.
     ///
     /// Applies the esp-idf v5.4 linear formula using the calibration
-    /// offset for the configured [`Range`], scaled to integer
-    /// millicelsius. The per-chip eFuse delta `s_deltaT` is not
-    /// applied; on most ESP32-S3 parts the eFuse field is zero, so the
-    /// correction is a no-op and reading it would only add boot-time
-    /// work. Add eFuse access here if sub-degree accuracy is ever
-    /// required.
-    pub async fn read_millicelsius(&mut self) -> Option<i32> {
-        let raw = i32::from(self.read_raw().await?);
-        let offset = i32::from(self.range.offset());
-        Some((RAW_COEFF * raw - OFFSET_COEFF * offset - BIAS) / DIVISOR)
+    /// offset for the configured [`Range`]. The per-chip eFuse delta
+    /// `s_deltaT` is not applied; on most ESP32-S3 parts the eFuse field
+    /// is zero, so the correction is a no-op and reading it would only add
+    /// boot-time work. Add eFuse access here if sub-degree accuracy is
+    /// ever required.
+    pub async fn read_temperature(&mut self) -> Option<Temperature> {
+        let output = self.read_raw().await?;
+        Some(
+            RawTsens {
+                output,
+                range: self.range,
+            }
+            .into(),
+        )
+    }
+}
+
+/// A TSENS conversion output with the [`Range`] it was taken in, because
+/// the output alone does not give the temperature.
+#[derive(Clone, Copy)]
+struct RawTsens {
+    output: u8,
+    range: Range,
+}
+
+/// The esp-idf linear formula, in integer millicelsius.
+impl From<RawTsens> for Temperature {
+    fn from(raw: RawTsens) -> Self {
+        let output = i32::from(raw.output);
+        let offset = i32::from(raw.range.offset());
+        Self::from_millicelsius((RAW_COEFF * output - OFFSET_COEFF * offset - BIAS) / DIVISOR)
     }
 }

@@ -136,10 +136,7 @@ struct McuTempSensor(esp32s3_tsens::Tsens<'static>);
 
 impl ubos_thermal::McuTemperatureSensor for McuTempSensor {
     async fn read(&mut self) -> Option<ubos_core::units::Temperature> {
-        self.0
-            .read_millicelsius()
-            .await
-            .map(ubos_core::units::Temperature::from_millicelsius)
+        self.0.read_temperature().await
     }
 }
 
