@@ -46,7 +46,7 @@ use core::cmp::Ordering;
 
 use embassy_time::{Duration, Instant};
 use ubos_asic::HashboardDescriptor;
-use ubos_core::units::{Frequency, Temperature, Voltage};
+use ubos_core::units::{Frequency, Voltage};
 use ubos_logging::{Debug2Format, info, warn};
 use ubos_metrics::chain::ChainPresence;
 use ubos_psu::Psu;
@@ -258,7 +258,7 @@ where
                 chain.is_present().then(|| ChainReadings {
                     chips: chain.stats.chips(),
                     frequency: chain.stats.frequency(),
-                    hottest: chain.stats.hottest_mc().map(Temperature::from_millicelsius),
+                    hottest: chain.stats.hottest(),
                     hashrate: chain.stats.hashrate(),
                 })
             }),

@@ -448,7 +448,7 @@ fn api_info_chain_renders_each_chain() {
     ];
     CHAINS[0].set_presence(ubos_metrics::chain::ChainPresence::Present { chips: 105 });
     CHAINS[0].set_frequency(ubos_core::units::Frequency::from_mhz(650));
-    CHAINS[0].set_hottest(Some(72_000));
+    CHAINS[0].set_hottest(Some(ubos_core::units::Temperature::from_celsius(72)));
     CHAINS[1].set_presence(ubos_metrics::chain::ChainPresence::Absent);
 
     let chains: heapless::Vec<ApiInfoChain, 2> = CHAINS

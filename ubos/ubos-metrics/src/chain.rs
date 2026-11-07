@@ -29,10 +29,10 @@
 //!
 //! Each `ChainStats` is owned by the board. That chain's serial actor
 //! and the miner write it, the thermal loop is the one producer of
-//! [`ChainStats::hottest_mc`] readings, and the API, the display and
+//! [`ChainStats::hottest`] readings, and the API, the display and
 //! the metrics publisher read it. The serial actor's `Reset` command
 //! also runs [`ChainStats::clear`], which puts every per-bring-up field
-//! back to its initial value, `hottest_mc` included, so a reading
+//! back to its initial value, `hottest` included, so a reading
 //! never outlives the bring-up that produced it. The chip count has one
 //! writer, the miner, which stores it with the enumeration outcome that
 //! produced it; the serial actor reports the count it read to the miner
@@ -47,15 +47,15 @@
 //! mining mailbox statics in `ubos_mining::control`. A static in that section
 //! is zeroed before main and then handed out as fully initialised, so
 //! `ubos-core`'s contract is that its all-zero image must equal what
-//! `new()` builds. [`ChainStats::new`] starts `hottest_mc` at
-//! [`NO_TEMPERATURE`], which is `i32::MIN`, so the table fails that
+//! `new()` builds. [`ChainStats::new`] starts the hottest die at
+//! `NO_TEMPERATURE`, which is `i32::MIN`, so the table fails that
 //! contract: a relocated table would come up reporting zero
 //! millidegrees on every chain instead of no reading at all. Do not add
 //! the attribute.
 
 use crate::hashrate::HashrateEstimator;
 use portable_atomic::{AtomicI32, AtomicU8, AtomicU16, AtomicU32, AtomicU64, Ordering};
-use ubos_core::units::Frequency;
+use ubos_core::units::{Frequency, Temperature};
 
 pub mod presence;
 
@@ -82,7 +82,7 @@ pub const MAX_POOL_SLOTS: usize = 8;
 /// Sentinel stored in `hottest_mc` when no temperature reading has
 /// landed yet. `i32::MIN` is outside any temperature a real sensor
 /// reports, so it cannot collide with a genuine reading.
-pub const NO_TEMPERATURE: i32 = i32::MIN;
+const NO_TEMPERATURE: i32 = i32::MIN;
 
 /// Sentinel stored in `active_pool` while the chain is mining no pool's
 /// work. It lies past [`MAX_POOL_SLOTS`], so no real slot can collide.
@@ -208,23 +208,21 @@ impl ChainStats {
         Frequency::from_khz(self.frequency_khz.load(Ordering::Relaxed))
     }
 
-    /// Record the hottest die temperature this chain reported, in
-    /// millidegrees Celsius, or clear the reading with `None`.
-    pub fn set_hottest(&self, value: Option<i32>) {
-        self.hottest_mc
-            .store(value.unwrap_or(NO_TEMPERATURE), Ordering::Relaxed);
+    /// Record the hottest die temperature this chain reported, or clear
+    /// the reading with `None`.
+    pub fn set_hottest(&self, value: Option<Temperature>) {
+        self.hottest_mc.store(
+            value.map_or(NO_TEMPERATURE, Temperature::millicelsius),
+            Ordering::Relaxed,
+        );
     }
 
-    /// The hottest die temperature this chain has reported, in
-    /// millidegrees Celsius, or `None` if no reading has landed yet.
+    /// The hottest die temperature this chain has reported, or `None` if no
+    /// reading has landed yet.
     #[must_use]
-    pub fn hottest_mc(&self) -> Option<i32> {
+    pub fn hottest(&self) -> Option<Temperature> {
         let stored = self.hottest_mc.load(Ordering::Relaxed);
-        if stored == NO_TEMPERATURE {
-            None
-        } else {
-            Some(stored)
-        }
+        (stored != NO_TEMPERATURE).then(|| Temperature::from_millicelsius(stored))
     }
 
     /// Record the pool slot whose work the chain was last given, or

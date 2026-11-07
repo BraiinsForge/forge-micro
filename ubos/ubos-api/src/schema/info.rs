@@ -26,14 +26,12 @@
 
 use heapless::{String, Vec};
 use serde::Serialize;
+use ubos_core::units::Temperature;
 use ubos_metrics::chain::{ChainPresence, ChainStats, MAX_CHAINS};
 
 use crate::hw_info::HwString;
 use crate::ota::{OtaPhase, OtaSessionSnapshot, OtaWritePhase, ResetDiag, ResetReason};
 use crate::schema::system_info::OtaInfo;
-
-/// Millidegrees in one degree Celsius, the unit `hottest_c` is reported in.
-const MILLICELSIUS_PER_CELSIUS: i32 = 1000;
 
 /// Full snapshot for `GET /api/info`.
 #[derive(Serialize)]
@@ -141,9 +139,7 @@ impl ApiInfoChain {
             chips: stats.chips(),
             frequency_khz: stats.frequency().khz(),
             hashrate: stats.hashrate(),
-            hottest_c: stats
-                .hottest_mc()
-                .map(|hottest_mc| hottest_mc / MILLICELSIUS_PER_CELSIUS),
+            hottest_c: stats.hottest().map(Temperature::celsius_i32),
             pool: stats.active_pool(),
         }
     }

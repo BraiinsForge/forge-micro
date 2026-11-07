@@ -121,8 +121,14 @@ fn the_sample_is_the_hottest_and_the_mean_die_of_every_present_chain() {
         }
     );
     // Each chain's own hottest die feeds its dashboard column.
-    assert_eq!(stats.chain(0).hottest_mc(), Some(63_000));
-    assert_eq!(stats.chain(1).hottest_mc(), Some(72_000));
+    assert_eq!(
+        stats.chain(0).hottest(),
+        Some(Temperature::from_celsius(63))
+    );
+    assert_eq!(
+        stats.chain(1).hottest(),
+        Some(Temperature::from_celsius(72))
+    );
 }
 
 #[test]
@@ -138,7 +144,7 @@ fn a_present_chain_with_no_reading_does_not_hold_back_a_hot_sample() {
     assert_eq!(temps.chip.map(|chip| chip.max.millicelsius()), Some(60_000));
     // Chain 1's silence still reaches the dashboard through its own
     // accounting, even though it did not block the sample.
-    assert_eq!(stats.chain(1).hottest_mc(), None);
+    assert_eq!(stats.chain(1).hottest(), None);
 }
 
 #[test]
@@ -160,7 +166,9 @@ fn present_chains_that_answered_nothing_read_as_unreadable() {
 fn an_absent_chain_is_skipped_rather_than_read_as_silent() {
     let (_clock, pvt, stats) = present_board();
     stats.chain(1).set_presence(ChainPresence::Absent);
-    stats.chain(1).set_hottest(Some(70_000));
+    stats
+        .chain(1)
+        .set_hottest(Some(Temperature::from_celsius(70)));
     pvt[0].record(0, Some(Temperature::from_celsius_f64(60.0)), None);
     let mut sensor = ChainTemperature::<TEST_CHIPS, TEST_CHAINS>::new(pvt, stats);
 
@@ -168,7 +176,7 @@ fn an_absent_chain_is_skipped_rather_than_read_as_silent() {
     assert_eq!(temps.chip.map(|chip| chip.max.millicelsius()), Some(60_000));
     // The connector holds no board, so its column clears rather than
     // standing at whatever it last read.
-    assert_eq!(stats.chain(1).hottest_mc(), None);
+    assert_eq!(stats.chain(1).hottest(), None);
 }
 
 #[test]

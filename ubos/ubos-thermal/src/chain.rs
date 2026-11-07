@@ -348,7 +348,7 @@ impl<const CHIPS: usize, const CHAINS: usize> TemperatureSensor
                 .flatten();
             self.stats
                 .chain(chain)
-                .set_hottest(summary.map(|summary| summary.highest.millicelsius()));
+                .set_hottest(summary.map(|summary| summary.highest));
             if let Some(summary) = summary {
                 chips = chips
                     .map(|acc| acc.include(summary))

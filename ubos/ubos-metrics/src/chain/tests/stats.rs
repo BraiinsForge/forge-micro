@@ -83,15 +83,16 @@ fn record_share_out_of_range_slot_still_counts_share() {
 }
 
 #[test]
-fn hottest_mc_round_trips_none_and_some() {
+fn hottest_round_trips_none_and_some() {
     let stats = ChainStats::new();
-    assert_eq!(stats.hottest_mc(), None);
+    assert_eq!(stats.hottest(), None);
 
-    stats.set_hottest(Some(42));
-    assert_eq!(stats.hottest_mc(), Some(42));
+    let temperature = ubos_core::units::Temperature::from_millicelsius(42);
+    stats.set_hottest(Some(temperature));
+    assert_eq!(stats.hottest(), Some(temperature));
 
     stats.set_hottest(None);
-    assert_eq!(stats.hottest_mc(), None);
+    assert_eq!(stats.hottest(), None);
 }
 
 #[test]
@@ -116,7 +117,7 @@ fn clear_resets_bring_up_fields_but_not_lifetime_counters() {
     stats.record_share(&some_target(), 0);
     stats.set_presence(ChainPresence::Present { chips: 120 });
     stats.set_frequency(Frequency::from_khz(500_000));
-    stats.set_hottest(Some(85));
+    stats.set_hottest(Some(ubos_core::units::Temperature::from_millicelsius(85)));
     stats.set_active_pool(Some(1));
 
     stats.clear();
@@ -125,7 +126,7 @@ fn clear_resets_bring_up_fields_but_not_lifetime_counters() {
     assert_eq!(stats.pool_shares(0), 1, "clear must not touch pool_shares");
     assert_eq!(stats.chips(), 0);
     assert_eq!(stats.frequency().khz(), 0);
-    assert_eq!(stats.hottest_mc(), None);
+    assert_eq!(stats.hottest(), None);
     assert_eq!(stats.active_pool(), None);
     assert_eq!(
         stats.presence(),
