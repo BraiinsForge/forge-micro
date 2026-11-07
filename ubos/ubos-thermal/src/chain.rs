@@ -56,7 +56,7 @@ use crate::{Accumulator, Reading, TempSample, TemperatureSensor};
 use embassy_futures::poll_once;
 use embassy_time::{Duration, Instant, Ticker};
 use ubos_asic::{ChainPvt, ChipIndex};
-use ubos_core::units::Temperature;
+use ubos_core::units::{Temperature, Voltage};
 use ubos_logging::{debug, warn};
 use ubos_metrics::chain::ChainStatsHandle;
 use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value};
@@ -81,6 +81,10 @@ pub const SILENT_TICKS_BEFORE_FAULT: u8 = 2;
 
 /// How often each chain's summary is logged and its voltage published.
 const REPORT_INTERVAL: Duration = Duration::from_secs(10);
+
+/// Microvolts in a millivolt, because the chain voltage series is in
+/// microvolts.
+const MICROVOLTS_PER_MILLIVOLT: i64 = 1000;
 
 /// A chain's core voltage as its chips report it, one series per chain
 /// under the `chain` label.
@@ -243,16 +247,13 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
         Metric::indexed(
             CHAIN_VOLTAGE_METRIC,
             &[("chain", chain)],
-            Value::Int(i64::from(voltage.total_microvolts)),
+            Value::Int(i64::from(voltage.total.mv()) * MICROVOLTS_PER_MILLIVOLT),
         )
         .push()
         .await;
         debug!(
-            "chain {} pvt: string {} mV, chips {} to {} mV",
-            chain,
-            voltage.total_microvolts / 1000,
-            voltage.lowest_microvolts / 1000,
-            voltage.highest_microvolts / 1000
+            "chain {} pvt: string {} V, chips {} to {} V",
+            chain, voltage.total, voltage.lowest, voltage.highest
         );
     }
 
@@ -301,9 +302,9 @@ impl<const CHIPS: usize, const CHAINS: usize> TemperatureSensor
     /// hide that. A partial sum would look like severe rail droop during
     /// bring-up, so a chain that has not reported every chip is skipped
     /// rather than summed.
-    fn chain_voltage_mv(&self) -> Option<u32> {
+    fn chain_voltage(&self) -> Option<Voltage> {
         let now = Instant::now();
-        let mut lowest: Option<u32> = None;
+        let mut lowest: Option<Voltage> = None;
         for chain in 0..CHAINS {
             if !self.stats.chain(chain).presence().is_present() || self.chain_is_silent(chain, now)
             {
@@ -315,10 +316,7 @@ impl<const CHIPS: usize, const CHAINS: usize> TemperatureSensor
             if usize::from(voltage.chips) != CHIPS {
                 continue;
             }
-            let Ok(millivolts) = u32::try_from(voltage.total_microvolts / 1000) else {
-                continue;
-            };
-            lowest = Some(lowest.map_or(millivolts, |held: u32| held.min(millivolts)));
+            lowest = Some(lowest.map_or(voltage.total, |held: Voltage| held.min(voltage.total)));
         }
         lowest
     }

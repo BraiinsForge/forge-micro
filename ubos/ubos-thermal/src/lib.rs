@@ -109,7 +109,7 @@ use embassy_sync::watch::{Receiver, Watch};
 use embassy_time::{Duration, Instant, Ticker};
 use ubos_config::Handle as ConfigHandle;
 use ubos_config::ThermalConfig;
-use ubos_core::units::Temperature;
+use ubos_core::units::{Temperature, Voltage};
 use ubos_logging::{error, info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage, PauseReason, PauseReasons};
 use ubos_metrics::metrics::{Metric, Value};
@@ -210,7 +210,7 @@ pub trait TemperatureSensor {
 
     /// Sum of chip core voltages when this sensor also observes the chain.
     /// `None` means the sensor cannot provide a complete chain measurement.
-    fn chain_voltage_mv(&self) -> Option<u32> {
+    fn chain_voltage(&self) -> Option<Voltage> {
         None
     }
 }
@@ -287,7 +287,7 @@ pub struct ThermalReading {
     /// It goes out only beside a measurement, so a tick that measured
     /// nothing reports `None` here as in [`temps`](Self::temps),
     /// and the value is never held over.
-    pub chain_voltage_mv: Option<u32>,
+    pub chain_voltage: Option<Voltage>,
     /// Monotonic timestamp of this reading in milliseconds since boot.
     pub timestamp_ms: u64,
 }
@@ -641,7 +641,7 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatu
             publisher.send(ThermalReading {
                 temps,
                 ambient: ambient_temp,
-                chain_voltage_mv: temps.and_then(|_| sensor.chain_voltage_mv()),
+                chain_voltage: temps.and_then(|_| sensor.chain_voltage()),
                 timestamp_ms: now.as_millis(),
             });
         }

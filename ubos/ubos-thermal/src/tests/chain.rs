@@ -20,7 +20,7 @@
 use super::*;
 use crate::{TempSample, TempStats, clock, measured};
 use portable_atomic::AtomicU8;
-use ubos_core::units::Temperature;
+use ubos_core::units::{Temperature, Voltage};
 use ubos_metrics::chain::ChainPresence;
 use ubos_metrics::chain::ChainStats;
 
@@ -230,18 +230,26 @@ fn a_chain_present_again_after_a_halt_is_not_silent_on_the_pre_halt_answer() {
 }
 
 #[test]
-fn chain_voltage_requires_every_chip_and_converts_microvolts_to_millivolts() {
+fn chain_voltage_requires_every_chip_and_sums_them() {
     let (_clock, pvt, stats) = present_board();
     let sensor = ChainTemperature::<TEST_CHIPS, TEST_CHAINS>::new(pvt, stats);
-    assert_eq!(sensor.chain_voltage_mv(), None);
+    assert_eq!(sensor.chain_voltage(), None);
     for chip in 0..3 {
-        pvt[0].record(chip, Some(Temperature::from_celsius_f64(50.0)), Some(303.0));
+        pvt[0].record(
+            chip,
+            Some(Temperature::from_celsius_f64(50.0)),
+            Some(Voltage::from_mv(303)),
+        );
     }
     // A chain short of one chip reads as severe rail droop, so it is
     // skipped rather than summed.
-    assert_eq!(sensor.chain_voltage_mv(), None);
-    pvt[0].record(3, Some(Temperature::from_celsius_f64(50.0)), Some(306.0));
-    assert_eq!(sensor.chain_voltage_mv(), Some(1215));
+    assert_eq!(sensor.chain_voltage(), None);
+    pvt[0].record(
+        3,
+        Some(Temperature::from_celsius_f64(50.0)),
+        Some(Voltage::from_mv(306)),
+    );
+    assert_eq!(sensor.chain_voltage(), Some(Voltage::from_mv(1215)));
 }
 
 #[test]
@@ -249,12 +257,20 @@ fn chain_voltage_takes_the_lowest_chain_that_reported_every_chip() {
     let (_clock, pvt, stats) = present_board();
     let sensor = ChainTemperature::<TEST_CHIPS, TEST_CHAINS>::new(pvt, stats);
     for chip in 0..u8::try_from(TEST_CHIPS).expect("the test chain is small") {
-        pvt[0].record(chip, Some(Temperature::from_celsius_f64(50.0)), Some(300.0));
-        pvt[1].record(chip, Some(Temperature::from_celsius_f64(50.0)), Some(310.0));
+        pvt[0].record(
+            chip,
+            Some(Temperature::from_celsius_f64(50.0)),
+            Some(Voltage::from_mv(300)),
+        );
+        pvt[1].record(
+            chip,
+            Some(Temperature::from_celsius_f64(50.0)),
+            Some(Voltage::from_mv(310)),
+        );
     }
     // Both chains hang off one rail, so the lower sum is the worst-case
     // reading: the one showing the board's droop.
-    assert_eq!(sensor.chain_voltage_mv(), Some(1200));
+    assert_eq!(sensor.chain_voltage(), Some(Voltage::from_mv(1200)));
 }
 
 #[test]

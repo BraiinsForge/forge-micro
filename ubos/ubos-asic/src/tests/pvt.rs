@@ -25,8 +25,16 @@ fn the_store() {
     assert_eq!(store.last_answer(), None, "nothing has answered yet");
 
     // A recorded chip contributes to both aggregates.
-    store.record(0, Some(Temperature::from_celsius_f64(41.5)), Some(300.0));
-    store.record(1, Some(Temperature::from_celsius_f64(38.0)), Some(290.0));
+    store.record(
+        0,
+        Some(Temperature::from_celsius_f64(41.5)),
+        Some(Voltage::from_mv(300)),
+    );
+    store.record(
+        1,
+        Some(Temperature::from_celsius_f64(38.0)),
+        Some(Voltage::from_mv(290)),
+    );
     assert_eq!(store.hottest().map(Temperature::millicelsius), Some(41_500));
     assert_eq!(
         store.temperature(1),
@@ -41,9 +49,9 @@ fn the_store() {
     assert_eq!(dies.highest.millicelsius(), 41_500);
     let summary = store.voltage_summary().expect("two chips reported");
     assert_eq!(summary.chips, 2);
-    assert_eq!(summary.total_microvolts, 590_000);
-    assert_eq!(summary.lowest_microvolts, 290_000);
-    assert_eq!(summary.highest_microvolts, 300_000);
+    assert_eq!(summary.total, Voltage::from_mv(590));
+    assert_eq!(summary.lowest, Voltage::from_mv(290));
+    assert_eq!(summary.highest, Voltage::from_mv(300));
 
     // A failed read leaves the last value standing, and does not count
     // as the chain answering. The whole chain would otherwise go blind
@@ -63,9 +71,9 @@ fn the_store() {
     );
 
     // One quantity failing does not disturb the other.
-    store.record(1, None, Some(295.0));
+    store.record(1, None, Some(Voltage::from_mv(295)));
     let summary = store.voltage_summary().expect("two chips reported");
-    assert_eq!(summary.lowest_microvolts, 295_000);
+    assert_eq!(summary.lowest, Voltage::from_mv(295));
     assert_eq!(store.hottest().map(Temperature::millicelsius), Some(41_500));
 
     // A chip beyond the array is ignored rather than panicking.
@@ -73,7 +81,7 @@ fn the_store() {
     store.record(
         u8::MAX,
         Some(Temperature::from_celsius_f64(90.0)),
-        Some(300.0),
+        Some(Voltage::from_mv(300)),
     );
     assert_eq!(
         store.last_answer(),

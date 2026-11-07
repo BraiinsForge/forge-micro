@@ -40,7 +40,7 @@ use core::num::NonZeroU8;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time::Instant;
-use ubos_core::units::Temperature;
+use ubos_core::units::{Temperature, Voltage};
 
 /// Index of a chip on its chain, the byte the driver addresses it by.
 pub type ChipIndex = u8;
@@ -53,13 +53,13 @@ mod tests;
 #[derive(Clone, Copy)]
 struct ChipReadings {
     temperature: Option<Temperature>,
-    voltage_microvolts: Option<i32>,
+    voltage: Option<Voltage>,
 }
 
 impl ChipReadings {
     const NONE: Self = Self {
         temperature: None,
-        voltage_microvolts: None,
+        voltage: None,
     };
 }
 
@@ -103,7 +103,7 @@ impl<const CHIPS: usize> ChainPvt<CHIPS> {
         &self,
         chip: ChipIndex,
         temperature: Option<Temperature>,
-        millivolts: Option<f64>,
+        voltage: Option<Voltage>,
     ) {
         self.readings.lock(|readings| {
             let mut readings = readings.borrow_mut();
@@ -113,15 +113,12 @@ impl<const CHIPS: usize> ChainPvt<CHIPS> {
             if let Some(value) = temperature {
                 entry.temperature = Some(value);
             }
-            // Scaled to an integer for the store, and bounded well inside i32
-            // by the range the driver clamps it to.
-            #[allow(clippy::cast_possible_truncation)]
-            if let Some(value) = millivolts {
-                entry.voltage_microvolts = Some((value * 1000.0) as i32);
+            if let Some(value) = voltage {
+                entry.voltage = Some(value);
             }
             // A call that carried nothing leaves the clock where it
             // stands: a failed read is not the chain answering.
-            if temperature.is_some() || millivolts.is_some() {
+            if temperature.is_some() || voltage.is_some() {
                 readings.last_answer = Some(Instant::now());
             }
         });
@@ -191,29 +188,31 @@ impl<const CHIPS: usize> ChainPvt<CHIPS> {
         })
     }
 
+    /// The chips that reported a core voltage, with their sum and spread.
     #[must_use]
     pub fn voltage_summary(&self) -> Option<VoltageSummary> {
         self.readings.lock(|readings| {
-            let mut total = 0i32;
-            let mut lowest = i32::MAX;
-            let mut highest = i32::MIN;
+            let mut total = 0u32;
+            let mut range: Option<(Voltage, Voltage)> = None;
             let mut chips = 0u8;
             for value in readings
                 .borrow()
                 .chips
                 .iter()
-                .filter_map(|entry| entry.voltage_microvolts)
+                .filter_map(|entry| entry.voltage)
             {
-                total = total.saturating_add(value);
-                lowest = lowest.min(value);
-                highest = highest.max(value);
+                total = total.saturating_add(value.mv());
+                range = Some(range.map_or((value, value), |(lowest, highest)| {
+                    (lowest.min(value), highest.max(value))
+                }));
                 chips += 1;
             }
-            (chips > 0).then_some(VoltageSummary {
+            let (lowest, highest) = range?;
+            Some(VoltageSummary {
                 chips,
-                total_microvolts: total,
-                lowest_microvolts: lowest,
-                highest_microvolts: highest,
+                total: Voltage::from_mv(total),
+                lowest,
+                highest,
             })
         })
     }
@@ -240,7 +239,7 @@ pub struct TemperatureSummary {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct VoltageSummary {
     pub chips: u8,
-    pub total_microvolts: i32,
-    pub lowest_microvolts: i32,
-    pub highest_microvolts: i32,
+    pub total: Voltage,
+    pub lowest: Voltage,
+    pub highest: Voltage,
 }

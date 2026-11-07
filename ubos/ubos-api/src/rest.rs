@@ -198,8 +198,8 @@ impl RestApiService {
             psu_voltage_measured_mv: psu_reading.map_or(0, |r| r.output_voltage_measured.mv()),
             chain_voltage_mv: thermal_reading
                 .as_ref()
-                .and_then(|reading| reading.chain_voltage_mv)
-                .unwrap_or(0),
+                .and_then(|reading| reading.chain_voltage)
+                .map_or(0, |voltage| voltage.mv()),
             psu_fault: psu_reading.is_some_and(|r| r.sensor_fault),
             pools: stratum_client::pool_alive_bitmap(),
             net_confirm_seconds: ubos_config::pending_seconds_remaining(),
