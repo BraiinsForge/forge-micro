@@ -31,6 +31,7 @@
 use core::mem::size_of;
 
 use crc::{CRC_16_IBM_3740, Crc};
+use ubos_core::units::{Frequency, Power, Temperature, Voltage};
 use zerocopy::byteorder::little_endian::{U16, U32};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
@@ -45,6 +46,8 @@ const BOARD_INFO_LEN: usize = 192;
 const FIRMWARE_INFO_LEN: usize = 64;
 const MAGIC: [u8; 2] = *b"Br";
 const VERSION_0: u8 = 0x00;
+const MILLIVOLTS_PER_CENTIVOLT: u32 = 10;
+const MILLIWATTS_PER_WATT: u32 = 1000;
 
 /// Wire layout of `BoardInfoSection`, matching field order exactly.
 /// Every field is byte-aligned (plain `u8`/`[u8; N]`, or zerocopy's
@@ -90,6 +93,46 @@ struct RawFirmwareInfo {
 
 const _: () = assert!(size_of::<RawFirmwareInfo>() == FIRMWARE_INFO_LEN);
 
+/// The voltage field as stored, in centivolts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RawCentivolts(u16);
+
+impl From<RawCentivolts> for Voltage {
+    fn from(raw: RawCentivolts) -> Self {
+        Self::from_mv(u32::from(raw.0) * MILLIVOLTS_PER_CENTIVOLT)
+    }
+}
+
+/// The frequency field as stored, in megahertz.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RawMegahertz(u16);
+
+impl From<RawMegahertz> for Frequency {
+    fn from(raw: RawMegahertz) -> Self {
+        Self::from_mhz(u32::from(raw.0))
+    }
+}
+
+/// The power field as stored, in whole watts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RawWatts(u16);
+
+impl From<RawWatts> for Power {
+    fn from(raw: RawWatts) -> Self {
+        Self::from_mw(u32::from(raw.0) * MILLIWATTS_PER_WATT)
+    }
+}
+
+/// The temperature field as stored, in whole degrees Celsius.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RawCelsius(u8);
+
+impl From<RawCelsius> for Temperature {
+    fn from(raw: RawCelsius) -> Self {
+        Self::from_celsius(i32::from(raw.0))
+    }
+}
+
 /// Failure parsing a raw EEPROM dump into [`HashboardEepromData`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -124,11 +167,11 @@ pub struct BoardInfoSection<'a> {
     pub asic_count: u8,
     pub domains_count: u8,
     pub temperature_sensors_count: u8,
-    pub voltage_centivolts: u16,
-    pub frequency_mhz: u16,
+    pub voltage: Voltage,
+    pub frequency: Frequency,
     pub hashrate_gh: u32,
-    pub power_w: u16,
-    pub temperature_c: u8,
+    pub power: Power,
+    pub temperature: Temperature,
 }
 
 /// Parsed `FirmwareInfoSection`: the board MCU's own firmware identity.
@@ -209,11 +252,11 @@ impl<'a> HashboardEepromData<'a> {
                 asic_count: board.asic_count,
                 domains_count: board.domains_count,
                 temperature_sensors_count: board.temperature_sensors_count,
-                voltage_centivolts: board.voltage_centivolts.get(),
-                frequency_mhz: board.frequency_mhz.get(),
+                voltage: RawCentivolts(board.voltage_centivolts.get()).into(),
+                frequency: RawMegahertz(board.frequency_mhz.get()).into(),
                 hashrate_gh: board.hashrate_gh.get(),
-                power_w: board.power_w.get(),
-                temperature_c: board.temperature_c,
+                power: RawWatts(board.power_w.get()).into(),
+                temperature: RawCelsius(board.temperature_c).into(),
             },
             firmware_info: FirmwareInfoSection {
                 version: ascii_field(&firmware.version),

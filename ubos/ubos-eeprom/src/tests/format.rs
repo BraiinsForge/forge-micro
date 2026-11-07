@@ -96,9 +96,11 @@ fn parses_a_valid_dump() {
     assert_eq!(data.board_info.asic_type, "BM1362AH");
     assert_eq!(data.board_info.asic_count, 4);
     assert_eq!(data.board_info.domains_count, 4);
-    assert_eq!(data.board_info.voltage_centivolts, 140);
-    assert_eq!(data.board_info.frequency_mhz, 525);
+    assert_eq!(data.board_info.voltage, Voltage::from_mv(1_400));
+    assert_eq!(data.board_info.frequency, Frequency::from_mhz(525));
     assert_eq!(data.board_info.hashrate_gh, 3_000);
+    assert_eq!(data.board_info.power, Power::from_mw(100_000));
+    assert_eq!(data.board_info.temperature, Temperature::from_celsius(45));
     assert_eq!(data.firmware_info.version, "1.0.0");
     assert_eq!(data.firmware_info.device_id, [0x01, 0x02, 0x03]);
 }
@@ -186,4 +188,20 @@ fn unterminated_field_uses_full_width() {
 
     let data = HashboardEepromData::parse(&raw).expect("valid dump must parse");
     assert_eq!(data.board_info.asic_bin, "ABCDEFGHIJ");
+}
+
+#[test]
+fn raw_fields_become_units() {
+    assert_eq!(Voltage::from(RawCentivolts(140)), Voltage::from_mv(1_400));
+    assert_eq!(Frequency::from(RawMegahertz(525)), Frequency::from_mhz(525));
+    assert_eq!(Power::from(RawWatts(100)), Power::from_mw(100_000));
+    assert_eq!(
+        Temperature::from(RawCelsius(45)),
+        Temperature::from_celsius(45)
+    );
+    assert_eq!(
+        Voltage::from(RawCentivolts(u16::MAX)),
+        Voltage::from_mv(655_350)
+    );
+    assert_eq!(Power::from(RawWatts(u16::MAX)), Power::from_mw(65_535_000));
 }

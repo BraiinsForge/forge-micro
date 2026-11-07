@@ -82,12 +82,12 @@ pub trait HashboardEeprom {
                     data.board_info.product_batch,
                 );
                 info!(
-                    "hashboard EEPROM: voltage={}cV freq={}MHz hashrate={}GH power={}W temp={}C fw={}",
-                    data.board_info.voltage_centivolts,
-                    data.board_info.frequency_mhz,
+                    "hashboard EEPROM: voltage={}V freq={}MHz hashrate={}GH power={}W temp={}C fw={}",
+                    data.board_info.voltage,
+                    data.board_info.frequency,
                     data.board_info.hashrate_gh,
-                    data.board_info.power_w,
-                    data.board_info.temperature_c,
+                    data.board_info.power,
+                    data.board_info.temperature,
                     data.firmware_info.version,
                 );
                 let mut serial = heapless::String::<40>::new();
