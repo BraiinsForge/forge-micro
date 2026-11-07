@@ -39,7 +39,7 @@ use std::fs;
 use embassy_futures::block_on;
 
 use crate::TemperatureDescriptor;
-use ubos_core::units::{Frequency, Power, Temperature, Voltage};
+use ubos_core::units::{Efficiency, Frequency, Power, Temperature, Voltage};
 
 use crate::{
     Config, DefaultTuning, FrequencyVoltageTarget, LOAD_BUFFER_SIZE, MinerConfig, MiningBounds,
@@ -235,7 +235,9 @@ fn load_replaces_unoffered_tuning_and_keeps_the_rest() {
         "unoffered",
         Tuning::Power(PowerTarget {
             input_power: Power::from_mw(44_000),
-            efficiency_mj_per_th: core::num::NonZeroU32::new(40_000).expect("nonzero"),
+            efficiency: Efficiency::from_mj_per_th(
+                core::num::NonZeroU32::new(40_000).expect("nonzero"),
+            ),
         }),
         &FIXED_ONLY_INFO,
     );

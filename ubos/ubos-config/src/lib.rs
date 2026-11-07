@@ -1345,7 +1345,7 @@ async fn apply_update<S: Storage>(new: &Config, storage: &mut S) {
         Tuning::Power(target) => {
             crate::events::config_changed_power(
                 target.input_power.mw(),
-                target.efficiency_mj_per_th.get(),
+                target.efficiency.mj_per_th(),
             );
         }
     }

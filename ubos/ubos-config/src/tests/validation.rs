@@ -20,7 +20,7 @@
 //! Tests for [`crate::ConfigUpdate::validate`].
 
 use crate::{PidTarget, Source, Statistic, TemperatureDescriptor};
-use ubos_core::units::{Frequency, Power, Temperature, Voltage};
+use ubos_core::units::{Efficiency, Frequency, Power, Temperature, Voltage};
 
 use crate::{
     ApiConfig, Config, ConfigUpdate, CoolingConfig, CoolingUpdate, FanMode, FrequencyVoltageTarget,
@@ -654,11 +654,37 @@ fn miner_power_json_shape_deserializes() {
         Some(MinerConfig {
             tuning: Tuning::Power(PowerTarget {
                 input_power: Power::from_mw(44_000),
-                efficiency_mj_per_th: core::num::NonZeroU32::new(40_000).expect("nonzero"),
+                efficiency: Efficiency::from_mj_per_th(
+                    core::num::NonZeroU32::new(40_000).expect("nonzero")
+                ),
             }),
         })
     );
     assert!(update.validate(&Config::default(), &MINING_BOUNDS).is_ok());
+}
+
+/// The power target serializes as the two bare integers it held before
+/// it carried the unit, in the JSON the API exchanges and in the bytes
+/// the config stores.
+#[test]
+fn power_target_encodes_as_bare_integers() {
+    let target = PowerTarget {
+        input_power: Power::from_mw(44_000),
+        efficiency: Efficiency::from_mj_per_th(
+            core::num::NonZeroU32::new(40_000).expect("nonzero"),
+        ),
+    };
+    let mut json = [0u8; 64];
+    let length = serde_json_core::ser::to_slice(&target, &mut json).expect("the target fits");
+    assert_eq!(
+        &json[..length],
+        br#"{"input_power_mw":44000,"efficiency_mj_per_th":40000}"#
+    );
+    let mut stored = [0u8; 16];
+    let mut bare = [0u8; 16];
+    let stored = postcard::to_slice(&target, &mut stored).expect("the target fits");
+    let bare = postcard::to_slice(&(44_000u32, 40_000u32), &mut bare).expect("the pair fits");
+    assert_eq!(stored, bare);
 }
 
 /// A zero efficiency would leave the tuner no frequency to aim for, so
@@ -710,7 +736,9 @@ fn tuning_not_offered_is_rejected() {
     update.miner = Some(MinerConfig {
         tuning: Tuning::Power(PowerTarget {
             input_power: Power::from_mw(44_000),
-            efficiency_mj_per_th: core::num::NonZeroU32::new(40_000).expect("nonzero"),
+            efficiency: Efficiency::from_mj_per_th(
+                core::num::NonZeroU32::new(40_000).expect("nonzero"),
+            ),
         }),
     });
     assert_eq!(
@@ -723,7 +751,9 @@ fn tuning_not_offered_is_rejected() {
 fn power_tuning(input_power_mw: u32) -> Tuning {
     Tuning::Power(PowerTarget {
         input_power: Power::from_mw(input_power_mw),
-        efficiency_mj_per_th: core::num::NonZeroU32::new(40_000).expect("nonzero"),
+        efficiency: Efficiency::from_mj_per_th(
+            core::num::NonZeroU32::new(40_000).expect("nonzero"),
+        ),
     })
 }
 

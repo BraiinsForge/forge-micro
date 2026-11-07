@@ -63,7 +63,7 @@ impl From<ubos_config::PowerTarget> for PowerTarget {
     fn from(target: ubos_config::PowerTarget) -> Self {
         Self {
             input_power: target.input_power,
-            efficiency: Efficiency::from_mj_per_th(target.efficiency_mj_per_th),
+            efficiency: target.efficiency,
         }
     }
 }

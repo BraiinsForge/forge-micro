@@ -26,10 +26,9 @@
 //! with the accepted ranges, [`MiningInfo`] for the static chip facts
 //! that live alongside the config, and the [`BOUNDS`] constant.
 
-use core::num::NonZeroU32;
 use core::ops::RangeInclusive;
 use ubos_asic::HashboardDescriptor;
-use ubos_core::units::{Frequency, Power, Voltage};
+use ubos_core::units::{Efficiency, Frequency, Power, Voltage};
 
 use crate::miner::Tuning;
 
@@ -88,8 +87,7 @@ impl DefaultTuning {
             }),
             Self::Power { input_power } => Tuning::Power(PowerTarget {
                 input_power,
-                efficiency_mj_per_th: NonZeroU32::new(board.default_efficiency.mj_per_th())
-                    .expect("BUG: efficiency is zero"),
+                efficiency: board.default_efficiency,
             }),
         }
     }
@@ -213,8 +211,10 @@ pub struct MiningInfo {
     /// Default core voltage. The API names it `defaultVoltageMv`.
     #[serde(rename = "defaultVoltageMv")]
     pub default_voltage: Voltage,
-    /// Default power-target efficiency in mJ/TH.
-    pub default_efficiency_mj_per_th: u32,
+    /// Default power-target efficiency. The API names it
+    /// `defaultEfficiencyMjPerTh`.
+    #[serde(rename = "defaultEfficiencyMjPerTh")]
+    pub default_efficiency: Efficiency,
     /// The tuning a new config starts on.
     pub default_tuning: DefaultTuning,
     /// Accepted tuning ranges.
@@ -258,7 +258,7 @@ pub const fn mining_info(
         asic_count: board.num_chips,
         default_frequency: board.default_frequency,
         default_voltage: board.default_voltage,
-        default_efficiency_mj_per_th: board.default_efficiency.mj_per_th(),
+        default_efficiency: board.default_efficiency,
         default_tuning,
         bounds,
     }

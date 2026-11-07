@@ -19,8 +19,7 @@
 
 //! The tuning targets of version 1.
 
-use core::num::NonZeroU32;
-use ubos_core::units::{Frequency, Power, Voltage};
+use ubos_core::units::{Efficiency, Frequency, Power, Voltage};
 
 /// ASIC frequency and voltage overrides.
 #[derive(
@@ -54,7 +53,9 @@ pub struct PowerTarget {
     /// `input_power_mw`.
     #[serde(rename = "input_power_mw")]
     pub input_power: Power,
-    /// Target input power per theoretical hashrate in mJ/TH, which caps
-    /// the clock the tuner ramps to.
-    pub efficiency_mj_per_th: NonZeroU32,
+    /// Target input power per theoretical hashrate, which caps the clock
+    /// the tuner ramps to. It is stored and exchanged as integer mJ/TH
+    /// under `efficiency_mj_per_th`.
+    #[serde(rename = "efficiency_mj_per_th")]
+    pub efficiency: Efficiency,
 }

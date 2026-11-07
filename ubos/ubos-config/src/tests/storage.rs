@@ -21,7 +21,7 @@
 
 use core::num::NonZeroU32;
 
-use ubos_core::units::{Frequency, Power, Temperature, Voltage};
+use ubos_core::units::{Efficiency, Frequency, Power, Temperature, Voltage};
 
 use crate::seed::Taken;
 use crate::{
@@ -238,7 +238,7 @@ fn widest_record_fills_the_buffer() {
         miner: MinerConfig {
             tuning: Tuning::Power(PowerTarget {
                 input_power: Power::from_mw(u32::MAX),
-                efficiency_mj_per_th: NonZeroU32::MAX,
+                efficiency: Efficiency::from_mj_per_th(NonZeroU32::MAX),
             }),
         },
         api: ApiConfig {
@@ -308,7 +308,7 @@ fn tuning_encoding_is_unchanged() {
     );
     let power = Tuning::Power(PowerTarget {
         input_power: Power::from_mw(44_000),
-        efficiency_mj_per_th: NonZeroU32::new(40_000).expect("nonzero"),
+        efficiency: Efficiency::from_mj_per_th(NonZeroU32::new(40_000).expect("nonzero")),
     });
     let written = postcard::to_slice(&power, &mut buffer).expect("BUG: the buffer holds a tuning");
     assert_eq!(

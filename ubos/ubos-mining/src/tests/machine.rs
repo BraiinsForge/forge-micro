@@ -438,7 +438,7 @@ fn a_configuration_naming_no_available_tuner_holds_with_the_rail_off() {
         let mut miner = test_miner::<crate::tuner::fixed::FixedTuner, 1>(&psu, [&ACTOR], [&STATS]);
         let power = ubos_config::Tuning::Power(ubos_config::PowerTarget {
             input_power: ubos_core::units::Power::from_mw(3_000_000),
-            efficiency_mj_per_th: core::num::NonZeroU32::MIN,
+            efficiency: ubos_core::units::Efficiency::from_mj_per_th(core::num::NonZeroU32::MIN),
         });
         // The fixed tuner does not serve a power target, which is what
         // puts the machine in the hold.
@@ -734,7 +734,9 @@ fn a_tuner_change_during_the_plan_delay_cuts_the_rail_and_chooses_again() {
             miner: ubos_config::MinerConfig {
                 tuning: ubos_config::Tuning::Power(ubos_config::PowerTarget {
                     input_power: ubos_core::units::Power::from_mw(3_000_000),
-                    efficiency_mj_per_th: core::num::NonZeroU32::MIN,
+                    efficiency: ubos_core::units::Efficiency::from_mj_per_th(
+                        core::num::NonZeroU32::MIN,
+                    ),
                 }),
             },
             ..ubos_config::Config::default()
