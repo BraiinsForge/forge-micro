@@ -301,9 +301,22 @@ impl Current {
 
 /// Energy per hash in millijoules per terahash, against the theoretical
 /// hashrate of one hash per core per clock cycle.
+///
+/// It serializes as its integer mJ/TH, and a stored zero does not
+/// deserialize.
 #[repr(transparent)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+#[serde(transparent)]
 pub struct Efficiency(NonZeroU32);
+
+/// The schema of the integer an [`Efficiency`] serializes as, so a record
+/// that holds one keeps the schema hash it had when it held the integer.
+impl postcard_schema::Schema for Efficiency {
+    const SCHEMA: &'static postcard_schema::schema::NamedType =
+        <NonZeroU32 as postcard_schema::Schema>::SCHEMA;
+}
 
 impl Efficiency {
     #[must_use]
