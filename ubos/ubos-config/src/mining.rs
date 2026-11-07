@@ -29,6 +29,7 @@
 use core::num::NonZeroU32;
 use core::ops::RangeInclusive;
 use ubos_asic::HashboardDescriptor;
+use ubos_core::units::{Frequency, Power, Voltage};
 
 use crate::miner::Tuning;
 
@@ -68,9 +69,12 @@ impl TunerInfo {
 pub enum DefaultTuning {
     /// The board's default frequency and voltage.
     Fixed,
-    /// `input_power_mw` of PSU input power, at the board's default
-    /// efficiency.
-    Power { input_power_mw: u32 },
+    /// `input_power` of PSU input power, at the board's default
+    /// efficiency. The API names it `inputPowerMw`.
+    Power {
+        #[serde(rename = "inputPowerMw")]
+        input_power: Power,
+    },
 }
 
 impl DefaultTuning {
@@ -79,11 +83,11 @@ impl DefaultTuning {
     pub const fn tuning(self, board: &HashboardDescriptor) -> Tuning {
         match self {
             Self::Fixed => Tuning::Fixed(FrequencyVoltageTarget {
-                frequency_khz: board.default_frequency.khz(),
-                voltage_mv: board.default_voltage.mv(),
+                frequency: board.default_frequency,
+                voltage: board.default_voltage,
             }),
-            Self::Power { input_power_mw } => Tuning::Power(PowerTarget {
-                input_power_mw,
+            Self::Power { input_power } => Tuning::Power(PowerTarget {
+                input_power,
                 efficiency_mj_per_th: NonZeroU32::new(board.default_efficiency.mj_per_th())
                     .expect("BUG: efficiency is zero"),
             }),
@@ -100,24 +104,32 @@ impl DefaultTuning {
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct MiningBounds {
-    /// Accepted range for `frequency_khz` in kHz.
-    pub frequency_khz: RangeInclusive<u32>,
-    /// Accepted range for `voltage_mv` in millivolts.
-    pub voltage_mv: RangeInclusive<u32>,
-    /// Accepted range for `input_power_mw` in mW. Present exactly when
-    /// one of `tuners` reads a power target.
-    pub input_power_mw: Option<RangeInclusive<u32>>,
+    /// Accepted range for the target frequency. The API names it
+    /// `frequencyKhz`.
+    #[serde(rename = "frequencyKhz")]
+    pub frequency: RangeInclusive<Frequency>,
+    /// Accepted range for the target voltage. The API names it
+    /// `voltageMv`.
+    #[serde(rename = "voltageMv")]
+    pub voltage: RangeInclusive<Voltage>,
+    /// Accepted range for the target input power. Present exactly when
+    /// one of `tuners` reads a power target. The API names it
+    /// `inputPowerMw`.
+    #[serde(rename = "inputPowerMw")]
+    pub input_power: Option<RangeInclusive<Power>>,
     /// The tuners the machine offers, in the order the mining form
     /// shows them.
     pub tuners: &'static [TunerInfo],
 }
 
 impl MiningBounds {
-    /// Whether a power target may ask for `input_power_mw`.
+    /// Whether a power target may ask for `input_power`.
     #[must_use]
-    pub const fn accepts_input_power(&self, input_power_mw: u32) -> bool {
-        match &self.input_power_mw {
-            Some(range) => *range.start() <= input_power_mw && input_power_mw <= *range.end(),
+    pub const fn accepts_input_power(&self, input_power: Power) -> bool {
+        match &self.input_power {
+            Some(range) => {
+                range.start().mw() <= input_power.mw() && input_power.mw() <= range.end().mw()
+            }
             None => true,
         }
     }
@@ -131,34 +143,33 @@ impl MiningBounds {
 /// (`HashboardDescriptor::max_rail_voltage`: max chip voltage times the
 /// number of series domains, capped by the PSU). There is no lower
 /// limit, so the voltage floor is zero. No descriptor states what the
-/// machine may draw, so the firmware states `input_power_mw` itself.
+/// machine may draw, so the firmware states `input_power` itself.
 /// Each firmware crate builds its own `BOUNDS` const from this with its
 /// explicit board descriptor.
 ///
 /// # Panics
 ///
-/// When `input_power_mw` is given and no tuner reads a power target, or
+/// When `input_power` is given and no tuner reads a power target, or
 /// a tuner reads one and it is not given, which fails the build of the
 /// `BOUNDS` const.
 #[must_use]
 pub const fn bounds(
     board: &'static HashboardDescriptor,
     tuners: &'static [TunerInfo],
-    input_power_mw: Option<RangeInclusive<u32>>,
+    input_power: Option<RangeInclusive<Power>>,
 ) -> MiningBounds {
     let mut index = 0;
     while index < tuners.len() && !matches!(tuners[index], TunerInfo::Power { .. }) {
         index += 1;
     }
     assert!(
-        (index < tuners.len()) == input_power_mw.is_some(),
+        (index < tuners.len()) == input_power.is_some(),
         "BUG: an input-power range is given exactly when a tuner reads a power target"
     );
     MiningBounds {
-        frequency_khz: board.chip.frequency_range.min().khz()
-            ..=board.chip.frequency_range.max().khz(),
-        voltage_mv: 0..=board.max_rail_voltage().mv(),
-        input_power_mw,
+        frequency: board.chip.frequency_range.min()..=board.chip.frequency_range.max(),
+        voltage: Voltage::from_mv(0)..=board.max_rail_voltage(),
+        input_power,
         tuners,
     }
 }
@@ -175,7 +186,7 @@ pub const BOUNDS: MiningBounds = bounds(
             reads_efficiency: true,
         },
     ],
-    Some(19_000..=67_000),
+    Some(Power::from_mw(19_000)..=Power::from_mw(67_000)),
 );
 
 /// Static capability metadata for the ASIC and board.
@@ -195,10 +206,13 @@ pub struct MiningInfo {
     pub swarm_color: &'static str,
     /// Number of ASIC chips on the hashboard.
     pub asic_count: u8,
-    /// Default mining frequency in kHz.
-    pub default_frequency_khz: u32,
-    /// Default core voltage in millivolts.
-    pub default_voltage_mv: u32,
+    /// Default mining frequency. The API names it
+    /// `defaultFrequencyKhz`.
+    #[serde(rename = "defaultFrequencyKhz")]
+    pub default_frequency: Frequency,
+    /// Default core voltage. The API names it `defaultVoltageMv`.
+    #[serde(rename = "defaultVoltageMv")]
+    pub default_voltage: Voltage,
     /// Default power-target efficiency in mJ/TH.
     pub default_efficiency_mj_per_th: u32,
     /// The tuning a new config starts on.
@@ -231,9 +245,9 @@ pub const fn mining_info(
         index < bounds.tuners.len(),
         "BUG: no tuner reads the default tuning"
     );
-    if let DefaultTuning::Power { input_power_mw } = default_tuning {
+    if let DefaultTuning::Power { input_power } = default_tuning {
         assert!(
-            bounds.accepts_input_power(input_power_mw),
+            bounds.accepts_input_power(input_power),
             "BUG: the default input power is outside the accepted range"
         );
     }
@@ -242,8 +256,8 @@ pub const fn mining_info(
         device_model: board.model,
         swarm_color: board.swarm_color,
         asic_count: board.num_chips,
-        default_frequency_khz: board.default_frequency.khz(),
-        default_voltage_mv: board.default_voltage.mv(),
+        default_frequency: board.default_frequency,
+        default_voltage: board.default_voltage,
         default_efficiency_mj_per_th: board.default_efficiency.mj_per_th(),
         default_tuning,
         bounds,

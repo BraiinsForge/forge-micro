@@ -26,7 +26,7 @@ extern crate std;
 
 use core::fmt::Write as _;
 
-use ubos_core::units::Temperature;
+use ubos_core::units::{Power, Temperature};
 
 use crate::ota::{MAX_BUILD_ID_LEN, OtaPhase, OtaWritePhase, ResetReason};
 use crate::rest::{API_INFO_BODY_BUFFER_SIZE, CONFIG_RESPONSE_BUFFER_SIZE};
@@ -402,7 +402,7 @@ fn config_response_body_fits_in_buffer() {
         }),
         miner: Some(ubos_config::MinerConfig {
             tuning: ubos_config::Tuning::Power(ubos_config::PowerTarget {
-                input_power_mw: u32::MAX,
+                input_power: Power::from_mw(u32::MAX),
                 efficiency_mj_per_th: core::num::NonZeroU32::MAX,
             }),
         }),

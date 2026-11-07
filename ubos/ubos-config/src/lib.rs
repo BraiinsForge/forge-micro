@@ -1340,11 +1340,11 @@ async fn apply_update<S: Storage>(new: &Config, storage: &mut S) {
     info!("config: applied update, generation {}", generation);
     match &new.miner.tuning {
         Tuning::Fixed(target) => {
-            crate::events::config_changed_fixed(target.frequency_khz, target.voltage_mv);
+            crate::events::config_changed_fixed(target.frequency.khz(), target.voltage.mv());
         }
         Tuning::Power(target) => {
             crate::events::config_changed_power(
-                target.input_power_mw,
+                target.input_power.mw(),
                 target.efficiency_mj_per_th.get(),
             );
         }

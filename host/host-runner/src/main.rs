@@ -91,7 +91,7 @@ pub type TunerSet = ubos_mining::tuner::Tuners;
 pub const BOUNDS: ubos_config::MiningBounds = ubos_config::bounds(
     BOARD,
     <TunerSet as ubos_mining::tuner::MachineTuner<1>>::TUNERS,
-    Some(ubos_machine::MINIMINER_INPUT_POWER_MW),
+    Some(ubos_machine::MINIMINER_INPUT_POWER),
 );
 pub const MINING_INFO: ubos_config::MiningInfo =
     ubos_config::mining_info(BOARD, &BOUNDS, ubos_config::DefaultTuning::Fixed);

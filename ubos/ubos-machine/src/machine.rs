@@ -20,6 +20,7 @@
 //! Machine composition: control board plus hashboard, PSU, and sensors.
 
 use ubos_asic::HashboardDescriptor;
+use ubos_core::units::Power;
 use ubos_psu::sic45x::{LoopScale, Sic45xConfig};
 use ubos_psu::tps53647::{Phases, Tps53647Config};
 use ubos_psu::{BfmPsuDescriptor, BmmPsuDescriptor, ForgeAxePsuDescriptor};
@@ -144,9 +145,10 @@ pub const MINIMINER_STM32F407: MachineDescriptor<BmmPsuDescriptor> =
 pub const MINIMINER_STM32F439: MachineDescriptor<BmmPsuDescriptor> =
     MachineDescriptor::miniminer(CONTROL_BOARD_STM32F439);
 
-/// PSU input power a miniminer's power target may ask for, in mW. Taken
-/// from bosminer's limits for the BMM101 on the same supply.
-pub const MINIMINER_INPUT_POWER_MW: core::ops::RangeInclusive<u32> = 19_000..=67_000;
+/// PSU input power a miniminer's power target may ask for, from the
+/// lowest to the highest the BMM101 supply delivers.
+pub const MINIMINER_INPUT_POWER: core::ops::RangeInclusive<Power> =
+    Power::from_mw(19_000)..=Power::from_mw(67_000);
 
 /// The Hashnode's TMP461 remote diode on the ASIC die plus two TMP102 PCB
 /// sensors. The die reading and the hashboard readings, the TMP102 pair's

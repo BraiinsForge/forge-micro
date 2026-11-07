@@ -49,15 +49,15 @@ impl Tuning {
         }
         match self {
             Self::Fixed(target) => {
-                if !bounds.frequency_khz.contains(&target.frequency_khz) {
+                if !bounds.frequency.contains(&target.frequency) {
                     return Err("miner.tuning.Fixed.frequency_khz outside the accepted range");
                 }
-                if !bounds.voltage_mv.contains(&target.voltage_mv) {
+                if !bounds.voltage.contains(&target.voltage) {
                     return Err("miner.tuning.Fixed.voltage_mv outside the accepted range");
                 }
             }
             Self::Power(target) => {
-                if !bounds.accepts_input_power(target.input_power_mw) {
+                if !bounds.accepts_input_power(target.input_power) {
                     return Err("miner.tuning.Power.input_power_mw outside the accepted range");
                 }
             }
@@ -73,20 +73,20 @@ impl Tuning {
     /// of their config, where failing validation would replace it all.
     #[must_use]
     pub fn clamped(self, bounds: &MiningBounds) -> Self {
-        let clamp = |value: u32, range: &core::ops::RangeInclusive<u32>| {
+        fn clamp<T: Ord + Copy>(value: T, range: &core::ops::RangeInclusive<T>) -> T {
             value.clamp(*range.start(), *range.end())
-        };
+        }
         match self {
             Self::Fixed(target) => Self::Fixed(FrequencyVoltageTarget {
-                frequency_khz: clamp(target.frequency_khz, &bounds.frequency_khz),
-                voltage_mv: clamp(target.voltage_mv, &bounds.voltage_mv),
+                frequency: clamp(target.frequency, &bounds.frequency),
+                voltage: clamp(target.voltage, &bounds.voltage),
             }),
             Self::Power(target) => Self::Power(PowerTarget {
-                input_power_mw: match &bounds.input_power_mw {
-                    Some(range) if !bounds.accepts_input_power(target.input_power_mw) => {
-                        clamp(target.input_power_mw, range)
+                input_power: match &bounds.input_power {
+                    Some(range) if !bounds.accepts_input_power(target.input_power) => {
+                        clamp(target.input_power, range)
                     }
-                    _ => target.input_power_mw,
+                    _ => target.input_power,
                 },
                 ..target
             }),

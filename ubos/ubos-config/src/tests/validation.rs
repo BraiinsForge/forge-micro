@@ -20,7 +20,7 @@
 //! Tests for [`crate::ConfigUpdate::validate`].
 
 use crate::{PidTarget, Source, Statistic, TemperatureDescriptor};
-use ubos_core::units::Temperature;
+use ubos_core::units::{Frequency, Power, Temperature, Voltage};
 
 use crate::{
     ApiConfig, Config, ConfigUpdate, CoolingConfig, CoolingUpdate, FanMode, FrequencyVoltageTarget,
@@ -86,8 +86,8 @@ fn valid_thermal() -> ThermalConfig {
 /// remains valid regardless of which board is active at compile time.
 fn valid_tuning() -> Tuning {
     Tuning::Fixed(FrequencyVoltageTarget {
-        frequency_khz: 525_000,
-        voltage_mv: *MINING_BOUNDS.voltage_mv.start(),
+        frequency: Frequency::from_khz(525_000),
+        voltage: *MINING_BOUNDS.voltage.start(),
     })
 }
 
@@ -653,7 +653,7 @@ fn miner_power_json_shape_deserializes() {
         update.miner,
         Some(MinerConfig {
             tuning: Tuning::Power(PowerTarget {
-                input_power_mw: 44_000,
+                input_power: Power::from_mw(44_000),
                 efficiency_mj_per_th: core::num::NonZeroU32::new(40_000).expect("nonzero"),
             }),
         })
@@ -709,7 +709,7 @@ fn tuning_not_offered_is_rejected() {
     let mut update = empty_update();
     update.miner = Some(MinerConfig {
         tuning: Tuning::Power(PowerTarget {
-            input_power_mw: 44_000,
+            input_power: Power::from_mw(44_000),
             efficiency_mj_per_th: core::num::NonZeroU32::new(40_000).expect("nonzero"),
         }),
     });
@@ -722,7 +722,7 @@ fn tuning_not_offered_is_rejected() {
 /// A power target with `input_power_mw` milliwatts.
 fn power_tuning(input_power_mw: u32) -> Tuning {
     Tuning::Power(PowerTarget {
-        input_power_mw,
+        input_power: Power::from_mw(input_power_mw),
         efficiency_mj_per_th: core::num::NonZeroU32::new(40_000).expect("nonzero"),
     })
 }
@@ -732,16 +732,17 @@ fn power_tuning(input_power_mw: u32) -> Tuning {
 #[test]
 fn tuning_input_power_range() {
     let range = MINING_BOUNDS
-        .input_power_mw
+        .input_power
         .clone()
         .expect("a power tuner is listed");
-    for input_power_mw in [*range.start(), *range.end()] {
+    let (start, end) = (range.start().mw(), range.end().mw());
+    for input_power_mw in [start, end] {
         assert_eq!(
             power_tuning(input_power_mw).validate(&MINING_BOUNDS),
             Ok(())
         );
     }
-    for input_power_mw in [0, range.start() - 1, range.end() + 1] {
+    for input_power_mw in [0, start - 1, end + 1] {
         assert_eq!(
             power_tuning(input_power_mw).validate(&MINING_BOUNDS),
             Err("miner.tuning.Power.input_power_mw outside the accepted range")
@@ -753,41 +754,35 @@ fn tuning_input_power_range() {
 /// what is inside, and leaves the efficiency alone.
 #[test]
 fn tuning_clamped_into_bounds() {
-    let frequency = MINING_BOUNDS.frequency_khz.clone();
-    let voltage = MINING_BOUNDS.voltage_mv.clone();
+    let frequency = MINING_BOUNDS.frequency.clone();
+    let voltage = MINING_BOUNDS.voltage.clone();
     let power = MINING_BOUNDS
-        .input_power_mw
+        .input_power
         .clone()
         .expect("a power tuner is listed");
-    let high = Tuning::Fixed(FrequencyVoltageTarget {
-        frequency_khz: frequency.end() + 1,
-        voltage_mv: voltage.end() + 1,
-    });
+    let fixed = |frequency_khz, voltage_mv| {
+        Tuning::Fixed(FrequencyVoltageTarget {
+            frequency: Frequency::from_khz(frequency_khz),
+            voltage: Voltage::from_mv(voltage_mv),
+        })
+    };
+    let high = fixed(frequency.end().khz() + 1, voltage.end().mv() + 1);
     assert_eq!(
         high.clamped(&MINING_BOUNDS),
-        Tuning::Fixed(FrequencyVoltageTarget {
-            frequency_khz: *frequency.end(),
-            voltage_mv: *voltage.end(),
-        })
+        fixed(frequency.end().khz(), voltage.end().mv())
     );
-    let low = Tuning::Fixed(FrequencyVoltageTarget {
-        frequency_khz: frequency.start() - 1,
-        voltage_mv: 1_200,
-    });
+    let low = fixed(frequency.start().khz() - 1, 1_200);
     assert_eq!(
         low.clamped(&MINING_BOUNDS),
-        Tuning::Fixed(FrequencyVoltageTarget {
-            frequency_khz: *frequency.start(),
-            voltage_mv: 1_200,
-        })
+        fixed(frequency.start().khz(), 1_200)
     );
     assert_eq!(
-        power_tuning(power.end() + 1).clamped(&MINING_BOUNDS),
-        power_tuning(*power.end())
+        power_tuning(power.end().mw() + 1).clamped(&MINING_BOUNDS),
+        power_tuning(power.end().mw())
     );
     assert_eq!(
         power_tuning(0).clamped(&MINING_BOUNDS),
-        power_tuning(*power.start())
+        power_tuning(power.start().mw())
     );
 }
 
@@ -799,7 +794,7 @@ fn tuning_frequency_out_of_range() {
     let mut update = empty_update();
     let mut miner = valid_miner();
     let target = fixed_target(&mut miner.tuning);
-    target.frequency_khz = 1_000_001;
+    target.frequency = Frequency::from_khz(1_000_001);
     update.miner = Some(miner);
     assert_eq!(
         update.validate(&Config::default(), &crate::mining::BOUNDS),
@@ -817,7 +812,7 @@ fn tuning_voltage_out_of_range() {
     let mut update = empty_update();
     let mut miner = valid_miner();
     let target = fixed_target(&mut miner.tuning);
-    target.voltage_mv = MINING_BOUNDS.voltage_mv.end() + 1;
+    target.voltage = Voltage::from_mv(MINING_BOUNDS.voltage.end().mv() + 1);
     update.miner = Some(miner);
     assert_eq!(
         update.validate(&Config::default(), &crate::mining::BOUNDS),
@@ -859,7 +854,7 @@ fn tuning_frequency_in_range_non_discrete_passes() {
     let mut update = empty_update();
     let mut miner = valid_miner();
     let target = fixed_target(&mut miner.tuning);
-    target.frequency_khz = 487_500;
+    target.frequency = Frequency::from_khz(487_500);
     update.miner = Some(miner);
     assert!(
         update
@@ -877,7 +872,7 @@ fn tuning_voltage_in_range_non_discrete_passes() {
     let mut update = empty_update();
     let mut miner = valid_miner();
     let target = fixed_target(&mut miner.tuning);
-    target.voltage_mv = MINING_BOUNDS.voltage_mv.start() + 11;
+    target.voltage = Voltage::from_mv(MINING_BOUNDS.voltage.start().mv() + 11);
     update.miner = Some(miner);
     assert!(
         update
@@ -1407,4 +1402,33 @@ fn config_cooling_fixed_fan_pwm_101_rejected() {
         config.validate(&crate::mining::BOUNDS),
         Err("cooling.fixed_fan_pwm must be between 0 and 100")
     );
+}
+
+/// The bounds and the defaults go out under the names with the unit
+/// the web UI reads, each as a bare integer.
+#[test]
+fn mining_info_json_names_and_numbers() {
+    static INFO: crate::MiningInfo = crate::mining_info(
+        &ubos_asic::BMM101_HASHBOARD,
+        &crate::MINING_BOUNDS,
+        crate::DefaultTuning::Fixed,
+    );
+    let mut buffer = [0u8; 1024];
+    let length = serde_json_core::to_slice(&INFO, &mut buffer).expect("fits");
+    let json = core::str::from_utf8(&buffer[..length]).expect("utf8");
+    for expected in [
+        r#""defaultFrequencyKhz":525000"#,
+        r#""defaultVoltageMv":1400"#,
+        r#""defaultTuning":"Fixed""#,
+        r#""frequencyKhz":{"start":"#,
+        r#""voltageMv":{"start":0,"#,
+        r#""inputPowerMw":{"start":19000,"end":67000}"#,
+    ] {
+        assert!(json.contains(expected), "{expected} missing from {json}");
+    }
+    let power = crate::DefaultTuning::Power {
+        input_power: Power::from_mw(44_000),
+    };
+    let length = serde_json_core::to_slice(&power, &mut buffer).expect("fits");
+    assert_eq!(&buffer[..length], br#"{"Power":{"inputPowerMw":44000}}"#);
 }

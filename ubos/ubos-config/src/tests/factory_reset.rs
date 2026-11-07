@@ -39,7 +39,7 @@ use std::fs;
 use embassy_futures::block_on;
 
 use crate::TemperatureDescriptor;
-use ubos_core::units::Temperature;
+use ubos_core::units::{Frequency, Power, Temperature, Voltage};
 
 use crate::{
     Config, DefaultTuning, FrequencyVoltageTarget, LOAD_BUFFER_SIZE, MinerConfig, MiningBounds,
@@ -205,18 +205,18 @@ fn boot_with_stored(name: &str, tuning: Tuning, info: &'static MiningInfo) -> (C
 /// rest of the stored config survives.
 #[test]
 fn load_clamps_stored_tuning_and_keeps_the_rest() {
-    let frequency = crate::MINING_BOUNDS.frequency_khz.clone();
+    let frequency = crate::MINING_BOUNDS.frequency.clone();
     let (stored, loaded) = boot_with_stored(
         "clamp",
         Tuning::Fixed(FrequencyVoltageTarget {
-            frequency_khz: frequency.end() + 1,
-            voltage_mv: 1_200,
+            frequency: Frequency::from_khz(frequency.end().khz() + 1),
+            voltage: Voltage::from_mv(1_200),
         }),
         &BMM101_INFO,
     );
     let clamped = Tuning::Fixed(FrequencyVoltageTarget {
-        frequency_khz: *frequency.end(),
-        voltage_mv: 1_200,
+        frequency: *frequency.end(),
+        voltage: Voltage::from_mv(1_200),
     });
     assert_eq!(
         loaded,
@@ -234,7 +234,7 @@ fn load_replaces_unoffered_tuning_and_keeps_the_rest() {
     let (stored, loaded) = boot_with_stored(
         "unoffered",
         Tuning::Power(PowerTarget {
-            input_power_mw: 44_000,
+            input_power: Power::from_mw(44_000),
             efficiency_mj_per_th: core::num::NonZeroU32::new(40_000).expect("nonzero"),
         }),
         &FIXED_ONLY_INFO,

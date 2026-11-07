@@ -46,8 +46,8 @@ pub struct FixedTarget {
 impl From<FrequencyVoltageTarget> for FixedTarget {
     fn from(target: FrequencyVoltageTarget) -> Self {
         Self {
-            frequency: Frequency::from_khz(target.frequency_khz),
-            voltage: Voltage::from_mv(target.voltage_mv),
+            frequency: target.frequency,
+            voltage: target.voltage,
         }
     }
 }
@@ -62,7 +62,7 @@ pub struct PowerTarget {
 impl From<ubos_config::PowerTarget> for PowerTarget {
     fn from(target: ubos_config::PowerTarget) -> Self {
         Self {
-            input_power: Power::from_mw(target.input_power_mw),
+            input_power: target.input_power,
             efficiency: Efficiency::from_mj_per_th(target.efficiency_mj_per_th),
         }
     }

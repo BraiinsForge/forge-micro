@@ -437,7 +437,7 @@ fn a_configuration_naming_no_available_tuner_holds_with_the_rail_off() {
         });
         let mut miner = test_miner::<crate::tuner::fixed::FixedTuner, 1>(&psu, [&ACTOR], [&STATS]);
         let power = ubos_config::Tuning::Power(ubos_config::PowerTarget {
-            input_power_mw: 3_000_000,
+            input_power: ubos_core::units::Power::from_mw(3_000_000),
             efficiency_mj_per_th: core::num::NonZeroU32::MIN,
         });
         // The fixed tuner does not serve a power target, which is what
@@ -481,7 +481,10 @@ fn a_configuration_naming_no_available_tuner_holds_with_the_rail_off() {
                 }
             })
             .await;
-            publish(fixed_config(500, 1200));
+            publish(fixed_config(
+                Frequency::from_khz(500),
+                Voltage::from_mv(1200),
+            ));
             Timer::after(Duration::from_millis(10)).await;
         };
         let Either::Second(Either::First(())) = block_on(select(
@@ -730,7 +733,7 @@ fn a_tuner_change_during_the_plan_delay_cuts_the_rail_and_chooses_again() {
         publish(ubos_config::Config {
             miner: ubos_config::MinerConfig {
                 tuning: ubos_config::Tuning::Power(ubos_config::PowerTarget {
-                    input_power_mw: 3_000_000,
+                    input_power: ubos_core::units::Power::from_mw(3_000_000),
                     efficiency_mj_per_th: core::num::NonZeroU32::MIN,
                 }),
             },
@@ -939,13 +942,13 @@ fn fixed_selection() -> Selected {
     Selected::of(&ubos_config::Config::default().miner.tuning)
 }
 
-/// A configuration whose fixed target is `frequency_khz` at `voltage_mv`.
-fn fixed_config(frequency_khz: u32, voltage_mv: u32) -> ubos_config::Config {
+/// A configuration whose fixed target is `frequency` at `voltage`.
+fn fixed_config(frequency: Frequency, voltage: Voltage) -> ubos_config::Config {
     ubos_config::Config {
         miner: ubos_config::MinerConfig {
             tuning: ubos_config::Tuning::Fixed(ubos_config::FrequencyVoltageTarget {
-                frequency_khz,
-                voltage_mv,
+                frequency,
+                voltage,
             }),
         },
         ..ubos_config::Config::default()
@@ -976,17 +979,17 @@ fn live_frequency_and_voltage_edits_do_not_cut_power() {
             run: run(LiveTuner(crate::tuner::fixed::FixedTuner::new(board))),
         });
         let (mut subscription, publish) = test_config();
-        let mut frequency_khz = safe.khz();
-        let mut voltage_mv = board.max_rail_voltage().mv();
-        publish(fixed_config(frequency_khz, voltage_mv));
+        let mut frequency = safe;
+        let mut voltage = board.max_rail_voltage();
+        publish(fixed_config(frequency, voltage));
         let exercise = async {
             assert!(drive(&mut miner, state, &mut subscription).await.is_none());
             ACTOR.terminate().await.expect("actor terminates");
         };
         let edit = async {
             Timer::after(Duration::from_millis(1)).await;
-            frequency_khz = 75_000;
-            publish(fixed_config(frequency_khz, voltage_mv));
+            frequency = Frequency::from_mhz(75);
+            publish(fixed_config(frequency, voltage));
             core::future::poll_fn(|_| {
                 if STATS.frequency() == Frequency::from_mhz(75) {
                     core::task::Poll::Ready(())
@@ -996,10 +999,10 @@ fn live_frequency_and_voltage_edits_do_not_cut_power() {
             })
             .await;
             LOG.lock(|log| assert!(!log.borrow().contains(&Write::Disable)));
-            voltage_mv -= 100;
-            publish(fixed_config(frequency_khz, voltage_mv));
+            voltage = Voltage::from_mv(voltage.mv() - 100);
+            publish(fixed_config(frequency, voltage));
             core::future::poll_fn(|_| {
-                if ubos_psu::handle().commanded_voltage() == Some(Voltage::from_mv(voltage_mv)) {
+                if ubos_psu::handle().commanded_voltage() == Some(voltage) {
                     core::task::Poll::Ready(())
                 } else {
                     core::task::Poll::Pending

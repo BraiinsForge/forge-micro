@@ -21,14 +21,14 @@
 
 use core::num::NonZeroU32;
 
-use ubos_core::units::Temperature;
+use ubos_core::units::{Frequency, Power, Temperature, Voltage};
 
 use crate::seed::Taken;
 use crate::{
-    ApiConfig, Config, CoolingConfig, FanMode, LOAD_BUFFER_SIZE, LoadError, MinerConfig,
-    NetworkConfig, NetworkMode, PidConfig, PidTarget, PoolEntry, PowerTarget, ProtocolKind, Seed,
-    SeedField, Source, Statistic, TAKEN_BUFFER_SIZE, TemperatureDescriptor, ThermalConfig, Tuning,
-    decode_blob, encode_blob,
+    ApiConfig, Config, CoolingConfig, FanMode, FrequencyVoltageTarget, LOAD_BUFFER_SIZE, LoadError,
+    MinerConfig, NetworkConfig, NetworkMode, PidConfig, PidTarget, PoolEntry, PowerTarget,
+    ProtocolKind, Seed, SeedField, Source, Statistic, TAKEN_BUFFER_SIZE, TemperatureDescriptor,
+    ThermalConfig, Tuning, decode_blob, encode_blob,
 };
 
 /// Round-trip: encode the default config and decode it back.
@@ -237,7 +237,7 @@ fn widest_record_fills_the_buffer() {
         },
         miner: MinerConfig {
             tuning: Tuning::Power(PowerTarget {
-                input_power_mw: u32::MAX,
+                input_power: Power::from_mw(u32::MAX),
                 efficiency_mj_per_th: NonZeroU32::MAX,
             }),
         },
@@ -285,4 +285,38 @@ fn widest_seed_record_fills_its_buffer() {
     let mut buffer = [0u8; 2 * TAKEN_BUFFER_SIZE];
     let record = postcard::to_slice(&taken, &mut buffer).expect("BUG: the probe holds any record");
     assert_eq!(record.len(), TAKEN_BUFFER_SIZE);
+}
+
+/// The two tunings keep the bytes the integers they replaced stored: a
+/// variant tag, then each field as a varint, with no wrapper around a
+/// unit.
+#[test]
+fn tuning_encoding_is_unchanged() {
+    let mut buffer = [0u8; 16];
+    let fixed = Tuning::Fixed(FrequencyVoltageTarget {
+        frequency: Frequency::from_khz(525_000),
+        voltage: Voltage::from_mv(1_400),
+    });
+    let written = postcard::to_slice(&fixed, &mut buffer).expect("BUG: the buffer holds a tuning");
+    assert_eq!(
+        written,
+        [
+            0, // Fixed
+            200, 133, 32, // frequency = 525000
+            248, 10, // voltage = 1400
+        ]
+    );
+    let power = Tuning::Power(PowerTarget {
+        input_power: Power::from_mw(44_000),
+        efficiency_mj_per_th: NonZeroU32::new(40_000).expect("nonzero"),
+    });
+    let written = postcard::to_slice(&power, &mut buffer).expect("BUG: the buffer holds a tuning");
+    assert_eq!(
+        written,
+        [
+            1, // Power
+            224, 215, 2, // input power = 44000
+            192, 184, 2, // efficiency = 40000
+        ]
+    );
 }

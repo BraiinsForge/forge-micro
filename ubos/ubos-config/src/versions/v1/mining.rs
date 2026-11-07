@@ -20,6 +20,7 @@
 //! The tuning targets of version 1.
 
 use core::num::NonZeroU32;
+use ubos_core::units::{Frequency, Power, Voltage};
 
 /// ASIC frequency and voltage overrides.
 #[derive(
@@ -27,12 +28,15 @@ use core::num::NonZeroU32;
 )]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FrequencyVoltageTarget {
-    /// Target ASIC core frequency in kHz. The PLL grid steps by a
-    /// fraction of a megahertz, so a megahertz field cannot name every
-    /// point on it.
-    pub frequency_khz: u32,
-    /// Core supply voltage in millivolts.
-    pub voltage_mv: u32,
+    /// Target ASIC core frequency. The PLL grid steps by a fraction of
+    /// a megahertz, so a megahertz field cannot name every point on it.
+    /// It is stored and exchanged as integer kHz under `frequency_khz`.
+    #[serde(rename = "frequency_khz")]
+    pub frequency: Frequency,
+    /// Core supply voltage, stored and exchanged as integer mV under
+    /// `voltage_mv`.
+    #[serde(rename = "voltage_mv")]
+    pub voltage: Voltage,
 }
 
 /// The power a power tuner holds the machine at.
@@ -46,8 +50,10 @@ pub struct FrequencyVoltageTarget {
 )]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PowerTarget {
-    /// Target PSU input power in mW.
-    pub input_power_mw: u32,
+    /// Target PSU input power, stored and exchanged as integer mW under
+    /// `input_power_mw`.
+    #[serde(rename = "input_power_mw")]
+    pub input_power: Power,
     /// Target input power per theoretical hashrate in mJ/TH, which caps
     /// the clock the tuner ramps to.
     pub efficiency_mj_per_th: NonZeroU32,
