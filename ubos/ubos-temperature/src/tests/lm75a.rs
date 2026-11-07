@@ -27,30 +27,48 @@ fn encode(eighths_of_degree: i16) -> [u8; 2] {
 
 #[test]
 fn zero() {
-    assert_eq!(raw_to_millicelsius(encode(0)), 0);
+    assert_eq!(
+        Temperature::from(RawLm75a(encode(0))),
+        Temperature::from_millicelsius(0)
+    );
 }
 
 #[test]
 fn positive_integer_degree() {
-    assert_eq!(raw_to_millicelsius(encode(25 * 8)), 25_000);
+    assert_eq!(
+        Temperature::from(RawLm75a(encode(25 * 8))),
+        Temperature::from_millicelsius(25_000)
+    );
 }
 
 #[test]
 fn positive_half_degree() {
-    assert_eq!(raw_to_millicelsius(encode(25 * 8 + 4)), 25_500);
+    assert_eq!(
+        Temperature::from(RawLm75a(encode(25 * 8 + 4))),
+        Temperature::from_millicelsius(25_500)
+    );
 }
 
 #[test]
 fn positive_eighth_degree() {
-    assert_eq!(raw_to_millicelsius(encode(25 * 8 + 1)), 25_125);
+    assert_eq!(
+        Temperature::from(RawLm75a(encode(25 * 8 + 1))),
+        Temperature::from_millicelsius(25_125)
+    );
 }
 
 #[test]
 fn negative_integer_degree() {
-    assert_eq!(raw_to_millicelsius(encode(-25 * 8)), -25_000);
+    assert_eq!(
+        Temperature::from(RawLm75a(encode(-25 * 8))),
+        Temperature::from_millicelsius(-25_000)
+    );
 }
 
 #[test]
 fn negative_half_degree() {
-    assert_eq!(raw_to_millicelsius(encode(-25 * 8 - 4)), -25_500);
+    assert_eq!(
+        Temperature::from(RawLm75a(encode(-25 * 8 - 4))),
+        Temperature::from_millicelsius(-25_500)
+    );
 }

@@ -73,7 +73,7 @@ impl Tmp102 {
         i2c.write_read(self.address, &[REG_TEMPERATURE], &mut buffer)
             .await
             .map_err(Error::I2c)?;
-        let temperature = Temperature::from_millicelsius(raw_to_millicelsius(buffer));
+        let temperature: Temperature = RawTmp102(buffer).into();
         if !(MIN_TEMPERATURE..=MAX_TEMPERATURE).contains(&temperature) {
             return Err(Error::OutOfRange(temperature));
         }
@@ -98,15 +98,21 @@ pub enum Error<E> {
     OutOfRange(Temperature),
 }
 
-/// Decode the 16-bit big-endian register to millicelsius.
-///
+/// The 16-bit big-endian temperature register as read from the bus.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct RawTmp102(pub(crate) [u8; 2]);
+
 /// The TMP102 stores the 12-bit value left-justified in a 16-bit word.
 /// The arithmetic right-shift by 4 sign-extends the twos-complement value
 /// while discarding the four padding bits in bits 3:0 (which the datasheet
 /// states as zero in 12-bit mode). LSB = 0.0625 °C = 62.5 m°C; multiply
 /// by 125 and divide by 2 stays in i32 with no intermediate overflow across
 /// the full ±128 °C datasheet range.
-pub(crate) fn raw_to_millicelsius(buffer: [u8; 2]) -> i32 {
-    let raw12 = i16::from_be_bytes(buffer) >> 4;
-    i32::from(raw12) * MILLICELSIUS_NUMERATOR / MILLICELSIUS_DENOMINATOR
+impl From<RawTmp102> for Temperature {
+    fn from(raw: RawTmp102) -> Self {
+        let raw12 = i16::from_be_bytes(raw.0) >> 4;
+        Self::from_millicelsius(
+            i32::from(raw12) * MILLICELSIUS_NUMERATOR / MILLICELSIUS_DENOMINATOR,
+        )
+    }
 }

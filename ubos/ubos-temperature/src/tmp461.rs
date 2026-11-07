@@ -134,7 +134,12 @@ impl Tmp461 {
         // Read high before low: reading the high byte latches the low byte.
         let high = read_byte(i2c, self.address, REG_REMOTE_HIGH).await?;
         let low = read_byte(i2c, self.address, REG_REMOTE_LOW).await?;
-        let temperature = Temperature::from_millicelsius(decode_millicelsius(high, low, extended));
+        let temperature: Temperature = RawTmp461 {
+            high,
+            low,
+            extended,
+        }
+        .into();
         #[cfg(feature = "defmt")]
         ubos_logging::trace!(
             "TMP461 remote @{:x}: status={:x} ext={} hi={:x} lo={:x} -> {} °C",
@@ -189,7 +194,12 @@ impl Tmp461 {
         let extended = self.read_extended_range(i2c).await?;
         let high = read_byte(i2c, self.address, REG_LOCAL_HIGH).await?;
         let low = read_byte(i2c, self.address, REG_LOCAL_LOW).await?;
-        let temperature = Temperature::from_millicelsius(decode_millicelsius(high, low, extended));
+        let temperature: Temperature = RawTmp461 {
+            high,
+            low,
+            extended,
+        }
+        .into();
         // The local channel on a working sensor never rails to the remote-diode
         // sentinel values. Reaching them indicates a defective TMP461 package.
         // The saturation rail depends on the active range.
@@ -250,21 +260,33 @@ where
     Ok(buffer[0])
 }
 
-/// Decode a high/low byte pair to millicelsius.
-///
+/// A temperature as the chip holds it: the high and low register bytes
+/// and the range mode that gives the high byte its meaning.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct RawTmp461 {
+    pub(crate) high: u8,
+    pub(crate) low: u8,
+    pub(crate) extended: bool,
+}
+
 /// In standard range the high byte is 2's-complement degrees; in extended
 /// range it is unsigned with a −64 °C offset. The low byte's upper nibble
 /// (bits 7:4) is the fractional part in 1/16 °C steps (62.5 m°C each),
 /// always added as a positive quantity. Using `625 / 10` for the fractional
 /// step keeps the result in integer millicelsius with no floats.
-pub(crate) fn decode_millicelsius(high: u8, low: u8, extended_range: bool) -> i32 {
-    let degrees = if extended_range {
-        i32::from(high) - EXTENDED_RANGE_OFFSET_C
-    } else {
-        // Standard range encodes the high byte as 2's-complement degrees;
-        // reinterpret the bits rather than a value-changing cast.
-        i32::from(i8::from_ne_bytes([high]))
-    };
-    degrees * MILLICELSIUS_PER_DEGREE
-        + i32::from(low >> FRACTION_SHIFT) * FRACTION_STEP_NUMERATOR / FRACTION_STEP_DENOMINATOR
+impl From<RawTmp461> for Temperature {
+    fn from(raw: RawTmp461) -> Self {
+        let degrees = if raw.extended {
+            i32::from(raw.high) - EXTENDED_RANGE_OFFSET_C
+        } else {
+            // Standard range encodes the high byte as 2's-complement degrees;
+            // reinterpret the bits rather than a value-changing cast.
+            i32::from(i8::from_ne_bytes([raw.high]))
+        };
+        Self::from_millicelsius(
+            degrees * MILLICELSIUS_PER_DEGREE
+                + i32::from(raw.low >> FRACTION_SHIFT) * FRACTION_STEP_NUMERATOR
+                    / FRACTION_STEP_DENOMINATOR,
+        )
+    }
 }

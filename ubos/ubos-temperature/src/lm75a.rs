@@ -63,7 +63,7 @@ impl Lm75a {
         i2c.write_read(self.address, &[REG_TEMPERATURE], &mut buffer)
             .await
             .map_err(Error::I2c)?;
-        let temperature = Temperature::from_millicelsius(raw_to_millicelsius(buffer));
+        let temperature: Temperature = RawLm75a(buffer).into();
         if !(MIN_TEMPERATURE..=MAX_TEMPERATURE).contains(&temperature) {
             return Err(Error::OutOfRange(temperature));
         }
@@ -85,17 +85,23 @@ pub enum Error<E> {
     OutOfRange(Temperature),
 }
 
-/// Decode the 16-bit big-endian register: high byte is signed integer
-/// degrees C, low byte's top 3 bits are fractional in 0.125°C steps.
-/// Convert directly to millicelsius without floats.
+/// The 16-bit big-endian temperature register as read from the bus.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct RawLm75a(pub(crate) [u8; 2]);
+
+/// The high byte is signed integer degrees C, and the low byte's top 3
+/// bits are fractional in 0.125°C steps. The result is exact
+/// millicelsius, computed without floats.
 ///
 /// The low byte's bottom 5 bits are reserved on the LM75A/B; some
-/// clones leave noise there instead of zeros. Mask them explicitly
-/// before the shift so a misbehaving part cannot leak garbage into
-/// the result even if the sign-extension semantics of `>>` were to
-/// surprise us on a future toolchain.
-fn raw_to_millicelsius(buffer: [u8; 2]) -> i32 {
-    let masked = [buffer[0], buffer[1] & 0xE0];
-    let raw = i16::from_be_bytes(masked) >> 5;
-    i32::from(raw) * 125
+/// clones leave noise there instead of zeros. They are masked before the
+/// shift so a misbehaving part cannot leak garbage into the result even
+/// if the sign-extension semantics of `>>` were to surprise us on a
+/// future toolchain.
+impl From<RawLm75a> for Temperature {
+    fn from(raw: RawLm75a) -> Self {
+        let masked = [raw.0[0], raw.0[1] & 0xE0];
+        let eighths = i16::from_be_bytes(masked) >> 5;
+        Self::from_millicelsius(i32::from(eighths) * 125)
+    }
 }

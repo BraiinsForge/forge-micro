@@ -64,8 +64,8 @@ fn table_1_temperature_data_format() {
     ];
     for (millicelsius, register) in table_1 {
         assert_eq!(
-            decode_millicelsius(register),
-            millicelsius,
+            Temperature::from(RawTmp464(register)),
+            Temperature::from_millicelsius(millicelsius),
             "{register:02X?}"
         );
     }

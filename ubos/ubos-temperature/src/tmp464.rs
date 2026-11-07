@@ -173,7 +173,7 @@ impl Tmp464 {
             return Err(Error::OpenCircuit);
         }
         let buffer = read_word(i2c, self.address, channel.register()).await?;
-        let temperature = Temperature::from_millicelsius(decode_millicelsius(buffer));
+        let temperature: Temperature = RawTmp464(buffer).into();
         #[cfg(feature = "defmt")]
         ubos_logging::trace!(
             "TMP464 @{:x} {:?}: status={:x} -> {} °C",
@@ -204,7 +204,7 @@ impl Tmp464 {
         I: I2c<Error = E>,
     {
         let buffer = read_word(i2c, self.address, REG_LOCAL).await?;
-        let temperature = Temperature::from_millicelsius(decode_millicelsius(buffer));
+        let temperature: Temperature = RawTmp464(buffer).into();
         // The local channel on a working sensor never rails to the
         // remote-diode short-circuit sentinel. Reaching it indicates a
         // defective TMP464 package.
@@ -249,13 +249,19 @@ where
     Ok(buffer)
 }
 
-/// Decode a 16-bit big-endian register word to millicelsius.
-///
+/// A 16-bit big-endian temperature register word as read from the bus.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct RawTmp464(pub(crate) [u8; 2]);
+
 /// The 13-bit two's-complement result is left-justified in bits 15:3;
 /// the arithmetic right-shift by 3 sign-extends it while discarding the
 /// three reserved padding bits. LSB = 0.0625 °C = 62.5 m°C; multiplying
 /// by 125 and dividing by 2 stays in integer math with no float.
-pub(crate) fn decode_millicelsius(buffer: [u8; 2]) -> i32 {
-    let raw = i16::from_be_bytes(buffer) >> RESULT_SHIFT;
-    i32::from(raw) * MILLICELSIUS_NUMERATOR / MILLICELSIUS_DENOMINATOR
+impl From<RawTmp464> for Temperature {
+    fn from(raw: RawTmp464) -> Self {
+        let result = i16::from_be_bytes(raw.0) >> RESULT_SHIFT;
+        Self::from_millicelsius(
+            i32::from(result) * MILLICELSIUS_NUMERATOR / MILLICELSIUS_DENOMINATOR,
+        )
+    }
 }
