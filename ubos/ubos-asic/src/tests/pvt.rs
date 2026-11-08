@@ -25,9 +25,9 @@ fn the_store() {
     assert_eq!(store.last_answer(), None, "nothing has answered yet");
 
     // A recorded chip contributes to both aggregates.
-    store.record(0, Some(41.5), Some(300.0));
-    store.record(1, Some(38.0), Some(290.0));
-    assert_eq!(store.hottest_millicelsius(), Some(41_500));
+    store.record(0, Some(Temperature::from_celsius_f64(41.5)), Some(300.0));
+    store.record(1, Some(Temperature::from_celsius_f64(38.0)), Some(290.0));
+    assert_eq!(store.hottest().map(Temperature::millicelsius), Some(41_500));
     assert_eq!(
         store.temperature(1),
         Some(Temperature::from_millicelsius(38_000))
@@ -36,9 +36,9 @@ fn the_store() {
     assert_eq!(store.temperature(16), None, "chip 16 is past the array");
     let dies = store.temperature_summary().expect("two chips reported");
     assert_eq!(dies.chips.get(), 2);
-    assert_eq!(dies.total_millicelsius, 79_500);
-    assert_eq!(dies.lowest_millicelsius, 38_000);
-    assert_eq!(dies.highest_millicelsius, 41_500);
+    assert_eq!(dies.mean.millicelsius(), 39_750);
+    assert_eq!(dies.lowest.millicelsius(), 38_000);
+    assert_eq!(dies.highest.millicelsius(), 41_500);
     let summary = store.voltage_summary().expect("two chips reported");
     assert_eq!(summary.chips, 2);
     assert_eq!(summary.total_microvolts, 590_000);
@@ -52,7 +52,7 @@ fn the_store() {
     // board that is fine.
     let answered = store.last_answer();
     store.record(1, None, None);
-    assert_eq!(store.hottest_millicelsius(), Some(41_500));
+    assert_eq!(store.hottest().map(Temperature::millicelsius), Some(41_500));
     assert_eq!(store.last_answer(), answered);
     assert_eq!(
         store
@@ -66,15 +66,19 @@ fn the_store() {
     store.record(1, None, Some(295.0));
     let summary = store.voltage_summary().expect("two chips reported");
     assert_eq!(summary.lowest_microvolts, 295_000);
-    assert_eq!(store.hottest_millicelsius(), Some(41_500));
+    assert_eq!(store.hottest().map(Temperature::millicelsius), Some(41_500));
 
     // A chip beyond the array is ignored rather than panicking.
     let answered = store.last_answer();
-    store.record(u8::MAX, Some(90.0), Some(300.0));
+    store.record(
+        u8::MAX,
+        Some(Temperature::from_celsius_f64(90.0)),
+        Some(300.0),
+    );
     assert_eq!(
         store.last_answer(),
         answered,
         "an out-of-range chip records nothing"
     );
-    assert_eq!(store.hottest_millicelsius(), Some(41_500));
+    assert_eq!(store.hottest().map(Temperature::millicelsius), Some(41_500));
 }

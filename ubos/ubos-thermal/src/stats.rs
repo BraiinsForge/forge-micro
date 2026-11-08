@@ -69,11 +69,17 @@ impl From<Temperature> for Accumulator {
     }
 }
 
+/// A chain counts once per die it read, so the board mean weighs each chain
+/// by its dies. Its sum is rebuilt from its mean, whose rounding moves the
+/// board mean by less than one millicelsius.
 impl From<TemperatureSummary> for Accumulator {
     fn from(summary: TemperatureSummary) -> Self {
         Self {
-            max: Temperature::from_millicelsius(summary.highest_millicelsius),
-            total_millicelsius: summary.total_millicelsius,
+            max: summary.highest,
+            total_millicelsius: summary
+                .mean
+                .millicelsius()
+                .saturating_mul(i32::from(summary.chips.get())),
             count: summary.chips.into(),
         }
     }

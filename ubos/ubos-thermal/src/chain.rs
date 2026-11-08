@@ -56,6 +56,7 @@ use crate::{Accumulator, Reading, TempSample, TemperatureSensor};
 use embassy_futures::poll_once;
 use embassy_time::{Duration, Instant, Ticker};
 use ubos_asic::{ChainPvt, ChipIndex};
+use ubos_core::units::Temperature;
 use ubos_logging::{debug, warn};
 use ubos_metrics::chain::ChainStatsHandle;
 use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value};
@@ -227,17 +228,12 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
             publish_chip_reading(chain, chip, value).await;
         }
         if let Some(temperature) = self.pvt[chain].temperature_summary() {
-            let mean = temperature.total_millicelsius / i32::from(temperature.chips.get());
-            Self::publish_stat(chain, "lowest", temperature.lowest_millicelsius).await;
-            Self::publish_stat(chain, "mean", mean).await;
-            Self::publish_stat(chain, "highest", temperature.highest_millicelsius).await;
+            Self::publish_stat(chain, "lowest", temperature.lowest).await;
+            Self::publish_stat(chain, "mean", temperature.mean).await;
+            Self::publish_stat(chain, "highest", temperature.highest).await;
             debug!(
-                "chain {} pvt: {} chips report {} to {} mC, mean {} mC",
-                chain,
-                temperature.chips,
-                temperature.lowest_millicelsius,
-                temperature.highest_millicelsius,
-                mean
+                "chain {} pvt: {} chips report {} to {} °C, mean {} °C",
+                chain, temperature.chips, temperature.lowest, temperature.highest, temperature.mean
             );
         }
         let Some(voltage) = self.pvt[chain].voltage_summary() else {
@@ -262,7 +258,7 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
 
     /// One chain's die-temperature statistic, tagged with the `stat`
     /// label so the three share a metric name.
-    async fn publish_stat(chain: usize, stat: &'static str, millicelsius: i32) {
+    async fn publish_stat(chain: usize, stat: &'static str, temperature: Temperature) {
         let mut labels = chain_labels(chain);
         let _ = labels.push(Label {
             name: "stat",
@@ -271,7 +267,7 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
         Metric::with_labels(
             CHAIN_TEMPERATURE_METRIC,
             labels,
-            Value::Int(i64::from(millicelsius)),
+            Value::Int(i64::from(temperature.millicelsius())),
         )
         .push()
         .await;
@@ -354,7 +350,7 @@ impl<const CHIPS: usize, const CHAINS: usize> TemperatureSensor
                 .flatten();
             self.stats
                 .chain(chain)
-                .set_hottest(summary.map(|summary| summary.highest_millicelsius));
+                .set_hottest(summary.map(|summary| summary.highest.millicelsius()));
             if let Some(summary) = summary {
                 chips = chips
                     .map(|acc| acc.include(summary))

@@ -52,13 +52,13 @@ mod tests;
 /// What one chip has reported about itself.
 #[derive(Clone, Copy)]
 struct ChipReadings {
-    temperature_millicelsius: Option<i32>,
+    temperature: Option<Temperature>,
     voltage_microvolts: Option<i32>,
 }
 
 impl ChipReadings {
     const NONE: Self = Self {
-        temperature_millicelsius: None,
+        temperature: None,
         voltage_microvolts: None,
     };
 }
@@ -99,26 +99,29 @@ impl<const CHIPS: usize> ChainPvt<CHIPS> {
 
     /// Record what one status turn read from `chip`; either quantity may
     /// be absent when its read failed.
-    pub fn record(&self, chip: ChipIndex, celsius: Option<f64>, millivolts: Option<f64>) {
+    pub fn record(
+        &self,
+        chip: ChipIndex,
+        temperature: Option<Temperature>,
+        millivolts: Option<f64>,
+    ) {
         self.readings.lock(|readings| {
             let mut readings = readings.borrow_mut();
             let Some(entry) = readings.chips.get_mut(usize::from(chip)) else {
                 return;
             };
-            // Scaled to integers for the store. Both conversions are
-            // bounded well inside i32 by the ranges the driver clamps them
-            // to.
-            #[allow(clippy::cast_possible_truncation)]
-            if let Some(value) = celsius {
-                entry.temperature_millicelsius = Some((value * 1000.0) as i32);
+            if let Some(value) = temperature {
+                entry.temperature = Some(value);
             }
+            // Scaled to an integer for the store, and bounded well inside i32
+            // by the range the driver clamps it to.
             #[allow(clippy::cast_possible_truncation)]
             if let Some(value) = millivolts {
                 entry.voltage_microvolts = Some((value * 1000.0) as i32);
             }
             // A call that carried nothing leaves the clock where it
             // stands: a failed read is not the chain answering.
-            if celsius.is_some() || millivolts.is_some() {
+            if temperature.is_some() || millivolts.is_some() {
                 readings.last_answer = Some(Instant::now());
             }
         });
@@ -139,20 +142,19 @@ impl<const CHIPS: usize> ChainPvt<CHIPS> {
                 .borrow()
                 .chips
                 .get(usize::from(chip))
-                .and_then(|entry| entry.temperature_millicelsius)
-                .map(Temperature::from_millicelsius)
+                .and_then(|entry| entry.temperature)
         })
     }
 
-    /// The hottest die the chain has reported, in millicelsius.
+    /// The hottest die the chain has reported.
     #[must_use]
-    pub fn hottest_millicelsius(&self) -> Option<i32> {
+    pub fn hottest(&self) -> Option<Temperature> {
         self.readings.lock(|readings| {
             readings
                 .borrow()
                 .chips
                 .iter()
-                .filter_map(|entry| entry.temperature_millicelsius)
+                .filter_map(|entry| entry.temperature)
                 .max()
         })
     }
@@ -164,25 +166,27 @@ impl<const CHIPS: usize> ChainPvt<CHIPS> {
     pub fn temperature_summary(&self) -> Option<TemperatureSummary> {
         self.readings.lock(|readings| {
             let mut total = 0i32;
-            let mut lowest = i32::MAX;
-            let mut highest = i32::MIN;
+            let mut range: Option<(Temperature, Temperature)> = None;
             let mut chips = 0u8;
-            for value in readings
+            for die in readings
                 .borrow()
                 .chips
                 .iter()
-                .filter_map(|entry| entry.temperature_millicelsius)
+                .filter_map(|entry| entry.temperature)
             {
-                total = total.saturating_add(value);
-                lowest = lowest.min(value);
-                highest = highest.max(value);
+                total = total.saturating_add(die.millicelsius());
+                range = Some(range.map_or((die, die), |(lowest, highest)| {
+                    (lowest.min(die), highest.max(die))
+                }));
                 chips += 1;
             }
-            NonZeroU8::new(chips).map(|chips| TemperatureSummary {
+            let (lowest, highest) = range?;
+            let chips = NonZeroU8::new(chips)?;
+            Some(TemperatureSummary {
                 chips,
-                total_millicelsius: total,
-                lowest_millicelsius: lowest,
-                highest_millicelsius: highest,
+                mean: Temperature::from_millicelsius(total / i32::from(chips.get())),
+                lowest,
+                highest,
             })
         })
     }
@@ -226,9 +230,9 @@ impl<const CHIPS: usize> Default for ChainPvt<CHIPS> {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TemperatureSummary {
     pub chips: NonZeroU8,
-    pub total_millicelsius: i32,
-    pub lowest_millicelsius: i32,
-    pub highest_millicelsius: i32,
+    pub mean: Temperature,
+    pub lowest: Temperature,
+    pub highest: Temperature,
 }
 
 /// The chips that reported a core voltage, with their sum and spread.

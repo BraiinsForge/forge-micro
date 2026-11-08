@@ -32,9 +32,9 @@ fn an_accumulator_answers_the_hottest_and_the_mean_reading() {
         .include(Temperature::from_millicelsius(56_000));
     let chain = TemperatureSummary {
         chips: NonZeroU8::new(2).expect("two chips"),
-        total_millicelsius: 104_000,
-        lowest_millicelsius: 51_000,
-        highest_millicelsius: 53_000,
+        mean: Temperature::from_millicelsius(52_000),
+        lowest: Temperature::from_millicelsius(51_000),
+        highest: Temperature::from_millicelsius(53_000),
     };
 
     assert_eq!(
