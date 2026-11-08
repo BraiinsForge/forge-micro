@@ -144,11 +144,11 @@ counts as naming a call.
 
 ```
 ubos-core
- ├ ubos-asic (chip + hashboard)  ├ ubos-psu  ├ ubos-temperature
+ ├ ubos-asic (chip + hashboard)  ├ ubos-psu  ├ ubos-temperature  ├ ubos-metrics
  │    └ ubos-config (derives MiningInfo/bounds from the hashboard)
- └──────┴───────────┴────────────┐
-                            ubos-machine
-                                 └ firmware/* + host-runner
+ └──────┴───────────┴────────────┴───────────┐
+                                       ubos-machine
+                                            └ firmware/* + host-runner
 ```
 
 `host-runner` is not one of the boards and has no
