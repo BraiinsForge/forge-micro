@@ -42,8 +42,8 @@ const REG_TEMPERATURE: u8 = 0x00;
 /// window adds 15 °C below and 25 °C above to catch bus glitches that decode
 /// to plausible but impossible temperatures without rejecting valid
 /// near-limit readings.
-const MIN_MILLICELSIUS: i32 = -55_000;
-const MAX_MILLICELSIUS: i32 = 150_000;
+const MIN_TEMPERATURE: Temperature = Temperature::from_millicelsius(-55_000);
+const MAX_TEMPERATURE: Temperature = Temperature::from_millicelsius(150_000);
 
 /// LSB is 0.0625 °C = 62.5 m°C, encoded as 125/2 to stay in integer math.
 const MILLICELSIUS_NUMERATOR: i32 = 125;
@@ -73,11 +73,11 @@ impl Tmp102 {
         i2c.write_read(self.address, &[REG_TEMPERATURE], &mut buffer)
             .await
             .map_err(Error::I2c)?;
-        let millicelsius = raw_to_millicelsius(buffer);
-        if !(MIN_MILLICELSIUS..=MAX_MILLICELSIUS).contains(&millicelsius) {
-            return Err(Error::OutOfRange(millicelsius));
+        let temperature = Temperature::from_millicelsius(raw_to_millicelsius(buffer));
+        if !(MIN_TEMPERATURE..=MAX_TEMPERATURE).contains(&temperature) {
+            return Err(Error::OutOfRange(temperature));
         }
-        Ok(Temperature::from_millicelsius(millicelsius))
+        Ok(temperature)
     }
 
     /// Read the temperature as what [`local`](Self::local) names, or the
@@ -95,7 +95,7 @@ pub enum Error<E> {
     /// I2C bus error.
     I2c(E),
     /// Decoded value is outside the datasheet operating range.
-    OutOfRange(i32),
+    OutOfRange(Temperature),
 }
 
 /// Decode the 16-bit big-endian register to millicelsius.

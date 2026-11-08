@@ -247,11 +247,12 @@ show_in_thousandths!(Voltage, |voltage| voltage.mv());
 show_in_thousandths!(Power, |power| power.mw());
 show_in_thousandths!(Efficiency, |efficiency| efficiency.mj_per_th());
 
-/// Temperature in millicelsius. The LM75A driver decodes its register
-/// directly into this unit, and the metrics layer publishes it
-/// unchanged. The PID loop in `ubos-cooling` reads it through
-/// [`celsius_f64`](Self::celsius_f64) to operate in floating-point
-/// degrees Celsius, the unit its gains are tuned in.
+/// Temperature in millicelsius, and the one type that firmware holds and
+/// compares a temperature in. A raw number appears only where a value
+/// leaves the firmware: [`millicelsius`](Self::millicelsius) for the
+/// metrics, [`celsius_i32`](Self::celsius_i32) for the API, and
+/// [`celsius_f64`](Self::celsius_f64) for the PID loop in `ubos-cooling`,
+/// which operates in the unit its gains are tuned in.
 ///
 /// It serializes as its integer millicelsius, so a config that holds it
 /// stores and exchanges the same number the type holds.

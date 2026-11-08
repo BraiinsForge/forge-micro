@@ -148,7 +148,7 @@ pub(crate) fn add_source<E, F: Into<SensorFault<E>>>(
 #[derive(Debug, PartialEq, Eq)]
 pub enum SensorFault<E> {
     I2c(E),
-    OutOfRange(i32),
+    OutOfRange(Temperature),
     OpenCircuit,
     ShortCircuit,
     Saturated,
@@ -158,7 +158,7 @@ impl<E> From<lm75a::Error<E>> for SensorFault<E> {
     fn from(e: lm75a::Error<E>) -> Self {
         match e {
             lm75a::Error::I2c(e) => Self::I2c(e),
-            lm75a::Error::OutOfRange(mc) => Self::OutOfRange(mc),
+            lm75a::Error::OutOfRange(temperature) => Self::OutOfRange(temperature),
         }
     }
 }
@@ -167,7 +167,7 @@ impl<E> From<tmp102::Error<E>> for SensorFault<E> {
     fn from(e: tmp102::Error<E>) -> Self {
         match e {
             tmp102::Error::I2c(e) => Self::I2c(e),
-            tmp102::Error::OutOfRange(mc) => Self::OutOfRange(mc),
+            tmp102::Error::OutOfRange(temperature) => Self::OutOfRange(temperature),
         }
     }
 }
@@ -176,7 +176,7 @@ impl<E> From<tmp461::Error<E>> for SensorFault<E> {
     fn from(e: tmp461::Error<E>) -> Self {
         match e {
             tmp461::Error::I2c(e) => Self::I2c(e),
-            tmp461::Error::OutOfRange(mc) => Self::OutOfRange(mc),
+            tmp461::Error::OutOfRange(temperature) => Self::OutOfRange(temperature),
             tmp461::Error::OpenCircuit => Self::OpenCircuit,
             tmp461::Error::ShortCircuit => Self::ShortCircuit,
             tmp461::Error::Saturated => Self::Saturated,
@@ -188,7 +188,7 @@ impl<E> From<tmp464::Error<E>> for SensorFault<E> {
     fn from(e: tmp464::Error<E>) -> Self {
         match e {
             tmp464::Error::I2c(e) => Self::I2c(e),
-            tmp464::Error::OutOfRange(mc) => Self::OutOfRange(mc),
+            tmp464::Error::OutOfRange(temperature) => Self::OutOfRange(temperature),
             tmp464::Error::OpenCircuit => Self::OpenCircuit,
             tmp464::Error::ShortCircuit => Self::ShortCircuit,
         }

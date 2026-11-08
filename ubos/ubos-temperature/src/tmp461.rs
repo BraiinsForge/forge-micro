@@ -49,16 +49,16 @@ const REG_CONFIG: u8 = 0x03;
 /// `RANGE` bit: 1 = extended (−64..191 °C, +64 offset), 0 = standard.
 const CONFIG_EXTENDED_RANGE: u8 = 1 << 2;
 /// Value the remote channel returns for a shorted diode (datasheet).
-const SHORT_CIRCUIT_MILLICELSIUS: i32 = -64_000;
+const SHORT_CIRCUIT: Temperature = Temperature::from_millicelsius(-64_000);
 /// Full-scale standard-range rail (high=0x7F, low=0xF0): 127.9375 °C. An
 /// unbiased or floating remote diode rails here; it is the high-side
 /// counterpart to the −64 °C short rail and is not a trustworthy die
 /// reading.
-const SATURATED_MILLICELSIUS: i32 = 127_937;
+const SATURATED: Temperature = Temperature::from_millicelsius(127_937);
 /// Full-scale extended-range rail (high=0xFF, low=0xF0): 191.9375 °C.
-/// Same meaning as `SATURATED_MILLICELSIUS` but for the extended range
+/// Same meaning as `SATURATED` but for the extended range
 /// where a floating diode reaches 0xFF rather than 0x7F.
-const SATURATED_EXTENDED_MILLICELSIUS: i32 = 191_937;
+const SATURATED_EXTENDED: Temperature = Temperature::from_millicelsius(191_937);
 /// Remote temperature high byte.
 const REG_REMOTE_HIGH: u8 = 0x01;
 /// Remote temperature low byte: bits 7:4 are the 1/16 °C fraction.
@@ -71,15 +71,15 @@ const REG_LOCAL_LOW: u8 = 0x15;
 /// Valid range for the remote channel in standard mode. The datasheet
 /// reports 0..127 °C; 160 °C gives headroom for transient bus glitches
 /// without rejecting valid near-limit readings.
-const REMOTE_MIN_MILLICELSIUS: i32 = 0;
-const REMOTE_MAX_MILLICELSIUS: i32 = 160_000;
+const REMOTE_MIN: Temperature = Temperature::from_millicelsius(0);
+const REMOTE_MAX: Temperature = Temperature::from_millicelsius(160_000);
 
 /// Valid range for the local channel in standard mode. The datasheet
 /// specifies −40 °C as the device minimum, but a powered hashboard never
 /// operates below 0 °C, so rejecting sub-zero local readings catches sensor
 /// faults without masking any valid operating condition.
-const LOCAL_MIN_MILLICELSIUS: i32 = 0;
-const LOCAL_MAX_MILLICELSIUS: i32 = 160_000;
+const LOCAL_MIN: Temperature = Temperature::from_millicelsius(0);
+const LOCAL_MAX: Temperature = Temperature::from_millicelsius(160_000);
 
 /// Degrees-Celsius offset applied to the unsigned high byte in extended range.
 const EXTENDED_RANGE_OFFSET_C: i32 = 64;
@@ -134,36 +134,36 @@ impl Tmp461 {
         // Read high before low: reading the high byte latches the low byte.
         let high = read_byte(i2c, self.address, REG_REMOTE_HIGH).await?;
         let low = read_byte(i2c, self.address, REG_REMOTE_LOW).await?;
-        let millicelsius = decode_millicelsius(high, low, extended);
+        let temperature = Temperature::from_millicelsius(decode_millicelsius(high, low, extended));
         #[cfg(feature = "defmt")]
         ubos_logging::trace!(
-            "TMP461 remote @{:x}: status={:x} ext={} hi={:x} lo={:x} -> {} mC",
+            "TMP461 remote @{:x}: status={:x} ext={} hi={:x} lo={:x} -> {} °C",
             self.address,
             status,
             extended,
             high,
             low,
-            millicelsius,
+            temperature,
         );
         // A shorted remote diode reads exactly −64 °C; an unbiased/floating
         // one rails to full scale. Both are channel-fault rails, not real
         // die temperatures. The saturation rail depends on the active range:
         // standard tops at 127.9375 °C, extended at 191.9375 °C.
-        if millicelsius == SHORT_CIRCUIT_MILLICELSIUS {
+        if temperature == SHORT_CIRCUIT {
             return Err(Error::ShortCircuit);
         }
         let saturated_rail = if extended {
-            SATURATED_EXTENDED_MILLICELSIUS
+            SATURATED_EXTENDED
         } else {
-            SATURATED_MILLICELSIUS
+            SATURATED
         };
-        if millicelsius == saturated_rail {
+        if temperature == saturated_rail {
             return Err(Error::Saturated);
         }
-        if !(REMOTE_MIN_MILLICELSIUS..=REMOTE_MAX_MILLICELSIUS).contains(&millicelsius) {
-            return Err(Error::OutOfRange(millicelsius));
+        if !(REMOTE_MIN..=REMOTE_MAX).contains(&temperature) {
+            return Err(Error::OutOfRange(temperature));
         }
-        Ok(Temperature::from_millicelsius(millicelsius))
+        Ok(temperature)
     }
 
     /// Read the Configuration register and return whether extended range is
@@ -189,11 +189,11 @@ impl Tmp461 {
         let extended = self.read_extended_range(i2c).await?;
         let high = read_byte(i2c, self.address, REG_LOCAL_HIGH).await?;
         let low = read_byte(i2c, self.address, REG_LOCAL_LOW).await?;
-        let millicelsius = decode_millicelsius(high, low, extended);
+        let temperature = Temperature::from_millicelsius(decode_millicelsius(high, low, extended));
         // The local channel on a working sensor never rails to the remote-diode
         // sentinel values. Reaching them indicates a defective TMP461 package.
         // The saturation rail depends on the active range.
-        if millicelsius == SHORT_CIRCUIT_MILLICELSIUS {
+        if temperature == SHORT_CIRCUIT {
             #[cfg(feature = "defmt")]
             ubos_logging::warn!(
                 "TMP461 @{:x}: local channel at short-circuit rail — sensor defective",
@@ -202,11 +202,11 @@ impl Tmp461 {
             return Err(Error::ShortCircuit);
         }
         let saturated_rail = if extended {
-            SATURATED_EXTENDED_MILLICELSIUS
+            SATURATED_EXTENDED
         } else {
-            SATURATED_MILLICELSIUS
+            SATURATED
         };
-        if millicelsius == saturated_rail {
+        if temperature == saturated_rail {
             #[cfg(feature = "defmt")]
             ubos_logging::warn!(
                 "TMP461 @{:x}: local channel at saturation rail — sensor defective",
@@ -214,10 +214,10 @@ impl Tmp461 {
             );
             return Err(Error::Saturated);
         }
-        if !(LOCAL_MIN_MILLICELSIUS..=LOCAL_MAX_MILLICELSIUS).contains(&millicelsius) {
-            return Err(Error::OutOfRange(millicelsius));
+        if !(LOCAL_MIN..=LOCAL_MAX).contains(&temperature) {
+            return Err(Error::OutOfRange(temperature));
         }
-        Ok(Temperature::from_millicelsius(millicelsius))
+        Ok(temperature)
     }
 }
 
@@ -235,7 +235,7 @@ pub enum Error<E> {
     /// floating diode, not a real die temperature.
     Saturated,
     /// Decoded value is outside the standard operating range.
-    OutOfRange(i32),
+    OutOfRange(Temperature),
 }
 
 /// Read a single register byte from `address` at `register`.

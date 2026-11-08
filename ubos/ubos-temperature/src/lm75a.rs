@@ -38,8 +38,8 @@ const REG_TEMPERATURE: u8 = 0x00;
 /// Datasheet supported range, exclusive of garbage readings on bus
 /// errors that produce e.g. `0xff80`, which decodes to a plausible
 /// −1°C, or `0x7fff`. The chip itself only reports −55..=125°C.
-const MIN_MILLICELSIUS: i32 = -55_000;
-const MAX_MILLICELSIUS: i32 = 125_000;
+const MIN_TEMPERATURE: Temperature = Temperature::from_millicelsius(-55_000);
+const MAX_TEMPERATURE: Temperature = Temperature::from_millicelsius(125_000);
 
 /// One LM75A on the I2C bus: its address and what it measures. The bus
 /// is passed in on each read so multiple sensors can share a `&mut I`
@@ -63,11 +63,11 @@ impl Lm75a {
         i2c.write_read(self.address, &[REG_TEMPERATURE], &mut buffer)
             .await
             .map_err(Error::I2c)?;
-        let millicelsius = raw_to_millicelsius(buffer);
-        if !(MIN_MILLICELSIUS..=MAX_MILLICELSIUS).contains(&millicelsius) {
-            return Err(Error::OutOfRange(millicelsius));
+        let temperature = Temperature::from_millicelsius(raw_to_millicelsius(buffer));
+        if !(MIN_TEMPERATURE..=MAX_TEMPERATURE).contains(&temperature) {
+            return Err(Error::OutOfRange(temperature));
         }
-        Ok(Temperature::from_millicelsius(millicelsius))
+        Ok(temperature)
     }
 
     /// Read the temperature as what [`local`](Self::local) names, or the
@@ -82,7 +82,7 @@ impl Lm75a {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error<E> {
     I2c(E),
-    OutOfRange(i32),
+    OutOfRange(Temperature),
 }
 
 /// Decode the 16-bit big-endian register: high byte is signed integer

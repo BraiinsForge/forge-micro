@@ -57,21 +57,21 @@ const REG_REMOTE_OPEN_STATUS: u8 = 0x23;
 /// (datasheet: −256 °C). The local channel shares the same ADC and rails
 /// here too on an internal fault, though the datasheet defines the rail
 /// only for the diode-fault comparator.
-const SHORT_CIRCUIT_MILLICELSIUS: i32 = -256_000;
+const SHORT_CIRCUIT: Temperature = Temperature::from_millicelsius(-256_000);
 
 /// Valid range for a remote channel. The datasheet spans −55..150 °C for
 /// a remote diode, but a powered hashboard never runs below 0 °C; 160 °C
 /// gives headroom above the diode ceiling for a transient bus glitch
 /// without rejecting a valid near-limit reading.
-const REMOTE_MIN_MILLICELSIUS: i32 = 0;
-const REMOTE_MAX_MILLICELSIUS: i32 = 160_000;
+const REMOTE_MIN: Temperature = Temperature::from_millicelsius(0);
+const REMOTE_MAX: Temperature = Temperature::from_millicelsius(160_000);
 
 /// Valid range for the local channel. The datasheet spans −40..125 °C,
 /// but a powered hashboard never runs below 0 °C, so rejecting sub-zero
 /// local readings catches sensor faults without masking any valid
 /// operating condition.
-const LOCAL_MIN_MILLICELSIUS: i32 = 0;
-const LOCAL_MAX_MILLICELSIUS: i32 = 160_000;
+const LOCAL_MIN: Temperature = Temperature::from_millicelsius(0);
+const LOCAL_MAX: Temperature = Temperature::from_millicelsius(160_000);
 
 /// The 13-bit two's-complement result occupies bits 15:3 of the 16-bit
 /// register; bits 2:0 are reserved and always read 0.
@@ -173,24 +173,24 @@ impl Tmp464 {
             return Err(Error::OpenCircuit);
         }
         let buffer = read_word(i2c, self.address, channel.register()).await?;
-        let millicelsius = decode_millicelsius(buffer);
+        let temperature = Temperature::from_millicelsius(decode_millicelsius(buffer));
         #[cfg(feature = "defmt")]
         ubos_logging::trace!(
-            "TMP464 @{:x} {:?}: status={:x} -> {} mC",
+            "TMP464 @{:x} {:?}: status={:x} -> {} °C",
             self.address,
             ubos_logging::Debug2Format(&channel),
             status,
-            millicelsius,
+            temperature,
         );
         // A shorted remote diode reads exactly −256 °C; this is a channel
         // fault rail, not a real die temperature.
-        if millicelsius == SHORT_CIRCUIT_MILLICELSIUS {
+        if temperature == SHORT_CIRCUIT {
             return Err(Error::ShortCircuit);
         }
-        if !(REMOTE_MIN_MILLICELSIUS..=REMOTE_MAX_MILLICELSIUS).contains(&millicelsius) {
-            return Err(Error::OutOfRange(millicelsius));
+        if !(REMOTE_MIN..=REMOTE_MAX).contains(&temperature) {
+            return Err(Error::OutOfRange(temperature));
         }
-        Ok(Temperature::from_millicelsius(millicelsius))
+        Ok(temperature)
     }
 
     /// Read the local (on-package) channel.
@@ -204,11 +204,11 @@ impl Tmp464 {
         I: I2c<Error = E>,
     {
         let buffer = read_word(i2c, self.address, REG_LOCAL).await?;
-        let millicelsius = decode_millicelsius(buffer);
+        let temperature = Temperature::from_millicelsius(decode_millicelsius(buffer));
         // The local channel on a working sensor never rails to the
         // remote-diode short-circuit sentinel. Reaching it indicates a
         // defective TMP464 package.
-        if millicelsius == SHORT_CIRCUIT_MILLICELSIUS {
+        if temperature == SHORT_CIRCUIT {
             #[cfg(feature = "defmt")]
             ubos_logging::warn!(
                 "TMP464 @{:x}: local channel at short-circuit rail — sensor defective",
@@ -216,10 +216,10 @@ impl Tmp464 {
             );
             return Err(Error::ShortCircuit);
         }
-        if !(LOCAL_MIN_MILLICELSIUS..=LOCAL_MAX_MILLICELSIUS).contains(&millicelsius) {
-            return Err(Error::OutOfRange(millicelsius));
+        if !(LOCAL_MIN..=LOCAL_MAX).contains(&temperature) {
+            return Err(Error::OutOfRange(temperature));
         }
-        Ok(Temperature::from_millicelsius(millicelsius))
+        Ok(temperature)
     }
 }
 
@@ -234,7 +234,7 @@ pub enum Error<E> {
     /// Remote diode shorted (the channel reads −256 °C).
     ShortCircuit,
     /// Decoded value is outside the operating range.
-    OutOfRange(i32),
+    OutOfRange(Temperature),
 }
 
 /// Read a 16-bit register word from `address` at `register`.
