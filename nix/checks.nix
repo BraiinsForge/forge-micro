@@ -307,14 +307,6 @@ let
       target = "thumbv8m.main-none-eabihf";
       guard = "slot";
     };
-    stm32f407 = {
-      target = "thumbv7em-none-eabihf";
-      guard = "elf";
-    };
-    stm32f439 = {
-      target = "thumbv7em-none-eabihf";
-      guard = "elf";
-    };
   };
 
   boards = lib.filterAttrs (name: _: hasCrate name) boardTable;
@@ -403,9 +395,8 @@ let
   # The other state of the fee switch, one board per ARM target that
   # can carry the fee, so the on path of the board crates cannot rot
   # unseen in a tree whose images ship it off. The build row is what
-  # measures the RAM a fourth session task costs. stm32f407 runs one
-  # session and cannot carry it, so thumbv7em is gated off alone; the
-  # Xtensa rows are in `espChecks`.
+  # measures the RAM a fourth session task costs. The Xtensa rows are
+  # in `espChecks`.
   feeOnBoards = [
     "rp2040"
     "rp2350"

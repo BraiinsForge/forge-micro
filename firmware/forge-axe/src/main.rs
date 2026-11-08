@@ -212,8 +212,7 @@ ubos_net::network_control_task!();
 /// Parallel stratum session slots this board runs — the operator's
 /// three plus the fee slot the build ships; this board has the RAM
 /// for a session task per slot. A board with less RAM runs fewer and
-/// gives the fee its last slot (see rp2040), or runs one and no fee
-/// (see stm32f407).
+/// gives the fee its last slot (see rp2040).
 pub(crate) const POOL_SLOTS: usize = ubos_config::POOL_SLOTS;
 
 /// The fee pool this board runs, at its last session slot. `None` on

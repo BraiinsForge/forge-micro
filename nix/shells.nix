@@ -130,8 +130,6 @@ pkgs.lib.mapAttrs (_: helpers.withWebuiDist) {
         echo "  cd ${crateRoot}firmware/bmm-pico  && cargo build --release  # BMM Adapter RP2350 W5500"
         echo "  cd ${crateRoot}firmware/rp2040    && cargo build --release  # RP2040 W6100"
         echo "  cd ${crateRoot}firmware/rp2350    && cargo build --release  # RP2350 W6100"
-        echo "  cd ${crateRoot}firmware/stm32f407 && cargo build --release  # STM32F407 LAN8720"
-        echo "  cd ${crateRoot}firmware/stm32f439 && cargo build --release  # STM32F439 LAN8742A"
         echo ""
         echo "Inspect binary size: cargo size --release -- -A"
         echo ""
@@ -248,7 +246,7 @@ pkgs.lib.mapAttrs (_: helpers.withWebuiDist) {
     shellHook = ''
       echo "Available development shells:"
       echo ""
-      echo "  nix develop .#arm   — ARM boards (RP2040, RP2350, STM32F407, STM32F439)"
+      echo "  nix develop .#arm   — ARM boards (RP2040, RP2350)"
       echo "  nix develop .#esp   — ESP32-S3 board"
       echo "  nix develop .#host  — host-runner, native"
       echo "  nix develop .#bmm   — host-runner, BMM/miniminer cross"

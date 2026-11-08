@@ -1168,7 +1168,6 @@ dependencies = [
  "cortex-m",
  "cortex-m-rt",
  "critical-section",
- "defmt 1.0.1",
  "document-features",
  "embassy-embedded-hal",
  "embassy-futures",
@@ -1176,8 +1175,6 @@ dependencies = [
  "embassy-net-driver",
  "embassy-sync 0.8.0",
  "embassy-time",
- "embassy-time-driver",
- "embassy-time-queue-utils",
  "embassy-usb-driver",
  "embassy-usb-synopsys-otg",
  "embedded-can",
@@ -1304,7 +1301,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cbe46f4083109c7ea12a03ca61095d1e87c76fec52c7ca9ee06a42935606dacb"
 dependencies = [
  "critical-section",
- "defmt 1.0.1",
  "embassy-sync 0.8.0",
  "embassy-usb-driver",
 ]
@@ -2853,16 +2849,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
-name = "panic-probe"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd402d00b0fb94c5aee000029204a46884b1262e0c443f166d86d2c0747e1a1a"
-dependencies = [
- "cortex-m",
- "defmt 1.0.1",
-]
-
-[[package]]
 name = "parking"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3842,89 +3828,6 @@ checksum = "e74b78632cea498cfb28386a29f8bfae7476d6570a78733eb5fecbee66c2f4ce"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",
- "defmt 0.3.100",
-]
-
-[[package]]
-name = "stm32f407"
-version = "0.1.0"
-dependencies = [
- "cortex-m",
- "cortex-m-rt",
- "defmt 1.0.1",
- "defmt-rtt",
- "embassy-embedded-hal",
- "embassy-executor",
- "embassy-net",
- "embassy-stm32",
- "embassy-sync 0.8.0",
- "embassy-time",
- "embedded-hal-bus",
- "panic-probe",
- "static_cell",
- "ubos-api",
- "ubos-asic",
- "ubos-auth",
- "ubos-build",
- "ubos-config",
- "ubos-cooling",
- "ubos-core",
- "ubos-display",
- "ubos-eeprom",
- "ubos-events",
- "ubos-firmware",
- "ubos-led",
- "ubos-machine",
- "ubos-manager",
- "ubos-mdns",
- "ubos-metrics",
- "ubos-mining",
- "ubos-net",
- "ubos-psu",
- "ubos-stm32",
- "ubos-thermal",
- "ubos-webui",
-]
-
-[[package]]
-name = "stm32f439"
-version = "0.1.0"
-dependencies = [
- "cortex-m",
- "cortex-m-rt",
- "defmt 1.0.1",
- "defmt-rtt",
- "embassy-embedded-hal",
- "embassy-executor",
- "embassy-net",
- "embassy-stm32",
- "embassy-sync 0.8.0",
- "embassy-time",
- "embedded-hal-bus",
- "panic-probe",
- "static_cell",
- "ubos-api",
- "ubos-asic",
- "ubos-auth",
- "ubos-build",
- "ubos-config",
- "ubos-cooling",
- "ubos-core",
- "ubos-display",
- "ubos-eeprom",
- "ubos-events",
- "ubos-firmware",
- "ubos-led",
- "ubos-machine",
- "ubos-manager",
- "ubos-mdns",
- "ubos-metrics",
- "ubos-mining",
- "ubos-net",
- "ubos-psu",
- "ubos-stm32",
- "ubos-thermal",
- "ubos-webui",
 ]
 
 [[package]]

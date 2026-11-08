@@ -8,8 +8,6 @@ members = [
     "firmware/rp2350",
     "firmware/rp2350-bootloader",
     "firmware/hashnode",
-    "firmware/stm32f407",
-    "firmware/stm32f439",
     "firmware/esp32s3",
     "host/embassy-net-afpacket",
     "host/embedded-i2c-unix",
@@ -88,7 +86,6 @@ heapless          = "0.9"
 libm              = "0.2"
 defmt             = "1.0.1"
 defmt-rtt         = "1.0.0"
-panic-probe       = { version = "1.0.0", default-features = false }
 static_cell       = "2.1"
 portable-atomic   = { version = "1.13", features = ["critical-section"] }
 embedded-hal      = "1.0"
@@ -99,10 +96,8 @@ embedded-io-async = "0.7"
 # (EXIO4/EXIO5 drive the hashboard serial path).
 tca9554           = "0.1.1"
 rand_core         = { version = "0.6", default-features = false }
-# Used by firmware crates whose hardware RNG is a single-owner
-# peripheral (stm32f407, stm32f439) to give the stratum-v2 noise
-# handshake an entropy source independent of the session CSPRNG.
-# Seeded once at boot from the hardware RNG.
+# The ChaCha20 generator behind the session CSPRNG and the stratum-v2
+# noise handshake, each seeded once at boot from the hardware RNG.
 rand_chacha       = { version = "0.3", default-features = false }
 embedded-graphics = { version = "0.8", default-features = false }
 profont           = { version = "0.7.0", default-features = false }
