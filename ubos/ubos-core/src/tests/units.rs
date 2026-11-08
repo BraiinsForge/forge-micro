@@ -127,6 +127,18 @@ fn current_is_built_from_amps_and_milliamps() {
     assert_eq!(Current::from_amps(u32::MAX).ma(), u32::MAX);
 }
 
+/// A unit with no reading is zero, which the API reports where a source
+/// has not published yet.
+#[test]
+fn default_units_are_zero() {
+    assert_eq!(Frequency::default().khz(), 0);
+    assert_eq!(Voltage::default().mv(), 0);
+    assert_eq!(Power::default().mw(), 0);
+    assert_eq!(Current::default().ma(), 0);
+    assert_eq!(FanPwm::default(), FanPwm::ZERO);
+    assert_eq!(FanRpm::default().rpm(), 0);
+}
+
 /// A unit shown in thousandths of a larger unit writes three decimals of
 /// it, so a 6.25 MHz step and a millivolt both survive the log line.
 #[test]

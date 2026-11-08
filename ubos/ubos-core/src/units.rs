@@ -39,8 +39,28 @@ mod tests;
 /// use [`Self::mhz`], and the chip-programming path uses
 /// [`Self::khz`] to keep the PLL calculator exact.
 #[repr(transparent)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[serde(transparent)]
 pub struct Frequency(u32);
+
+/// The schema of the integer a [`Frequency`] serializes as, so a record that
+/// holds one keeps the schema hash it had when it held the integer.
+impl postcard_schema::Schema for Frequency {
+    const SCHEMA: &'static postcard_schema::schema::NamedType =
+        <u32 as postcard_schema::Schema>::SCHEMA;
+}
 
 /// The clock in kHz at which one core, one hash per cycle, hashes 1 TH/s.
 const CORE_KHZ_PER_TERAHASH: u64 = 1_000_000_000;
@@ -153,8 +173,28 @@ impl FrequencyRange {
 /// DAC encoding. Negative values are not representable; the rails the
 /// miner controls are all single-ended positive supplies.
 #[repr(transparent)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[serde(transparent)]
 pub struct Voltage(u32);
+
+/// The schema of the integer a [`Voltage`] serializes as, so a record that
+/// holds one keeps the schema hash it had when it held the integer.
+impl postcard_schema::Schema for Voltage {
+    const SCHEMA: &'static postcard_schema::schema::NamedType =
+        <u32 as postcard_schema::Schema>::SCHEMA;
+}
 
 impl Voltage {
     #[must_use]
@@ -178,8 +218,28 @@ impl Voltage {
 /// Electrical power in milliwatts. PSU-side sensors report this value,
 /// and measured-power control loops use it as a target and feedback.
 #[repr(transparent)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[serde(transparent)]
 pub struct Power(u32);
+
+/// The schema of the integer a [`Power`] serializes as, so a record that
+/// holds one keeps the schema hash it had when it held the integer.
+impl postcard_schema::Schema for Power {
+    const SCHEMA: &'static postcard_schema::schema::NamedType =
+        <u32 as postcard_schema::Schema>::SCHEMA;
+}
 
 impl Power {
     #[must_use]
@@ -196,9 +256,29 @@ impl Power {
 /// Electrical current in milliamps. PSU and shunt sensors report it, and
 /// a driver programs its limits with it.
 #[repr(transparent)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[serde(transparent)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Current(u32);
+
+/// The schema of the integer a [`Current`] serializes as, so a record that
+/// holds one keeps the schema hash it had when it held the integer.
+impl postcard_schema::Schema for Current {
+    const SCHEMA: &'static postcard_schema::schema::NamedType =
+        <u32 as postcard_schema::Schema>::SCHEMA;
+}
 
 impl Current {
     #[must_use]
@@ -375,8 +455,12 @@ impl Temperature {
 /// producer (PID output, configuration parser, dashboard slider) is
 /// expected to be in range and the clamp gives a safer fallback than
 /// an `Option` that callers would unwrap.
+///
+/// It serializes as its integer percent. It has no `Deserialize`, so a
+/// value read from outside cannot skip the clamp.
 #[repr(transparent)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize)]
+#[serde(transparent)]
 pub struct FanPwm(u8);
 
 impl FanPwm {
@@ -398,8 +482,11 @@ impl FanPwm {
 /// Fan tachometer reading in revolutions per minute. Read-only
 /// telemetry: the tach task derives it from pulse counts and
 /// publishes it, no control loop consumes it.
+///
+/// It serializes as its integer RPM.
 #[repr(transparent)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize)]
+#[serde(transparent)]
 pub struct FanRpm(u32);
 
 impl FanRpm {
