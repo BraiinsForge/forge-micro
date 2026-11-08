@@ -30,6 +30,7 @@ pub mod ccmram;
 pub mod consts;
 pub mod entropy;
 pub mod i2c;
+pub mod index;
 pub mod reboot;
 pub mod units;
 pub mod watchdog;
