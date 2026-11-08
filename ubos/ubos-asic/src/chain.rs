@@ -42,6 +42,7 @@
 
 use heapless::Vec;
 use sha2::{Digest, Sha256};
+use ubos_core::index::HashboardIndex;
 use ubos_core::units::{Frequency, FrequencyRange, Voltage};
 
 use crate::board::HashboardDescriptor;
@@ -97,13 +98,20 @@ pub struct VersionPartition {
 /// partitioned: chain 0 keeps the whole mask to roll and every other
 /// chain gets nothing, pinning its version to the base value.
 #[must_use]
-pub fn partition_version_mask(granted: u32, chain: usize, chains: usize) -> VersionPartition {
-    debug_assert!(chain < chains.max(1), "BUG: chain index outside chains");
+pub fn partition_version_mask(
+    granted: u32,
+    chain: HashboardIndex,
+    chains: usize,
+) -> VersionPartition {
+    debug_assert!(
+        chain.slot() < chains.max(1),
+        "BUG: chain index outside chains"
+    );
     let index_bits = usize::BITS - chains.saturating_sub(1).leading_zeros();
     if index_bits > granted.count_ones() {
         return VersionPartition {
             fixed_bits: 0,
-            rolled_mask: if chain == 0 { granted } else { 0 },
+            rolled_mask: if chain.0 == 0 { granted } else { 0 },
         };
     }
     let mut fixed_bits = 0u32;
@@ -113,7 +121,7 @@ pub fn partition_version_mask(granted: u32, chain: usize, chains: usize) -> Vers
         // position of the chain index.
         let reserved = 1u32 << (u32::BITS - 1 - rolled_mask.leading_zeros());
         rolled_mask &= !reserved;
-        if (chain >> index_bit) & 1 != 0 {
+        if (chain.0 >> index_bit) & 1 != 0 {
             fixed_bits |= reserved;
         }
     }
@@ -142,7 +150,7 @@ impl JobVersion {
     /// the pool's `version` and its `granted` rolling mask; see
     /// [`partition_version_mask`] for how the grant is split.
     #[must_use]
-    pub fn partitioned(version: u32, granted: u32, chain: usize, chains: usize) -> Self {
+    pub fn partitioned(version: u32, granted: u32, chain: HashboardIndex, chains: usize) -> Self {
         let partition = partition_version_mask(granted, chain, chains);
         Self {
             version: (version & !granted) | partition.fixed_bits,

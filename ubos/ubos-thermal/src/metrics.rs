@@ -28,6 +28,7 @@
 use core::fmt::Write as _;
 
 use embedded_hal_async::i2c::SevenBitAddress;
+use ubos_core::index::HashboardIndex;
 use ubos_core::units::Temperature;
 use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value};
 use ubos_temperature::{ChipId, Reading, TempSource};
@@ -75,7 +76,7 @@ pub(crate) const MCU_METRIC_NAME: &str = "board_mcu_temperature_millicelsius";
 
 /// Push one reading that the I2C sensor at `address` on `chain` took.
 pub(crate) async fn publish_sensor_reading(
-    chain: usize,
+    chain: HashboardIndex,
     address: SevenBitAddress,
     reading: Reading,
 ) {
@@ -92,7 +93,11 @@ pub(crate) async fn publish_sensor_reading(
 
 /// Push one hashboard reading under the I2C address of the sensor that
 /// took it.
-async fn publish_hashboard_reading(chain: usize, address: SevenBitAddress, value: Temperature) {
+async fn publish_hashboard_reading(
+    chain: HashboardIndex,
+    address: SevenBitAddress,
+    value: Temperature,
+) {
     let mut labels = reading_labels(HASHBOARD_SOURCE, chain);
     let _ = labels.push(address_label(address));
     let value = Value::Int(i64::from(value.millicelsius()));
@@ -118,7 +123,7 @@ async fn publish_board_reading(source: &'static str, address: SevenBitAddress, v
 /// TODO: A board that read one chip both through a sensor diode and over
 /// its chain would write this series from two places, each overwriting the
 /// other. No board does today; one that does needs the series told apart.
-pub(crate) async fn publish_chip_reading(chain: usize, chip: ChipId, value: Temperature) {
+pub(crate) async fn publish_chip_reading(chain: HashboardIndex, chip: ChipId, value: Temperature) {
     let mut chip_str = heapless::String::new();
     let _ = write!(chip_str, "{chip}");
     let mut labels = reading_labels(CHIP_SOURCE, chain);
@@ -141,7 +146,7 @@ const fn reading_source_label(source: &'static str) -> Label {
 }
 
 /// The `source` and `chain` labels that every reading of a chain carries.
-fn reading_labels(source: &'static str, chain: usize) -> Labels {
+fn reading_labels(source: &'static str, chain: HashboardIndex) -> Labels {
     let mut labels = chain_labels(chain);
     let _ = labels.push(reading_source_label(source));
     labels

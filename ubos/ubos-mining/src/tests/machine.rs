@@ -29,6 +29,7 @@ use crate::miner::states::{
 };
 use crate::scheduler::{FeeScheduler, RatioScheduler};
 use ubos_config::DEVFEE;
+use ubos_core::index::HashboardIndex;
 
 /// The run of `tuner`, as [`StartWork`] records it for the default
 /// configuration. Every tuner in this file serves that variant.
@@ -117,7 +118,7 @@ impl MachineTuner<1> for OnePlanTuner {
 #[test]
 fn stop_finishes_the_pending_voltage_write_without_a_shutdown_ramp() {
     critical_section::with(|_| {
-        static ACTOR: Serial = Serial::new(0, 1);
+        static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
         let psu = TestPsu {
@@ -156,7 +157,7 @@ fn stop_finishes_the_pending_voltage_write_without_a_shutdown_ramp() {
 #[test]
 fn cancellation_timeout_cuts_power_without_a_shutdown_frequency_write() {
     critical_section::with(|_| {
-        static ACTOR: Serial = Serial::new(0, 1);
+        static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
         let psu = TestPsu {
@@ -305,7 +306,7 @@ impl<const CHAINS: usize> MachineTuner<CHAINS> for HoldingRailTuner {
 #[test]
 fn waiting_between_refused_commands_does_not_refresh_the_budget() {
     critical_section::with(|_| {
-        static ACTOR: Serial = Serial::new(0, 1);
+        static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
         let psu = TestPsu {
@@ -360,7 +361,7 @@ fn waiting_between_refused_commands_does_not_refresh_the_budget() {
 #[test]
 fn a_plan_that_applies_clears_the_failure_budget() {
     critical_section::with(|_| {
-        static ACTOR: Serial = Serial::new(0, 1);
+        static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
         // One failure, one plan that applies, then two more failures.
@@ -424,7 +425,7 @@ fn a_plan_that_applies_clears_the_failure_budget() {
 #[test]
 fn a_configuration_naming_no_available_tuner_holds_with_the_rail_off() {
     critical_section::with(|_| {
-        static ACTOR: Serial = Serial::new(0, 1);
+        static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
         let psu = TestPsu {
@@ -510,7 +511,7 @@ fn a_configuration_naming_no_available_tuner_holds_with_the_rail_off() {
 #[test]
 fn empty_plans_wait_before_retrying_and_stop_during_a_write_cuts_the_rail() {
     critical_section::with(|_| {
-        static ACTOR: Serial = Serial::new(0, 1);
+        static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
         static CALLS: AtomicU8 = AtomicU8::new(0);
@@ -584,7 +585,7 @@ fn empty_plans_wait_before_retrying_and_stop_during_a_write_cuts_the_rail() {
 #[test]
 fn stop_before_work_initialization_prevents_voltage_commands() {
     critical_section::with(|_| {
-        static ACTOR: Serial = Serial::new(0, 1);
+        static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
         let psu = TestPsu {
@@ -606,7 +607,7 @@ fn settling_ignores_resume_and_preserves_a_resume_queued_after_halt() {
     use core::future::Future;
     use core::task::{Context, Poll, Waker};
     critical_section::with(|_| {
-        static ACTOR: Serial = Serial::new(0, 1);
+        static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
         let psu = TestPsu {
@@ -641,7 +642,7 @@ fn settling_ignores_resume_and_preserves_a_resume_queued_after_halt() {
 #[test]
 fn stop_ready_before_a_step_cuts_the_rail_without_a_plan() {
     critical_section::with(|_| {
-        static ACTOR: Serial = Serial::new(0, 1);
+        static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
         let psu = TestPsu {
@@ -668,7 +669,7 @@ fn stop_ready_before_a_step_cuts_the_rail_without_a_plan() {
 #[test]
 fn stop_during_plan_delay_does_not_wait_or_issue_another_plan() {
     critical_section::with(|_| {
-        static ACTOR: Serial = Serial::new(0, 1);
+        static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
         let psu = TestPsu {
@@ -711,7 +712,7 @@ fn stop_during_plan_delay_does_not_wait_or_issue_another_plan() {
 #[test]
 fn a_tuner_change_during_the_plan_delay_cuts_the_rail_and_chooses_again() {
     critical_section::with(|_| {
-        static ACTOR: Serial = Serial::new(0, 1);
+        static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
         let psu = TestPsu {
@@ -754,7 +755,7 @@ fn halt_finishes_the_pending_voltage_write_before_cutting_the_rail() {
     use core::future::Future;
     use core::task::{Context, Poll, Waker};
     critical_section::with(|_| {
-        static ACTOR: Serial = Serial::new(0, 1);
+        static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
         let psu = TestPsu {
@@ -804,7 +805,7 @@ fn halt_during_stop_grace_period_keeps_stop_and_queued_resume() {
     use core::future::Future;
     use core::task::{Context, Waker};
     critical_section::with(|_| {
-        static ACTOR: Serial = Serial::new(0, 1);
+        static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
         let psu = TestPsu {
@@ -864,7 +865,7 @@ fn halt_during_stop_grace_period_keeps_stop_and_queued_resume() {
 #[test]
 fn a_halt_read_in_the_first_choose_cuts_the_rail_again() {
     critical_section::with(|_| {
-        static ACTOR: Serial = Serial::new(0, 1);
+        static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
         let psu = TestPsu {
@@ -889,7 +890,7 @@ fn halt_publishes_stopped_after_reset_even_if_psu_disable_fails() {
     use crate::MiningState;
 
     critical_section::with(|_| {
-        static ACTOR: Serial = Serial::new(0, 1);
+        static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
         let mining = crate::handle();
@@ -960,7 +961,7 @@ fn fixed_config(frequency: Frequency, voltage: Voltage) -> ubos_config::Config {
 #[test]
 fn live_frequency_and_voltage_edits_do_not_cut_power() {
     critical_section::with(|_| {
-        static ACTOR: Serial = Serial::new(0, 1);
+        static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
         static SESSION: AsicSession<1, 1> = AsicSession::new();
@@ -1042,7 +1043,7 @@ fn live_frequency_and_voltage_edits_do_not_cut_power() {
 #[test]
 fn stop_has_priority_over_halt_in_every_state() {
     critical_section::with(|_| {
-        static ACTOR: Serial = Serial::new(0, 1);
+        static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
         let psu = TestPsu {
@@ -1104,7 +1105,7 @@ fn a_job() -> stratum_client::WorkAssignment {
 #[test]
 fn the_pool_wait_holds_until_a_slot_holds_a_job_and_cuts_the_rail_on_halt() {
     critical_section::with(|_| {
-        static ACTOR: Serial = Serial::new(0, 1);
+        static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
         static STATS: ChainStats = ChainStats::new();
         static SESSION: AsicSession<1, 1> = AsicSession::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
@@ -1169,7 +1170,7 @@ fn the_pool_wait_ignores_a_fee_job_and_opens_on_an_operator_job() {
         return;
     }
     critical_section::with(|_| {
-        static ACTOR: Serial = Serial::new(0, 1);
+        static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
         static STATS: ChainStats = ChainStats::new();
         static SESSION: AsicSession<2, 1> = AsicSession::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));

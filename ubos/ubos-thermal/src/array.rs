@@ -27,6 +27,7 @@
 //! Boards supply only the topology; all folding logic lives here.
 
 use embedded_hal_async::i2c::{I2c, SevenBitAddress};
+use ubos_core::index::HashboardIndex;
 use ubos_logging::{Debug2Format, error};
 use ubos_temperature::{ReadingError, Sensor, SensorDescriptor, TempSource};
 
@@ -38,7 +39,7 @@ use crate::{Accumulator, Reading, TempSample, TemperatureSensor};
 ///
 /// TODO: Take the chain from the board once a machine carries a sensor
 /// table per hashboard.
-const CHAIN: usize = 0;
+const CHAIN: HashboardIndex = HashboardIndex(0);
 
 /// Multi-sensor hashboard aggregator over a board's sensor table.
 pub struct SensorArray<const N: usize, Bus> {

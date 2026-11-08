@@ -164,7 +164,9 @@ fn table(active: u8) -> ChainStatsHandle {
 #[test]
 fn handle_walks_no_slot_before_the_chain_count_is_published() {
     let handle = table(0);
-    handle.chain(0).record_share(&some_target(), 0);
+    handle
+        .chain(HashboardIndex(0))
+        .record_share(&some_target(), 0);
 
     assert_eq!(handle.slots(), 3);
     assert_eq!(handle.chain_count(), 0);
@@ -177,9 +179,11 @@ fn handle_walks_no_slot_before_the_chain_count_is_published() {
 fn handle_walks_only_the_wired_prefix() {
     let handle = table(2);
     handle
-        .chain(2)
+        .chain(HashboardIndex(2))
         .set_presence(ChainPresence::Present { chips: 12 });
-    handle.chain(2).record_share(&some_target(), 0);
+    handle
+        .chain(HashboardIndex(2))
+        .record_share(&some_target(), 0);
 
     assert_eq!(handle.chain_count(), 2);
     assert_eq!(handle.chains().count(), 2);
@@ -199,11 +203,13 @@ fn handle_clamps_the_chain_count_to_the_table() {
 fn present_chain_count_counts_only_present() {
     let handle = table(3);
     handle
-        .chain(0)
+        .chain(HashboardIndex(0))
         .set_presence(ChainPresence::Present { chips: 12 });
-    handle.chain(1).set_presence(ChainPresence::Absent);
     handle
-        .chain(2)
+        .chain(HashboardIndex(1))
+        .set_presence(ChainPresence::Absent);
+    handle
+        .chain(HashboardIndex(2))
         .set_presence(ChainPresence::Faulted { found: 5 });
 
     assert_eq!(handle.present_chain_count(), 1);
@@ -213,16 +219,20 @@ fn present_chain_count_counts_only_present() {
 fn share_counts_sum_across_chains() {
     let handle = table(3);
     for _ in 0..3 {
-        handle.chain(0).record_share(&some_target(), 0);
+        handle
+            .chain(HashboardIndex(0))
+            .record_share(&some_target(), 0);
     }
     for _ in 0..5 {
-        handle.chain(1).record_share(&some_target(), 0);
+        handle
+            .chain(HashboardIndex(1))
+            .record_share(&some_target(), 0);
     }
 
     assert_eq!(handle.machine_share_count(), 8);
-    assert_eq!(handle.chain(0).share_count(), 3);
-    assert_eq!(handle.chain(1).share_count(), 5);
-    assert_eq!(handle.chain(2).share_count(), 0);
+    assert_eq!(handle.chain(HashboardIndex(0)).share_count(), 3);
+    assert_eq!(handle.chain(HashboardIndex(1)).share_count(), 5);
+    assert_eq!(handle.chain(HashboardIndex(2)).share_count(), 0);
 }
 
 /// The desync counter takes bytes at the line rate, so it is the one

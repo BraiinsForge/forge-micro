@@ -162,7 +162,7 @@ where
         // wiring mistake.
         for (position, (serial, _)) in chains.iter().enumerate() {
             assert_eq!(
-                serial.chain(),
+                serial.chain().slot(),
                 position,
                 "BUG: chain {position} wired to a Serial that declares another index"
             );

@@ -13,6 +13,7 @@ defmt   = [
     "dep:defmt",
     "embassy-time/defmt",
     "ubos-config/defmt",
+    "ubos-core/defmt",
     "ubos-events/defmt",
     "ubos-logging/defmt",
     "ubos-manager/defmt",

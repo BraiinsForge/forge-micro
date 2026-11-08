@@ -56,6 +56,7 @@ use crate::{Accumulator, Reading, TempSample, TemperatureSensor};
 use embassy_futures::poll_once;
 use embassy_time::{Duration, Instant, Ticker};
 use ubos_asic::{ChainPvt, ChipIndex};
+use ubos_core::index::HashboardIndex;
 use ubos_core::units::{Temperature, Voltage};
 use ubos_logging::{debug, warn};
 use ubos_metrics::chain::ChainStatsHandle;
@@ -163,9 +164,10 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
     /// chain's last answer, or the moment it was last seen turning
     /// present. A chain that halted and came back present carries no
     /// answer from before the halt against it.
-    fn chain_is_silent(&self, chain: usize, now: Instant) -> bool {
-        let became_present = self.became_present[chain].unwrap_or(self.started);
-        let last = self.pvt[chain]
+    fn chain_is_silent(&self, chain: HashboardIndex, now: Instant) -> bool {
+        let slot = chain.slot();
+        let became_present = self.became_present[slot].unwrap_or(self.started);
+        let last = self.pvt[slot]
             .last_answer()
             .unwrap_or(self.started)
             .max(became_present);
@@ -182,11 +184,12 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
 
     /// Record `chain` turning present so [`Self::chain_is_silent`] does
     /// not measure it against a timestamp from before the halt.
-    fn track_presence(&mut self, chain: usize, now: Instant, present: bool) {
-        if present && !self.was_present[chain] {
-            self.became_present[chain] = Some(now);
+    fn track_presence(&mut self, chain: HashboardIndex, now: Instant, present: bool) {
+        let slot = chain.slot();
+        if present && !self.was_present[slot] {
+            self.became_present[slot] = Some(now);
         }
-        self.was_present[chain] = present;
+        self.was_present[slot] = present;
     }
 
     /// Every [`REPORT_INTERVAL`]: each present chain's core voltage as a
@@ -204,7 +207,7 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
         // that stalled cannot make this fire on several polls in a row
         // to make up the missed ones.
         self.report_ticker.reset();
-        for chain in 0..CHAINS {
+        for chain in HashboardIndex::range(CHAINS) {
             // An absent chain has nothing to report and never will, so it
             // is passed over rather than warned about every interval.
             if self.stats.chain(chain).presence().is_present() {
@@ -215,23 +218,24 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
 
     /// One present chain's voltage gauge, die temperatures, their spread
     /// and log line.
-    async fn report_chain(&mut self, chain: usize) {
-        let answered = self.pvt[chain].last_answer();
-        if answered == self.reported_answer[chain] {
+    async fn report_chain(&mut self, chain: HashboardIndex) {
+        let slot = chain.slot();
+        let answered = self.pvt[slot].last_answer();
+        if answered == self.reported_answer[slot] {
             warn!(
                 "chain {} pvt: nothing reported since the last report",
                 chain
             );
             return;
         }
-        self.reported_answer[chain] = answered;
+        self.reported_answer[slot] = answered;
         for chip in (0..=ChipIndex::MAX).take(CHIPS) {
-            let Some(value) = self.pvt[chain].temperature(chip) else {
+            let Some(value) = self.pvt[slot].temperature(chip) else {
                 continue;
             };
             publish_chip_reading(chain, chip, value).await;
         }
-        if let Some(temperature) = self.pvt[chain].temperature_summary() {
+        if let Some(temperature) = self.pvt[slot].temperature_summary() {
             Self::publish_stat(chain, "lowest", temperature.lowest).await;
             Self::publish_stat(chain, "mean", temperature.mean).await;
             Self::publish_stat(chain, "highest", temperature.highest).await;
@@ -240,13 +244,13 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
                 chain, temperature.chips, temperature.lowest, temperature.highest, temperature.mean
             );
         }
-        let Some(voltage) = self.pvt[chain].voltage_summary() else {
+        let Some(voltage) = self.pvt[slot].voltage_summary() else {
             warn!("chain {} pvt: no chip has reported a voltage", chain);
             return;
         };
         Metric::indexed(
             CHAIN_VOLTAGE_METRIC,
-            &[("chain", chain)],
+            &[("chain", slot)],
             Value::Int(i64::from(voltage.total.mv()) * MICROVOLTS_PER_MILLIVOLT),
         )
         .push()
@@ -259,7 +263,7 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
 
     /// One chain's die-temperature statistic, tagged with the `stat`
     /// label so the three share a metric name.
-    async fn publish_stat(chain: usize, stat: &'static str, temperature: Temperature) {
+    async fn publish_stat(chain: HashboardIndex, stat: &'static str, temperature: Temperature) {
         let mut labels = chain_labels(chain);
         let _ = labels.push(Label {
             name: "stat",
@@ -279,7 +283,7 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
 /// a second label: the die-temperature spread also tags a `stat`, so it
 /// cannot go through [`Metric::indexed`] alone. Since a board can own
 /// more than one chain, the series would otherwise collide.
-pub(crate) fn chain_labels(chain: usize) -> Labels {
+pub(crate) fn chain_labels(chain: HashboardIndex) -> Labels {
     let mut chain_str = heapless::String::new();
     let _ = write!(chain_str, "{chain}");
     let mut labels = Labels::new();
@@ -305,12 +309,12 @@ impl<const CHIPS: usize, const CHAINS: usize> TemperatureSensor
     fn chain_voltage(&self) -> Option<Voltage> {
         let now = Instant::now();
         let mut lowest: Option<Voltage> = None;
-        for chain in 0..CHAINS {
+        for chain in HashboardIndex::range(CHAINS) {
             if !self.stats.chain(chain).presence().is_present() || self.chain_is_silent(chain, now)
             {
                 continue;
             }
-            let Some(voltage) = self.pvt[chain].voltage_summary() else {
+            let Some(voltage) = self.pvt[chain.slot()].voltage_summary() else {
                 continue;
             };
             if usize::from(voltage.chips) != CHIPS {
@@ -326,25 +330,26 @@ impl<const CHIPS: usize, const CHAINS: usize> TemperatureSensor
         let now = Instant::now();
         let mut chips: Option<Accumulator> = None;
         let mut any_present = false;
-        for chain in 0..CHAINS {
+        for chain in HashboardIndex::range(CHAINS) {
+            let slot = chain.slot();
             let present = self.stats.chain(chain).presence().is_present();
             self.track_presence(chain, now, present);
             if !present {
                 // A chain that dropped out must not keep reporting the
                 // last temperature it read while present.
                 self.stats.chain(chain).set_hottest(None);
-                self.silent_ticks[chain] = 0;
+                self.silent_ticks[slot] = 0;
                 continue;
             }
             any_present = true;
             let silent = self.chain_is_silent(chain, now);
-            self.silent_ticks[chain] = if silent {
-                self.silent_ticks[chain].saturating_add(1)
+            self.silent_ticks[slot] = if silent {
+                self.silent_ticks[slot].saturating_add(1)
             } else {
                 0
             };
             let summary = (!silent)
-                .then(|| self.pvt[chain].temperature_summary())
+                .then(|| self.pvt[slot].temperature_summary())
                 .flatten();
             self.stats
                 .chain(chain)

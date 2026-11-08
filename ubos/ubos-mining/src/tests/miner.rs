@@ -53,6 +53,7 @@ use embassy_futures::block_on;
 use embassy_futures::join::{join, join3};
 use ubos_asic::{BMM101_HASHBOARD, ChainDriver, ChipDescriptor, ChipError, HashboardDescriptor};
 use ubos_asic::{PollBatch, PollProgress, ResultMode, ShareTarget, SolutionBatch, Transport};
+use ubos_core::index::HashboardIndex;
 use ubos_core::units::Frequency;
 use ubos_metrics::chain::{ChainPresence, ChainStats, ChainStatsHandle};
 
@@ -325,7 +326,7 @@ fn run_bring_up_chain(
 
 #[test]
 fn a_chain_answering_the_expected_count_becomes_present_and_stays_out_of_reset() {
-    static ACTOR: Serial = Serial::new(0, 1);
+    static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
     static SESSION: AsicSession<1> = AsicSession::new();
     static STATS: [ChainStats; 1] = [ChainStats::new()];
     static ACTIVE: AtomicU8 = AtomicU8::new(1);
@@ -334,7 +335,7 @@ fn a_chain_answering_the_expected_count_becomes_present_and_stays_out_of_reset()
     let fixture = ChainFixture {
         actor: &ACTOR,
         session: &SESSION,
-        stats: ChainStatsHandle::new(&STATS, &ACTIVE).chain(0),
+        stats: ChainStatsHandle::new(&STATS, &ACTIVE).chain(HashboardIndex(0)),
     };
     let driver = BringUpDriver::new(&[EXPECTED]);
 
@@ -352,7 +353,7 @@ fn a_chain_answering_the_expected_count_becomes_present_and_stays_out_of_reset()
 
 #[test]
 fn a_chain_answering_zero_chips_is_retried_to_the_budget_then_absent_and_left_in_reset() {
-    static ACTOR: Serial = Serial::new(0, 1);
+    static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
     static SESSION: AsicSession<1> = AsicSession::new();
     static STATS: [ChainStats; 1] = [ChainStats::new()];
     static ACTIVE: AtomicU8 = AtomicU8::new(1);
@@ -361,7 +362,7 @@ fn a_chain_answering_zero_chips_is_retried_to_the_budget_then_absent_and_left_in
     let fixture = ChainFixture {
         actor: &ACTOR,
         session: &SESSION,
-        stats: ChainStatsHandle::new(&STATS, &ACTIVE).chain(0),
+        stats: ChainStatsHandle::new(&STATS, &ACTIVE).chain(HashboardIndex(0)),
     };
     let driver = BringUpDriver::new(&[0]);
 
@@ -383,7 +384,7 @@ fn a_chain_answering_zero_chips_is_retried_to_the_budget_then_absent_and_left_in
 
 #[test]
 fn a_wrong_non_zero_count_is_retried_up_to_the_attempt_budget_then_faulted_and_left_in_reset() {
-    static ACTOR: Serial = Serial::new(0, 1);
+    static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
     static SESSION: AsicSession<1> = AsicSession::new();
     static STATS: [ChainStats; 1] = [ChainStats::new()];
     static ACTIVE: AtomicU8 = AtomicU8::new(1);
@@ -393,7 +394,7 @@ fn a_wrong_non_zero_count_is_retried_up_to_the_attempt_budget_then_faulted_and_l
     let fixture = ChainFixture {
         actor: &ACTOR,
         session: &SESSION,
-        stats: ChainStatsHandle::new(&STATS, &ACTIVE).chain(0),
+        stats: ChainStatsHandle::new(&STATS, &ACTIVE).chain(HashboardIndex(0)),
     };
     let driver = BringUpDriver::new(&[WRONG]);
 
@@ -420,7 +421,7 @@ fn a_wrong_non_zero_count_is_retried_up_to_the_attempt_budget_then_faulted_and_l
 
 #[test]
 fn a_refused_configure_spends_the_same_budget_and_ends_faulted_with_the_expected_count() {
-    static ACTOR: Serial = Serial::new(0, 1);
+    static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
     static SESSION: AsicSession<1> = AsicSession::new();
     static STATS: [ChainStats; 1] = [ChainStats::new()];
     static ACTIVE: AtomicU8 = AtomicU8::new(1);
@@ -429,7 +430,7 @@ fn a_refused_configure_spends_the_same_budget_and_ends_faulted_with_the_expected
     let fixture = ChainFixture {
         actor: &ACTOR,
         session: &SESSION,
-        stats: ChainStatsHandle::new(&STATS, &ACTIVE).chain(0),
+        stats: ChainStatsHandle::new(&STATS, &ACTIVE).chain(HashboardIndex(0)),
     };
     let driver = BringUpDriver::new(&[EXPECTED]).with_configure_err();
 
@@ -452,7 +453,7 @@ fn a_refused_configure_spends_the_same_budget_and_ends_faulted_with_the_expected
 
 #[test]
 fn a_chain_whose_pvt_sweep_reads_nothing_is_faulted_rather_than_present() {
-    static ACTOR: Serial = Serial::new(0, 1);
+    static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
     static SESSION: AsicSession<1> = AsicSession::new();
     static STATS: [ChainStats; 1] = [ChainStats::new()];
     static ACTIVE: AtomicU8 = AtomicU8::new(1);
@@ -461,7 +462,7 @@ fn a_chain_whose_pvt_sweep_reads_nothing_is_faulted_rather_than_present() {
     let fixture = ChainFixture {
         actor: &ACTOR,
         session: &SESSION,
-        stats: ChainStatsHandle::new(&STATS, &ACTIVE).chain(0),
+        stats: ChainStatsHandle::new(&STATS, &ACTIVE).chain(HashboardIndex(0)),
     };
     // The chain enumerates its full count and takes its configuration;
     // only the temperature read answers nothing.
@@ -487,7 +488,7 @@ fn a_chain_whose_pvt_sweep_reads_nothing_is_faulted_rather_than_present() {
 
 #[test]
 fn between_two_attempts_the_chains_reset_is_pulsed_enter_then_exit() {
-    static ACTOR: Serial = Serial::new(0, 1);
+    static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
     static SESSION: AsicSession<1> = AsicSession::new();
     static STATS: [ChainStats; 1] = [ChainStats::new()];
     static ACTIVE: AtomicU8 = AtomicU8::new(1);
@@ -497,7 +498,7 @@ fn between_two_attempts_the_chains_reset_is_pulsed_enter_then_exit() {
     let fixture = ChainFixture {
         actor: &ACTOR,
         session: &SESSION,
-        stats: ChainStatsHandle::new(&STATS, &ACTIVE).chain(0),
+        stats: ChainStatsHandle::new(&STATS, &ACTIVE).chain(HashboardIndex(0)),
     };
     let driver = BringUpDriver::new(&[WRONG]);
 
@@ -517,8 +518,8 @@ fn a_bring_up_with_no_chain_present_recovers() {
     // See the doc comment on `run_bring_up_chain`: the two actors
     // driven here must not overlap another test's `Serial::run`.
     critical_section::with(|_| {
-        static ACTOR_A: Serial = Serial::new(0, 2);
-        static ACTOR_B: Serial = Serial::new(1, 2);
+        static ACTOR_A: Serial = Serial::new(HashboardIndex(0), 2);
+        static ACTOR_B: Serial = Serial::new(HashboardIndex(1), 2);
         static SESSION: AsicSession<1, 2> = AsicSession::new();
         static STATS: [ChainStats; 2] = [ChainStats::new(), ChainStats::new()];
         static ACTIVE: AtomicU8 = AtomicU8::new(2);
@@ -532,7 +533,10 @@ fn a_bring_up_with_no_chain_present_recovers() {
         let mut miner = test_miner::<crate::tuner::Tuners, 2>(
             &psu,
             [&ACTOR_A, &ACTOR_B],
-            [stats_handle.chain(0), stats_handle.chain(1)],
+            [
+                stats_handle.chain(HashboardIndex(0)),
+                stats_handle.chain(HashboardIndex(1)),
+            ],
         );
         let mut subscription = test_config().0;
 
@@ -552,7 +556,7 @@ fn a_bring_up_with_no_chain_present_recovers() {
             &BMM101_HASHBOARD,
             BringUpDriver::new(&[0]),
             NoWork,
-            stats_handle.chain(0),
+            stats_handle.chain(HashboardIndex(0)),
         );
         let run_b = ACTOR_B.run(
             QuietSerial,
@@ -560,7 +564,7 @@ fn a_bring_up_with_no_chain_present_recovers() {
             &BMM101_HASHBOARD,
             BringUpDriver::new(&[0]),
             NoWork,
-            stats_handle.chain(1),
+            stats_handle.chain(HashboardIndex(1)),
         );
 
         let (bring_up_outcome, primary_run, secondary_run) =
@@ -577,7 +581,7 @@ fn a_bring_up_with_no_chain_present_recovers() {
 /// again, so an occasional empty cycle never reaches the park.
 #[test]
 fn empty_cycles_spend_the_outer_budget_and_a_good_cycle_starts_it_again() {
-    static ACTOR: Serial = Serial::new(0, 1);
+    static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
     static STATS: [ChainStats; 1] = [ChainStats::new()];
     static ACTIVE: AtomicU8 = AtomicU8::new(1);
 
@@ -588,7 +592,11 @@ fn empty_cycles_spend_the_outer_budget_and_a_good_cycle_starts_it_again() {
         behavior: Cell::new(VoltageWrite::Succeed),
     };
     let stats_handle = ChainStatsHandle::new(&STATS, &ACTIVE);
-    let mut miner = test_miner::<crate::tuner::Tuners, 1>(&psu, [&ACTOR], [stats_handle.chain(0)]);
+    let mut miner = test_miner::<crate::tuner::Tuners, 1>(
+        &psu,
+        [&ACTOR],
+        [stats_handle.chain(HashboardIndex(0))],
+    );
 
     for cycle in 1..super::BRING_UP_CYCLES {
         assert!(
@@ -613,8 +621,8 @@ fn empty_cycles_spend_the_outer_budget_and_a_good_cycle_starts_it_again() {
 fn a_bring_up_with_one_chain_present_starts_work() {
     // See the doc comment on `run_bring_up_chain`.
     critical_section::with(|_| {
-        static ACTOR_A: Serial = Serial::new(0, 2);
-        static ACTOR_B: Serial = Serial::new(1, 2);
+        static ACTOR_A: Serial = Serial::new(HashboardIndex(0), 2);
+        static ACTOR_B: Serial = Serial::new(HashboardIndex(1), 2);
         static SESSION: AsicSession<1, 2> = AsicSession::new();
         static STATS: [ChainStats; 2] = [ChainStats::new(), ChainStats::new()];
         static ACTIVE: AtomicU8 = AtomicU8::new(2);
@@ -629,7 +637,10 @@ fn a_bring_up_with_one_chain_present_starts_work() {
         let mut miner = test_miner::<crate::tuner::Tuners, 2>(
             &psu,
             [&ACTOR_A, &ACTOR_B],
-            [stats_handle.chain(0), stats_handle.chain(1)],
+            [
+                stats_handle.chain(HashboardIndex(0)),
+                stats_handle.chain(HashboardIndex(1)),
+            ],
         );
         let mut subscription = test_config().0;
 
@@ -650,7 +661,7 @@ fn a_bring_up_with_one_chain_present_starts_work() {
             &BMM101_HASHBOARD,
             BringUpDriver::new(&[EXPECTED]),
             NoWork,
-            stats_handle.chain(0),
+            stats_handle.chain(HashboardIndex(0)),
         );
         let run_b = ACTOR_B.run(
             QuietSerial,
@@ -658,7 +669,7 @@ fn a_bring_up_with_one_chain_present_starts_work() {
             &BMM101_HASHBOARD,
             BringUpDriver::new(&[0]),
             NoWork,
-            stats_handle.chain(1),
+            stats_handle.chain(HashboardIndex(1)),
         );
 
         let (bring_up_outcome, primary_run, secondary_run) =
@@ -667,10 +678,13 @@ fn a_bring_up_with_one_chain_present_starts_work() {
         assert!(matches!(secondary_run, Ok(())));
         assert!(matches!(bring_up_outcome, Some(MinerState::StartWork(_))));
         assert_eq!(
-            stats_handle.chain(0).presence(),
+            stats_handle.chain(HashboardIndex(0)).presence(),
             ChainPresence::Present { chips: EXPECTED }
         );
-        assert_eq!(stats_handle.chain(1).presence(), ChainPresence::Absent);
+        assert_eq!(
+            stats_handle.chain(HashboardIndex(1)).presence(),
+            ChainPresence::Absent
+        );
     });
 }
 
@@ -809,9 +823,9 @@ fn test_config() -> (
 #[test]
 fn plans_order_shared_rail_writes_and_preserve_successful_partial_progress() {
     critical_section::with(|_| {
-        static A: Serial = Serial::new(0, 3);
-        static ABSENT: Serial = Serial::new(1, 3);
-        static B: Serial = Serial::new(2, 3);
+        static A: Serial = Serial::new(HashboardIndex(0), 3);
+        static ABSENT: Serial = Serial::new(HashboardIndex(1), 3);
+        static B: Serial = Serial::new(HashboardIndex(2), 3);
         static STATS: [ChainStats; 3] = [const { ChainStats::new() }; 3];
         static SESSION: AsicSession<1, 3> = AsicSession::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));

@@ -29,6 +29,7 @@
 //! the display and the metrics publisher read is `ubos_metrics::chain`.
 
 use embassy_time::{Duration, Timer};
+use ubos_core::index::HashboardIndex;
 use ubos_core::units::Frequency;
 use ubos_logging::{Debug2Format, error, warn};
 
@@ -98,7 +99,7 @@ impl<R: ResetPin> ChainHandle<R> {
     /// boot-baud enumerate reads no chips and the decision table would
     /// file a real board as absent.
     pub(crate) async fn bring_up(&mut self, expected: u8) {
-        let index = truncate_chain(self.chain());
+        let index = self.chain().0;
         let mut attempt = 1u8;
         let presence = loop {
             let _ = self.serial.reset().await;
@@ -196,17 +197,10 @@ impl<R: ResetPin> ChainHandle<R> {
     }
 }
 
-/// Narrow a chain index to the `u8` the event catalog carries. Board
-/// chain counts are single digits; this only guards against a future
-/// board exceeding that.
-fn truncate_chain(chain: usize) -> u8 {
-    u8::try_from(chain).unwrap_or(u8::MAX)
-}
-
 /// The serial actor answers in the transport's own error types; this
 /// impl is where they become the one [`MinerError`] the miner handles.
 impl<R: ResetPin> ChainControl for ChainHandle<R> {
-    fn chain(&self) -> usize {
+    fn chain(&self) -> HashboardIndex {
         self.serial.chain()
     }
 

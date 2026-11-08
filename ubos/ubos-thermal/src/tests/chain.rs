@@ -68,8 +68,8 @@ fn a_chain_that_has_answered_nothing_falls_silent_on_the_clock() {
     let sensor = ChainTemperature::<TEST_CHIPS, TEST_CHAINS>::new(pvt, stats);
     // A chain still enumerating has answered nothing and is not yet
     // silent; the window runs from where the sensor started.
-    assert!(!sensor.chain_is_silent(0, sensor.started));
-    assert!(sensor.chain_is_silent(0, sensor.started + MAX_SILENCE));
+    assert!(!sensor.chain_is_silent(HashboardIndex(0), sensor.started));
+    assert!(sensor.chain_is_silent(HashboardIndex(0), sensor.started + MAX_SILENCE));
 }
 
 #[test]
@@ -78,7 +78,7 @@ fn one_chip_answering_keeps_the_whole_chain_fresh() {
     pvt[1].record(2, Some(Temperature::from_celsius_f64(55.5)), None);
     let sensor = ChainTemperature::<TEST_CHIPS, TEST_CHAINS>::new(pvt, stats);
     let now = Instant::now();
-    assert!(!sensor.chain_is_silent(1, now));
+    assert!(!sensor.chain_is_silent(HashboardIndex(1), now));
     // Three chips have never answered, and the reading stands on the one
     // that did.
     assert_eq!(
@@ -98,7 +98,7 @@ fn a_failed_read_does_not_hold_the_chain_open() {
     // Reads that carry nothing keep arriving; the clock still runs from
     // the last real reading.
     pvt[0].record(0, None, None);
-    assert!(sensor.chain_is_silent(0, answered + MAX_SILENCE));
+    assert!(sensor.chain_is_silent(HashboardIndex(0), answered + MAX_SILENCE));
 }
 
 #[test]
@@ -122,11 +122,11 @@ fn the_sample_is_the_hottest_and_the_mean_die_of_every_present_chain() {
     );
     // Each chain's own hottest die feeds its dashboard column.
     assert_eq!(
-        stats.chain(0).hottest(),
+        stats.chain(HashboardIndex(0)).hottest(),
         Some(Temperature::from_celsius(63))
     );
     assert_eq!(
-        stats.chain(1).hottest(),
+        stats.chain(HashboardIndex(1)).hottest(),
         Some(Temperature::from_celsius(72))
     );
 }
@@ -144,7 +144,7 @@ fn a_present_chain_with_no_reading_does_not_hold_back_a_hot_sample() {
     assert_eq!(temps.chip.map(|chip| chip.max.millicelsius()), Some(60_000));
     // Chain 1's silence still reaches the dashboard through its own
     // accounting, even though it did not block the sample.
-    assert_eq!(stats.chain(1).hottest(), None);
+    assert_eq!(stats.chain(HashboardIndex(1)).hottest(), None);
 }
 
 #[test]
@@ -165,9 +165,11 @@ fn present_chains_that_answered_nothing_read_as_unreadable() {
 #[test]
 fn an_absent_chain_is_skipped_rather_than_read_as_silent() {
     let (_clock, pvt, stats) = present_board();
-    stats.chain(1).set_presence(ChainPresence::Absent);
     stats
-        .chain(1)
+        .chain(HashboardIndex(1))
+        .set_presence(ChainPresence::Absent);
+    stats
+        .chain(HashboardIndex(1))
         .set_hottest(Some(Temperature::from_celsius(70)));
     pvt[0].record(0, Some(Temperature::from_celsius_f64(60.0)), None);
     let mut sensor = ChainTemperature::<TEST_CHIPS, TEST_CHAINS>::new(pvt, stats);
@@ -176,7 +178,7 @@ fn an_absent_chain_is_skipped_rather_than_read_as_silent() {
     assert_eq!(temps.chip.map(|chip| chip.max.millicelsius()), Some(60_000));
     // The connector holds no board, so its column clears rather than
     // standing at whatever it last read.
-    assert_eq!(stats.chain(1).hottest(), None);
+    assert_eq!(stats.chain(HashboardIndex(1)).hottest(), None);
 }
 
 #[test]
@@ -226,15 +228,15 @@ fn a_chain_present_again_after_a_halt_is_not_silent_on_the_pre_halt_answer() {
 
     // The chain drops out for longer than MAX_SILENCE, then comes back.
     let dropped_at = pre_halt_answer + Duration::from_secs(1);
-    sensor.track_presence(0, dropped_at, false);
+    sensor.track_presence(HashboardIndex(0), dropped_at, false);
     let back_at = dropped_at + MAX_SILENCE + Duration::from_secs(1);
-    sensor.track_presence(0, back_at, true);
+    sensor.track_presence(HashboardIndex(0), back_at, true);
 
     // Silence must be measured from `back_at`, not from the answer that
     // predates the halt, or the chain would read as already expired on
     // its first tick back.
-    assert!(!sensor.chain_is_silent(0, back_at));
-    assert!(sensor.chain_is_silent(0, back_at + MAX_SILENCE));
+    assert!(!sensor.chain_is_silent(HashboardIndex(0), back_at));
+    assert!(sensor.chain_is_silent(HashboardIndex(0), back_at + MAX_SILENCE));
 }
 
 #[test]

@@ -46,6 +46,7 @@
 
 use super::*;
 use ubos_asic::{PollBatch, SolutionBatch, rolled_version};
+use ubos_core::index::HashboardIndex;
 
 use crate::consts::WORK_REGISTRY_SLOTS;
 use crate::registry::WorkRegistry;
@@ -219,7 +220,7 @@ impl<'a, const N: usize> Harness<'a, N> {
         let driver = Bm13xxDriver::new(Chip::Bm1362);
         let registry = WorkRegistry::new(driver.work_slots());
         Self {
-            actor: Serial::new(0, 1),
+            actor: Serial::new(HashboardIndex(0), 1),
             session,
             receivers: core::array::from_fn(|slot| {
                 session
@@ -691,7 +692,7 @@ fn run_command_over<const N: usize>(
 
 #[test]
 fn start_sending_work_arms_the_poll_cadence_only_for_a_poll_driver() {
-    let actor = Serial::new(0, 1);
+    let actor = Serial::new(HashboardIndex(0), 1);
     let chain_stats = ChainStats::new();
 
     let mut state = CommandState::new();
@@ -724,7 +725,7 @@ fn start_sending_work_arms_the_poll_cadence_only_for_a_poll_driver() {
 
 #[test]
 fn stop_sending_work_clears_the_poll_cadence_armed_by_start_sending_work() {
-    let actor = Serial::new(0, 1);
+    let actor = Serial::new(HashboardIndex(0), 1);
     let chain_stats = ChainStats::new();
     let mut state = CommandState::new();
     let mut poll = StubDriver::new(POLL, 0);
@@ -759,7 +760,7 @@ fn stop_sending_work_clears_the_poll_cadence_armed_by_start_sending_work() {
 
 #[test]
 fn reset_drains_the_desync_tally_before_clearing_the_driver() {
-    let actor = Serial::new(0, 1);
+    let actor = Serial::new(HashboardIndex(0), 1);
     let chain_stats = ChainStats::new();
     let mut state = CommandState::new();
     state.work_ticker = Some(Ticker::every(Duration::from_millis(50)));
@@ -796,7 +797,7 @@ fn reset_drains_the_desync_tally_before_clearing_the_driver() {
 
 #[test]
 fn reset_enumerate_replies_with_the_drivers_chip_count_and_drains_desync() {
-    let actor = Serial::new(0, 1);
+    let actor = Serial::new(HashboardIndex(0), 1);
     let chain_stats = ChainStats::new();
     let mut state = CommandState::new();
     let mut driver = StubDriver::new(POLL, 5).with_enumerate_count(3);
@@ -820,7 +821,7 @@ fn reset_enumerate_replies_with_the_drivers_chip_count_and_drains_desync() {
 
 #[test]
 fn configure_records_the_frequency_returned_by_the_driver() {
-    let actor = Serial::new(0, 1);
+    let actor = Serial::new(HashboardIndex(0), 1);
     let chain_stats = ChainStats::new();
     chain_stats.set_frequency(Frequency::from_mhz(550));
     let mut state = CommandState::new();
@@ -843,7 +844,7 @@ fn configure_records_the_frequency_returned_by_the_driver() {
 
 #[test]
 fn configure_propagates_the_drivers_baud_switch_error_and_still_drains_desync() {
-    let actor = Serial::new(0, 1);
+    let actor = Serial::new(HashboardIndex(0), 1);
     let chain_stats = ChainStats::new();
     let previous = Frequency::from_mhz(550);
     chain_stats.set_frequency(previous);
@@ -870,7 +871,7 @@ fn configure_propagates_the_drivers_baud_switch_error_and_still_drains_desync() 
 
 #[test]
 fn set_frequency_replies_with_a_unit_result_on_success() {
-    let actor = Serial::new(0, 1);
+    let actor = Serial::new(HashboardIndex(0), 1);
     let chain_stats = ChainStats::new();
     let mut state = CommandState::new();
     let mut driver = StubDriver::new(POLL, 0);
@@ -888,7 +889,7 @@ fn set_frequency_replies_with_a_unit_result_on_success() {
 
 #[test]
 fn set_frequency_propagates_the_drivers_unsupported_frequency_error() {
-    let actor = Serial::new(0, 1);
+    let actor = Serial::new(HashboardIndex(0), 1);
     let chain_stats = ChainStats::new();
     let mut state = CommandState::new();
     let freq = Frequency::from_mhz(900);
@@ -911,7 +912,7 @@ fn set_frequency_propagates_the_drivers_unsupported_frequency_error() {
 
 #[test]
 fn cmd_reply_discards_an_orphaned_predecessor_reply() {
-    let actor = Serial::new(0, 1);
+    let actor = Serial::new(HashboardIndex(0), 1);
     let caller = actor.cmd_reply(SerialMessage::StopSendingWork);
     let server = async {
         let (seq, _msg) = actor.cmd.receive().await;
@@ -936,7 +937,7 @@ fn work_is_available<const N: usize>(
     scheduler: &impl Scheduler<N>,
 ) -> bool {
     let reply = run_command_over(
-        &Serial::new(0, 1),
+        &Serial::new(HashboardIndex(0), 1),
         SerialMessage::WorkAvailable,
         &mut StubDriver::new(ResultMode::Push, 0),
         &mut CommandState::new(),
@@ -1332,7 +1333,7 @@ fn read_of_zero_bytes_ends_the_run_and_the_same_actor_serves_a_later_command() {
         static LINE_ERRORS: AtomicU32 = AtomicU32::new(0);
         static INGEST_CALLS: AtomicU32 = AtomicU32::new(0);
 
-        let actor = Serial::new(0, 1);
+        let actor = Serial::new(HashboardIndex(0), 1);
         let driver = ResultDriver::new(ResultMode::Push, &LINE_ERRORS, &INGEST_CALLS);
         let scheduler = Pinned::new(0);
         let serial = ScriptedSerial::new(ReadStep::Eof);
@@ -1389,7 +1390,7 @@ fn read_line_error_recovers_the_parser_and_the_actor_keeps_serving_commands() {
         static LINE_ERRORS: AtomicU32 = AtomicU32::new(0);
         static INGEST_CALLS: AtomicU32 = AtomicU32::new(0);
 
-        let actor = Serial::new(0, 1);
+        let actor = Serial::new(HashboardIndex(0), 1);
         let driver = ResultDriver::new(ResultMode::Push, &LINE_ERRORS, &INGEST_CALLS);
         let scheduler = Pinned::new(0);
         let serial = ScriptedSerial::new(ReadStep::Error(ErrorKind::Other));
@@ -1450,7 +1451,7 @@ fn a_poll_collects_a_solution_through_process_solutions_without_calling_ingest()
         };
         SESSION.pool_handle(0).publish_work(assignment);
 
-        let actor = Serial::new(0, 1);
+        let actor = Serial::new(HashboardIndex(0), 1);
         let mut driver = ResultDriver::new(POLL, &LINE_ERRORS, &INGEST_CALLS)
             .with_poll_solution(GENESIS_SOLUTION);
         // The chip has moved to a harder filter while its snapshot still
@@ -1525,7 +1526,7 @@ fn run_clamps_a_driver_reporting_more_work_slots_than_the_registry_holds() {
         let last = registry_slots + 2;
         SESSION.pool_handle(0).publish_work(numbered(1));
 
-        let actor = Serial::new(0, 1);
+        let actor = Serial::new(HashboardIndex(0), 1);
         let driver = ResultDriver::new(ResultMode::Push, &LINE_ERRORS, &INGEST_CALLS)
             .with_work_slots(WORK_REGISTRY_SLOTS + 8)
             .with_send_work_tracking(SendWorkTracking {
@@ -1623,7 +1624,7 @@ fn published_pool_weights_reach_the_scheduler() {
         static INGEST_CALLS: AtomicU32 = AtomicU32::new(0);
         static RECORDED: [AtomicU32; 8] = [const { AtomicU32::new(0) }; 8];
 
-        let actor = Serial::new(0, 1);
+        let actor = Serial::new(HashboardIndex(0), 1);
         let driver = ResultDriver::new(ResultMode::Push, &LINE_ERRORS, &INGEST_CALLS);
         let scheduler = WeightsRecorder::new(&RECORDED);
         let serial = ScriptedSerial::quiet();
@@ -1684,7 +1685,7 @@ fn a_command_waits_for_an_in_flight_poll_and_the_solution_survives() {
         };
         SESSION.pool_handle(0).publish_work(assignment);
 
-        let actor = Serial::new(0, 1);
+        let actor = Serial::new(HashboardIndex(0), 1);
         let driver = ResultDriver::new(POLL, &LINE_ERRORS, &INGEST_CALLS)
             .with_poll_solution(GENESIS_SOLUTION)
             .with_poll_rendezvous(&POLL_ENTERED, &POLL_GATE);
@@ -1809,7 +1810,7 @@ fn park_if_requested_parks_and_unparks_across_release() {
     use core::future::Future;
 
     critical_section::with(|_| {
-        let actor = Serial::new(0, 1);
+        let actor = Serial::new(HashboardIndex(0), 1);
         let mut serial = MockSerial::new();
         let waker = core::task::Waker::noop();
         let mut cx = core::task::Context::from_waker(waker);
@@ -1870,8 +1871,8 @@ fn one_park_request_wakes_every_running_actor() {
     use core::future::Future;
 
     critical_section::with(|_| {
-        let first = Serial::new(0, 2);
-        let second = Serial::new(1, 2);
+        let first = Serial::new(HashboardIndex(0), 2);
+        let second = Serial::new(HashboardIndex(1), 2);
         let mut first_serial = MockSerial::new();
         let mut second_serial = MockSerial::new();
         let waker = core::task::Waker::noop();
@@ -1943,7 +1944,7 @@ fn granted_assignment() -> WorkAssignment {
 /// chip echo of `version_bits`.
 fn dispatch_and_submit(
     session: &AsicSession<1>,
-    chain: usize,
+    chain: HashboardIndex,
     chains: usize,
     version_bits: u32,
 ) -> (WorkJob, Solution) {
@@ -2004,9 +2005,9 @@ fn two_chains_hash_different_versions_and_each_rebuilds_its_own_solution() {
     let assignment = granted_assignment();
     session.pool_handle(0).publish_work(assignment);
 
-    let (first_job, first_submitted) = dispatch_and_submit(&session, 0, 2, ECHO);
+    let (first_job, first_submitted) = dispatch_and_submit(&session, HashboardIndex(0), 2, ECHO);
     session.pool_handle(0).publish_work(assignment);
-    let (second_job, second_submitted) = dispatch_and_submit(&session, 1, 2, ECHO);
+    let (second_job, second_submitted) = dispatch_and_submit(&session, HashboardIndex(1), 2, ECHO);
 
     assert_ne!(
         first_job.version, second_job.version,
@@ -2054,21 +2055,21 @@ fn a_chain_with_nothing_to_roll_dispatches_no_work() {
     for chain in 1..3 {
         session.pool_handle(0).publish_work(assignment);
         assert!(
-            dispatch_job(&session, chain, 3).is_none(),
+            dispatch_job(&session, HashboardIndex(chain), 3).is_none(),
             "chain {chain} has no version bits of its own and must stay idle"
         );
     }
 
     session.pool_handle(0).publish_work(assignment);
     assert!(
-        dispatch_job(&session, 0, 3).is_some(),
+        dispatch_job(&session, HashboardIndex(0), 3).is_some(),
         "chain 0 keeps the whole grant and goes on mining"
     );
 }
 
 /// Dispatch one work tick for `chain` of `chains` and report the job it
 /// built, or `None` when the tick sent nothing.
-fn dispatch_job(session: &AsicSession<1>, chain: usize, chains: usize) -> Option<WorkJob> {
+fn dispatch_job(session: &AsicSession<1>, chain: HashboardIndex, chains: usize) -> Option<WorkJob> {
     let actor = Serial::new(chain, chains);
     let mut serial = MockSerial::new();
     let mut driver = StubDriver::new(ResultMode::Push, 0);
@@ -2099,7 +2100,7 @@ fn dispatch_job(session: &AsicSession<1>, chain: usize, chains: usize) -> Option
 fn table_numbers_each_actor_by_its_position() {
     static TABLE: [Serial; 3] = Serial::table();
     for (position, actor) in TABLE.iter().enumerate() {
-        assert_eq!(actor.chain(), position);
+        assert_eq!(usize::from(actor.chain().0), position);
         assert_eq!(actor.chains(), TABLE.len());
     }
 }

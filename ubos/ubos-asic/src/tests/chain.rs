@@ -112,7 +112,7 @@ fn rolled_version_merges_only_the_rolled_mask() {
 /// bits.
 #[test]
 fn partition_version_mask_single_chain_keeps_whole_mask() {
-    let partition = partition_version_mask(BIP320_VERSION_MASK, 0, 1);
+    let partition = partition_version_mask(BIP320_VERSION_MASK, HashboardIndex(0), 1);
     assert_eq!(partition.fixed_bits, 0);
     assert_eq!(partition.rolled_mask, BIP320_VERSION_MASK);
 }
@@ -125,8 +125,8 @@ fn partition_version_mask_single_chain_keeps_whole_mask() {
 fn partition_version_mask_three_chains_share_rolled_mask_and_differ_in_fixed_bits() {
     let granted = BIP320_VERSION_MASK;
     let chains = 3;
-    let partitions: heapless::Vec<_, 3> = (0..chains)
-        .map(|chain| partition_version_mask(granted, chain, chains))
+    let partitions: heapless::Vec<_, 3> = (0..3)
+        .map(|chain| partition_version_mask(granted, HashboardIndex(chain), chains))
         .collect();
 
     let rolled_mask = partitions[0].rolled_mask;
@@ -145,7 +145,7 @@ fn partition_version_mask_three_chains_share_rolled_mask_and_differ_in_fixed_bit
 #[test]
 fn partition_version_mask_empty_mask_stays_empty() {
     for chain in 0..3 {
-        let partition = partition_version_mask(0, chain, 3);
+        let partition = partition_version_mask(0, HashboardIndex(chain), 3);
         assert_eq!(partition.fixed_bits, 0);
         assert_eq!(partition.rolled_mask, 0);
     }
@@ -158,7 +158,7 @@ fn partition_version_mask_empty_mask_stays_empty() {
 fn partition_version_mask_too_few_bits_pins_every_chain_but_the_first() {
     let granted = 0x0000_2000;
     assert_eq!(
-        partition_version_mask(granted, 0, 3),
+        partition_version_mask(granted, HashboardIndex(0), 3),
         VersionPartition {
             fixed_bits: 0,
             rolled_mask: granted,
@@ -166,7 +166,7 @@ fn partition_version_mask_too_few_bits_pins_every_chain_but_the_first() {
     );
     for chain in 1..3 {
         assert_eq!(
-            partition_version_mask(granted, chain, 3),
+            partition_version_mask(granted, HashboardIndex(chain), 3),
             VersionPartition {
                 fixed_bits: 0,
                 rolled_mask: 0,
@@ -182,7 +182,7 @@ fn partition_version_mask_too_few_bits_pins_every_chain_but_the_first() {
 fn rolled_version_reconstructs_a_rolled_bits_only_echo_for_a_partitioned_chain() {
     let granted = BIP320_VERSION_MASK;
     let base = 0x2000_0000;
-    let chain = 1;
+    let chain = HashboardIndex(1);
     let chains = 3;
     let partition = partition_version_mask(granted, chain, chains);
 
@@ -211,7 +211,7 @@ fn rolled_version_reconstructs_a_rolled_bits_only_echo_for_a_partitioned_chain()
 fn rolled_version_reconstructs_a_whole_field_echo_for_a_partitioned_chain() {
     let granted = BIP320_VERSION_MASK;
     let base = 0x2000_0000;
-    let chain = 1;
+    let chain = HashboardIndex(1);
     let chains = 3;
     let partition = partition_version_mask(granted, chain, chains);
 

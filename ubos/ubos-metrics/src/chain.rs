@@ -55,6 +55,7 @@
 
 use crate::hashrate::HashrateEstimator;
 use portable_atomic::{AtomicI32, AtomicU8, AtomicU16, AtomicU32, AtomicU64, Ordering};
+use ubos_core::index::HashboardIndex;
 use ubos_core::units::{Frequency, Temperature};
 
 pub mod presence;
@@ -366,8 +367,8 @@ impl ChainStatsHandle {
     /// be checked against [`Self::chain_count`] before it reaches here,
     /// since a panic on this target restarts the board.
     #[must_use]
-    pub fn chain(&self, chain: usize) -> &'static ChainStats {
-        &self.stats[chain]
+    pub fn chain(&self, chain: HashboardIndex) -> &'static ChainStats {
+        &self.stats[chain.slot()]
     }
 
     /// Every wired chain's accounting, in chain order: the first

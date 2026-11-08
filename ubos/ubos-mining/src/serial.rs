@@ -66,6 +66,7 @@ use ubos_asic::{
     BaudRateError, ChainDriver, ChainSolution, ChipError, HashboardDescriptor, JobVersion,
     PollProgress, ResultMode, Transport, WorkJob, solution_hash,
 };
+use ubos_core::index::HashboardIndex;
 use ubos_core::units::Frequency;
 use ubos_logging::{Debug2Format, error, info, trace, warn};
 
@@ -412,7 +413,7 @@ pub struct Serial {
     /// partition a pool-granted version-rolling mask so sibling chains
     /// never hash identical headers, and to index into
     /// `ubos_metrics::chain`.
-    chain: usize,
+    chain: HashboardIndex,
     /// Total hashboard count this machine has wired up, the other half
     /// of the version-mask partition.
     chains: usize,
@@ -518,7 +519,7 @@ impl Serial {
     /// Construct a `Serial` for hashboard index `chain` of `chains` total
     /// chains the board wires up.
     #[must_use]
-    pub const fn new(chain: usize, chains: usize) -> Self {
+    pub const fn new(chain: HashboardIndex, chains: usize) -> Self {
         Self {
             cmd: Channel::new(),
             reply: Signal::new(),
@@ -540,10 +541,13 @@ impl Serial {
     /// `CHAIN_STATS` table is built the same way.
     #[must_use]
     pub const fn table<const N: usize>() -> [Self; N] {
-        let mut slots = [const { Self::new(0, N) }; N];
+        let mut slots = [const { Self::new(HashboardIndex(0), N) }; N];
+        assert!(N <= 256, "a table holds at most 256 hashboards");
         let mut chain = 0;
         while chain < N {
-            slots[chain].chain = chain;
+            #[allow(clippy::cast_possible_truncation)]
+            let index = HashboardIndex(chain as u8);
+            slots[chain].chain = index;
             chain += 1;
         }
         slots
@@ -575,7 +579,7 @@ impl Serial {
 
     /// This actor's index among the machine's hashboards.
     #[must_use]
-    pub const fn chain(&self) -> usize {
+    pub const fn chain(&self) -> HashboardIndex {
         self.chain
     }
 
@@ -1070,7 +1074,7 @@ impl Serial {
         // the chain count. Reported at error level because the machine
         // loses the hashrate of every chain but the first, and once per
         // grant rather than once per work tick.
-        let unsplittable = self.chain != 0 && self.chains > 1 && job_version.rolled_mask == 0;
+        let unsplittable = self.chain.0 != 0 && self.chains > 1 && job_version.rolled_mask == 0;
         if *last_version_mask != Some(assignment.version_mask) {
             *last_version_mask = Some(assignment.version_mask);
             if unsplittable {

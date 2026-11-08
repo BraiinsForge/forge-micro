@@ -24,6 +24,7 @@
 //! and returns plans without access to hardware. Bring-up stays on the handle.
 
 use embassy_time::Duration;
+use ubos_core::index::HashboardIndex;
 use ubos_core::units::Frequency;
 
 use crate::miner::MinerError;
@@ -31,7 +32,7 @@ use crate::miner::MinerError;
 #[allow(async_fn_in_trait)]
 pub(crate) trait ChainControl {
     /// This chain's index among the machine's hashboards.
-    fn chain(&self) -> usize;
+    fn chain(&self) -> HashboardIndex;
 
     /// Program the hash-clock frequency.
     async fn set_frequency(&self, freq: Frequency) -> Result<(), MinerError>;
