@@ -40,19 +40,34 @@ fn datasheet_example() {
     assert_eq!(high_byte_only.count(), 2 * 1296);
     // 1296 reads back 3034 RPM; 3000 RPM is 1310.72 counts.
     let count = TachReading::from_bits(u16::from_be_bytes(reading)).count();
-    assert_eq!(count_to_rpm(count, Range::RpmMin500).rpm(), 3034);
+    assert_eq!(
+        FanRpm::from(RawTach {
+            count,
+            range: Range::RpmMin500,
+        })
+        .rpm(),
+        3034
+    );
 }
 
 /// The valid maximum converts; above it and zero read 0.
 #[test]
 fn count_past_the_valid_maximum_reads_stopped() {
     assert_eq!(
-        count_to_rpm(TACH_COUNT_VALID_MAX, Range::RpmMin500).rpm(),
+        FanRpm::from(RawTach {
+            count: TACH_COUNT_VALID_MAX,
+            range: Range::RpmMin500,
+        })
+        .rpm(),
         501
     );
     for count in [TACH_COUNT_VALID_MAX + 1, 0x1FFF, 0] {
         assert_eq!(
-            count_to_rpm(count, Range::RpmMin500).rpm(),
+            FanRpm::from(RawTach {
+                count,
+                range: Range::RpmMin500,
+            })
+            .rpm(),
             0,
             "count {count}"
         );

@@ -139,15 +139,24 @@ fn test_rpm_factor_matches_parameters() {
     assert_eq!((n - 1) * f_tach * seconds / poles, RPM_FACTOR);
 }
 
+/// A TACH Reading count with the [`Range`] multiplier it was measured at.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RawTach {
+    count: u16,
+    range: Range,
+}
+
 /// RPM of a TACH Reading count; 0 above the valid maximum and at zero.
 /// Equation 4-3: RPM = [`RPM_FACTOR`] * m / COUNT.
 /// <https://ww1.microchip.com/downloads/aemDocuments/documents/MSLD/ProductDocuments/DataSheets/EMC2301-2-3-5-Data-Sheet-DS20006532A.pdf#page=17>
-fn count_to_rpm(count: u16, range: Range) -> FanRpm {
-    match count {
-        count @ 1..=TACH_COUNT_VALID_MAX => {
-            FanRpm::from_rpm(RPM_FACTOR * range.multiplier() / u32::from(count))
+impl From<RawTach> for FanRpm {
+    fn from(raw: RawTach) -> Self {
+        match raw.count {
+            count @ 1..=TACH_COUNT_VALID_MAX => {
+                Self::from_rpm(RPM_FACTOR * raw.range.multiplier() / u32::from(count))
+            }
+            _ => Self::from_rpm(0),
         }
-        _ => FanRpm::from_rpm(0),
     }
 }
 
@@ -258,7 +267,11 @@ impl Channel {
         // TACH reading bytes are high then low
         // <https://ww1.microchip.com/downloads/aemDocuments/documents/MSLD/ProductDocuments/DataSheets/EMC2301-2-3-5-Data-Sheet-DS20006532A.pdf#page=25>
         let reading = u16::from_be_bytes(reading);
-        count_to_rpm(TachReading::from_bits(reading).count(), range)
+        RawTach {
+            count: TachReading::from_bits(reading).count(),
+            range,
+        }
+        .into()
     }
 }
 
