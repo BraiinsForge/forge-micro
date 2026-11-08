@@ -17,13 +17,13 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Typed units for the seven quantities that cross module boundaries in
-//! the miner: frequency, voltage, power, efficiency, temperature, fan
-//! PWM, and fan RPM. Each newtype wraps the canonical scalar already
-//! used in the codebase (kHz, mV, mW, mJ/TH, millicelsius, percent,
-//! RPM) so the refactor is mechanical: bare integers at signatures
-//! become typed values, conversions stay inside the driver that owns
-//! the wire encoding. The newtypes are `#[repr(transparent)]` over
+//! Typed units for the eight quantities that cross module boundaries in
+//! the miner: frequency, voltage, power, current, efficiency,
+//! temperature, fan PWM, and fan RPM. Each newtype wraps the canonical
+//! scalar already used in the codebase (kHz, mV, mW, mA, mJ/TH,
+//! millicelsius, percent, RPM) so the refactor is mechanical: bare
+//! integers at signatures become typed values, conversions stay inside
+//! the driver that owns the wire encoding. The newtypes are `#[repr(transparent)]` over
 //! their inner scalar, so atomic storage and FFI layouts are unaffected.
 
 use core::fmt;
@@ -189,6 +189,32 @@ impl Power {
 
     #[must_use]
     pub const fn mw(self) -> u32 {
+        self.0
+    }
+}
+
+/// Electrical current in milliamps. PSU and shunt sensors report it, and
+/// a driver programs its limits with it.
+#[repr(transparent)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Current(u32);
+
+impl Current {
+    #[must_use]
+    pub const fn from_ma(ma: u32) -> Self {
+        Self(ma)
+    }
+
+    /// Construct from whole amps, for a value stated in amps, such as a
+    /// supply's rated limit.
+    #[must_use]
+    pub const fn from_amps(amps: u32) -> Self {
+        Self(amps.saturating_mul(1000))
+    }
+
+    #[must_use]
+    pub const fn ma(self) -> u32 {
         self.0
     }
 }

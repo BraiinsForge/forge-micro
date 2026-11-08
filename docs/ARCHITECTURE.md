@@ -35,7 +35,8 @@ map and the dependency direction.
 8. **Safety is separate from control.** The thermal safety trip is
    not the same module as the fan PID loop.
 9. **Typed units at module APIs.** `Frequency`, `Voltage`, `Power`,
-   `FanPwm`, `FanRpm`, and `Temperature` are newtypes in `ubos-core`.
+   `Current`, `Efficiency`, `FanPwm`, `FanRpm`, and `Temperature` are
+   newtypes in `ubos-core`.
 10. **Uniform module template.** Every subsystem follows the same
     skeleton: private `STATE_WATCH` and `COMMAND_CHANNEL` statics, a
     public `Command` enum with domain variants, a public `State`

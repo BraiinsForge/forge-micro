@@ -120,6 +120,13 @@ fn a_fractional_temperature_rounds_to_the_nearest_millicelsius() {
     assert_eq!(millicelsius(-1.4996), -1_500);
 }
 
+#[test]
+fn current_is_built_from_amps_and_milliamps() {
+    assert_eq!(Current::from_amps(3).ma(), 3000);
+    assert_eq!(Current::from_ma(1500).ma(), 1500);
+    assert_eq!(Current::from_amps(u32::MAX).ma(), u32::MAX);
+}
+
 /// A unit shown in thousandths of a larger unit writes three decimals of
 /// it, so a 6.25 MHz step and a millivolt both survive the log line.
 #[test]
