@@ -10,13 +10,14 @@ workspace = true
 
 [features]
 default = []
-defmt   = ["dep:defmt", "ubos-logging/defmt"]
+defmt   = ["dep:defmt", "ubos-core/defmt", "ubos-logging/defmt"]
 
 [dependencies]
 crc                = { workspace = true }
 defmt              = { workspace = true, optional = true }
 embedded-hal-async = { workspace = true }
 heapless           = { workspace = true }
+ubos-core          = { workspace = true }
 ubos-logging       = { workspace = true }
 zerocopy           = { workspace = true }
 
