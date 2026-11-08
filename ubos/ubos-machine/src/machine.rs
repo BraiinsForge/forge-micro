@@ -20,7 +20,7 @@
 //! Machine composition: control board plus hashboard, PSU, and sensors.
 
 use ubos_asic::HashboardDescriptor;
-use ubos_core::units::Power;
+use ubos_core::units::{Current, Power, Temperature, Voltage};
 use ubos_psu::sic45x::{LoopScale, Sic45xConfig};
 use ubos_psu::tps53647::{Phases, Tps53647Config};
 use ubos_psu::{BfmPsuDescriptor, BmmPsuDescriptor, ForgeAxePsuDescriptor};
@@ -180,30 +180,30 @@ const HASHNODE_SIC: Sic45xConfig = Sic45xConfig {
     address: 0x10,
     // Idle at the 0.6 V pre-open-core floor, matching BOS PARAMS_4X1. The
     // tuner programs the 4.8 V operating voltage before enumerating the chips.
-    initial_millivolts: 600,
+    initial_voltage: Voltage::from_mv(600),
     loop_scale: LoopScale::Scale0_25,
     // OV fault 5.0 V with headroom above the 4.8 V operating ceiling, per
     // BOS PARAMS_4X1. BOS sets its OV warn at 4.85 V, but this driver has no
     // warn field.
-    vout_ov_fault_millivolts: 5000,
-    vout_uv_fault_millivolts: 700,
-    vin_ov_fault_millivolts: 22_000,
-    vin_uv_warn_millivolts: 9_000,
+    vout_ov_fault: Voltage::from_mv(5000),
+    vout_uv_fault: Voltage::from_mv(700),
+    vin_ov_fault: Voltage::from_mv(22_000),
+    vin_uv_warn: Voltage::from_mv(9_000),
     // Actual SIC450 output limit is 40A, we set a lower to protect the chips.
     // Maximum achieved output current was 25.9A.
-    iout_oc_fault_milliamps: 28_000,
-    iout_oc_warn_milliamps: 26_000,
+    iout_oc_fault: Current::from_ma(28_000),
+    iout_oc_warn: Current::from_ma(26_000),
     // Input-current warning. 16A was the maximum achieved in practice.
     // Warning only; the device has no IIN fault trip.
-    iin_oc_warn_milliamps: 16_000,
-    ot_fault_celsius: 115,
-    ot_warn_celsius: 95,
-    power_good_on_millivolts: 1080,
-    power_good_off_millivolts: 1020,
-    voltage_min_millivolts: 400,
+    iin_oc_warn: Current::from_ma(16_000),
+    ot_fault: Temperature::from_celsius(115),
+    ot_warn: Temperature::from_celsius(95),
+    power_good_on: Voltage::from_mv(1080),
+    power_good_off: Voltage::from_mv(1020),
+    voltage_min: Voltage::from_mv(400),
     // Single-sourced from the board descriptor so the regulator ceiling and
     // the tuner's `max_rail_voltage()` can never disagree.
-    voltage_max_millivolts: ubos_asic::BFMX4_HASHBOARD.max_psu_voltage.mv(),
+    voltage_max: ubos_asic::BFMX4_HASHBOARD.max_psu_voltage,
 };
 
 /// Hashnode PSU config. The INA230 address (0x43), 2 mΩ shunt, and 30 A
@@ -256,7 +256,7 @@ pub const FORGE_AXE_SENSORS: [SensorDescriptor; 3] = [
 const FORGE_AXE_TPS: Tps53647Config = Tps53647Config {
     // Single-sourced from the board descriptor so the regulator
     // ceiling and the tuner's `max_rail_voltage()` can never disagree.
-    voltage_max_millivolts: ubos_asic::FORGE_AXE_HASHBOARD.max_psu_voltage.mv(),
+    voltage_max: ubos_asic::FORGE_AXE_HASHBOARD.max_psu_voltage,
     // The board populates three power stages.
     phases: Some(Phases::Three),
     ..Tps53647Config::DEFAULT

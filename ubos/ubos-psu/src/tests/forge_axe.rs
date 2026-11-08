@@ -42,11 +42,11 @@ fn init_transactions() -> Vec<Transaction> {
         VOUT_COMMAND, VOUT_MAX, VOUT_MODE, VOUT_MODE_VID_VR120, encode_vid,
     };
     let config = Tps53647Config::DEFAULT;
-    let vout_max = u16::from(encode_vid(config.voltage_max_millivolts)).to_le_bytes();
-    let ot_fault = (config.ot_fault_celsius as u16).to_le_bytes();
-    let ot_warn = (config.ot_warn_celsius as u16).to_le_bytes();
-    let vin_ov = (((config.vin_ov_fault_millivolts + 500) / 1000) as u16).to_le_bytes();
-    let vout_cmd = u16::from(encode_vid(config.initial_millivolts)).to_le_bytes();
+    let vout_max = u16::from(encode_vid(config.voltage_max)).to_le_bytes();
+    let ot_fault = crate::sic45x::encode_temp(config.ot_fault).to_le_bytes();
+    let ot_warn = crate::sic45x::encode_temp(config.ot_warn).to_le_bytes();
+    let vin_ov = crate::tps53647::encode_vin_ov(config.vin_ov_fault).to_le_bytes();
+    let vout_cmd = u16::from(encode_vid(config.initial_voltage)).to_le_bytes();
     vec![
         Transaction::write_read(config.address, vec![VOUT_MODE], vec![VOUT_MODE_VID_VR120]),
         Transaction::write(config.address, vec![VOUT_MAX, vout_max[0], vout_max[1]]),

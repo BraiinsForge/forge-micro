@@ -101,7 +101,7 @@ impl<I: I2c + 'static> Psu for ForgeAxePsu<I> {
     async fn set_voltage(&self, voltage: Voltage) -> Result<(), Error<I::Error>> {
         let mut psu = self.shared.acquire().await?;
         let (i2c, config) = psu.split();
-        let result = tps53647::set_voltage(i2c, &config.tps, voltage.mv()).await;
+        let result = tps53647::set_voltage(i2c, &config.tps, voltage).await;
         // Record the commanded value so telemetry consumers can compare
         // it with the READ_VOUT readback. Only on success: a failed
         // write leaves the rail at the previous commanded value.
@@ -114,25 +114,19 @@ impl<I: I2c + 'static> Psu for ForgeAxePsu<I> {
     async fn read_input_power(&self) -> Result<Power, Error<I::Error>> {
         let mut psu = self.shared.acquire().await?;
         let (i2c, config) = psu.split();
-        tps53647::read_pin_mw(i2c, &config.tps)
-            .await
-            .map(Power::from_mw)
+        tps53647::read_pin(i2c, &config.tps).await
     }
 
     async fn read_output_power(&self) -> Result<Power, Error<I::Error>> {
         let mut psu = self.shared.acquire().await?;
         let (i2c, config) = psu.split();
-        tps53647::read_pout_mw(i2c, &config.tps)
-            .await
-            .map(Power::from_mw)
+        tps53647::read_pout(i2c, &config.tps).await
     }
 
     async fn read_output_voltage(&self) -> Result<Voltage, Error<I::Error>> {
         let mut psu = self.shared.acquire().await?;
         let (i2c, config) = psu.split();
-        tps53647::read_vout_mv(i2c, &config.tps)
-            .await
-            .map(Voltage::from_mv)
+        tps53647::read_vout(i2c, &config.tps).await
     }
 
     fn voltage_source(&self) -> Option<&'static str> {

@@ -19,6 +19,7 @@
 
 use super::*;
 use embedded_hal_mock::eh1::i2c::{Mock, Transaction};
+use ubos_core::units::{Power, Voltage};
 
 fn run<F: core::future::Future>(future: F) -> F::Output {
     embassy_futures::block_on(future)
@@ -28,17 +29,17 @@ fn run<F: core::future::Future>(future: F) -> F::Output {
 fn vid_codec_round_trips_the_vr120_table() {
     // Table anchors from the datasheet: 01h = 250 mV, floor + 5 mV
     // per step, FFh = 1520 mV.
-    assert_eq!(encode_vid(250), 0x01);
-    assert_eq!(encode_vid(1200), 0xBF);
-    assert_eq!(encode_vid(1520), 0xFF);
-    assert_eq!(decode_vid_mv(0x01), 250);
-    assert_eq!(decode_vid_mv(0xBF), 1200);
-    assert_eq!(decode_vid_mv(0xFF), 1520);
+    assert_eq!(encode_vid(Voltage::from_mv(250)), 0x01);
+    assert_eq!(encode_vid(Voltage::from_mv(1200)), 0xBF);
+    assert_eq!(encode_vid(Voltage::from_mv(1520)), 0xFF);
+    assert_eq!(Voltage::from(RawVid(0x01)), Voltage::from_mv(250));
+    assert_eq!(Voltage::from(RawVid(0xBF)), Voltage::from_mv(1200));
+    assert_eq!(Voltage::from(RawVid(0xFF)), Voltage::from_mv(1520));
     // VID 0 means "off", not a voltage.
-    assert_eq!(decode_vid_mv(0x00), 0);
+    assert_eq!(Voltage::from(RawVid(0x00)), Voltage::from_mv(0));
     // Off-grid values round to the nearest 5 mV step.
-    assert_eq!(encode_vid(1202), 0xBF);
-    assert_eq!(encode_vid(1203), 0xC0);
+    assert_eq!(encode_vid(Voltage::from_mv(1202)), 0xBF);
+    assert_eq!(encode_vid(Voltage::from_mv(1203)), 0xC0);
 }
 
 #[test]
@@ -58,11 +59,11 @@ fn status_decode_maps_the_pmbus_fault_bits() {
 
 /// Build the init wire sequence for a `Tps53647Config`.
 fn init_transactions(config: &Tps53647Config) -> Vec<Transaction> {
-    let vout_max = u16::from(encode_vid(config.voltage_max_millivolts)).to_le_bytes();
-    let ot_fault = (config.ot_fault_celsius as u16).to_le_bytes();
-    let ot_warn = (config.ot_warn_celsius as u16).to_le_bytes();
-    let vin_ov = (((config.vin_ov_fault_millivolts + 500) / 1000) as u16).to_le_bytes();
-    let vout_cmd = u16::from(encode_vid(config.initial_millivolts)).to_le_bytes();
+    let vout_max = u16::from(encode_vid(config.voltage_max)).to_le_bytes();
+    let ot_fault = crate::sic45x::encode_temp(config.ot_fault).to_le_bytes();
+    let ot_warn = crate::sic45x::encode_temp(config.ot_warn).to_le_bytes();
+    let vin_ov = encode_vin_ov(config.vin_ov_fault).to_le_bytes();
+    let vout_cmd = u16::from(encode_vid(config.initial_voltage)).to_le_bytes();
     let mut transactions = vec![Transaction::write_read(
         config.address,
         vec![VOUT_MODE],
@@ -183,16 +184,16 @@ fn set_voltage_writes_the_vid_and_rejects_out_of_range() {
         config.address,
         vec![VOUT_COMMAND, 0xBF, 0x00],
     )]);
-    run(set_voltage(&mut bus, &config, 1200)).expect("in-range voltage");
+    run(set_voltage(&mut bus, &config, Voltage::from_mv(1200))).expect("in-range voltage");
     bus.done();
 
     let mut bus = Mock::new(&[]);
     assert!(matches!(
-        run(set_voltage(&mut bus, &config, 249)),
+        run(set_voltage(&mut bus, &config, Voltage::from_mv(249))),
         Err(Error::OutOfRange)
     ));
     assert!(matches!(
-        run(set_voltage(&mut bus, &config, 1521)),
+        run(set_voltage(&mut bus, &config, Voltage::from_mv(1521))),
         Err(Error::OutOfRange)
     ));
     bus.done();
@@ -206,8 +207,8 @@ fn read_vout_decodes_the_vid_word() {
         vec![READ_VOUT],
         vec![0xBF, 0x00],
     )]);
-    let millivolts = run(read_vout_mv(&mut bus, &config)).expect("read should succeed");
-    assert_eq!(millivolts, 1200);
+    let voltage = run(read_vout(&mut bus, &config)).expect("read should succeed");
+    assert_eq!(voltage, Voltage::from_mv(1200));
     bus.done();
 }
 
@@ -221,8 +222,8 @@ fn read_pout_decodes_linear11_to_milliwatts() {
         vec![READ_POUT],
         vec![raw[0], raw[1]],
     )]);
-    let milliwatts = run(read_pout_mw(&mut bus, &config)).expect("read should succeed");
-    assert_eq!(milliwatts, 100_000);
+    let power = run(read_pout(&mut bus, &config)).expect("read should succeed");
+    assert_eq!(power, Power::from_mw(100_000));
     bus.done();
 }
 
@@ -237,7 +238,14 @@ fn read_pin_decodes_linear11_to_milliwatts() {
         vec![READ_PIN],
         vec![raw[0], raw[1]],
     )]);
-    let milliwatts = run(read_pin_mw(&mut bus, &config)).expect("read should succeed");
-    assert_eq!(milliwatts, 100_500);
+    let power = run(read_pin(&mut bus, &config)).expect("read should succeed");
+    assert_eq!(power, Power::from_mw(100_500));
     bus.done();
+}
+
+#[test]
+fn vin_ov_limit_encodes_whole_volts_rounded() {
+    assert_eq!(encode_vin_ov(Voltage::from_mv(14_000)), 14);
+    assert_eq!(encode_vin_ov(Voltage::from_mv(14_499)), 14);
+    assert_eq!(encode_vin_ov(Voltage::from_mv(14_500)), 15);
 }

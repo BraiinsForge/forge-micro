@@ -19,7 +19,7 @@
 
 //! Driver for the Vishay `SIC45x` `PMBus` DC/DC converter.
 //!
-//! All configuration is integer (mV / mA / °C). The chip address is
+//! All configuration is in typed units. The chip address is
 //! supplied by the caller — this module is address-parameterized.
 //!
 //! Every operation here takes the bus as `&mut I` and the device config
@@ -35,6 +35,7 @@
 //! it, because the config still travels by hand.
 
 use embedded_hal_async::i2c::I2c;
+use ubos_core::units::{Current, Power, Temperature, Voltage};
 
 use crate::Error;
 use crate::pmbus::{decode_status, write_word};
@@ -111,47 +112,64 @@ impl LoopScale {
     }
 }
 
-/// Encode a VOUT value in millivolts to the ULINEAR16 register format.
+/// Encode a VOUT voltage to the ULINEAR16 register format.
 ///
 /// LSB = 1/512 V. Rounds to nearest representable value.
-pub(crate) const fn encode_vout(millivolts: u32) -> u16 {
-    ((millivolts * 512 + 500) / 1000) as u16
+pub(crate) const fn encode_vout(voltage: Voltage) -> u16 {
+    ((voltage.mv() * 512 + 500) / 1000) as u16
 }
 
-/// Decode a ULINEAR16 VOUT register reading to millivolts.
-///
+/// A raw `READ_VOUT` word in the ULINEAR16 register format.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct RawVout(pub(crate) u16);
+
 /// Inverse of [`encode_vout`]: LSB = 1/512 V, rounded to nearest mV.
-pub(crate) const fn decode_vout_mv(raw: u16) -> u32 {
-    (raw as u32 * 1000 + 256) / 512
+impl From<RawVout> for Voltage {
+    fn from(raw: RawVout) -> Self {
+        Self::from_mv((u32::from(raw.0) * 1000 + 256) / 512)
+    }
 }
 
-/// Encode a millivolt or milliamp value to LINEAR11 format with
+/// Encode a value in thousandths of a unit to LINEAR11 format with
 /// exponent −1, so the LSB is 0.5 units.
-///
-/// Used for VIN limits in millivolts and IOUT limits in milliamps.
-pub(crate) const fn encode_lin11_half(milli: u32) -> u16 {
+const fn encode_lin11_half(milli: u32) -> u16 {
     // Exponent field -1 = 0x1F in 5-bit two's complement → upper 5
     // bits = 11111 = 0xF8xx. Mantissa = milli / 0.5 = milli*2/1000,
     // rounded to nearest: (milli + 250) / 500.
     0xF800 | (((milli + 250) / 500) as u16)
 }
 
-/// Encode a temperature in whole degrees Celsius to LINEAR11 format
-/// with exponent 0 (LSB = 1 °C).
-pub(crate) const fn encode_temp(celsius: u32) -> u16 {
-    // Temperature limits are whole degrees well under u16::MAX, so the
-    // truncation never loses significant bits.
-    celsius as u16
+/// Encode a VIN limit to LINEAR11 format with exponent −1.
+pub(crate) const fn encode_lin11_half_voltage(voltage: Voltage) -> u16 {
+    encode_lin11_half(voltage.mv())
 }
 
-/// Decode a `ULINEAR11` register value (`READ_POUT` / `READ_PIN`) to
-/// milli-units.
+/// Encode an IOUT or IIN limit to LINEAR11 format with exponent −1.
+pub(crate) const fn encode_lin11_half_current(current: Current) -> u16 {
+    encode_lin11_half(current.ma())
+}
+
+/// Encode a temperature limit in whole degrees Celsius to LINEAR11
+/// format with exponent 0 (LSB = 1 °C).
+pub(crate) const fn encode_temp(temperature: Temperature) -> u16 {
+    // Temperature limits are whole degrees well under u16::MAX, so the
+    // truncation never loses significant bits.
+    temperature.celsius_i32().cast_unsigned() as u16
+}
+
+/// A raw `ULINEAR11` word, as `READ_POUT` and `READ_PIN` return it.
 ///
-/// `READ_POUT` and `READ_PIN` use an unsigned 11-bit mantissa with a signed
-/// 5-bit two's-complement exponent (per the `SIC45x` / `PMBus` spec), unlike
-/// the signed-mantissa `LINEAR11` used for VIN/IOUT. The result is always
-/// non-negative.
-pub(crate) const fn decode_ulin11_milli(raw: u16) -> i32 {
+/// It has an unsigned 11-bit mantissa with a signed 5-bit two's-complement
+/// exponent (per the `SIC45x` / `PMBus` spec), unlike the signed-mantissa
+/// `LINEAR11` used for VIN/IOUT.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct RawUlinear11(pub(crate) u16);
+
+/// Decode a `ULINEAR11` register value to milli-units.
+///
+/// Used for a power reading, so a negative result is residual noise
+/// around zero load and [`From<RawUlinear11>`] clamps it to zero.
+const fn decode_ulin11_milli(raw: u16) -> i32 {
     let mantissa = (raw & 0x07FF) as i64;
     let exponent_field = (raw >> 11) as i64;
     let exponent = if exponent_field & 0x10 != 0 {
@@ -174,45 +192,51 @@ pub(crate) const fn decode_ulin11_milli(raw: u16) -> i32 {
     }
 }
 
+impl From<RawUlinear11> for Power {
+    fn from(raw: RawUlinear11) -> Self {
+        Self::from_mw(decode_ulin11_milli(raw.0).max(0).cast_unsigned())
+    }
+}
+
 /// Configuration for the `SIC45x` `PMBus` DC/DC converter.
 ///
-/// All fields use integer units (mV, mA, °C). Embed this in a board
+/// All fields are typed units. Embed this in a board
 /// config struct; pass a reference to every driver function.
 #[derive(Clone, Copy, Debug)]
 pub struct Sic45xConfig {
     /// `PMBus` 7-bit address, selected by hardware resistor.
     pub address: u8,
     /// Output voltage to program during init.
-    pub initial_millivolts: u32,
+    pub initial_voltage: Voltage,
     /// Feedback divider scale to match the board's resistor network.
     pub loop_scale: LoopScale,
     /// VOUT overvoltage fault threshold.
-    pub vout_ov_fault_millivolts: u32,
+    pub vout_ov_fault: Voltage,
     /// VOUT undervoltage fault threshold.
-    pub vout_uv_fault_millivolts: u32,
+    pub vout_uv_fault: Voltage,
     /// VIN overvoltage fault threshold.
-    pub vin_ov_fault_millivolts: u32,
+    pub vin_ov_fault: Voltage,
     /// VIN undervoltage warning threshold.
-    pub vin_uv_warn_millivolts: u32,
+    pub vin_uv_warn: Voltage,
     /// IOUT overcurrent fault threshold.
-    pub iout_oc_fault_milliamps: u32,
+    pub iout_oc_fault: Current,
     /// IOUT overcurrent warning threshold.
-    pub iout_oc_warn_milliamps: u32,
+    pub iout_oc_warn: Current,
     /// IIN overcurrent warning threshold. The device has no IIN fault
     /// register, so input overcurrent only raises a warning.
-    pub iin_oc_warn_milliamps: u32,
+    pub iin_oc_warn: Current,
     /// Overtemperature fault threshold.
-    pub ot_fault_celsius: u32,
+    pub ot_fault: Temperature,
     /// Overtemperature warning threshold.
-    pub ot_warn_celsius: u32,
+    pub ot_warn: Temperature,
     /// `POWER_GOOD` asserts when VOUT rises above this threshold.
-    pub power_good_on_millivolts: u32,
+    pub power_good_on: Voltage,
     /// `POWER_GOOD` deasserts when VOUT falls below this threshold.
-    pub power_good_off_millivolts: u32,
+    pub power_good_off: Voltage,
     /// Minimum voltage accepted by [`set_voltage`].
-    pub voltage_min_millivolts: u32,
+    pub voltage_min: Voltage,
     /// Maximum voltage accepted by [`set_voltage`].
-    pub voltage_max_millivolts: u32,
+    pub voltage_max: Voltage,
 }
 
 impl Sic45xConfig {
@@ -220,21 +244,21 @@ impl Sic45xConfig {
     /// taken from the Femto miner.
     pub const DEFAULT: Self = Self {
         address: 0x10,
-        initial_millivolts: 600,
+        initial_voltage: Voltage::from_mv(600),
         loop_scale: LoopScale::Scale0_5,
-        vout_ov_fault_millivolts: 2650,
-        vout_uv_fault_millivolts: 350,
-        vin_ov_fault_millivolts: 18_000,
-        vin_uv_warn_millivolts: 9_000,
-        iout_oc_fault_milliamps: 25_000,
-        iout_oc_warn_milliamps: 20_000,
-        iin_oc_warn_milliamps: 5_000,
-        ot_fault_celsius: 115,
-        ot_warn_celsius: 95,
-        power_good_on_millivolts: 540,
-        power_good_off_millivolts: 510,
-        voltage_min_millivolts: 400,
-        voltage_max_millivolts: 2400,
+        vout_ov_fault: Voltage::from_mv(2650),
+        vout_uv_fault: Voltage::from_mv(350),
+        vin_ov_fault: Voltage::from_mv(18_000),
+        vin_uv_warn: Voltage::from_mv(9_000),
+        iout_oc_fault: Current::from_ma(25_000),
+        iout_oc_warn: Current::from_ma(20_000),
+        iin_oc_warn: Current::from_ma(5_000),
+        ot_fault: Temperature::from_celsius(115),
+        ot_warn: Temperature::from_celsius(95),
+        power_good_on: Voltage::from_mv(540),
+        power_good_off: Voltage::from_mv(510),
+        voltage_min: Voltage::from_mv(400),
+        voltage_max: Voltage::from_mv(2400),
     };
 }
 
@@ -277,65 +301,53 @@ where
         i2c,
         address,
         VOUT_OV_FAULT_LIMIT,
-        encode_vout(config.vout_ov_fault_millivolts),
+        encode_vout(config.vout_ov_fault),
     )
     .await?;
     write_word(
         i2c,
         address,
         VOUT_UV_FAULT_LIMIT,
-        encode_vout(config.vout_uv_fault_millivolts),
+        encode_vout(config.vout_uv_fault),
     )
     .await?;
     write_word(
         i2c,
         address,
         VIN_OV_FAULT_LIMIT,
-        encode_lin11_half(config.vin_ov_fault_millivolts),
+        encode_lin11_half_voltage(config.vin_ov_fault),
     )
     .await?;
     write_word(
         i2c,
         address,
         IOUT_OC_FAULT_LIMIT,
-        encode_lin11_half(config.iout_oc_fault_milliamps),
+        encode_lin11_half_current(config.iout_oc_fault),
     )
     .await?;
-    write_word(
-        i2c,
-        address,
-        OT_FAULT_LIMIT,
-        encode_temp(config.ot_fault_celsius),
-    )
-    .await?;
+    write_word(i2c, address, OT_FAULT_LIMIT, encode_temp(config.ot_fault)).await?;
     write_word(
         i2c,
         address,
         VIN_UV_WARN_LIMIT,
-        encode_lin11_half(config.vin_uv_warn_millivolts),
+        encode_lin11_half_voltage(config.vin_uv_warn),
     )
     .await?;
     write_word(
         i2c,
         address,
         IOUT_OC_WARN_LIMIT,
-        encode_lin11_half(config.iout_oc_warn_milliamps),
+        encode_lin11_half_current(config.iout_oc_warn),
     )
     .await?;
     write_word(
         i2c,
         address,
         IIN_OC_WARN_LIMIT,
-        encode_lin11_half(config.iin_oc_warn_milliamps),
+        encode_lin11_half_current(config.iin_oc_warn),
     )
     .await?;
-    write_word(
-        i2c,
-        address,
-        OT_WARN_LIMIT,
-        encode_temp(config.ot_warn_celsius),
-    )
-    .await?;
+    write_word(i2c, address, OT_WARN_LIMIT, encode_temp(config.ot_warn)).await?;
 
     i2c.write(
         address,
@@ -369,21 +381,21 @@ where
         i2c,
         address,
         POWER_GOOD_ON,
-        encode_vout(config.power_good_on_millivolts),
+        encode_vout(config.power_good_on),
     )
     .await?;
     write_word(
         i2c,
         address,
         POWER_GOOD_OFF,
-        encode_vout(config.power_good_off_millivolts),
+        encode_vout(config.power_good_off),
     )
     .await?;
     write_word(
         i2c,
         address,
         VOUT_COMMAND,
-        encode_vout(config.initial_millivolts),
+        encode_vout(config.initial_voltage),
     )
     .await?;
 
@@ -443,27 +455,27 @@ where
 /// # Errors
 ///
 /// Returns [`Error::OutOfRange`] without touching the bus if
-/// `millivolts` is outside the configured limits. Returns
+/// `voltage` is outside the configured limits. Returns
 /// [`Error::Bus`] on I2C failure.
 pub async fn set_voltage<I, E>(
     i2c: &mut I,
     config: &Sic45xConfig,
-    millivolts: u32,
+    voltage: Voltage,
 ) -> Result<(), Error<E>>
 where
     I: I2c<Error = E>,
     E: embedded_hal_async::i2c::Error,
 {
-    if millivolts < config.voltage_min_millivolts || millivolts > config.voltage_max_millivolts {
+    if voltage < config.voltage_min || voltage > config.voltage_max {
         return Err(Error::OutOfRange);
     }
-    let bytes = encode_vout(millivolts).to_le_bytes();
+    let bytes = encode_vout(voltage).to_le_bytes();
     i2c.write(config.address, &[VOUT_COMMAND, bytes[0], bytes[1]])
         .await
         .map_err(Error::Bus)
 }
 
-/// Read the output power via `READ_POUT` and decode to milliwatts.
+/// Read the output power via `READ_POUT`.
 ///
 /// Negative decoded values (e.g. during initial ramp) are clamped
 /// to zero.
@@ -471,7 +483,7 @@ where
 /// # Errors
 ///
 /// Returns [`Error::Bus`] on I2C failure.
-pub async fn read_pout_mw<I, E>(i2c: &mut I, config: &Sic45xConfig) -> Result<u32, Error<E>>
+pub async fn read_pout<I, E>(i2c: &mut I, config: &Sic45xConfig) -> Result<Power, Error<E>>
 where
     I: I2c<Error = E>,
     E: embedded_hal_async::i2c::Error,
@@ -481,7 +493,7 @@ where
         .await
         .map_err(Error::Bus)?;
     let raw = u16::from_le_bytes(buffer);
-    let milli = decode_ulin11_milli(raw);
+    let power: Power = RawUlinear11(raw).into();
     #[cfg(feature = "defmt")]
     ubos_logging::trace!(
         "SIC READ_POUT @{:x}: raw=[{:x} {:x}] word={:x} -> {} mW",
@@ -489,13 +501,12 @@ where
         buffer[0],
         buffer[1],
         raw,
-        milli,
+        power.mw(),
     );
-    // milli.max(0) is always non-negative; the cast is safe.
-    Ok(milli.max(0).cast_unsigned())
+    Ok(power)
 }
 
-/// Read `READ_VOUT` and decode the actual output voltage to millivolts.
+/// Read `READ_VOUT` and decode the actual output voltage.
 ///
 /// Unlike the INA230 (powered from the output rail, asleep until it
 /// comes up), the SIC reads its own VOUT from VIN and is available as
@@ -504,7 +515,7 @@ where
 /// # Errors
 ///
 /// Returns [`Error::Bus`] on I2C failure.
-pub async fn read_vout_mv<I, E>(i2c: &mut I, config: &Sic45xConfig) -> Result<u32, Error<E>>
+pub async fn read_vout<I, E>(i2c: &mut I, config: &Sic45xConfig) -> Result<Voltage, Error<E>>
 where
     I: I2c<Error = E>,
     E: embedded_hal_async::i2c::Error,
@@ -514,7 +525,7 @@ where
         .await
         .map_err(Error::Bus)?;
     let raw = u16::from_le_bytes(buffer);
-    let millivolts = decode_vout_mv(raw);
+    let voltage: Voltage = RawVout(raw).into();
     #[cfg(feature = "defmt")]
     ubos_logging::trace!(
         "SIC READ_VOUT @{:x}: raw=[{:x} {:x}] word={:x} -> {} mV",
@@ -522,9 +533,9 @@ where
         buffer[0],
         buffer[1],
         raw,
-        millivolts,
+        voltage.mv(),
     );
-    Ok(millivolts)
+    Ok(voltage)
 }
 
 /// Read `STATUS_BYTE` and decode into the shared [`crate::StatusFlags`] type.

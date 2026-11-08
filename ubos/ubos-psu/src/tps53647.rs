@@ -21,7 +21,7 @@
 //!
 //! Output voltage is commanded in the VR12.0 VID format (5 mV steps
 //! from a 250 mV floor); telemetry reads back in `PMBus` linear11.
-//! All configuration is integer (mV / °C). The chip address is
+//! All configuration is in typed units. The chip address is
 //! supplied by the caller — this module is address-parameterized.
 //!
 //! Every operation here takes the bus as `&mut I` and the device config
@@ -37,9 +37,11 @@
 //! it, because the config still travels by hand.
 
 use embedded_hal_async::i2c::I2c;
+use ubos_core::units::{Power, Temperature, Voltage};
 
 use crate::Error;
 use crate::pmbus::{decode_status, read_word, write_word};
+use crate::sic45x::RawUlinear11;
 
 #[cfg(test)]
 #[path = "tests/tps53647.rs"]
@@ -76,20 +78,33 @@ pub(crate) const VID_STEP_MILLIVOLTS: u32 = 5;
 /// Highest voltage the 8-bit table expresses (code `FFh`).
 pub(crate) const VID_CEILING_MILLIVOLTS: u32 = 1520;
 
-/// Encode a voltage in millivolts to the nearest VR12.0 VID code.
+/// Encode a voltage to the nearest VR12.0 VID code.
 /// Callers guarantee `VID_FLOOR_MILLIVOLTS ..= VID_CEILING_MILLIVOLTS`.
-pub(crate) const fn encode_vid(millivolts: u32) -> u8 {
-    let steps = (millivolts - VID_FLOOR_MILLIVOLTS + VID_STEP_MILLIVOLTS / 2) / VID_STEP_MILLIVOLTS;
+pub(crate) const fn encode_vid(voltage: Voltage) -> u8 {
+    let steps =
+        (voltage.mv() - VID_FLOOR_MILLIVOLTS + VID_STEP_MILLIVOLTS / 2) / VID_STEP_MILLIVOLTS;
     (steps + 1) as u8
 }
 
-/// Decode a VR12.0 VID code to millivolts. Code 0 is "off" and
+/// A raw VR12.0 VID code, as `READ_VOUT` returns it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct RawVid(pub(crate) u8);
+
+/// Decode a VR12.0 VID code to a voltage. Code 0 is "off" and
 /// decodes to 0 mV.
-pub(crate) const fn decode_vid_mv(vid: u8) -> u32 {
-    if vid == 0 {
-        return 0;
+impl From<RawVid> for Voltage {
+    fn from(raw: RawVid) -> Self {
+        if raw.0 == 0 {
+            return Self::from_mv(0);
+        }
+        Self::from_mv(VID_FLOOR_MILLIVOLTS + (u32::from(raw.0) - 1) * VID_STEP_MILLIVOLTS)
     }
-    VID_FLOOR_MILLIVOLTS + (vid as u32 - 1) * VID_STEP_MILLIVOLTS
+}
+
+/// Encode a VIN limit to the register format: linear11 with exponent 0,
+/// whole volts, rounded.
+pub(crate) const fn encode_vin_ov(voltage: Voltage) -> u16 {
+    ((voltage.mv() + 500) / 1000) as u16
 }
 
 /// Maximum operational phase count, the `PHASE_NUM` field of
@@ -128,18 +143,18 @@ pub struct Tps53647Config {
     pub address: u8,
     /// Output voltage to program during init. The rail stays off
     /// until `enable`; the tuner then anchors at open-core voltage.
-    pub initial_millivolts: u32,
+    pub initial_voltage: Voltage,
     /// VIN overvoltage fault threshold. 1 V register resolution.
-    pub vin_ov_fault_millivolts: u32,
+    pub vin_ov_fault: Voltage,
     /// Overtemperature fault threshold.
-    pub ot_fault_celsius: u32,
+    pub ot_fault: Temperature,
     /// Overtemperature warning threshold.
-    pub ot_warn_celsius: u32,
+    pub ot_warn: Temperature,
     /// Minimum voltage accepted by [`set_voltage`].
-    pub voltage_min_millivolts: u32,
+    pub voltage_min: Voltage,
     /// Maximum voltage accepted by [`set_voltage`]; also programmed
     /// into `VOUT_MAX` so the device enforces it.
-    pub voltage_max_millivolts: u32,
+    pub voltage_max: Voltage,
     /// Phase count to program during init; `None` keeps the count the
     /// CSP pinstraps latched at power-up.
     pub phases: Option<Phases>,
@@ -150,12 +165,12 @@ impl Tps53647Config {
     /// ADDR-TRISE strap candidate, pending hardware confirmation.
     pub const DEFAULT: Self = Self {
         address: 0x71,
-        initial_millivolts: VID_FLOOR_MILLIVOLTS,
-        vin_ov_fault_millivolts: 14_000,
-        ot_fault_celsius: 115,
-        ot_warn_celsius: 95,
-        voltage_min_millivolts: VID_FLOOR_MILLIVOLTS,
-        voltage_max_millivolts: VID_CEILING_MILLIVOLTS,
+        initial_voltage: Voltage::from_mv(VID_FLOOR_MILLIVOLTS),
+        vin_ov_fault: Voltage::from_mv(14_000),
+        ot_fault: Temperature::from_celsius(115),
+        ot_warn: Temperature::from_celsius(95),
+        voltage_min: Voltage::from_mv(VID_FLOOR_MILLIVOLTS),
+        voltage_max: Voltage::from_mv(VID_CEILING_MILLIVOLTS),
         phases: None,
     };
 }
@@ -218,25 +233,37 @@ where
         i2c,
         address,
         VOUT_MAX,
-        u16::from(encode_vid(config.voltage_max_millivolts)),
+        u16::from(encode_vid(config.voltage_max)),
     )
     .await?;
     // OT limits are linear11 with exponent 0: plain degrees Celsius.
-    write_word(i2c, address, OT_FAULT_LIMIT, config.ot_fault_celsius as u16).await?;
-    write_word(i2c, address, OT_WARN_LIMIT, config.ot_warn_celsius as u16).await?;
+    write_word(
+        i2c,
+        address,
+        OT_FAULT_LIMIT,
+        crate::sic45x::encode_temp(config.ot_fault),
+    )
+    .await?;
+    write_word(
+        i2c,
+        address,
+        OT_WARN_LIMIT,
+        crate::sic45x::encode_temp(config.ot_warn),
+    )
+    .await?;
     // VIN_OV is linear11 with exponent 0: whole volts, rounded.
     write_word(
         i2c,
         address,
         VIN_OV_FAULT_LIMIT,
-        ((config.vin_ov_fault_millivolts + 500) / 1000) as u16,
+        encode_vin_ov(config.vin_ov_fault),
     )
     .await?;
     write_word(
         i2c,
         address,
         VOUT_COMMAND,
-        u16::from(encode_vid(config.initial_millivolts)),
+        u16::from(encode_vid(config.initial_voltage)),
     )
     .await?;
 
@@ -289,7 +316,7 @@ where
         .map_err(Error::Bus)
 }
 
-/// Command an output voltage in millivolts.
+/// Command an output voltage.
 ///
 /// # Errors
 ///
@@ -298,25 +325,25 @@ where
 pub async fn set_voltage<I, E>(
     i2c: &mut I,
     config: &Tps53647Config,
-    millivolts: u32,
+    voltage: Voltage,
 ) -> Result<(), Error<E>>
 where
     I: I2c<Error = E>,
     E: embedded_hal_async::i2c::Error,
 {
-    if millivolts < config.voltage_min_millivolts || millivolts > config.voltage_max_millivolts {
+    if voltage < config.voltage_min || voltage > config.voltage_max {
         return Err(Error::OutOfRange);
     }
     write_word(
         i2c,
         config.address,
         VOUT_COMMAND,
-        u16::from(encode_vid(millivolts)),
+        u16::from(encode_vid(voltage)),
     )
     .await
 }
 
-/// Read the measured output voltage in millivolts.
+/// Read the measured output voltage.
 ///
 /// `READ_VOUT` returns a VID code, not linear11; the linear-format
 /// alternative (`MFR_SPECIFIC_04`) is not used so all voltage paths
@@ -325,53 +352,41 @@ where
 /// # Errors
 ///
 /// Returns [`Error::Bus`] on any I2C transaction failure.
-pub async fn read_vout_mv<I, E>(i2c: &mut I, config: &Tps53647Config) -> Result<u32, Error<E>>
+pub async fn read_vout<I, E>(i2c: &mut I, config: &Tps53647Config) -> Result<Voltage, Error<E>>
 where
     I: I2c<Error = E>,
     E: embedded_hal_async::i2c::Error,
 {
     let raw = read_word(i2c, config.address, READ_VOUT).await?;
-    Ok(decode_vid_mv(raw as u8))
+    Ok(RawVid(raw as u8).into())
 }
 
-/// Read the output power in milliwatts.
+/// Read the output power.
 ///
 /// # Errors
 ///
 /// Returns [`Error::Bus`] on any I2C transaction failure.
-pub async fn read_pout_mw<I, E>(i2c: &mut I, config: &Tps53647Config) -> Result<u32, Error<E>>
+pub async fn read_pout<I, E>(i2c: &mut I, config: &Tps53647Config) -> Result<Power, Error<E>>
 where
     I: I2c<Error = E>,
     E: embedded_hal_async::i2c::Error,
 {
     let raw = read_word(i2c, config.address, READ_POUT).await?;
-    Ok(unsigned_milli(crate::sic45x::decode_ulin11_milli(raw)))
+    Ok(RawUlinear11(raw).into())
 }
 
-/// Read the input power in milliwatts.
+/// Read the input power.
 ///
 /// # Errors
 ///
 /// Returns [`Error::Bus`] on any I2C transaction failure.
-pub async fn read_pin_mw<I, E>(i2c: &mut I, config: &Tps53647Config) -> Result<u32, Error<E>>
+pub async fn read_pin<I, E>(i2c: &mut I, config: &Tps53647Config) -> Result<Power, Error<E>>
 where
     I: I2c<Error = E>,
     E: embedded_hal_async::i2c::Error,
 {
     let raw = read_word(i2c, config.address, READ_PIN).await?;
-    Ok(unsigned_milli(crate::sic45x::decode_ulin11_milli(raw)))
-}
-
-/// Clamp a decoded telemetry value to zero; power readings cannot be
-/// negative, so a negative decode is residual noise around zero load.
-const fn unsigned_milli(value: i32) -> u32 {
-    if value < 0 {
-        return 0;
-    }
-    #[allow(clippy::cast_sign_loss)]
-    {
-        value as u32
-    }
+    Ok(RawUlinear11(raw).into())
 }
 
 /// Read `STATUS_BYTE` and decode the four shared fault flags.

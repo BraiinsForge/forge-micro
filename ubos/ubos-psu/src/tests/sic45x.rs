@@ -23,44 +23,50 @@ mod math_tests {
 
     #[test]
     fn encode_vout_600mv() {
-        assert_eq!(encode_vout(600), 0x0133);
+        assert_eq!(encode_vout(Voltage::from_mv(600)), 0x0133);
     }
 
     #[test]
     fn encode_vout_1000mv() {
-        assert_eq!(encode_vout(1000), 0x0200);
+        assert_eq!(encode_vout(Voltage::from_mv(1000)), 0x0200);
     }
 
     #[test]
-    fn decode_vout_mv_round_trips() {
-        assert_eq!(decode_vout_mv(0x0200), 1000);
-        assert_eq!(decode_vout_mv(0x0133), 600);
-        assert_eq!(decode_vout_mv(0x0300), 1500);
+    fn raw_vout_converts_to_voltage() {
+        assert_eq!(Voltage::from(RawVout(0x0200)), Voltage::from_mv(1000));
+        assert_eq!(Voltage::from(RawVout(0x0133)), Voltage::from_mv(600));
+        assert_eq!(Voltage::from(RawVout(0x0300)), Voltage::from_mv(1500));
+    }
+
+    #[test]
+    fn lin11_half_wrappers_encode_voltage_and_current() {
+        assert_eq!(encode_lin11_half_voltage(Voltage::from_mv(18_000)), 0xF824);
+        assert_eq!(encode_lin11_half_current(Current::from_ma(25_000)), 0xF832);
     }
 
     #[test]
     fn encode_vout_1500mv() {
-        assert_eq!(encode_vout(1500), 0x0300);
+        assert_eq!(encode_vout(Voltage::from_mv(1500)), 0x0300);
     }
 
     #[test]
     fn encode_vout_2650mv() {
-        assert_eq!(encode_vout(2650), 0x054D);
+        assert_eq!(encode_vout(Voltage::from_mv(2650)), 0x054D);
     }
 
     #[test]
     fn encode_vout_350mv() {
-        assert_eq!(encode_vout(350), 0x00B3);
+        assert_eq!(encode_vout(Voltage::from_mv(350)), 0x00B3);
     }
 
     #[test]
     fn encode_vout_540mv() {
-        assert_eq!(encode_vout(540), 0x0114);
+        assert_eq!(encode_vout(Voltage::from_mv(540)), 0x0114);
     }
 
     #[test]
     fn encode_vout_510mv() {
-        assert_eq!(encode_vout(510), 0x0105);
+        assert_eq!(encode_vout(Voltage::from_mv(510)), 0x0105);
     }
 
     #[test]
@@ -100,22 +106,22 @@ mod math_tests {
 
     #[test]
     fn encode_temp_105c() {
-        assert_eq!(encode_temp(105), 0x0069);
+        assert_eq!(encode_temp(Temperature::from_celsius(105)), 0x0069);
     }
 
     #[test]
     fn encode_temp_115c() {
-        assert_eq!(encode_temp(115), 0x0073);
+        assert_eq!(encode_temp(Temperature::from_celsius(115)), 0x0073);
     }
 
     #[test]
     fn encode_temp_95c() {
-        assert_eq!(encode_temp(95), 0x005F);
+        assert_eq!(encode_temp(Temperature::from_celsius(95)), 0x005F);
     }
 
     #[test]
     fn encode_temp_125c() {
-        assert_eq!(encode_temp(125), 0x007D);
+        assert_eq!(encode_temp(Temperature::from_celsius(125)), 0x007D);
     }
 
     #[test]
@@ -139,6 +145,13 @@ mod math_tests {
     #[test]
     fn decode_ulin11_milli_5v() {
         assert_eq!(decode_ulin11_milli(0xF80A), 5_000);
+    }
+
+    #[test]
+    fn raw_ulinear11_converts_to_power() {
+        assert_eq!(Power::from(RawUlinear11(0xF81E)), Power::from_mw(15_000));
+        assert_eq!(Power::from(RawUlinear11(0x0832)), Power::from_mw(100_000));
+        assert_eq!(Power::from(RawUlinear11(0xD7EC)), Power::from_mw(31_687));
     }
 }
 
@@ -204,18 +217,18 @@ mod bus_tests {
         let address = config.address;
 
         let scale = config.loop_scale.register().to_le_bytes();
-        let vout_overvoltage = encode_vout(config.vout_ov_fault_millivolts).to_le_bytes();
-        let vout_undervoltage = encode_vout(config.vout_uv_fault_millivolts).to_le_bytes();
-        let vin_overvoltage = encode_lin11_half(config.vin_ov_fault_millivolts).to_le_bytes();
-        let iout_oc = encode_lin11_half(config.iout_oc_fault_milliamps).to_le_bytes();
-        let ot_fault = encode_temp(config.ot_fault_celsius).to_le_bytes();
-        let vin_undervoltage = encode_lin11_half(config.vin_uv_warn_millivolts).to_le_bytes();
-        let iout_warn = encode_lin11_half(config.iout_oc_warn_milliamps).to_le_bytes();
-        let iin_warn = encode_lin11_half(config.iin_oc_warn_milliamps).to_le_bytes();
-        let ot_warn = encode_temp(config.ot_warn_celsius).to_le_bytes();
-        let pg_on = encode_vout(config.power_good_on_millivolts).to_le_bytes();
-        let pg_off = encode_vout(config.power_good_off_millivolts).to_le_bytes();
-        let vout_cmd = encode_vout(config.initial_millivolts).to_le_bytes();
+        let vout_overvoltage = encode_vout(config.vout_ov_fault).to_le_bytes();
+        let vout_undervoltage = encode_vout(config.vout_uv_fault).to_le_bytes();
+        let vin_overvoltage = encode_lin11_half_voltage(config.vin_ov_fault).to_le_bytes();
+        let iout_oc = encode_lin11_half_current(config.iout_oc_fault).to_le_bytes();
+        let ot_fault = encode_temp(config.ot_fault).to_le_bytes();
+        let vin_undervoltage = encode_lin11_half_voltage(config.vin_uv_warn).to_le_bytes();
+        let iout_warn = encode_lin11_half_current(config.iout_oc_warn).to_le_bytes();
+        let iin_warn = encode_lin11_half_current(config.iin_oc_warn).to_le_bytes();
+        let ot_warn = encode_temp(config.ot_warn).to_le_bytes();
+        let pg_on = encode_vout(config.power_good_on).to_le_bytes();
+        let pg_off = encode_vout(config.power_good_off).to_le_bytes();
+        let vout_cmd = encode_vout(config.initial_voltage).to_le_bytes();
 
         vec![
             Transaction::write(address, vec![RESTORE_USER_ALL]),
@@ -321,13 +334,13 @@ mod bus_tests {
         let config = &Sic45xConfig::DEFAULT;
         // Below minimum (400 mV).
         let mut bus = Mock::new(&[]);
-        let result = run(set_voltage(&mut bus, config, 300));
+        let result = run(set_voltage(&mut bus, config, Voltage::from_mv(300)));
         bus.done();
         assert!(matches!(result, Err(crate::Error::OutOfRange)));
 
         // Above maximum (2400 mV).
         let mut bus = Mock::new(&[]);
-        let result = run(set_voltage(&mut bus, config, 2_500));
+        let result = run(set_voltage(&mut bus, config, Voltage::from_mv(2_500)));
         bus.done();
         assert!(matches!(result, Err(crate::Error::OutOfRange)));
     }
@@ -336,7 +349,7 @@ mod bus_tests {
     fn set_voltage_in_range_writes_vout_command() {
         let config = &Sic45xConfig::DEFAULT;
         let address = config.address;
-        let bytes = encode_vout(1000).to_le_bytes();
+        let bytes = encode_vout(Voltage::from_mv(1000)).to_le_bytes();
 
         let expectations = [Transaction::write(
             address,
@@ -344,7 +357,8 @@ mod bus_tests {
         )];
 
         let mut bus = Mock::new(&expectations);
-        run(set_voltage(&mut bus, config, 1000)).expect("BUG: set_voltage failed");
+        run(set_voltage(&mut bus, config, Voltage::from_mv(1000)))
+            .expect("BUG: set_voltage failed");
         bus.done();
     }
 
@@ -369,7 +383,7 @@ mod bus_tests {
     }
 
     #[test]
-    fn read_pout_mw_decodes_known_reading() {
+    fn read_pout_decodes_known_reading() {
         let config = &Sic45xConfig::DEFAULT;
         let address = config.address;
         // 0xF81E encodes 15 W (15000 milli-units); LE wire = [0x1E, 0xF8].
@@ -380,8 +394,8 @@ mod bus_tests {
         )];
 
         let mut bus = Mock::new(&expectations);
-        let mw = run(read_pout_mw(&mut bus, config)).expect("BUG: read_pout_mw failed");
+        let power = run(read_pout(&mut bus, config)).expect("BUG: read_pout failed");
         bus.done();
-        assert_eq!(mw, 15_000);
+        assert_eq!(power, Power::from_mw(15_000));
     }
 }

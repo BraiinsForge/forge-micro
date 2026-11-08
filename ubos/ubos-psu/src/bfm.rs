@@ -149,7 +149,7 @@ impl<I: I2c + 'static> Psu for BfmPsu<I> {
     async fn set_voltage(&self, voltage: Voltage) -> Result<(), Error<I::Error>> {
         let mut psu = self.shared.acquire().await?;
         let (i2c, config) = psu.split();
-        let result = sic45x::set_voltage(i2c, &config.sic, voltage.mv()).await;
+        let result = sic45x::set_voltage(i2c, &config.sic, voltage).await;
         // Record the commanded value so telemetry consumers can compare
         // it with the INA230 bus-voltage readback. Only on success: a
         // failed write leaves the rail at the previous commanded value.
@@ -187,9 +187,7 @@ impl<I: I2c + 'static> Psu for BfmPsu<I> {
         // comes up, whereas the SIC reports VOUT as soon as VIN exists.
         let mut psu = self.shared.acquire().await?;
         let (i2c, config) = psu.split();
-        sic45x::read_vout_mv(i2c, &config.sic)
-            .await
-            .map(Voltage::from_mv)
+        sic45x::read_vout(i2c, &config.sic).await
     }
 
     async fn read_secondary_voltage(&self) -> Option<Result<Voltage, Error<I::Error>>> {
