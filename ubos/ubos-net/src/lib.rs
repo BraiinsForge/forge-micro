@@ -23,11 +23,9 @@
 //! the dashboard and the Prometheus exposition layer.
 //!
 //! The mDNS responder and compile-time service registry have moved to
-//! `ubos-mdns`. All boards run embassy-net with smoltcp for TCP/IP;
-//! the link layer differs per board. The two `WIZnet` boards use
-//! `embassy-net-wiznet` in MACRAW mode so the chip acts as a raw MAC
-//! and smoltcp owns the stack. The STM32 boards use their native
-//! RMII MAC through `embassy-stm32::eth`.
+//! `ubos-mdns`. All boards run embassy-net with smoltcp for TCP/IP.
+//! The boards use `embassy-net-wiznet` in MACRAW mode so the `WIZnet`
+//! chip acts as a raw MAC and smoltcp owns the stack.
 #![no_std]
 
 pub mod config;

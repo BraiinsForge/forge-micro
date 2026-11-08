@@ -20,10 +20,10 @@
 //! Adapter that presents a synchronous [`embedded_storage`] `NorFlash`
 //! implementation as the async variant `sequential-storage` requires.
 //!
-//! Every flash driver in this workspace (`embassy-rp`'s `Blocking` flash,
-//! `embassy-stm32`'s `Blocking` flash, `esp-storage`'s `FlashStorage`)
-//! implements `embedded_storage::nor_flash::NorFlash` directly, while
-//! the async variants either need extra wiring (DMA channels, IRQ
+//! Every flash driver in this workspace, `embassy-rp`'s `Blocking`
+//! flash and `esp-storage`'s `FlashStorage`, implements
+//! `embedded_storage::nor_flash::NorFlash` directly, while the async
+//! variants either need extra wiring (DMA channels, IRQ
 //! bindings) or do not exist at all. Erase and write are blocking on
 //! every platform regardless of the trait surface, so the adapter
 //! costs nothing at runtime.
