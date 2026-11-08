@@ -10,4 +10,5 @@ workspace = true
 [dependencies]
 esp-hal      = { version = "1.0.0", features = ["esp32s3", "unstable"] }
 embassy-time = { workspace = true }
+ubos-core    = { workspace = true }
 defmt        = { workspace = true }

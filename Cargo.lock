@@ -1955,6 +1955,7 @@ dependencies = [
  "defmt 1.0.1",
  "embassy-time",
  "esp-hal",
+ "ubos-core",
 ]
 
 [[package]]
