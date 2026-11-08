@@ -73,6 +73,7 @@ pub mod thermal;
 use seed::Taken;
 use storage::SEED_KEY;
 use ubos_asic::HashboardDescriptor;
+use ubos_core::units::{Efficiency, Frequency, Power, Voltage};
 
 pub use api::ApiConfig;
 pub use cooling::{
@@ -125,8 +126,8 @@ use portable_atomic::{AtomicBool, AtomicU64, Ordering};
 use ubos_logging::{info, warn};
 
 ubos_events::events! {
-    config_changed_fixed(freq_khz: u32, voltage_mv: u32) info = "Configuration changed: {} kHz, {} mV",
-    config_changed_power(power_mw: u32, mj_per_th: u32)  info = "Configuration changed: {} mW, {} mJ/TH",
+    tuning_changed_fixed(frequency: Frequency, voltage: Voltage) info = "Configuration changed: {} MHz, {} V",
+    tuning_changed_power(power: Power, efficiency: Efficiency)  info = "Configuration changed: {} W, {} J/TH",
     factory_reset()                                      warn = "Factory reset to defaults",
     network_applied()                                    info = "Network config applied",
     network_reverted()                                   warn = "Network config reverted",
@@ -1340,13 +1341,10 @@ async fn apply_update<S: Storage>(new: &Config, storage: &mut S) {
     info!("config: applied update, generation {}", generation);
     match &new.miner.tuning {
         Tuning::Fixed(target) => {
-            crate::events::config_changed_fixed(target.frequency.khz(), target.voltage.mv());
+            crate::events::tuning_changed_fixed(target.frequency, target.voltage);
         }
         Tuning::Power(target) => {
-            crate::events::config_changed_power(
-                target.input_power.mw(),
-                target.efficiency.mj_per_th(),
-            );
+            crate::events::tuning_changed_power(target.input_power, target.efficiency);
         }
     }
 }

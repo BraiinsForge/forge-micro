@@ -50,6 +50,8 @@ pub use serial::{
     signal_core1_park,
 };
 
+use ubos_core::units::Frequency;
+
 ubos_events::events! {
     miner_reset()                                 info  = "Miner reset",
     pool_available()                              info  = "A pool holds a job; starting",
@@ -65,6 +67,6 @@ ubos_events::events! {
     chain_absent(chain: u8)                       info  = "Chain {} has no hashboard",
     chains_parked(cycles: u8)                     error = "No chain answered in {} cycles. The miner is parked until Start",
     chain_configure_failed(chain: u8, attempt: u8) error = "Chain {} refused its configuration on attempt {}",
-    frequency_ramp_started(freq_khz: u32)         info  = "Frequency ramp started to {} kHz",
-    frequency_ramp_complete(freq_khz: u32)        info  = "Frequency ramp complete at {} kHz",
+    frequency_ramp_began(frequency: Frequency)    info  = "Frequency ramp started to {} MHz",
+    frequency_ramp_finished(frequency: Frequency) info  = "Frequency ramp complete at {} MHz",
 }

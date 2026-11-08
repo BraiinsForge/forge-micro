@@ -185,7 +185,7 @@ impl<const CHAINS: usize> Tuner<CHAINS> for FixedTuner {
         let phase = match &self.progress {
             Some(progress) if progress.target == target => progress.phase,
             _ => {
-                crate::events::frequency_ramp_started(target.frequency.khz());
+                crate::events::frequency_ramp_began(target.frequency);
                 let cap = frequency_at_target_power(
                     power_target,
                     voltage,
@@ -222,7 +222,7 @@ impl<const CHAINS: usize> Tuner<CHAINS> for FixedTuner {
             }
             Phase::Curve => {
                 if all_at(target.frequency) && voltage == target.voltage {
-                    crate::events::frequency_ramp_complete(target.frequency.khz());
+                    crate::events::frequency_ramp_finished(target.frequency);
                     (Phase::Complete, unchanged)
                 } else {
                     let frequencies = steps_toward(target.frequency);

@@ -278,7 +278,7 @@ impl PowerRampTuner {
         target: PowerTarget,
         readings: &Readings<CHAINS>,
     ) -> Phase {
-        crate::events::frequency_ramp_started(self.limits(target, readings).max_frequency.khz());
+        crate::events::frequency_ramp_began(self.limits(target, readings).max_frequency);
         Phase::Ramp {
             target_reached: false,
             last: self.safe_boot(),
@@ -501,7 +501,7 @@ impl<const CHAINS: usize> Tuner<CHAINS> for PowerRampTuner {
         };
         if matches!(phase, Phase::Complete) && !matches!(progress.phase, Phase::Complete) {
             let restored = plan.frequencies.iter().flatten().max().copied();
-            crate::events::frequency_ramp_complete(restored.unwrap_or(point.frequency).khz());
+            crate::events::frequency_ramp_finished(restored.unwrap_or(point.frequency));
         }
         if plan.rail.is_some() || plan.frequencies.iter().any(Option::is_some) {
             progress.commanded_at = readings.now;

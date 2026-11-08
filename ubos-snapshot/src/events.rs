@@ -50,15 +50,26 @@ pub enum Width {
     I16,
     /// Signed 32-bit integer.
     I32,
+    /// A temperature, as its signed 32-bit millicelsius. It shows in degrees.
+    Temperature,
+    /// A frequency, as its unsigned 32-bit kHz. It shows in MHz.
+    Frequency,
+    /// A voltage, as its unsigned 32-bit mV. It shows in volts.
+    Voltage,
+    /// A power, as its unsigned 32-bit mW. It shows in watts.
+    Power,
+    /// An efficiency, as its unsigned 32-bit mJ/TH. It shows in J/TH.
+    Efficiency,
 }
 
 impl Width {
-    /// Parses one of the six catalog width strings.
+    /// Parses one of the catalog width strings.
     ///
     /// # Errors
     ///
     /// Returns an error if `value` is not exactly one of `"u8"`, `"u16"`,
-    /// `"u32"`, `"i8"`, `"i16"`, or `"i32"`.
+    /// `"u32"`, `"i8"`, `"i16"`, `"i32"`, `"temperature"`, `"frequency"`,
+    /// `"voltage"`, `"power"`, or `"efficiency"`.
     pub fn parse(value: &str) -> Result<Width, UnknownWidthError> {
         match value {
             "u8" => Ok(Width::U8),
@@ -67,6 +78,11 @@ impl Width {
             "i8" => Ok(Width::I8),
             "i16" => Ok(Width::I16),
             "i32" => Ok(Width::I32),
+            "temperature" => Ok(Width::Temperature),
+            "frequency" => Ok(Width::Frequency),
+            "voltage" => Ok(Width::Voltage),
+            "power" => Ok(Width::Power),
+            "efficiency" => Ok(Width::Efficiency),
             other => Err(UnknownWidthError(other.to_string())),
         }
     }
@@ -77,19 +93,48 @@ impl Width {
         match self {
             Width::U8 | Width::I8 => 1,
             Width::U16 | Width::I16 => 2,
-            Width::U32 | Width::I32 => 4,
+            Width::U32
+            | Width::I32
+            | Width::Temperature
+            | Width::Frequency
+            | Width::Voltage
+            | Width::Power
+            | Width::Efficiency => 4,
         }
     }
 
     /// Whether this width sign-extends its decoded value.
     #[must_use]
     fn is_signed(self) -> bool {
-        matches!(self, Width::I8 | Width::I16 | Width::I32)
+        matches!(
+            self,
+            Width::I8 | Width::I16 | Width::I32 | Width::Temperature
+        )
+    }
+
+    /// Renders a decoded value as the message shows it. A unit travels in
+    /// thousandths of the unit it shows, so it prints with three decimals,
+    /// as the browser prints it.
+    #[must_use]
+    pub fn render(self, value: i64) -> String {
+        match self {
+            Width::U8 | Width::U16 | Width::U32 | Width::I8 | Width::I16 | Width::I32 => {
+                value.to_string()
+            }
+            Width::Temperature
+            | Width::Frequency
+            | Width::Voltage
+            | Width::Power
+            | Width::Efficiency => {
+                let sign = if value < 0 { "-" } else { "" };
+                let magnitude = value.unsigned_abs();
+                format!("{sign}{}.{:03}", magnitude / 1000, magnitude % 1000)
+            }
+        }
     }
 }
 
-/// A catalog width string other than `"u8"`, `"u16"`, `"u32"`, `"i8"`,
-/// `"i16"`, or `"i32"`.
+/// A catalog width string that no [`Width`] variant names.
 #[derive(Debug)]
 pub struct UnknownWidthError(String);
 
@@ -202,7 +247,7 @@ impl EventCodec {
     /// value, in order. Placeholders past the end of `values` render as
     /// empty, matching the browser's `formatMessage`.
     #[must_use]
-    pub fn format_message(fmt: &str, values: &[i64]) -> String {
+    pub fn format_message(fmt: &str, values: &[impl fmt::Display]) -> String {
         let mut out = String::with_capacity(fmt.len());
         let mut rest = fmt;
         let mut index = 0usize;

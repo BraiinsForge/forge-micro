@@ -22,9 +22,13 @@ type SortDir = 'asc' | 'desc';
 
 const SEVERITIES: EventSeverity[] = ['info', 'warn', 'error'];
 
-function decodeArgs(hex: string, widths: string[]): number[] {
+// Widths of the units that are held in thousandths of the unit shown:
+// kHz as MHz, mV as volts, mW as watts, mJ/TH as J/TH.
+const UNIT_WIDTHS = ['frequency', 'voltage', 'power', 'efficiency'];
+
+function decodeArgs(hex: string, widths: string[]): (number | string)[] {
   let offset = 0;
-  const values: number[] = [];
+  const values: (number | string)[] = [];
   for (const width of widths) {
     const byteCount = width.endsWith('8') ? 1 : width.endsWith('16') ? 2 : 4;
     let value = 0;
@@ -37,13 +41,15 @@ function decodeArgs(hex: string, widths: string[]): number[] {
       const bits = byteCount * 8;
       if (value >= 2 ** (bits - 1)) value -= 2 ** bits;
     }
-    values.push(temperature ? value / 1000 : value);
+    // A unit travels in thousandths of the unit the message shows, which
+    // the log line prints with three decimals.
+    values.push(temperature || UNIT_WIDTHS.includes(width) ? (value / 1000).toFixed(3) : value);
     offset += byteCount;
   }
   return values;
 }
 
-function formatMessage(fmt: string, values: number[]): string {
+function formatMessage(fmt: string, values: (number | string)[]): string {
   let i = 0;
   return fmt.replace(/\{\}/g, () => {
     const value = values[i];

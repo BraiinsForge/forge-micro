@@ -452,7 +452,12 @@ impl Section {
         let Ok(values) = EventCodec::decode_args(args_hex, &widths) else {
             return EventRenderOutcome::Undecodable;
         };
-        EventRenderOutcome::Rendered(EventCodec::format_message(&entry.fmt, &values))
+        let shown: Vec<String> = widths
+            .iter()
+            .zip(values)
+            .map(|(width, value)| width.render(value))
+            .collect();
+        EventRenderOutcome::Rendered(EventCodec::format_message(&entry.fmt, &shown))
     }
 
     /// Builds the collection-errors section.

@@ -60,8 +60,8 @@
 //! The scheme is first-party rather than a defmt capture because reusing
 //! defmt would mean owning a version-pinned browser port of
 //! `defmt-decoder` covering defmt's whole format language; the
-//! first-party format is positional `{}` over six integer widths and a
-//! temperature, so the browser decoder is tens of lines and stable. The
+//! first-party format is positional `{}` over six integer widths and five
+//! units, so the browser decoder is tens of lines and stable. The
 //! code is a compile-time FNV-1a hash of the event's slug, stable across
 //! builds and OTA, so a ring written by old firmware still decodes; a
 //! removed event renders as unknown.
@@ -172,6 +172,18 @@ pub enum ArgWidth {
     /// A temperature, stored as its signed 32-bit millicelsius. The browser
     /// shows it in degrees.
     Temperature,
+    /// A frequency, stored as its unsigned 32-bit kHz. The browser shows it
+    /// in MHz.
+    Frequency,
+    /// A voltage, stored as its unsigned 32-bit mV. The browser shows it in
+    /// volts.
+    Voltage,
+    /// A power, stored as its unsigned 32-bit mW. The browser shows it in
+    /// watts.
+    Power,
+    /// An efficiency, stored as its unsigned 32-bit mJ/TH. The browser shows
+    /// it in J/TH.
+    Efficiency,
 }
 
 /// Maximum byte length of an event format string.
@@ -667,6 +679,18 @@ macro_rules! __arg_width {
     (Temperature) => {
         $crate::ArgWidth::Temperature
     };
+    (Frequency) => {
+        $crate::ArgWidth::Frequency
+    };
+    (Voltage) => {
+        $crate::ArgWidth::Voltage
+    };
+    (Power) => {
+        $crate::ArgWidth::Power
+    };
+    (Efficiency) => {
+        $crate::ArgWidth::Efficiency
+    };
 }
 
 /// Wraps a value expression in the corresponding [`Arg`] variant.
@@ -695,6 +719,18 @@ macro_rules! __arg_value {
     };
     (Temperature, $val:expr) => {
         $crate::Arg::I32($val.millicelsius())
+    };
+    (Frequency, $val:expr) => {
+        $crate::Arg::U32($val.khz())
+    };
+    (Voltage, $val:expr) => {
+        $crate::Arg::U32($val.mv())
+    };
+    (Power, $val:expr) => {
+        $crate::Arg::U32($val.mw())
+    };
+    (Efficiency, $val:expr) => {
+        $crate::Arg::U32($val.mj_per_th())
     };
 }
 
@@ -738,9 +774,10 @@ macro_rules! __log_sev {
 /// ```
 ///
 /// `severity` is one of `info`, `warn`, or `error`. Each `ty` is one of
-/// `u8`, `u16`, `u32`, `i8`, `i16`, `i32`, or `Temperature`, which must be
-/// in scope where the macro is called. A temperature renders in degrees, in
-/// the log line and in the browser alike.
+/// `u8`, `u16`, `u32`, `i8`, `i16`, `i32`, or one of the units
+/// `Temperature`, `Frequency`, `Voltage`, `Power` and `Efficiency`, which
+/// must be in scope where the macro is called. A unit renders in degrees,
+/// MHz, volts, watts or J/TH, in the log line and in the browser alike.
 ///
 /// # Output
 ///

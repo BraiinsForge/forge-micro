@@ -52,6 +52,56 @@ fn a_temperature_is_catalogued_as_a_temperature_and_stored_in_millicelsius() {
     );
 }
 
+/// A frequency, a voltage, a power and an efficiency each take the width of
+/// their own kind, and their payload is the integer the unit holds.
+#[test]
+fn a_unit_is_catalogued_as_its_kind_and_stored_as_its_integer() {
+    struct Frequency(u32);
+    impl Frequency {
+        const fn khz(&self) -> u32 {
+            self.0
+        }
+    }
+    struct Voltage(u32);
+    impl Voltage {
+        const fn mv(&self) -> u32 {
+            self.0
+        }
+    }
+    struct Power(u32);
+    impl Power {
+        const fn mw(&self) -> u32 {
+            self.0
+        }
+    }
+    struct Efficiency(u32);
+    impl Efficiency {
+        const fn mj_per_th(&self) -> u32 {
+            self.0
+        }
+    }
+    assert_eq!(crate::__arg_width!(Frequency), crate::ArgWidth::Frequency);
+    assert_eq!(crate::__arg_width!(Voltage), crate::ArgWidth::Voltage);
+    assert_eq!(crate::__arg_width!(Power), crate::ArgWidth::Power);
+    assert_eq!(crate::__arg_width!(Efficiency), crate::ArgWidth::Efficiency);
+    assert_eq!(
+        crate::__arg_value!(Frequency, Frequency(487_500)),
+        crate::Arg::U32(487_500)
+    );
+    assert_eq!(
+        crate::__arg_value!(Voltage, Voltage(1_405)),
+        crate::Arg::U32(1_405)
+    );
+    assert_eq!(
+        crate::__arg_value!(Power, Power(44_000)),
+        crate::Arg::U32(44_000)
+    );
+    assert_eq!(
+        crate::__arg_value!(Efficiency, Efficiency(40_000)),
+        crate::Arg::U32(40_000)
+    );
+}
+
 #[test]
 fn catalog_codes_are_unique() {
     let codes: Vec<u32> = inner::events::CATALOG.iter().map(|def| def.code).collect();

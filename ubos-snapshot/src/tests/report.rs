@@ -143,3 +143,23 @@ fn event_log_counts_unknown_width_as_undecodable() {
     assert!(markdown.contains("1 with undecodable arguments"));
     assert!(!markdown.contains("unknown codes"));
 }
+
+#[test]
+fn event_log_renders_unit_widths_scaled() {
+    // A temperature of -5.000 C and a frequency of 487.500 MHz.
+    let text = r#"{
+        "version": 1,
+        "meta": {},
+        "events": { "events": [
+            { "seq": 1, "ts": 123456789, "sev": "info", "code": 7, "args": "78ecffff4c700700000000" }
+        ]},
+        "events_catalog": [
+            { "code": 7, "sev": "info", "fmt": "now {} C at {} MHz", "args": ["temperature", "frequency"] }
+        ]
+    }"#;
+    let snapshot = Snapshot::parse(text).expect("minimal snapshot with unit widths parses");
+    let markdown = Report::from_snapshot(&snapshot).to_markdown();
+
+    assert!(markdown.contains("now -5.000 C at 487.500 MHz"));
+    assert!(!markdown.contains("undecodable"));
+}

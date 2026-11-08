@@ -23,7 +23,7 @@
 use crate::events::{EventCodec, Width};
 
 #[test]
-fn width_parses_all_six_variants() {
+fn width_parses_all_variants() {
     assert_eq!(Width::parse("u8").expect("u8 is a valid width"), Width::U8);
     assert_eq!(
         Width::parse("u16").expect("u16 is a valid width"),
@@ -42,6 +42,18 @@ fn width_parses_all_six_variants() {
         Width::parse("i32").expect("i32 is a valid width"),
         Width::I32
     );
+    for (name, width) in [
+        ("temperature", Width::Temperature),
+        ("frequency", Width::Frequency),
+        ("voltage", Width::Voltage),
+        ("power", Width::Power),
+        ("efficiency", Width::Efficiency),
+    ] {
+        assert_eq!(
+            Width::parse(name).expect("a unit name is a valid width"),
+            width
+        );
+    }
 }
 
 #[test]
@@ -66,6 +78,28 @@ fn decode_args_sign_extends_positive_and_wide_values() {
     let values = EventCodec::decode_args("2c01efbeadde0000000000", &widths)
         .expect("well-formed fixed-width payload");
     assert_eq!(values, vec![300, 0xdead_beef_i64]);
+}
+
+#[test]
+fn decode_args_reads_units_and_sign_extends_only_the_temperature() {
+    // Temperature -5000 mC (0xffffec78), frequency 0x80000000 kHz.
+    let widths = [Width::Temperature, Width::Frequency];
+    let values = EventCodec::decode_args("78ecffff00000080000000", &widths)
+        .expect("well-formed unit payload");
+    assert_eq!(values, vec![-5000, 0x8000_0000]);
+}
+
+#[test]
+fn render_prints_integers_plain_and_units_with_three_decimals() {
+    assert_eq!(Width::I8.render(-5), "-5");
+    assert_eq!(Width::U32.render(9500), "9500");
+    assert_eq!(Width::Frequency.render(487_500), "487.500");
+    assert_eq!(Width::Voltage.render(1), "0.001");
+    assert_eq!(Width::Power.render(3_250_000), "3250.000");
+    assert_eq!(Width::Efficiency.render(17_000), "17.000");
+    assert_eq!(Width::Temperature.render(85_000), "85.000");
+    assert_eq!(Width::Temperature.render(-500), "-0.500");
+    assert_eq!(Width::Temperature.render(-5000), "-5.000");
 }
 
 #[test]
