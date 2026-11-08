@@ -4505,6 +4505,7 @@ name = "ubos-machine"
 version = "0.1.0"
 dependencies = [
  "ubos-asic",
+ "ubos-core",
  "ubos-metrics",
  "ubos-psu",
  "ubos-temperature",
