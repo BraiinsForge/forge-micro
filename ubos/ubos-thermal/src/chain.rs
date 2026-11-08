@@ -216,6 +216,19 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
         }
     }
 
+    /// The sum of the core voltages of `chain`, or `None` when the chain
+    /// is absent, silent, or has not reported every chip.
+    fn voltage_of(&self, chain: HashboardIndex, now: Instant) -> Option<Voltage> {
+        if !self.stats.chain(chain).presence().is_present() || self.chain_is_silent(chain, now) {
+            return None;
+        }
+        let voltage = self.pvt[chain.slot()].voltage_summary()?;
+        if usize::from(voltage.chips) != CHIPS {
+            return None;
+        }
+        Some(voltage.total)
+    }
+
     /// One present chain's voltage gauge, die temperatures, their spread
     /// and log line.
     ///
@@ -313,21 +326,9 @@ impl<const CHIPS: usize, const CHAINS: usize> TemperatureSensor
     /// rather than summed.
     fn chain_voltage(&self) -> Option<Voltage> {
         let now = Instant::now();
-        let mut lowest: Option<Voltage> = None;
-        for chain in HashboardIndex::range(CHAINS) {
-            if !self.stats.chain(chain).presence().is_present() || self.chain_is_silent(chain, now)
-            {
-                continue;
-            }
-            let Some(voltage) = self.pvt[chain.slot()].voltage_summary() else {
-                continue;
-            };
-            if usize::from(voltage.chips) != CHIPS {
-                continue;
-            }
-            lowest = Some(lowest.map_or(voltage.total, |held: Voltage| held.min(voltage.total)));
-        }
-        lowest
+        HashboardIndex::range(CHAINS)
+            .filter_map(|chain| self.voltage_of(chain, now))
+            .min()
     }
 
     async fn sample(&mut self) -> Reading {
@@ -343,6 +344,7 @@ impl<const CHIPS: usize, const CHAINS: usize> TemperatureSensor
                 // A chain that dropped out must not keep reporting the
                 // last temperature it read while present.
                 self.stats.chain(chain).set_hottest(None);
+                self.stats.chain(chain).set_voltage(None);
                 self.silent_ticks[slot] = 0;
                 continue;
             }
@@ -359,6 +361,9 @@ impl<const CHIPS: usize, const CHAINS: usize> TemperatureSensor
             self.stats
                 .chain(chain)
                 .set_hottest(summary.map(|summary| summary.highest));
+            self.stats
+                .chain(chain)
+                .set_voltage(self.voltage_of(chain, now));
             if let Some(summary) = summary {
                 chips = chips
                     .map(|acc| acc.include(summary))

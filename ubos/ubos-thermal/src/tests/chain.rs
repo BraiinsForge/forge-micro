@@ -341,3 +341,25 @@ fn a_chain_silent_for_a_second_sample_stops_the_sensor_answering() {
     sensor.silent_ticks[1] = SILENT_TICKS_BEFORE_FAULT;
     assert!(sensor.stalled());
 }
+
+#[test]
+fn a_sample_records_the_voltage_of_each_complete_chain() {
+    let (_clock, pvt, stats) = present_board();
+    let die = Some(Temperature::from_celsius(50));
+    for chip in ChipAddress::range(TEST_CHIPS) {
+        pvt[0].record(chip, die, Some(Voltage::from_mv(300)));
+    }
+    pvt[1].record(ChipAddress::One(0), die, Some(Voltage::from_mv(310)));
+    let mut sensor = ChainTemperature::<TEST_CHIPS, TEST_CHAINS>::new(pvt, stats);
+
+    let _ = embassy_futures::block_on(sensor.sample());
+    assert_eq!(
+        stats.chain(HashboardIndex(0)).voltage(),
+        Some(Voltage::from_mv(1200))
+    );
+    assert_eq!(
+        stats.chain(HashboardIndex(1)).voltage(),
+        None,
+        "one chip is missing"
+    );
+}

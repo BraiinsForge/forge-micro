@@ -61,9 +61,10 @@ in it. `ubos-machine`'s pure descriptor data sits below the mining and
 protocol crates that read it: `ubos-mining`, `stratum-client`, and
 `ubos-api` each depend on `ubos-machine` for `MAX_CHAINS` and the
 per-board descriptor. `ubos-metrics` owns the per-chain accounting table
-and its `MAX_CHAINS` ceiling, so `ubos-mining` writes it and `ubos-api`,
-`ubos-thermal` and `ubos-display` read it, the last two without depending
-on the mining crate.
+and its `MAX_CHAINS` ceiling, so `ubos-mining` writes it, `ubos-thermal`
+stores the hottest die temperature and the voltage sum of each chain in
+it, and `ubos-api` and `ubos-display` read it, all without depending on
+the mining crate.
 
 `ubos-auth` depends on `ubos-logging` only and holds the shared HTTP
 middleware (allow-list, auth, sessions, CSRF, CSPRNG). Both handler

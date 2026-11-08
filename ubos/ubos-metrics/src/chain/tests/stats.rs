@@ -96,6 +96,18 @@ fn hottest_round_trips_none_and_some() {
 }
 
 #[test]
+fn voltage_round_trips_none_and_some() {
+    let stats = ChainStats::new();
+    assert_eq!(stats.voltage(), None);
+
+    stats.set_voltage(Some(Voltage::from_mv(1215)));
+    assert_eq!(stats.voltage(), Some(Voltage::from_mv(1215)));
+
+    stats.set_voltage(None);
+    assert_eq!(stats.voltage(), None);
+}
+
+#[test]
 fn active_pool_round_trips_and_rejects_out_of_range_slots() {
     let stats = ChainStats::new();
     assert_eq!(stats.active_pool(), None);
