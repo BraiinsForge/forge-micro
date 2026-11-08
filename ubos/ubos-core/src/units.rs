@@ -211,6 +211,42 @@ impl Efficiency {
     }
 }
 
+/// Writes a unit that is held in thousandths of the unit it is shown in,
+/// as those units with three decimals, for the log line and the event
+/// log. The division runs in integers, so a log line pulls in no software
+/// floating point.
+macro_rules! show_in_thousandths {
+    ($unit:ty, |$value:ident| $thousandths:expr) => {
+        impl fmt::Display for $unit {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                let $value = self;
+                let thousandths: u32 = $thousandths;
+                write!(f, "{}.{:03}", thousandths / 1000, thousandths % 1000)
+            }
+        }
+
+        #[cfg(feature = "defmt")]
+        impl defmt::Format for $unit {
+            fn format(&self, f: defmt::Formatter<'_>) {
+                let $value = self;
+                let thousandths: u32 = $thousandths;
+                defmt::write!(
+                    f,
+                    "{=u32}.{=u32:03}",
+                    thousandths / 1000,
+                    thousandths % 1000
+                );
+            }
+        }
+    };
+}
+
+// Megahertz, volts, watts, and joules per terahash.
+show_in_thousandths!(Frequency, |frequency| frequency.khz());
+show_in_thousandths!(Voltage, |voltage| voltage.mv());
+show_in_thousandths!(Power, |power| power.mw());
+show_in_thousandths!(Efficiency, |efficiency| efficiency.mj_per_th());
+
 /// Temperature in millicelsius. The LM75A driver decodes its register
 /// directly into this unit, and the metrics layer publishes it
 /// unchanged. The PID loop in `ubos-cooling` reads it through

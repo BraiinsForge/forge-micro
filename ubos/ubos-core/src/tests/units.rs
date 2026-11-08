@@ -119,3 +119,19 @@ fn a_fractional_temperature_rounds_to_the_nearest_millicelsius() {
     assert_eq!(millicelsius(41.4994), 41_499);
     assert_eq!(millicelsius(-1.4996), -1_500);
 }
+
+/// A unit shown in thousandths of a larger unit writes three decimals of
+/// it, so a 6.25 MHz step and a millivolt both survive the log line.
+#[test]
+fn a_scaled_unit_displays_with_three_decimals() {
+    extern crate std;
+    use std::string::ToString;
+    assert_eq!(Frequency::from_khz(487_500).to_string(), "487.500");
+    assert_eq!(Frequency::from_khz(0).to_string(), "0.000");
+    assert_eq!(Voltage::from_mv(1_405).to_string(), "1.405");
+    assert_eq!(Power::from_mw(44_000).to_string(), "44.000");
+    assert_eq!(Power::from_mw(u32::MAX).to_string(), "4294967.295");
+    let efficiency =
+        Efficiency::from_mj_per_th(core::num::NonZeroU32::new(40_001).expect("nonzero"));
+    assert_eq!(efficiency.to_string(), "40.001");
+}
