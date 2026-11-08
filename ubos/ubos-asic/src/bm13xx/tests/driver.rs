@@ -366,7 +366,7 @@ fn expected_midstate_cal_write(bitmask: u16) -> heapless::Vec<u8, 4096> {
     let mut out: heapless::Vec<u8, 4096> = heapless::Vec::new();
     out.extend_from_slice(
         crate::bm13xx::framing::build_write_register(
-            crate::bm13xx::framing::ChipAddress::All,
+            ubos_core::index::ChipAddress::All,
             0xa4,
             value,
         )

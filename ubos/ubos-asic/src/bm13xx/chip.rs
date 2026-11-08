@@ -28,9 +28,10 @@
 //! unit-testable against a mock bus.
 
 use heapless::Vec;
+use ubos_core::index::ChipAddress;
 use ubos_core::units::{Frequency, FrequencyRange, Voltage};
 
-use super::framing::{ChipAddress, ControlCommand};
+use super::framing::ControlCommand;
 use super::registers::{
     AnalogMuxControl, BaudRateReg, ChipIdReg, ChipNonceOffsetReg, CoreControlReg, CoreRegister,
     DomainSelect, HashCountingNumberReg, IoDriverStrengthCtrlReg, MidstateCalReg, MiscCtrlReg,
@@ -96,7 +97,7 @@ pub trait ChipBus {
     async fn read_register<R: Register>(
         &mut self,
         chip_address: ChipAddress,
-    ) -> Vec<(u8, R), MAX_CHAIN_CHIPS>;
+    ) -> Vec<(ChipAddress, R), MAX_CHAIN_CHIPS>;
 
     /// Send a register-less control command (chain-inactive,
     /// set-chip-address).
@@ -185,11 +186,8 @@ pub trait ChipProtocol {
     async fn enumerate_chips(&self, bus: &mut impl ChipBus) -> u8 {
         // Assign addresses up to the chain cap; chips claim them in
         // order, so we never assume a fixed count or spacing.
-        for address in 0..MAX_CHAIN_CHIPS {
-            // address < MAX_CHAIN_CHIPS (32), well below the 0xFF
-            // broadcast address, so the cast is exact and valid.
-            #[allow(clippy::cast_possible_truncation)]
-            bus.send_command(ControlCommand::set_chip_address(address as u8))
+        for chip in ChipAddress::range(MAX_CHAIN_CHIPS) {
+            bus.send_command(ControlCommand::set_chip_address(chip))
                 .await;
         }
         bus.delay_ms(SETTLE_GAP_MS).await;
@@ -274,13 +272,13 @@ pub trait ChipProtocol {
                 + RELAY_BASE_GAP) as u16;
 
             bus.write_register(
-                ChipAddress::Chip(last_chip),
+                ChipAddress::One(last_chip),
                 IoDriverStrengthCtrlReg::domain_boundary(),
             )
             .await;
 
             bus.write_register(
-                ChipAddress::Chip(first_chip),
+                ChipAddress::One(first_chip),
                 UartRelayReg::relays_enabled(gap_cnt),
             )
             .await;
@@ -290,7 +288,7 @@ pub trait ChipProtocol {
             // redundant duplicate relay write to the same chip.
             if first_chip != last_chip {
                 bus.write_register(
-                    ChipAddress::Chip(last_chip),
+                    ChipAddress::One(last_chip),
                     UartRelayReg::relays_enabled(gap_cnt),
                 )
                 .await;
@@ -315,8 +313,7 @@ pub trait ChipProtocol {
         )
         .await;
         bus.delay_ms(SETTLE_GAP_MS).await;
-        for index in 0..board.num_chips {
-            let chip = ChipAddress::Chip(index);
+        for chip in ChipAddress::range(usize::from(board.num_chips)) {
             bus.write_register(
                 chip,
                 SoftResetControlReg::reset_core_domain(DomainSelect::Domain1),
@@ -357,7 +354,7 @@ pub trait ChipProtocol {
             #[allow(clippy::cast_possible_truncation)]
             let offset = (u32::from(index) * step) as u16;
             bus.write_register(
-                ChipAddress::Chip(index),
+                ChipAddress::One(index),
                 ChipNonceOffsetReg::from_offset(offset),
             )
             .await;

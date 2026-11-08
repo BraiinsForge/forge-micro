@@ -17,10 +17,11 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Positions inside the machine: which hashboard a series or a reading
-//! belongs to. Every crate that names a board by number shares this type,
-//! so the metrics, temperature and mining crates agree on what an index
-//! is without depending on the chip driver.
+//! Positions inside the machine: which hashboard, which chip of a chain,
+//! and which chips a command on the chain reaches. Every crate that names
+//! a board or a chip by number shares these types, so the metrics,
+//! temperature and mining crates agree on what an index is without
+//! depending on the chip driver.
 
 use core::fmt;
 
@@ -54,5 +55,52 @@ impl HashboardIndex {
 impl fmt::Display for HashboardIndex {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(formatter)
+    }
+}
+
+/// Which chips of a chain a command reaches: every chip, or the one at
+/// the given index. A chip driver turns it into the address its protocol
+/// puts on the wire. A chain of one chip is addressed to every chip, so
+/// `All` stands for that lone chip wherever a single chip is wanted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum ChipAddress {
+    /// Every chip of the chain.
+    All,
+    /// The chip at this index, counted from zero.
+    One(u8),
+}
+
+impl ChipAddress {
+    /// The first `count` chips of a chain, in order. A count above the 256
+    /// that an index can name is cut to 256.
+    pub fn range(count: usize) -> impl Iterator<Item = Self> {
+        (0..=u8::MAX).take(count).map(Self::One)
+    }
+
+    /// Whether the address reaches every chip of the chain.
+    #[must_use]
+    pub const fn is_all(self) -> bool {
+        matches!(self, Self::All)
+    }
+
+    /// The position of the chip in a table that holds one entry per
+    /// chip. `All` is the lone chip of a chain of one, so it is position
+    /// zero.
+    #[must_use]
+    pub const fn slot(self) -> usize {
+        match self {
+            Self::All => 0,
+            Self::One(chip) => chip as usize,
+        }
+    }
+}
+
+impl fmt::Display for ChipAddress {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::All => formatter.write_str("all"),
+            Self::One(chip) => chip.fmt(formatter),
+        }
     }
 }

@@ -26,6 +26,7 @@
 //! ([`ResponseParser`]).
 
 use heapless::Vec as HVec;
+use ubos_core::index::ChipAddress;
 
 use super::chip::Chip;
 use crate::chain::BIP320_VERSION_MASK;
@@ -294,16 +295,16 @@ impl ControlCommand {
         }
     }
 
-    /// Unicast command that assigns `hw_addr` to the first chip on
-    /// the chain without a claimed address. Broadcasting would set
-    /// every chip to the same address; the caller walks one
-    /// `set_chip_address` per chip slot instead.
+    /// Unicast command that assigns `chip` to the first chip on the
+    /// chain without a claimed address. Broadcasting would set every
+    /// chip to the same address; the caller walks one `set_chip_address`
+    /// per chip slot instead.
     #[must_use]
-    pub const fn set_chip_address(hw_addr: u8) -> Self {
+    pub const fn set_chip_address(chip: ChipAddress) -> Self {
         Self {
             code: ControlCode::SetChipAddress,
             broadcast: false,
-            hw_addr,
+            hw_addr: wire_byte(chip),
         }
     }
 
@@ -326,35 +327,23 @@ impl ControlCommand {
     }
 }
 
-/// A chip address on the serial chain: either broadcast to all chips or
-/// unicast to the chip at the given hardware address.
-#[derive(Debug, Clone, Copy)]
-pub enum ChipAddress {
-    /// Address all chips on the chain simultaneously.
-    All,
-    /// Address the chip at the given hardware address byte.
-    Chip(u8),
-}
-
-impl ChipAddress {
-    fn hw_addr(self) -> u8 {
-        match self {
-            ChipAddress::All => 0x00,
-            ChipAddress::Chip(index) => index,
-        }
-    }
-
-    fn is_broadcast(self) -> bool {
-        matches!(self, ChipAddress::All)
+/// The address byte the chip decoder reads for `addr`. The broadcast
+/// flag in the command byte carries "all chips", so the byte is zero
+/// then. It is a free function because `ChipAddress` belongs to
+/// `ubos-core`, which cannot know this wire layout.
+const fn wire_byte(addr: ChipAddress) -> u8 {
+    match addr {
+        ChipAddress::All => 0x00,
+        ChipAddress::One(index) => index,
     }
 }
 
 /// Build a write register command (`SetConfig`) — 11 bytes on wire.
 #[must_use]
 pub fn build_write_register(addr: ChipAddress, reg: u8, value: u32) -> Frame {
-    let cmd = CMD_TYPE | if addr.is_broadcast() { TO_ALL } else { 0 } | CODE_SET_CONFIG;
+    let cmd = CMD_TYPE | if addr.is_all() { TO_ALL } else { 0 } | CODE_SET_CONFIG;
     let len = 9u8; // packed_size=8 + 1 CRC
-    let hw_addr = addr.hw_addr();
+    let hw_addr = wire_byte(addr);
     let value_bytes = value.to_be_bytes();
 
     let payload = [
@@ -377,9 +366,9 @@ pub fn build_write_register(addr: ChipAddress, reg: u8, value: u32) -> Frame {
 /// Build a read register command (`GetStatus`) — 7 bytes on wire.
 #[must_use]
 pub fn build_read_register(addr: ChipAddress, reg: u8) -> Frame {
-    let cmd = CMD_TYPE | if addr.is_broadcast() { TO_ALL } else { 0 } | CODE_GET_STATUS;
+    let cmd = CMD_TYPE | if addr.is_all() { TO_ALL } else { 0 } | CODE_GET_STATUS;
     let len = 5u8; // packed_size=4 + 1 CRC
-    let hw_addr = addr.hw_addr();
+    let hw_addr = wire_byte(addr);
 
     let payload = [cmd, len, hw_addr, reg];
     let crc = crc5(&payload, 0x1F, true);
@@ -415,8 +404,8 @@ pub fn build_command(command: ControlCommand) -> Frame {
 pub struct RegisterResponse {
     /// Register value returned by the chip.
     pub value: u32,
-    /// On-chain address of the responding chip.
-    pub chip_addr: u8,
+    /// The responding chip.
+    pub chip: ChipAddress,
     /// Register address that was read.
     pub reg: u8,
 }
@@ -547,7 +536,7 @@ impl ResponseParser {
             } else {
                 Response::RegisterResponse(RegisterResponse {
                     value: u32::from_be_bytes([frame[2], frame[3], frame[4], frame[5]]),
-                    chip_addr: frame[6],
+                    chip: ChipAddress::One(frame[6]),
                     reg: frame[7],
                 })
             };

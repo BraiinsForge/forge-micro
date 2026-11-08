@@ -29,6 +29,7 @@
 //! the desync tally the consumer drains through
 //! [`ChainDriver::take_desync`].
 
+use ubos_core::index::ChipAddress;
 use ubos_core::units::Frequency;
 
 use crate::HashboardDescriptor;
@@ -41,7 +42,7 @@ use crate::transport::Transport;
 
 use super::chip::{Chip, ChipBus, ChipProtocol, MAX_CHAIN_CHIPS};
 use super::framing::{
-    ChipAddress, ControlCommand, HwWork, RESPONSE_LEN, Response, ResponseParser, build_command,
+    ControlCommand, HwWork, RESPONSE_LEN, Response, ResponseParser, build_command,
     build_read_register, build_write_register,
 };
 use super::registers::{MidstateCalReg, Register, TicketMaskReg};
@@ -155,7 +156,7 @@ impl<T: Transport> ChipBus for TransportBus<'_, T> {
     async fn read_register<R: Register>(
         &mut self,
         chip_address: ChipAddress,
-    ) -> heapless::Vec<(u8, R), MAX_CHAIN_CHIPS> {
+    ) -> heapless::Vec<(ChipAddress, R), MAX_CHAIN_CHIPS> {
         self.io
             .write_all(build_read_register(chip_address, R::REG_NUM).as_slice())
             .await;
@@ -194,14 +195,14 @@ impl<T: Transport> ChipBus for TransportBus<'_, T> {
             // filter matches on the register address alone; every call
             // site today broadcasts, so a stale reply from the wrong
             // chip cannot occur, but a future unicast caller must also
-            // filter on `reg_response.chip_addr` matching the addressed
+            // filter on `reg_response.chip` matching the addressed
             // chip.
             while let Some(response) = parser.pop(Chip::Bm1362) {
                 if let Response::RegisterResponse(reg_response) = response
                     && reg_response.reg == R::REG_NUM
                     && out
                         .push((
-                            reg_response.chip_addr,
+                            reg_response.chip,
                             R::from_be_bytes(reg_response.value.to_be_bytes()),
                         ))
                         .is_err()

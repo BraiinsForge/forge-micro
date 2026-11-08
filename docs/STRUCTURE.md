@@ -87,7 +87,7 @@ typed `TaskPool` static and so rejects generic task functions.
 
 | Crate              | Purpose                                            |
 |--------------------|----------------------------------------------------|
-| `ubos-core`        | shared constants, watchdog feed loop, hold-to-trigger button, typed units, I2C bus clear, boot seeds struct |
+| `ubos-core`        | shared constants, watchdog feed loop, hold-to-trigger button, typed units, hashboard and chip indices, I2C bus clear, boot seeds struct |
 | `ubos-led`         | the indicator LEDs: the status blink on a plain pin and the breathing RGB colour behind the `RgbFrame` trait, each with its task shell |
 | `ubos-config`      | runtime `Config` watch, `ConfigHandle`, flash-backed `sequential-storage` persistence |
 | `ubos-manager`     | supervisor crate: routes `Message::Halt`/`Resume` to mining/cooling/thermal handles |

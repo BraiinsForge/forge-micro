@@ -19,7 +19,7 @@
 
 use super::*;
 
-use crate::bm13xx::framing::{ChipAddress, ControlCommand};
+use crate::bm13xx::framing::ControlCommand;
 use crate::bm13xx::registers::{
     BaudRateReg, ChipIdReg, ChipNonceOffsetReg, CoreControlReg, CoreRegister,
     IO_DRIVER_STRENGTH_DOMAIN_BOUNDARY, IoDriverStrengthCtrlReg, MISC_SETTINGS_BM1370_BRINGUP,
@@ -28,6 +28,7 @@ use crate::bm13xx::registers::{
 };
 use crate::test_support::block_on;
 use crate::{BMM101_HASHBOARD, HashboardDescriptor};
+use ubos_core::index::ChipAddress;
 
 /// One recorded bus operation. Addresses are encoded as a `u16` so the
 /// broadcast address (`0x100`) never collides with a chip address.
@@ -53,7 +54,7 @@ enum Op {
 fn encode_addr(addr: ChipAddress) -> u16 {
     match addr {
         ChipAddress::All => 0x100,
-        ChipAddress::Chip(address) => u16::from(address),
+        ChipAddress::One(address) => u16::from(address),
     }
 }
 
@@ -105,7 +106,7 @@ impl ChipBus for MockBus {
     async fn read_register<R: Register>(
         &mut self,
         chip_address: ChipAddress,
-    ) -> heapless::Vec<(u8, R), MAX_CHAIN_CHIPS> {
+    ) -> heapless::Vec<(ChipAddress, R), MAX_CHAIN_CHIPS> {
         self.push(Op::Read {
             addr: encode_addr(chip_address),
             reg: R::REG_NUM,
@@ -120,7 +121,10 @@ impl ChipBus for MockBus {
         };
         let mut responders = heapless::Vec::new();
         for address in 0..self.responders {
-            let _ = responders.push((address, R::from_be_bytes(bits.to_be_bytes())));
+            let _ = responders.push((
+                ChipAddress::One(address),
+                R::from_be_bytes(bits.to_be_bytes()),
+            ));
         }
         responders
     }

@@ -35,7 +35,7 @@ fn control_command_chain_inactive_packs_to_broadcast() {
 fn control_command_set_chip_address_packs_to_unicast() {
     // set_chip_address(addr) is unicast (broadcasting would assign the
     // same address to every chip); the caller walks one per slot.
-    let cmd = ControlCommand::set_chip_address(0x02);
+    let cmd = ControlCommand::set_chip_address(ChipAddress::One(0x02));
     assert_eq!(cmd.code(), ControlCode::SetChipAddress);
     assert!(!cmd.is_broadcast());
     assert_eq!(cmd.hw_addr(), 0x02);
@@ -121,8 +121,26 @@ fn build_broadcast_write() {
 }
 
 #[test]
+fn build_read_register_addresses_one_chip_or_all() {
+    // GetStatus is code 2 under the command type 0x40; broadcast adds
+    // the all-chips flag and zeroes the address byte, unicast keeps the
+    // chip's own byte.
+    for (addr, cmd, hw_addr) in [
+        (ChipAddress::All, 0x52u8, 0x00u8),
+        (ChipAddress::One(3), 0x42, 0x03),
+    ] {
+        let payload = [cmd, 0x05, hw_addr, 0x58];
+        let mut expected = [0u8; 7];
+        expected[..2].copy_from_slice(&[0x55, 0xAA]);
+        expected[2..6].copy_from_slice(&payload);
+        expected[6] = crc5(&payload, 0x1F, true);
+        assert_eq!(build_read_register(addr, 0x58).as_slice(), expected);
+    }
+}
+
+#[test]
 fn build_unicast_write() {
-    let frame = build_write_register(ChipAddress::Chip(3), 0x58, 0x0001_1111);
+    let frame = build_write_register(ChipAddress::One(3), 0x58, 0x0001_1111);
     assert_eq!(
         frame.as_slice(),
         [
@@ -154,7 +172,7 @@ fn build_command_set_chip_address_matches_bm1362_payload() {
     // bytes [0x40, 0x05, addr, 0x00]; verify the helper packs the same
     // wire payload for each chip slot.
     for hw_addr in [0x00u8, 0x01, 0x02, 0x03] {
-        let frame = build_command(ControlCommand::set_chip_address(hw_addr));
+        let frame = build_command(ControlCommand::set_chip_address(ChipAddress::One(hw_addr)));
         let payload = [0x40u8, 0x05, hw_addr, 0x00];
         let expected_crc = crc5(&payload, 0x1F, true);
         let mut expected = [0u8; 7];
@@ -190,7 +208,7 @@ fn parse_register_response() {
     match response {
         Response::RegisterResponse(register) => {
             assert_eq!(register.value, 0x1362_0300);
-            assert_eq!(register.chip_addr, 0x00);
+            assert_eq!(register.chip, ChipAddress::One(0x00));
             assert_eq!(register.reg, 0x00);
         }
         Response::HwSolution(_) => panic!("expected register response"),
