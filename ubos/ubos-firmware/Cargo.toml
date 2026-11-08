@@ -9,11 +9,6 @@ workspace = true
 
 [features]
 default = []
-# Forwarded to `ubos-http` for the cortex-m boards whose linker exposes a
-# `.ccmram.bss` section. A board reaches it through this crate because it
-# already depends on it, and naming `ubos-http` directly would add a
-# dependency the board never calls.
-ccmram-bss = ["ubos-http/ccmram-bss"]
 # Route the whole firmware-assembly layer through defmt. Every MCU board
 # enables this. Logging in this crate goes through the
 # `ubos_logging` facade, so the feature only has to forward defmt to every

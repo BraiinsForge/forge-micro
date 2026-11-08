@@ -25,8 +25,6 @@
 #![no_std]
 
 pub mod button;
-#[cfg(feature = "ccmram-bss")]
-pub mod ccmram;
 pub mod consts;
 pub mod entropy;
 pub mod i2c;

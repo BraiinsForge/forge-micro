@@ -39,19 +39,16 @@ pub(crate) const CMD_CHANNEL_DEPTH: usize = 4;
 
 /// Module-internal state watch. Its single writer is the miner, through
 /// [`Handle::publish`]; readers are obtained via [`Handle::subscribe`].
-#[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
 static STATE_WATCH: Watch<CSMutex, MiningState, WATCH_CAPACITY> = Watch::new();
 
 /// Module-internal command channel. Its single consumer is the miner,
 /// through [`Handle::next_message`]; producers send via the [`Handle`]
 /// inherent methods.
-#[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
 pub(crate) static COMMAND_CHANNEL: Channel<CSMutex, Message, CMD_CHANNEL_DEPTH> = Channel::new();
 
 /// Module-internal stop request. Its single consumer is the miner,
 /// through [`Handle::stopped`]; producers signal it through
 /// [`Handle::stop`].
-#[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
 static STOP: Signal<CSMutex, ()> = Signal::new();
 
 /// Mining lifecycle status, separate from hardware readings.

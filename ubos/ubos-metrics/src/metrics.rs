@@ -316,9 +316,8 @@ static METRICS: Channel<CriticalSectionRawMutex, Metric, { Metrics::CHANNEL_DEPT
 /// `ubos_firmware::serve_all!` declares the static from there. See the
 /// Footprint section of `docs/STRUCTURE.md` for the per-board snapshot.
 ///
-/// The two live in one static so a board places them together: they are
-/// hoisted out of the task futures that would otherwise carry them,
-/// which is what blew the stm32f4 main SRAM during the api refactor.
+/// The two live in one static so a board places them together, hoisted
+/// out of the task futures that would otherwise carry them.
 pub struct MetricsStatics<const MAX: usize, const BODY: usize> {
     /// Current metric values, shared between [`run_ingest`] (the sole
     /// writer) and the exposition workers (readers).
@@ -353,26 +352,7 @@ impl<const MAX: usize, const BODY: usize> Default for MetricsStatics<MAX, BODY> 
     }
 }
 
-/// Declare one [`MetricsStatics`] in CCM RAM.
-///
-/// Mirrors `ubos_http::http_pool_static!`, and for the same reason: the
-/// `ccmram-bss` feature has to be read where it is declared. A
-/// `cfg_attr` written inside a macro body resolves against the crate the
-/// macro expands into, which is the board, so the test is made here at
-/// definition and the expansion carries no `cfg` of its own.
-#[cfg(feature = "ccmram-bss")]
-#[macro_export]
-macro_rules! metrics_statics {
-    ($name:ident, $max:expr, $body:expr) => {
-        #[unsafe(link_section = ".ccmram.bss")]
-        static $name: $crate::metrics::MetricsStatics<{ $max }, { $body }> =
-            $crate::metrics::MetricsStatics::new();
-    };
-}
-
-/// Declare one [`MetricsStatics`] in main SRAM. See the `ccmram-bss`
-/// variant.
-#[cfg(not(feature = "ccmram-bss"))]
+/// Declare one [`MetricsStatics`] static.
 #[macro_export]
 macro_rules! metrics_statics {
     ($name:ident, $max:expr, $body:expr) => {

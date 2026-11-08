@@ -42,16 +42,6 @@
 //! Everything outside this crate reaches the table through
 //! [`ChainStatsHandle`], which [`handle`] returns. The static itself is
 //! private, so no consumer holds a second door to it.
-//!
-//! [`CHAIN_STATS`] carries no `ccmram-bss` link section, unlike the
-//! mining mailbox statics in `ubos_mining::control`. A static in that section
-//! is zeroed before main and then handed out as fully initialised, so
-//! `ubos-core`'s contract is that its all-zero image must equal what
-//! `new()` builds. [`ChainStats::new`] starts the hottest die at
-//! `NO_TEMPERATURE`, which is `i32::MIN`, so the table fails that
-//! contract: a relocated table would come up reporting zero
-//! millidegrees on every chain instead of no reading at all. Do not add
-//! the attribute.
 
 use crate::hashrate::HashrateEstimator;
 use portable_atomic::{AtomicI32, AtomicU8, AtomicU16, AtomicU32, AtomicU64, Ordering};

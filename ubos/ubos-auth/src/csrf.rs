@@ -75,7 +75,6 @@ struct CsrfMeta {
 /// A blocking mutex, because nothing awaits while it is held. The token is
 /// drawn from the CSPRNG before the lock is taken, so the longest span is
 /// a scan of at most `MAX_TOKENS` entries.
-#[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
 static CSRF_TOKENS: Mutex<
     CriticalSectionRawMutex,
     RefCell<FnvIndexMap<String<32>, CsrfMeta, MAX_TOKENS>>,

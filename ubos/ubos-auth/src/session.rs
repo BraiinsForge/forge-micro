@@ -67,7 +67,6 @@ pub(crate) struct SessionMeta {
 /// A blocking mutex, because nothing awaits while it is held. The longest
 /// span is a scan of at most `MAX_SESSIONS` entries, each a 32-byte
 /// compare.
-#[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
 static SESSIONS: Mutex<
     CriticalSectionRawMutex,
     RefCell<FnvIndexMap<String<32>, SessionMeta, MAX_SESSIONS>>,

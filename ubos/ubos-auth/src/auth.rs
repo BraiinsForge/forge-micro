@@ -136,7 +136,6 @@ impl Credentials {
 ///
 /// A blocking mutex, because nothing awaits while it is held. Every span
 /// over it is a field replacement or a 64-byte clone.
-#[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
 pub(crate) static CREDENTIALS: Mutex<CriticalSectionRawMutex, RefCell<Credentials>> =
     Mutex::new(RefCell::new(Credentials::const_empty()));
 

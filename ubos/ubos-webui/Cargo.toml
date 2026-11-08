@@ -10,12 +10,6 @@ workspace = true
 [features]
 default = ["defmt"]
 defmt   = ["dep:defmt", "ubos-auth/defmt", "ubos-config/defmt", "ubos-http/defmt", "ubos-logging/defmt", "ubos-mdns/defmt", "ubos-net/defmt"]
-# Opt-in for cortex-m boards whose linker exposes a `.ccmram.bss`
-# section. Relocates the HTTP scratch buffers off main SRAM. Pairs
-# with the same feature on `ubos-metrics` and `ubos-core`. The
-# `ubos-core` feature is required so the pre-init zeroing helper is
-# compiled in.
-ccmram-bss = ["ubos-core/ccmram-bss"]
 
 [build-dependencies]
 # Used by `build.rs` to gzip each Vite single-file page
@@ -41,7 +35,6 @@ heapless          = { workspace = true }
 defmt             = { workspace = true, optional = true }
 ubos-auth         = { workspace = true, default-features = false }
 ubos-config       = { workspace = true, default-features = false }
-ubos-core         = { workspace = true }
 ubos-http         = { workspace = true, default-features = false }
 ubos-logging      = { workspace = true }
 ubos-mdns         = { workspace = true, default-features = false }
@@ -53,7 +46,6 @@ critical-section = { version = "1.2", features = ["std"] }
 
 # defmt is gated behind the defmt feature; ubos-logging is pulled only to
 # wire its defmt feature and provide the global logger, never referenced by
-# name in source; ubos-core is pulled only to wire its ccmram-bss feature.
-# machete cannot see any of these uses, so all three are ignored.
+# name in source. machete cannot see either use, so both are ignored.
 [package.metadata.cargo-machete]
-ignored = ["defmt", "ubos-core", "ubos-logging"]
+ignored = ["defmt", "ubos-logging"]

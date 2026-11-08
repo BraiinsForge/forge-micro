@@ -46,7 +46,6 @@ use rand_chacha::rand_core::{RngCore, SeedableRng};
 /// 24-byte draw and nothing awaits while it is held. The `RefCell` is
 /// what a blocking mutex needs to hand out a `&mut`, and it is reached
 /// only from inside the critical section.
-#[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
 static CSPRNG: Mutex<CriticalSectionRawMutex, RefCell<Option<ChaCha20Rng>>> =
     Mutex::new(RefCell::new(None));
 

@@ -10,11 +10,6 @@ workspace = true
 [features]
 default = ["defmt"]
 defmt   = ["dep:defmt", "ubos-core/defmt", "ubos-logging/defmt", "ubos-mdns/defmt", "ubos-net/defmt", "ubos-http/defmt", "edge-http/defmt"]
-# Opt-in for cortex-m boards whose linker exposes a `.ccmram.bss`
-# section. Moves the metric map and the scrape scratch buffers off
-# main SRAM so the stm32f4 boards fit; no effect on boards that do
-# not declare the section.
-ccmram-bss = []
 
 [dependencies]
 edge-http         = { workspace = true, features = ["io"] }
