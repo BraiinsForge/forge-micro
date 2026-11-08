@@ -60,11 +60,11 @@
 //! The scheme is first-party rather than a defmt capture because reusing
 //! defmt would mean owning a version-pinned browser port of
 //! `defmt-decoder` covering defmt's whole format language; the
-//! first-party format is positional `{}` over six integer widths, so the
-//! browser decoder is tens of lines and stable. The code is a
-//! compile-time FNV-1a hash of the event's slug, stable across builds
-//! and OTA, so a ring written by old firmware still decodes; a removed
-//! event renders as unknown.
+//! first-party format is positional `{}` over six integer widths and a
+//! temperature, so the browser decoder is tens of lines and stable. The
+//! code is a compile-time FNV-1a hash of the event's slug, stable across
+//! builds and OTA, so a ring written by old firmware still decodes; a
+//! removed event renders as unknown.
 //!
 //! Every record carries one `ts: u32` from the injected wall clock:
 //! seconds since boot before NTP sync, Unix-epoch seconds after. The
@@ -169,6 +169,9 @@ pub enum ArgWidth {
     I16,
     /// Signed 32-bit integer.
     I32,
+    /// A temperature, stored as its signed 32-bit millicelsius. The browser
+    /// shows it in degrees.
+    Temperature,
 }
 
 /// Maximum byte length of an event format string.
@@ -661,6 +664,9 @@ macro_rules! __arg_width {
     (i32) => {
         $crate::ArgWidth::I32
     };
+    (Temperature) => {
+        $crate::ArgWidth::Temperature
+    };
 }
 
 /// Wraps a value expression in the corresponding [`Arg`] variant.
@@ -686,6 +692,9 @@ macro_rules! __arg_value {
     };
     (i32, $val:expr) => {
         $crate::Arg::I32($val)
+    };
+    (Temperature, $val:expr) => {
+        $crate::Arg::I32($val.millicelsius())
     };
 }
 
@@ -729,7 +738,9 @@ macro_rules! __log_sev {
 /// ```
 ///
 /// `severity` is one of `info`, `warn`, or `error`. Each `ty` is one of
-/// `u8`, `u16`, `u32`, `i8`, `i16`, `i32`.
+/// `u8`, `u16`, `u32`, `i8`, `i16`, `i32`, or `Temperature`, which must be
+/// in scope where the macro is called. A temperature renders in degrees, in
+/// the log line and in the browser alike.
 ///
 /// # Output
 ///

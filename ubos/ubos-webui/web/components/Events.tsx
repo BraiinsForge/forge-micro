@@ -32,11 +32,12 @@ function decodeArgs(hex: string, widths: string[]): number[] {
       value |= parseInt(hex.slice((offset + i) * 2, (offset + i) * 2 + 2), 16) << (i * 8);
     }
     value = value >>> 0;
-    if (width.startsWith('i')) {
+    const temperature = width === 'temperature';
+    if (temperature || width.startsWith('i')) {
       const bits = byteCount * 8;
       if (value >= 2 ** (bits - 1)) value -= 2 ** bits;
     }
-    values.push(value);
+    values.push(temperature ? value / 1000 : value);
     offset += byteCount;
   }
   return values;

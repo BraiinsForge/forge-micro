@@ -1569,6 +1569,7 @@ fn argwidth_str(width: ubos_events::ArgWidth) -> &'static str {
         ubos_events::ArgWidth::I8 => "i8",
         ubos_events::ArgWidth::I16 => "i16",
         ubos_events::ArgWidth::I32 => "i32",
+        ubos_events::ArgWidth::Temperature => "temperature",
     }
 }
 

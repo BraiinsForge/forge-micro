@@ -32,6 +32,26 @@ mod inner {
     }
 }
 
+/// A temperature takes the width of its own kind, so the browser knows to
+/// show it in degrees, and its payload is the millicelsius.
+#[test]
+fn a_temperature_is_catalogued_as_a_temperature_and_stored_in_millicelsius() {
+    struct Temperature(i32);
+    impl Temperature {
+        const fn millicelsius(&self) -> i32 {
+            self.0
+        }
+    }
+    assert_eq!(
+        crate::__arg_width!(Temperature),
+        crate::ArgWidth::Temperature
+    );
+    assert_eq!(
+        crate::__arg_value!(Temperature, Temperature(95_125)),
+        crate::Arg::I32(95_125)
+    );
+}
+
 #[test]
 fn catalog_codes_are_unique() {
     let codes: Vec<u32> = inner::events::CATALOG.iter().map(|def| def.code).collect();

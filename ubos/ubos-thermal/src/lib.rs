@@ -115,19 +115,10 @@ use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage, PauseReas
 use ubos_metrics::metrics::{Metric, Value};
 
 ubos_events::events! {
-    critical_temperature(temp_c: i16)   error = "Critical temperature {} °C, mining halted",
-    temperature_recovered(temp_c: i16)  info  = "Temperature recovered to {} °C, resuming",
-    sensor_fault(misses: u32)           error = "Temperature sensor fault after {} misses",
-    sensor_recovered(misses: u32)       info  = "Temperature sensor recovered after {} misses",
-}
-
-/// Converts a [`Temperature`] to whole degrees Celsius as [`i16`].
-///
-/// Mining temperatures are well within the i16 range (-32768..=32767 °C),
-/// so the truncating cast from i32 is safe at any physically meaningful value.
-#[allow(clippy::cast_possible_truncation)]
-fn temp_celsius_i16(temperature: Temperature) -> i16 {
-    (temperature.millicelsius() / 1000) as i16
+    dangerous_temperature(temp: Temperature)  error = "Critical temperature {} °C, mining halted",
+    temperature_cooled(temp: Temperature)     info  = "Temperature recovered to {} °C, resuming",
+    sensor_fault(misses: u32)                 error = "Temperature sensor fault after {} misses",
+    sensor_recovered(misses: u32)             info  = "Temperature sensor recovered after {} misses",
 }
 
 type CSMutex = CriticalSectionRawMutex;
@@ -461,19 +452,13 @@ impl Note {
                 ManagerMessage::TemperatureReadable
             }
             Self::Dangerous(temp) => {
-                error!(
-                    "thermal: dangerous temperature {}°C, halting mining",
-                    temp.celsius_f64()
-                );
-                crate::events::critical_temperature(temp_celsius_i16(temp));
+                error!("thermal: dangerous temperature {} °C, halting mining", temp);
+                crate::events::dangerous_temperature(temp);
                 ManagerMessage::DangerousTemperature
             }
             Self::Cooled(temp) => {
-                warn!(
-                    "thermal: cooled to {}°C, resuming mining",
-                    temp.celsius_f64()
-                );
-                crate::events::temperature_recovered(temp_celsius_i16(temp));
+                warn!("thermal: cooled to {} °C, resuming mining", temp);
+                crate::events::temperature_cooled(temp);
                 ManagerMessage::TemperatureNormal
             }
         };
