@@ -139,6 +139,16 @@ impl Frequency {
     pub fn as_mhz(self) -> f64 {
         f64::from(self.0) / 1000.0
     }
+
+    /// Construct from fractional megahertz, for a model that solves in
+    /// them, rounded to the nearest kilohertz. A negative or not-a-number
+    /// value gives zero, and one past the range gives the largest value.
+    // A float to integer cast saturates, which is the behaviour stated above.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    #[must_use]
+    pub fn from_mhz_f64(mhz: f64) -> Self {
+        Self((mhz * 1000.0 + 0.5) as u32)
+    }
 }
 
 /// Inclusive operating-frequency envelope. A tuner ramps inside this
@@ -250,6 +260,23 @@ impl Power {
     #[must_use]
     pub const fn mw(self) -> u32 {
         self.0
+    }
+
+    /// Convert to watts as `f64`, for a caller that computes in watts
+    /// rather than in integer milliwatts.
+    #[must_use]
+    pub fn as_watts(self) -> f64 {
+        f64::from(self.0) / 1000.0
+    }
+
+    /// Construct from fractional watts, for a model that computes in
+    /// them, rounded to the nearest milliwatt. A negative or not-a-number
+    /// value gives zero, and one past the range gives the largest value.
+    // A float to integer cast saturates, which is the behaviour stated above.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    #[must_use]
+    pub fn from_watts_f64(watts: f64) -> Self {
+        Self((watts * 1000.0 + 0.5) as u32)
     }
 }
 

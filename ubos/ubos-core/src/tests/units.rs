@@ -127,6 +127,38 @@ fn current_is_built_from_amps_and_milliamps() {
     assert_eq!(Current::from_amps(u32::MAX).ma(), u32::MAX);
 }
 
+#[test]
+fn power_converts_to_watts() {
+    assert!((Power::from_mw(2500).as_watts() - 2.5).abs() < 1e-9);
+}
+
+#[test]
+fn a_fractional_power_rounds_to_the_nearest_milliwatt() {
+    assert_eq!(Power::from_watts_f64(2.5004), Power::from_mw(2_500));
+    assert_eq!(Power::from_watts_f64(2.5006), Power::from_mw(2_501));
+    assert_eq!(Power::from_watts_f64(-3.0), Power::from_mw(0));
+    assert_eq!(Power::from_watts_f64(f64::NAN), Power::from_mw(0));
+    assert_eq!(Power::from_watts_f64(1.0e12), Power::from_mw(u32::MAX));
+}
+
+#[test]
+fn a_fractional_frequency_rounds_to_the_nearest_kilohertz() {
+    assert_eq!(
+        Frequency::from_mhz_f64(100.0004),
+        Frequency::from_khz(100_000)
+    );
+    assert_eq!(
+        Frequency::from_mhz_f64(100.0006),
+        Frequency::from_khz(100_001)
+    );
+    assert_eq!(Frequency::from_mhz_f64(-5.0), Frequency::from_khz(0));
+    assert_eq!(Frequency::from_mhz_f64(f64::NAN), Frequency::from_khz(0));
+    assert_eq!(
+        Frequency::from_mhz_f64(1.0e12),
+        Frequency::from_khz(u32::MAX)
+    );
+}
+
 /// A unit with no reading is zero, which the API reports where a source
 /// has not published yet.
 #[test]
