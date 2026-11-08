@@ -471,7 +471,7 @@ impl Cooling {
                     target,
                 };
                 self.pid_input = Some(pid_input);
-                FanPwm::from_percent(self.control.update(pid_input.temp))
+                self.control.update(pid_input.temp)
             }
         };
         Step {

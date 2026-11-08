@@ -25,7 +25,7 @@
 //! crate carries forward.
 
 use ubos_config::CoolingConfig;
-use ubos_core::units::Temperature;
+use ubos_core::units::{FanPwm, Temperature};
 
 /// Fixed-capacity ring buffer used to detect a stable temperature window.
 ///
@@ -193,8 +193,8 @@ impl PidController {
 pub struct TempControl {
     pid: PidController,
     history: RingBuffer<{ Self::HISTORY_SIZE }>,
-    target_temp_c: f64,
-    min_fan_pwm: u8,
+    target: Temperature,
+    min_fan_pwm: FanPwm,
     /// Per-tick decay factor of the input smoother, from
     /// [`half_time_decay`]. Zero passes the reading through.
     input_decay_lambda: f64,
@@ -221,24 +221,18 @@ impl TempControl {
         d_gain: f64,
         smoother_half_decay_secs: u32,
         input_smoother_half_decay_secs: u32,
-        min_fan_pwm: u8,
+        min_fan_pwm: FanPwm,
     ) -> Self {
-        // PWM is reported as a percent, so a min above 100 would invert
-        // the clamp range and panic in `update`. The debug_assert traps a
-        // bad value in tests; in release the warn surfaces the corrupt
-        // persisted config and the clamp keeps the firmware panic-free.
-        debug_assert!(min_fan_pwm <= 100, "min_fan_pwm must be <= 100");
-        if min_fan_pwm > 100 {
-            ubos_logging::warn!("min_fan_pwm {} exceeds 100, clamping to 100", min_fan_pwm);
-        }
-        let min_fan_pwm = min_fan_pwm.min(100);
         let mut pid =
             PidController::new(p_gain, i_gain, d_gain, f64::from(smoother_half_decay_secs));
-        pid.set_limits(f64::from(min_fan_pwm), 100.0);
+        pid.set_limits(
+            f64::from(min_fan_pwm.percent()),
+            f64::from(FanPwm::FULL.percent()),
+        );
         Self {
             pid,
             history: RingBuffer::new(),
-            target_temp_c: 0.0,
+            target: Temperature::from_millicelsius(0),
             min_fan_pwm,
             input_decay_lambda: half_time_decay(f64::from(input_smoother_half_decay_secs)),
             smoothed_temp_c: None,
@@ -249,13 +243,21 @@ impl TempControl {
     /// and the output floor for the PID, and the thermal setpoint.
     #[must_use]
     pub fn from_config(config: &CoolingConfig) -> Self {
+        // `FanPwm` clamps to 100, so a floor above it is caught here, where
+        // the persisted percent arrives. The debug_assert traps a bad value
+        // in tests; in release the warn surfaces the corrupt config.
+        let min_fan_pwm = config.pid.min_fan_pwm;
+        debug_assert!(min_fan_pwm <= 100, "min_fan_pwm must be <= 100");
+        if min_fan_pwm > 100 {
+            ubos_logging::warn!("min_fan_pwm {} exceeds 100, clamping to 100", min_fan_pwm);
+        }
         let mut control = Self::new(
             config.pid.p_gain,
             config.pid.i_gain,
             config.pid.d_gain,
             config.pid.smoother_half_decay_secs,
             config.pid.input_smoother_half_decay_secs,
-            config.pid.min_fan_pwm,
+            FanPwm::from_percent(min_fan_pwm),
         );
         control.set_target(config.target.temp);
         control
@@ -273,7 +275,7 @@ impl TempControl {
     }
 
     pub fn set_target(&mut self, target: Temperature) {
-        self.target_temp_c = target.celsius_f64();
+        self.target = target;
     }
 
     /// Drop the smoothed temperature, so the next sample is taken as it
@@ -288,8 +290,8 @@ impl TempControl {
     /// must invoke `update` once per sample tick for the PID gains to
     /// behave as tuned.
     #[must_use]
-    pub fn update(&mut self, temp: Temperature) -> u8 {
-        let error = self.target_temp_c - self.smooth(temp.celsius_f64());
+    pub fn update(&mut self, temp: Temperature) -> FanPwm {
+        let error = self.target.celsius_f64() - self.smooth(temp);
         self.history.add(error);
 
         let settled = self.history.min_max().is_some_and(|(min, max)| {
@@ -302,13 +304,16 @@ impl TempControl {
         // PID output is already clamped to [min_fan_pwm, 100].
         // u8 cast is safe because of the clamp.
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let pwm = libm::round(raw) as u8;
-        pwm.clamp(self.min_fan_pwm, 100)
+        let pwm = FanPwm::from_percent(libm::round(raw) as u8);
+        pwm.max(self.min_fan_pwm)
     }
 
-    /// Blend `temp_c` into the smoothed temperature and return it. The
-    /// first sample is taken as it is.
-    fn smooth(&mut self, temp_c: f64) -> f64 {
+    /// Blend `temp` into the smoothed temperature and return it in degrees
+    /// Celsius. The first sample is taken as it is. The smoothed value
+    /// is fractional and stays a float between samples, since rounding it
+    /// to millicelsius each tick would change the filter.
+    fn smooth(&mut self, temp: Temperature) -> f64 {
+        let temp_c = temp.celsius_f64();
         let lambda = self.input_decay_lambda;
         let smoothed = self
             .smoothed_temp_c
