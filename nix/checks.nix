@@ -581,14 +581,6 @@ hostClippyChecks
     ];
   };
 
-  clippy-ubos-stm32 = mkLibraryCheck "clippy-ubos-stm32" {
-    name = "ubos-stm32";
-    target = "thumbv7em-none-eabihf";
-    features = [
-      "embassy-stm32/stm32f439zi"
-    ];
-  };
-
   build-ubos-firmware = mkLibraryCheck "build-ubos-firmware" {
     name = "ubos-firmware";
     target = "thumbv8m.main-none-eabihf";
