@@ -142,14 +142,23 @@ counts as naming a call.
 
 ## Layering
 
+```mermaid
+graph TD
+    machine[ubos-machine] --> asic[ubos-asic]
+    machine --> psu[ubos-psu]
+    machine --> temperature[ubos-temperature]
+    machine --> metrics[ubos-metrics]
+    config[ubos-config] --> asic
+    psu --> metrics
+    asic --> core[ubos-core]
+    temperature --> core
+    metrics --> core
 ```
-ubos-core
- ├ ubos-asic (chip + hashboard)  ├ ubos-psu  ├ ubos-temperature  ├ ubos-metrics
- │    └ ubos-config (derives MiningInfo/bounds from the hashboard)
- └──────┴───────────┴────────────┴───────────┐
-                                       ubos-machine
-                                            └ firmware/* + host-runner
-```
+
+An arrow points from a crate to a crate it depends on, and a
+dependency that another path already implies is left out. The firmware
+binaries and `host-runner` are the composition roots: each depends on
+`ubos-machine` and on most of the crates above it.
 
 `host-runner` is not one of the boards and has no
 `MachineDescriptor`; it reads the base descriptors directly —
