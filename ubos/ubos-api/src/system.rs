@@ -452,8 +452,8 @@ where
 
 /// Handle `GET /api/system/temperature`.
 ///
-/// Returns the temperatures of the last thermal sample, the ambient
-/// reading and the kind the cooling PID follows.
+/// Returns the temperatures the thermal loop filters over its window,
+/// the ambient reading and the kind the cooling PID follows.
 async fn handle_temperature<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
@@ -463,8 +463,7 @@ async fn handle_temperature<T, const N: usize>(
 where
     T: Read + Write + TcpSplit,
 {
-    let reading = thermal.current();
-    let temps = reading.as_ref().and_then(|reading| reading.temps);
+    let temps = thermal.filtered();
     let celsius = |source: Source, statistic: Statistic| {
         temps
             .and_then(|temps| temps.temp_stats(source))
@@ -475,9 +474,7 @@ where
         chip_mean: celsius(Source::Chip, Statistic::Mean),
         hashboard_max: celsius(Source::Hashboard, Statistic::Max),
         hashboard_mean: celsius(Source::Hashboard, Statistic::Mean),
-        ambient: reading
-            .and_then(|reading| reading.ambient)
-            .map(Temperature::celsius_i32),
+        ambient: thermal.ambient().map(Temperature::celsius_i32),
         pid_source: cooling.current().and_then(|fan| fan.pid_source),
     };
     serialize_and_respond(connection, scratch, &body).await

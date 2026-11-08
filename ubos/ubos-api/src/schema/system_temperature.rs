@@ -22,25 +22,26 @@
 use serde::Serialize;
 use ubos_config::Source;
 
-/// The temperatures of the last thermal sample, the ambient reading and
-/// the kind the cooling PID follows, returned by
+/// The temperatures the thermal loop filters over its window, the
+/// ambient reading and the kind the cooling PID follows, returned by
 /// `GET /api/system/temperature`. Each temperature is in whole degrees
-/// Celsius, and one the last sample did not read is `null`.
+/// Celsius, and one with no reading inside the window is `null`.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct SystemTemperature {
-    /// The hottest chip reading, or `null` when the sample read no chip.
+    /// The hottest chip reading of the window, or `null` when no chip
+    /// reading is inside it.
     pub chip_max: Option<i32>,
     /// The mean chip reading, as `chipMax`.
     pub chip_mean: Option<i32>,
-    /// The hottest hashboard reading, or `null` when the sample read no
-    /// hashboard sensor.
+    /// The hottest hashboard reading of the window, or `null` when no
+    /// hashboard reading is inside it.
     pub hashboard_max: Option<i32>,
     /// The mean hashboard reading, as `hashboardMax`.
     pub hashboard_mean: Option<i32>,
     /// The ambient temperature around the board, or `null` where the
-    /// board measures none or the read failed.
+    /// board measures none or no ambient reading is inside the window.
     pub ambient: Option<i32>,
     /// The kind of reading the cooling PID follows, or `null` under a
     /// fixed duty and while a failsafe holds the fan at full.

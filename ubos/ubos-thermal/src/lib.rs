@@ -401,6 +401,21 @@ impl Handle {
         STATE_WATCH.try_get()
     }
 
+    /// The chip and hashboard temperatures, or `None` when neither kind has
+    /// a reading inside the window.
+    #[must_use]
+    pub fn filtered(&self) -> Option<TempSample> {
+        WATCHES.filtered.try_get().flatten()
+    }
+
+    /// The air around the board, or `None` when no ambient reading is
+    /// inside the window. A board without an ambient sensor always answers
+    /// `None`, and so does every board before the first tick.
+    #[must_use]
+    pub fn ambient(&self) -> Option<Temperature> {
+        WATCHES.ambient.try_get().flatten()
+    }
+
     /// Per-task subscription to the temperature that the cooling PID
     /// follows: the statistic of the cooling target over the readings of
     /// its kind, or `None` when that kind has no reading inside the

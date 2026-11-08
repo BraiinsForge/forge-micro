@@ -2017,10 +2017,10 @@
         "type": "object"
       },
       "SystemTemperature": {
-        "description": "The temperatures of the last thermal sample, the ambient reading and\nthe kind the cooling PID follows, returned by\n`GET /api/system/temperature`. Each temperature is in whole degrees\nCelsius, and one the last sample did not read is `null`.",
+        "description": "The temperatures the thermal loop filters over its window, the\nambient reading and the kind the cooling PID follows, returned by\n`GET /api/system/temperature`. Each temperature is in whole degrees\nCelsius, and one with no reading inside the window is `null`.",
         "properties": {
           "ambient": {
-            "description": "The ambient temperature around the board, or `null` where the\nboard measures none or the read failed.",
+            "description": "The ambient temperature around the board, or `null` where the\nboard measures none or no ambient reading is inside the window.",
             "format": "int32",
             "type": [
               "integer",
@@ -2028,7 +2028,7 @@
             ]
           },
           "chipMax": {
-            "description": "The hottest chip reading, or `null` when the sample read no chip.",
+            "description": "The hottest chip reading of the window, or `null` when no chip\nreading is inside it.",
             "format": "int32",
             "type": [
               "integer",
@@ -2044,7 +2044,7 @@
             ]
           },
           "hashboardMax": {
-            "description": "The hottest hashboard reading, or `null` when the sample read no\nhashboard sensor.",
+            "description": "The hottest hashboard reading of the window, or `null` when no\nhashboard reading is inside it.",
             "format": "int32",
             "type": [
               "integer",
