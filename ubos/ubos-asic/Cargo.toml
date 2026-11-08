@@ -9,7 +9,7 @@ workspace = true
 
 [features]
 default = []
-defmt   = ["dep:defmt"]
+defmt   = ["dep:defmt", "ubos-core/defmt"]
 
 [dependencies]
 bitfield-struct = { workspace = true }
