@@ -275,11 +275,9 @@ let
     };
   };
 
-  # One row per ARM/STM board. Generates clippy-<name> and
-  # build-<name>, both with the default feature set. `guard`
-  # selects the image guard run over the linked ELF: "slot" objcopies
-  # it and enforces the OTA slot budget, "elf" greps it for the pool
-  # worker only; boards that are not OTA targets have no slot budget.
+  # One row per ARM board. Generates clippy-<name> and build-<name>,
+  # both with the default feature set, and the build runs the image
+  # guard over the linked ELF.
   #
   # `boardTable` is this table before `hasCrate` filters it, and
   # `board-coverage` below reads that unfiltered form. The filter is
@@ -289,23 +287,18 @@ let
   boardTable = {
     forge-axe = {
       target = "thumbv8m.main-none-eabihf";
-      guard = "slot";
     };
     bmm-pico = {
       target = "thumbv8m.main-none-eabihf";
-      guard = "slot";
     };
     rp2040 = {
       target = "thumbv6m-none-eabi";
-      guard = "slot";
     };
     rp2350 = {
       target = "thumbv8m.main-none-eabihf";
-      guard = "slot";
     };
     hashnode = {
       target = "thumbv8m.main-none-eabihf";
-      guard = "slot";
     };
   };
 
@@ -326,52 +319,36 @@ let
   # ELF of an image.
   configSchemaHash = pkgs.callPackage ../pkgs/config-schema-hash { };
 
-  # The image guards, one per `guard` of the board table, each a check
-  # over the ELF a board plan links. cargo check and cargo clippy stop
-  # short of linking the final ELF for binary crates, so they miss
-  # .bss / flash overflows; the linked image is what fails CI on a RAM
-  # or flash budget regression, at the same gate as a missing trait
-  # bound. The Footprint section of docs/STRUCTURE.md records the
-  # per-board RAM snapshot this gate protects; docs/OTA.md the flash
-  # layout and slot budget. The guard text renders from nix/guards.nix.
-  # Each guard also reads the config schema hash out of the ELF, so an
-  # image whose link lost the symbol fails its build check rather than
-  # the packing of an update.
-  imageGuards = {
-    slot =
-      name: plan:
-      pkgs.runCommand "build-${name}" { nativeBuildInputs = [ pkgs.gcc-arm-embedded ]; } (
-        ''
-          ${configSchemaHash}/bin/config-schema-hash ${plan}/bin/${name}
-          bin=$(mktemp --suffix=.bin)
-          arm-none-eabi-objcopy -O binary ${plan}/bin/${name} "$bin"
-        ''
-        + guards.imageGuard {
-          inherit name;
-          bin = ''"$bin"'';
-          maxBytes = slotMaxBytes;
-          cleanup = ''rm -f "$bin"; '';
-        }
-        + ''
-          rm -f "$bin"
-          touch "$out"
-        ''
-      );
-    elf =
-      name: plan:
-      pkgs.runCommand "build-${name}" { } (
-        ''
-          ${configSchemaHash}/bin/config-schema-hash ${plan}/bin/${name}
-        ''
-        + guards.imageGuard {
-          inherit name;
-          bin = "${plan}/bin/${name}";
-        }
-        + ''
-          touch "$out"
-        ''
-      );
-  };
+  # The image guard, a check over the ELF a board plan links. It
+  # objcopies the ELF and enforces the OTA slot budget. cargo check and
+  # cargo clippy stop short of linking the final ELF for binary crates,
+  # so they miss .bss / flash overflows; the linked image is what fails
+  # CI on a RAM or flash budget regression, at the same gate as a
+  # missing trait bound. The Footprint section of docs/STRUCTURE.md
+  # records the per-board RAM snapshot this gate protects; docs/OTA.md
+  # the flash layout and slot budget. The guard text renders from
+  # nix/guards.nix. The guard also reads the config schema hash out of
+  # the ELF, so an image whose link lost the symbol fails its build
+  # check rather than the packing of an update.
+  imageGuard =
+    name: plan:
+    pkgs.runCommand "build-${name}" { nativeBuildInputs = [ pkgs.gcc-arm-embedded ]; } (
+      ''
+        ${configSchemaHash}/bin/config-schema-hash ${plan}/bin/${name}
+        bin=$(mktemp --suffix=.bin)
+        arm-none-eabi-objcopy -O binary ${plan}/bin/${name} "$bin"
+      ''
+      + guards.imageGuard {
+        inherit name;
+        bin = ''"$bin"'';
+        maxBytes = slotMaxBytes;
+        cleanup = ''rm -f "$bin"; '';
+      }
+      + ''
+        rm -f "$bin"
+        touch "$out"
+      ''
+    );
 
   # A board's clippy and build checks in one fee state, under names
   # that end in `suffix`. The plan is one graph, so the build is its
@@ -386,7 +363,7 @@ let
     in
     {
       "clippy-${name}${suffix}" = plan;
-      "build-${name}${suffix}" = imageGuards.${board.guard} name plan;
+      "build-${name}${suffix}" = imageGuard name plan;
     };
 
   # Each board in the fee state its image ships.
