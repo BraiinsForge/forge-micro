@@ -19,7 +19,7 @@
 
 //! Control-board descriptors.
 
-use crate::platform::{ESP32S3, PlatformDescriptor, RP2040, RP2350, STM32F407, STM32F439};
+use crate::platform::{ESP32S3, PlatformDescriptor, RP2040, RP2350};
 
 /// The board the firmware runs on.
 ///
@@ -53,9 +53,7 @@ pub struct ControlBoardDescriptor {
     /// A slot costs more than the buffers it names. Every slot must be
     /// able to serve the REST API, whose handler future is far larger
     /// than the dashboard's, so a merged slot is dearer than either of
-    /// the two per-listener slots it replaces. On the two STM32 boards
-    /// the buffers come off main SRAM entirely, through the `ccmram-bss`
-    /// feature of `ubos-http`.
+    /// the two per-listener slots it replaces.
     pub http_pool: usize,
     /// Number of concurrent connections the metrics HTTP listener serves.
     pub metrics_http_pool: usize,
@@ -112,36 +110,6 @@ pub const CONTROL_BOARD_ESP32S3: ControlBoardDescriptor = ControlBoardDescriptor
     http_pool: 4,
     metrics_http_pool: 3,
     event_log_capacity: 128,
-};
-
-/// The `DevEBox` STM32F407 control board with a LAN8720 PHY. The HTTP
-/// pools and the 32-entry event ring are sized down for this
-/// RAM-constrained board.
-///
-/// The tightest board at 128 KiB of main SRAM. A second HTTP slot fits
-/// only because the pool buffers sit in CCM, which the `ccmram-bss`
-/// feature of `ubos-http` puts them in. That memory is shared with the
-/// stack on this board alone, so `memory.x` holds a floor under what is
-/// left of it.
-pub const CONTROL_BOARD_STM32F407: ControlBoardDescriptor = ControlBoardDescriptor {
-    name: "DevEBox STM32F407 LAN8720",
-    platform: STM32F407,
-    mac_family: 0x06,
-    http_pool: 2,
-    metrics_http_pool: 1,
-    event_log_capacity: 32,
-};
-
-/// The Nucleo-F439ZI control board with a LAN8742A PHY. The HTTP pools
-/// and the 32-entry event ring are sized down for this RAM-constrained
-/// board.
-pub const CONTROL_BOARD_STM32F439: ControlBoardDescriptor = ControlBoardDescriptor {
-    name: "Nucleo-F439ZI LAN8742A",
-    platform: STM32F439,
-    mac_family: 0x07,
-    http_pool: 2,
-    metrics_http_pool: 1,
-    event_log_capacity: 32,
 };
 
 /// The Hashnode: control board and hashboard are one integrated product,

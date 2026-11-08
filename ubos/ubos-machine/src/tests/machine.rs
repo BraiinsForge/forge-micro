@@ -61,8 +61,6 @@ fn every_machine_has_a_threshold_for_each_kind_it_reads() {
     assert!(kinds_match_sensors(&MINIMINER_RP2350));
     assert!(kinds_match_sensors(&MINIMINER_BMM_ADAPTER));
     assert!(kinds_match_sensors(&MINIMINER_ESP32S3));
-    assert!(kinds_match_sensors(&MINIMINER_STM32F407));
-    assert!(kinds_match_sensors(&MINIMINER_STM32F439));
     assert!(kinds_match_sensors(&HASHNODE));
     assert!(kinds_match_sensors(&FORGE_AXE));
 }

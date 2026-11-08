@@ -33,8 +33,7 @@ use ubos_temperature::{SensorDescriptor, TempSource};
 
 use crate::control_board::{
     CONTROL_BOARD_BMM_ADAPTER, CONTROL_BOARD_ESP32S3, CONTROL_BOARD_FORGE_AXE,
-    CONTROL_BOARD_HASHNODE, CONTROL_BOARD_RP2040, CONTROL_BOARD_RP2350, CONTROL_BOARD_STM32F407,
-    CONTROL_BOARD_STM32F439, ControlBoardDescriptor,
+    CONTROL_BOARD_HASHNODE, CONTROL_BOARD_RP2040, CONTROL_BOARD_RP2350, ControlBoardDescriptor,
 };
 
 /// The most chains one machine drives, re-exported from the crate that
@@ -137,14 +136,6 @@ pub const MINIMINER_BMM_ADAPTER: MachineDescriptor<BmmPsuDescriptor> =
 /// The miniminer on the ESP32-S3 control board.
 pub const MINIMINER_ESP32S3: MachineDescriptor<BmmPsuDescriptor> =
     MachineDescriptor::miniminer(CONTROL_BOARD_ESP32S3);
-
-/// The miniminer on the STM32F407 control board.
-pub const MINIMINER_STM32F407: MachineDescriptor<BmmPsuDescriptor> =
-    MachineDescriptor::miniminer(CONTROL_BOARD_STM32F407);
-
-/// The miniminer on the STM32F439 control board.
-pub const MINIMINER_STM32F439: MachineDescriptor<BmmPsuDescriptor> =
-    MachineDescriptor::miniminer(CONTROL_BOARD_STM32F439);
 
 /// PSU input power a miniminer's power target may ask for, from the
 /// lowest to the highest the BMM101 supply delivers.
