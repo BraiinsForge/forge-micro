@@ -10,7 +10,7 @@ Implementation conventions for the firmware crates and the shared `ubos/`
 libraries. These load only when working under `firmware/` or `ubos/`.
 
 - All crates use `portable-atomic` for a uniform atomics API across targets.
-- The cortex-m firmware (rp2040, rp2350, stm32f407, stm32f439) uses
+- The cortex-m firmware (rp2040, rp2350) uses
   `#[cortex_m_rt::entry]` and drives `embassy_executor::raw::Executor`
   via `ubos_metrics::cpu_load::run_cortex_m_executor` so the poll/wfe
   loop can bracket `wfe` with `Instant::now()` reads. bmm-pico stays
@@ -30,15 +30,14 @@ libraries. These load only when working under `firmware/` or `ubos/`.
   detection (it panics `stack pointer out of range` instead of silently
   corrupting) and fixed the multi-core task-switch interrupt nesting that
   the 0.2.0 line corrupted under load.
-- UART for the BM1362 chip serial link uses DMA on cortex-m targets:
-  `embassy-stm32` `RingBufferedUartRx` for stm32f407/stm32f439, and
+- UART for the BM1362 chip serial link on the RP boards uses
   `embassy-rp` `BufferedUart` (interrupt-driven, 1 KiB software ring
-  buffer each direction) for rp2040/rp2350/bmm-pico. The RP hardware
-  FIFO is 32 bytes; one-shot DMA would overflow it between `read()`
-  calls at 921600 baud, and embassy-rp 0.10.0 ships no ring-buffered
-  DMA RX. `BufferedUart` already implements `embedded_io_async::Read`
-  and `Write` directly, so no newtype adapter is needed. The esp32s3
-  board firmware stays on the interrupt+FIFO `Uart::into_async()` path.
+  buffer each direction). The RP hardware FIFO is 32 bytes; one-shot
+  DMA would overflow it between `read()` calls at 921600 baud, and
+  embassy-rp 0.10.0 ships no ring-buffered DMA RX. `BufferedUart`
+  already implements `embedded_io_async::Read` and `Write` directly, so
+  no newtype adapter is needed. The esp32s3 board firmware stays on the
+  interrupt+FIFO `Uart::into_async()` path.
   esp-hal 1.1.1 now ships the UHCI UART-over-DMA driver (`esp_hal::uart::uhci`,
   behind the `unstable` feature, which this crate enables), closing the
   esp-rs/esp-hal#2642 / #4720 gap that 1.0.0 had. UHCI RX supports idle-EOF
@@ -51,8 +50,8 @@ libraries. These load only when working under `firmware/` or `ubos/`.
   responsive; the shared `ASIC_SESSION` uses `CriticalSectionRawMutex`,
   so cross-core sharing is free. On esp32s3, Core 1's executor also runs
   `IdleAccounting::<1>` so core 1's idle ticks are recorded for cpu-load
-  metrics. The S3's 128-byte hardware FIFO absorbs the ETH-ISR-class
-  jitter that overran the 1-byte USART holding register on stm32f407.
+  metrics. The S3's 128-byte hardware FIFO absorbs ETH-ISR-class
+  jitter.
 - A function returns the value it produces, or `Option` or `Result` of
   it. It does not fill a caller's `&mut` argument and report success
   separately. A `&mut` buffer is fine when the caller owns it for its
