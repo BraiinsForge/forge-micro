@@ -316,7 +316,7 @@ pub(crate) mod test_support {
 
         let dac = config
             .dcdc_voltage_range
-            .voltage_to_dac(config.dcdc_initial.mv())
+            .voltage_to_dac(config.dcdc_initial)
             .expect("BUG: initial mv must be in vrange");
         let cal_in = ina230::calibration_value(
             ina230::current_lsb_microamps(config.ina_input_max_current),

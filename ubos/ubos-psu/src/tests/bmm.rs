@@ -51,11 +51,11 @@ fn dropped_set_voltage_future_does_not_corrupt_bus() {
     let config = crate::BmmPsuDescriptor::DEFAULT;
     let dac_700 = config
         .dcdc_voltage_range
-        .voltage_to_dac(700)
+        .voltage_to_dac(Voltage::from_mv(700))
         .expect("BUG: 700 mv");
     let dac_800 = config
         .dcdc_voltage_range
-        .voltage_to_dac(800)
+        .voltage_to_dac(Voltage::from_mv(800))
         .expect("BUG: 800 mv");
 
     let mut transactions = test_support::init_transactions(&config);
@@ -94,7 +94,7 @@ fn terminate_disables_dcdc_and_short_circuits_subsequent_calls() {
     let config = crate::BmmPsuDescriptor::DEFAULT;
     let dac_700 = config
         .dcdc_voltage_range
-        .voltage_to_dac(700)
+        .voltage_to_dac(Voltage::from_mv(700))
         .expect("BUG: 700 mv");
 
     let mut transactions = test_support::init_transactions(&config);

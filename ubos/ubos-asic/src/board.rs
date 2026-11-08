@@ -85,7 +85,7 @@ pub struct HashboardDescriptor {
     /// `max_rail_voltage` accessor clamps the chip-stack product
     /// against this so `Psu::set_voltage` never returns
     /// `Error::OutOfRange` from a descriptor / PSU range mismatch.
-    /// Matches the `end_mv()` of the `VoltageRange` the firmware
+    /// Matches the `end()` of the `VoltageRange` the firmware
     /// configures on the board's PSU.
     // TODO: this field is PSU-specific but stays on the hashboard
     // descriptor for now; it should move onto BmmPsuDescriptor /

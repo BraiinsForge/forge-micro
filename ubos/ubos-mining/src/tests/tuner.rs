@@ -76,11 +76,11 @@ fn open_core_voltage_fits_default_psu_range() {
     let open_core = BMM101_HASHBOARD.max_rail_voltage();
     let range = BmmPsuDescriptor::DEFAULT.dcdc_voltage_range;
     assert!(
-        range.voltage_to_dac(open_core.mv()).is_some(),
+        range.voltage_to_dac(open_core).is_some(),
         "open core {} mV is outside PSU range [{}, {}] mV",
         open_core.mv(),
-        range.start_mv(),
-        range.end_mv(),
+        range.start().mv(),
+        range.end().mv(),
     );
 }
 

@@ -23,50 +23,43 @@ mod range_tests {
 
     #[test]
     fn vrange2_bounds() {
-        assert_eq!(VoltageRange::VRange2.start_mv(), 400);
-        assert_eq!(VoltageRange::VRange2.end_mv(), 1675);
+        assert_eq!(VoltageRange::VRange2.start(), Voltage::from_mv(400));
+        assert_eq!(VoltageRange::VRange2.end(), Voltage::from_mv(1675));
         assert_eq!(VoltageRange::VRange2.step_microvolts(), 5_000);
     }
 
     #[test]
     fn voltage_to_dac_in_range() {
         let r = VoltageRange::VRange2;
-        assert_eq!(r.voltage_to_dac(400), Some(0x00));
-        assert_eq!(r.voltage_to_dac(750), Some(0x46));
-        assert_eq!(r.voltage_to_dac(1675), Some(0xff));
+        assert_eq!(r.voltage_to_dac(Voltage::from_mv(400)), Some(0x00));
+        assert_eq!(r.voltage_to_dac(Voltage::from_mv(750)), Some(0x46));
+        assert_eq!(r.voltage_to_dac(Voltage::from_mv(1675)), Some(0xff));
     }
 
     #[test]
     fn voltage_to_dac_out_of_range() {
         let r = VoltageRange::VRange2;
-        assert_eq!(r.voltage_to_dac(375), None);
-        assert_eq!(r.voltage_to_dac(1700), None);
+        assert_eq!(r.voltage_to_dac(Voltage::from_mv(375)), None);
+        assert_eq!(r.voltage_to_dac(Voltage::from_mv(1700)), None);
     }
 
     #[test]
     fn voltage_to_dac_rounds_to_nearest_step() {
         let r = VoltageRange::VRange2;
         // 752 mV is between 750 (0x46) and 755 (0x47); rounds to 750.
-        assert_eq!(r.voltage_to_dac(752), Some(0x46));
+        assert_eq!(r.voltage_to_dac(Voltage::from_mv(752)), Some(0x46));
         // 753 mV rounds up to 755 (0x47).
-        assert_eq!(r.voltage_to_dac(753), Some(0x47));
-    }
-
-    #[test]
-    fn dac_to_mv_round_trip_endpoints() {
-        let r = VoltageRange::VRange2;
-        assert_eq!(r.dac_to_mv(0x00), 400);
-        assert_eq!(r.dac_to_mv(0xff), 1675);
+        assert_eq!(r.voltage_to_dac(Voltage::from_mv(753)), Some(0x47));
     }
 
     #[test]
     fn vrange0_sub_mv_step_loses_precision_intentionally() {
         // VRange0 step is 1.25 mV; integer mV API rounds to nearest.
         let r = VoltageRange::VRange0;
-        assert_eq!(r.start_mv(), 400);
+        assert_eq!(r.start(), Voltage::from_mv(400));
         assert_eq!(r.step_microvolts(), 1_250);
         // 401 mV is closer to DAC=1 (401.25 mV) than DAC=0 (400 mV).
-        assert_eq!(r.voltage_to_dac(401), Some(1));
+        assert_eq!(r.voltage_to_dac(Voltage::from_mv(401)), Some(1));
     }
 }
 
@@ -77,7 +70,7 @@ mod register_tests {
     #[test]
     fn vset_encode_750_mv_vrange2() {
         let dac = VoltageRange::VRange2
-            .voltage_to_dac(750)
+            .voltage_to_dac(Voltage::from_mv(750))
             .expect("BUG: 750 mv must be in vrange2");
         let bytes = encode_vset(dac);
         assert_eq!(bytes, [REG_VSET, 0x46]);
@@ -146,7 +139,7 @@ mod bus_tests {
         let address = config.dcdc_address;
         let dac = config
             .dcdc_voltage_range
-            .voltage_to_dac(config.dcdc_initial.mv())
+            .voltage_to_dac(config.dcdc_initial)
             .expect("BUG: initial mv must be in vrange2");
 
         let expectations = [
@@ -209,7 +202,7 @@ mod bus_tests {
     fn set_voltage_out_of_range_does_not_touch_bus() {
         let config = BmmPsuDescriptor::DEFAULT;
         let mut bus = Mock::new(&[]);
-        let result = run(set_voltage(&mut bus, &config, 2_000));
+        let result = run(set_voltage(&mut bus, &config, Voltage::from_mv(2_000)));
         bus.done();
         assert!(matches!(result, Err(crate::Error::OutOfRange)));
     }
@@ -220,13 +213,14 @@ mod bus_tests {
         let address = config.dcdc_address;
         let dac = config
             .dcdc_voltage_range
-            .voltage_to_dac(700)
+            .voltage_to_dac(Voltage::from_mv(700))
             .expect("BUG: 700 mv must be in vrange2");
 
         let expectations = [Transaction::write(address, encode_vset(dac).to_vec())];
 
         let mut bus = Mock::new(&expectations);
-        run(set_voltage(&mut bus, &config, 700)).expect("BUG: set_voltage failed");
+        run(set_voltage(&mut bus, &config, Voltage::from_mv(700)))
+            .expect("BUG: set_voltage failed");
         bus.done();
     }
 

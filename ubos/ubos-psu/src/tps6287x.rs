@@ -27,6 +27,8 @@
 //! watchdog over the same bus. A method that locked again would
 //! deadlock. `state.rs` holds the receiver these would otherwise want.
 
+use ubos_core::units::Voltage;
+
 #[cfg(test)]
 #[path = "tests/tps6287x.rs"]
 mod tests;
@@ -99,10 +101,13 @@ pub enum VoltageRange {
 }
 
 impl VoltageRange {
-    pub const fn start_mv(self) -> u32 {
+    /// The lowest voltage the range reaches.
+    pub const fn start(self) -> Voltage {
         match self {
-            VoltageRange::VRange0 | VoltageRange::VRange1 | VoltageRange::VRange2 => 400,
-            VoltageRange::VRange3 => 800,
+            VoltageRange::VRange0 | VoltageRange::VRange1 | VoltageRange::VRange2 => {
+                Voltage::from_mv(400)
+            }
+            VoltageRange::VRange3 => Voltage::from_mv(800),
         }
     }
 
@@ -115,32 +120,28 @@ impl VoltageRange {
         }
     }
 
-    pub const fn end_mv(self) -> u32 {
+    /// The highest voltage the range reaches, rounded down.
+    pub const fn end(self) -> Voltage {
         // 255 * step_microvolts / 1000, rounded down.
         // VRange2: 400 + 255*5 = 1675 mV.
         // VRange0: 400 + 255*1250/1000 = 400 + 318 = 718 mV.
-        self.start_mv() + (255 * self.step_microvolts()) / 1_000
+        Voltage::from_mv(self.start().mv() + (255 * self.step_microvolts()) / 1_000)
     }
 
-    /// Convert millivolts to a DAC value, rounding to the nearest
-    /// step. Returns `None` if `mv` is outside the supported
+    /// Convert a voltage to a DAC value, rounding to the nearest
+    /// step. Returns `None` if `voltage` is outside the supported
     /// range.
-    pub fn voltage_to_dac(self, mv: u32) -> Option<u8> {
-        if mv < self.start_mv() {
+    pub fn voltage_to_dac(self, voltage: Voltage) -> Option<u8> {
+        if voltage < self.start() {
             return None;
         }
-        let microvolts_above = (mv - self.start_mv()).checked_mul(1_000)?;
+        let microvolts_above = (voltage.mv() - self.start().mv()).checked_mul(1_000)?;
         let half_step = self.step_microvolts() / 2;
         let dac = (microvolts_above + half_step) / self.step_microvolts();
         if dac > 255 {
             return None;
         }
         Some(dac as u8)
-    }
-
-    /// Convert a DAC value to millivolts, rounded down.
-    pub const fn dac_to_mv(self, dac: u8) -> u32 {
-        self.start_mv() + (dac as u32 * self.step_microvolts()) / 1_000
     }
 
     const fn bits(self) -> u8 {
@@ -238,7 +239,7 @@ where
     .map_err(Error::Bus)?;
     let dac = config
         .dcdc_voltage_range
-        .voltage_to_dac(config.dcdc_initial.mv())
+        .voltage_to_dac(config.dcdc_initial)
         .ok_or(Error::OutOfRange)?;
     i2c.write(config.dcdc_address, &encode_vset(dac))
         .await
@@ -324,19 +325,19 @@ where
     .map_err(Error::Bus)
 }
 
-/// Command a new output voltage in millivolts.
+/// Command a new output voltage.
 ///
 /// The range programmed at init fixes what is reachable, and a target
 /// outside it is rejected before the bus is touched.
 ///
 /// # Errors
 ///
-/// Returns [`Error::OutOfRange`] when `millivolts` does not map to a DAC
+/// Returns [`Error::OutOfRange`] when `voltage` does not map to a DAC
 /// code in the configured range, and [`Error::Bus`] on I2C failure.
 pub(crate) async fn set_voltage<I, E>(
     i2c: &mut I,
     config: &BmmPsuDescriptor,
-    millivolts: u32,
+    voltage: Voltage,
 ) -> Result<(), Error<E>>
 where
     I: I2c<Error = E>,
@@ -344,7 +345,7 @@ where
 {
     let dac = config
         .dcdc_voltage_range
-        .voltage_to_dac(millivolts)
+        .voltage_to_dac(voltage)
         .ok_or(Error::OutOfRange)?;
     i2c.write(config.dcdc_address, &encode_vset(dac))
         .await
