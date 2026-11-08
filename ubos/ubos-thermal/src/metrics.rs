@@ -75,47 +75,39 @@ pub(crate) const AMBIENT_METRIC_NAME: &str = "board_ambient_temperature_millicel
 pub(crate) const MCU_METRIC_NAME: &str = "board_mcu_temperature_millicelsius";
 
 /// Push one reading that the I2C sensor at `address` on `chain` took.
-pub(crate) async fn publish_sensor_reading(
+pub(crate) fn publish_sensor_reading(
     chain: HashboardIndex,
     address: SevenBitAddress,
     reading: Reading,
 ) {
     match reading.source {
-        TempSource::Hashboard => publish_hashboard_reading(chain, address, reading.value).await,
-        TempSource::Chip(chip) => publish_chip_reading(chain, chip, reading.value).await,
-        TempSource::Ambient => publish_board_reading(AMBIENT_SOURCE, address, reading.value).await,
+        TempSource::Hashboard => publish_hashboard_reading(chain, address, reading.value),
+        TempSource::Chip(chip) => publish_chip_reading(chain, chip, reading.value),
+        TempSource::Ambient => publish_board_reading(AMBIENT_SOURCE, address, reading.value),
         TempSource::ControlBoard => {
-            publish_board_reading(CONTROL_BOARD_SOURCE, address, reading.value).await;
+            publish_board_reading(CONTROL_BOARD_SOURCE, address, reading.value);
         }
-        TempSource::Psu => publish_board_reading(PSU_SOURCE, address, reading.value).await,
+        TempSource::Psu => publish_board_reading(PSU_SOURCE, address, reading.value),
     }
 }
 
 /// Push one hashboard reading under the I2C address of the sensor that
 /// took it.
-async fn publish_hashboard_reading(
-    chain: HashboardIndex,
-    address: SevenBitAddress,
-    value: Temperature,
-) {
+fn publish_hashboard_reading(chain: HashboardIndex, address: SevenBitAddress, value: Temperature) {
     let mut labels = reading_labels(HASHBOARD_SOURCE, chain);
     let _ = labels.push(address_label(address));
     let value = Value::Int(i64::from(value.millicelsius()));
-    Metric::with_labels(READING_METRIC_NAME, labels, value)
-        .push()
-        .await;
+    Metric::with_labels(READING_METRIC_NAME, labels, value).try_push();
 }
 
 /// Push one reading of something on no chain under the I2C address of the
 /// sensor that took it.
-async fn publish_board_reading(source: &'static str, address: SevenBitAddress, value: Temperature) {
+fn publish_board_reading(source: &'static str, address: SevenBitAddress, value: Temperature) {
     let mut labels = Labels::new();
     let _ = labels.push(reading_source_label(source));
     let _ = labels.push(address_label(address));
     let value = Value::Int(i64::from(value.millicelsius()));
-    Metric::with_labels(READING_METRIC_NAME, labels, value)
-        .push()
-        .await;
+    Metric::with_labels(READING_METRIC_NAME, labels, value).try_push();
 }
 
 /// Push one chip's reading under its index on `chain`.
@@ -123,11 +115,7 @@ async fn publish_board_reading(source: &'static str, address: SevenBitAddress, v
 /// TODO: A board that read one chip both through a sensor diode and over
 /// its chain would write this series from two places, each overwriting the
 /// other. No board does today; one that does needs the series told apart.
-pub(crate) async fn publish_chip_reading(
-    chain: HashboardIndex,
-    chip: ChipAddress,
-    value: Temperature,
-) {
+pub(crate) fn publish_chip_reading(chain: HashboardIndex, chip: ChipAddress, value: Temperature) {
     let mut chip_str = heapless::String::new();
     let _ = write!(chip_str, "{chip}");
     let mut labels = reading_labels(CHIP_SOURCE, chain);
@@ -136,9 +124,7 @@ pub(crate) async fn publish_chip_reading(
         value: LabelValue::Short(chip_str),
     });
     let value = Value::Int(i64::from(value.millicelsius()));
-    Metric::with_labels(READING_METRIC_NAME, labels, value)
-        .push()
-        .await;
+    Metric::with_labels(READING_METRIC_NAME, labels, value).try_push();
 }
 
 /// The `source` label that every reading carries.

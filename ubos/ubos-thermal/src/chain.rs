@@ -53,7 +53,7 @@ use core::fmt::Write as _;
 
 use crate::metrics::publish_chip_reading;
 use crate::{Accumulator, Reading, TempSample, TemperatureSensor};
-use embassy_futures::poll_once;
+use embassy_futures::{poll_once, yield_now};
 use embassy_time::{Duration, Instant, Ticker};
 use ubos_asic::ChainPvt;
 use ubos_core::index::{ChipAddress, HashboardIndex};
@@ -218,6 +218,11 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
 
     /// One present chain's voltage gauge, die temperatures, their spread
     /// and log line.
+    ///
+    /// It yields after each chip's reading and again after the spread, so
+    /// the ingest task drains the metrics channel while the report runs.
+    /// The series of one chain can outnumber the slots of the channel, and
+    /// a report pushed in one burst would lose the same tail every time.
     async fn report_chain(&mut self, chain: HashboardIndex) {
         let slot = chain.slot();
         let answered = self.pvt[slot].last_answer();
@@ -233,16 +238,18 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
             let Some(value) = self.pvt[slot].temperature(chip) else {
                 continue;
             };
-            publish_chip_reading(chain, chip, value).await;
+            publish_chip_reading(chain, chip, value);
+            yield_now().await;
         }
         if let Some(temperature) = self.pvt[slot].temperature_summary() {
-            Self::publish_stat(chain, "lowest", temperature.lowest).await;
-            Self::publish_stat(chain, "mean", temperature.mean).await;
-            Self::publish_stat(chain, "highest", temperature.highest).await;
+            Self::publish_stat(chain, "lowest", temperature.lowest);
+            Self::publish_stat(chain, "mean", temperature.mean);
+            Self::publish_stat(chain, "highest", temperature.highest);
             debug!(
                 "chain {} pvt: {} chips report {} to {} °C, mean {} °C",
                 chain, temperature.chips, temperature.lowest, temperature.highest, temperature.mean
             );
+            yield_now().await;
         }
         let Some(voltage) = self.pvt[slot].voltage_summary() else {
             warn!("chain {} pvt: no chip has reported a voltage", chain);
@@ -253,8 +260,7 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
             &[("chain", slot)],
             Value::Int(i64::from(voltage.total.mv()) * MICROVOLTS_PER_MILLIVOLT),
         )
-        .push()
-        .await;
+        .try_push();
         debug!(
             "chain {} pvt: string {} V, chips {} to {} V",
             chain, voltage.total, voltage.lowest, voltage.highest
@@ -263,7 +269,7 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
 
     /// One chain's die-temperature statistic, tagged with the `stat`
     /// label so the three share a metric name.
-    async fn publish_stat(chain: HashboardIndex, stat: &'static str, temperature: Temperature) {
+    fn publish_stat(chain: HashboardIndex, stat: &'static str, temperature: Temperature) {
         let mut labels = chain_labels(chain);
         let _ = labels.push(Label {
             name: "stat",
@@ -274,8 +280,7 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
             labels,
             Value::Int(i64::from(temperature.millicelsius())),
         )
-        .push()
-        .await;
+        .try_push();
     }
 }
 

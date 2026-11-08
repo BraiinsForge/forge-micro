@@ -567,9 +567,7 @@ async fn read_ambient<A: AmbientSensor>(ambient: &mut A) -> Option<Temperature> 
     let reading = ambient.ambient().await;
     if let Some(reading) = reading {
         let value = Value::Int(i64::from(reading.millicelsius()));
-        Metric::with_no_labels(AMBIENT_METRIC_NAME, value)
-            .push()
-            .await;
+        Metric::with_no_labels(AMBIENT_METRIC_NAME, value).try_push();
     }
     reading
 }

@@ -128,15 +128,16 @@ fifth is the temperature the cooling PID follows, under "Cooling PID".
   the board. `ubos_thermal::run_thermal` reads the ambient sensor on
   every tick, on a board that measures its air, including one that
   measured no chip temperature and one that published no reading at
-  all. The gauge is written on every tick whose read returns a value;
-  a tick whose sensor answers nothing leaves the last written value in
-  place. It carries no label, because a board reports one ambient
-  reading or none.
+  all. The gauge is pushed on every tick whose read returns a value.
+  If the channel is full, the push drops that sample. A tick whose
+  sensor answers nothing leaves the last written value in place. It
+  carries no label, because a board reports one ambient reading or
+  none.
 - `board_temperature_millicelsius` is every reading that a sensor takes.
-  `ubos_thermal::array::SensorArray` writes the readings of its sensors
-  on every tick, and `ubos_thermal::ChainTemperature` writes the reading
-  of each chip together with the per-chain PVT series. See "Reading
-  series" below.
+  `ubos_thermal::array::SensorArray` pushes the readings of its sensors
+  on every tick, and `ubos_thermal::ChainTemperature` pushes the reading
+  of each chip together with the per-chain PVT series. If the channel
+  is full, a push drops that sample. See "Reading series" below.
 - `board_mcu_temperature_millicelsius` is the temperature of the MCU die
   on the control board. `ubos_thermal::run_thermal` writes it on every
   tick, from the board's `ubos_thermal::McuTemperatureSensor`, on the

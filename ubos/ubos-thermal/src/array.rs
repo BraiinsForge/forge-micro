@@ -76,7 +76,7 @@ where
                 let Ok(reading) = result.inspect_err(|error| log_fault(address, error)) else {
                     continue;
                 };
-                publish_sensor_reading(CHAIN, address, reading).await;
+                publish_sensor_reading(CHAIN, address, reading);
                 match (reading.source, reading.value) {
                     (TempSource::Chip(_), temp) => {
                         chip = chip
