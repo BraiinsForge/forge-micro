@@ -26,6 +26,7 @@
 //! the wire encoding. The newtypes are `#[repr(transparent)]` over
 //! their inner scalar, so atomic storage and FFI layouts are unaffected.
 
+use core::fmt;
 use core::num::NonZeroU32;
 
 #[cfg(test)]
@@ -233,8 +234,33 @@ impl Efficiency {
     postcard_schema::Schema,
 )]
 #[serde(transparent)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Temperature(i32);
+
+/// Degrees Celsius with three decimals, computed in integers so that a log
+/// line pulls in no software floating point.
+impl fmt::Display for Temperature {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let sign = if self.0 < 0 { "-" } else { "" };
+        let magnitude = self.0.unsigned_abs();
+        write!(f, "{sign}{}.{:03}", magnitude / 1000, magnitude % 1000)
+    }
+}
+
+/// Degrees Celsius, as [`Display`](fmt::Display) writes them.
+#[cfg(feature = "defmt")]
+impl defmt::Format for Temperature {
+    fn format(&self, f: defmt::Formatter<'_>) {
+        let sign = if self.0 < 0 { "-" } else { "" };
+        let magnitude = self.0.unsigned_abs();
+        defmt::write!(
+            f,
+            "{=str}{=u32}.{=u32:03}",
+            sign,
+            magnitude / 1000,
+            magnitude % 1000
+        );
+    }
+}
 
 impl Temperature {
     #[must_use]

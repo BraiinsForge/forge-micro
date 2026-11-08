@@ -99,3 +99,14 @@ fn frequency_snap_down_rejects_zero() {
 fn frequency_step_toward_rejects_zero() {
     let _ = Frequency::from_khz(100).step_toward(Frequency::from_khz(200), Frequency::from_khz(0));
 }
+
+#[test]
+fn a_temperature_displays_in_degrees() {
+    extern crate std;
+    use std::string::ToString;
+    let shown = |millicelsius| Temperature::from_millicelsius(millicelsius).to_string();
+    assert_eq!(shown(95_125), "95.125");
+    assert_eq!(shown(5), "0.005");
+    assert_eq!(shown(-1_500), "-1.500");
+    assert_eq!(shown(-500), "-0.500");
+}
