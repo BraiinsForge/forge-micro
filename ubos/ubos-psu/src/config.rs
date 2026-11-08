@@ -20,7 +20,7 @@
 //! Runtime configuration for `BmmPsu`.
 
 use embassy_time::Duration;
-use ubos_core::units::Voltage;
+use ubos_core::units::{Current, Voltage};
 
 use crate::tps6287x::{SoftStartRampTime, VoltageRampSpeed, VoltageRange};
 
@@ -35,8 +35,8 @@ pub struct BmmPsuDescriptor {
     pub watchdog_interval: Duration,
     pub ina_input_address: u8,
     pub ina_output_address: u8,
-    pub ina_input_max_current_a: u32,
-    pub ina_output_max_current_a: u32,
+    pub ina_input_max_current: Current,
+    pub ina_output_max_current: Current,
     pub ina_input_shunt_microohm: u32,
     pub ina_output_shunt_microohm: u32,
 }
@@ -55,8 +55,8 @@ impl BmmPsuDescriptor {
         watchdog_interval: Duration::from_secs(5),
         ina_input_address: 0x46,
         ina_output_address: 0x43,
-        ina_input_max_current_a: 6,
-        ina_output_max_current_a: 30,
+        ina_input_max_current: Current::from_amps(6),
+        ina_output_max_current: Current::from_amps(30),
         ina_input_shunt_microohm: 6_000,
         ina_output_shunt_microohm: 1_960,
     };

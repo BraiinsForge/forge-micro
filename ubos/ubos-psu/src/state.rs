@@ -319,11 +319,11 @@ pub(crate) mod test_support {
             .voltage_to_dac(config.dcdc_initial.mv())
             .expect("BUG: initial mv must be in vrange");
         let cal_in = ina230::calibration_value(
-            ina230::current_lsb_microamps(config.ina_input_max_current_a),
+            ina230::current_lsb_microamps(config.ina_input_max_current),
             config.ina_input_shunt_microohm,
         );
         let cal_out = ina230::calibration_value(
-            ina230::current_lsb_microamps(config.ina_output_max_current_a),
+            ina230::current_lsb_microamps(config.ina_output_max_current),
             config.ina_output_shunt_microohm,
         );
 

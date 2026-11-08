@@ -25,7 +25,7 @@ use core::fmt::Write as _;
 use core::marker::PhantomData;
 
 use embedded_hal_async::i2c::I2c;
-use ubos_core::units::{Power, Voltage};
+use ubos_core::units::{Current, Power, Voltage};
 
 use crate::state::{Device, Shared};
 use crate::{Error, Psu, ina230, sic45x};
@@ -47,7 +47,7 @@ pub struct BfmPsuDescriptor {
     /// traceable and is not re-raised on every review.
     pub ina_address: u8,
     /// Maximum expected load current for INA230 calibration.
-    pub ina_max_current_a: u32,
+    pub ina_max_current: Current,
     /// Shunt resistor value for INA230 calibration.
     pub ina_shunt_microohm: u32,
 }
@@ -57,7 +57,7 @@ impl BfmPsuDescriptor {
     pub const DEFAULT: Self = Self {
         sic: crate::sic45x::Sic45xConfig::DEFAULT,
         ina_address: 0x43,
-        ina_max_current_a: 30,
+        ina_max_current: Current::from_amps(30),
         ina_shunt_microohm: 2_000,
     };
 }
@@ -83,7 +83,7 @@ impl<I: I2c> Device for BfmDevice<I> {
         if ina230::init(
             i2c,
             config.ina_address,
-            config.ina_max_current_a,
+            config.ina_max_current,
             config.ina_shunt_microohm,
         )
         .await
@@ -176,9 +176,8 @@ impl<I: I2c + 'static> Psu for BfmPsu<I> {
         // intentionally not reported.
         let mut psu = self.shared.acquire().await?;
         let (i2c, config) = psu.split();
-        ina230::read_power_mw(i2c, config.ina_address, config.ina_max_current_a)
+        ina230::read_power(i2c, config.ina_address, config.ina_max_current)
             .await
-            .map(Power::from_mw)
             .map_err(Error::Bus)
     }
 
@@ -204,9 +203,8 @@ impl<I: I2c + 'static> Psu for BfmPsu<I> {
         };
         let (i2c, config) = psu.split();
         Some(
-            ina230::read_bus_voltage_mv(i2c, config.ina_address)
+            ina230::read_bus_voltage(i2c, config.ina_address)
                 .await
-                .map(Voltage::from_mv)
                 .map_err(Error::Bus),
         )
     }

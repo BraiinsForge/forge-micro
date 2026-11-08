@@ -19,6 +19,7 @@
 
 use super::*;
 use embedded_hal_mock::eh1::i2c::{Mock, Transaction};
+use ubos_core::units::Current;
 
 fn run<F: core::future::Future>(future: F) -> F::Output {
     embassy_futures::block_on(future)
@@ -39,8 +40,12 @@ fn make_handle(bus: Mock, config: BfmPsuDescriptor) -> (BfmPsu<Mock>, Mock) {
 const INA_CONFIG: u16 = 0b0100_0001_0010_0111;
 
 /// Build the 2-transaction `INA230` init sequence for the given parameters.
-fn ina_init_transactions(address: u8, max_current_a: u32, shunt_microohm: u32) -> [Transaction; 2] {
-    let lsb = ina230::current_lsb_microamps(max_current_a);
+fn ina_init_transactions(
+    address: u8,
+    max_current: Current,
+    shunt_microohm: u32,
+) -> [Transaction; 2] {
+    let lsb = ina230::current_lsb_microamps(max_current);
     let cal = ina230::calibration_value(lsb, shunt_microohm);
 
     let mut config_buffer = vec![0x00u8];
@@ -150,7 +155,7 @@ fn identity_probe_transactions(address: u8) -> [Transaction; 1] {
 fn init_transactions(config: &BfmPsuDescriptor) -> Vec<Transaction> {
     let [ina_config, ina_cal] = ina_init_transactions(
         config.ina_address,
-        config.ina_max_current_a,
+        config.ina_max_current,
         config.ina_shunt_microohm,
     );
     let mut transactions = vec![ina_config, ina_cal];

@@ -53,7 +53,7 @@ impl<I: I2c> Device for BmmDevice<I> {
         ina230::init(
             i2c,
             config.ina_input_address,
-            config.ina_input_max_current_a,
+            config.ina_input_max_current,
             config.ina_input_shunt_microohm,
         )
         .await
@@ -61,7 +61,7 @@ impl<I: I2c> Device for BmmDevice<I> {
         ina230::init(
             i2c,
             config.ina_output_address,
-            config.ina_output_max_current_a,
+            config.ina_output_max_current,
             config.ina_output_shunt_microohm,
         )
         .await
@@ -155,35 +155,28 @@ impl<I: I2c + 'static> Psu for BmmPsu<I> {
     async fn read_input_power(&self) -> Result<Power, Error<I::Error>> {
         let mut psu = self.shared.acquire().await?;
         let (i2c, config) = psu.split();
-        ina230::read_power_mw(
-            i2c,
-            config.ina_input_address,
-            config.ina_input_max_current_a,
-        )
-        .await
-        .map(Power::from_mw)
-        .map_err(Error::Bus)
+        ina230::read_power(i2c, config.ina_input_address, config.ina_input_max_current)
+            .await
+            .map_err(Error::Bus)
     }
 
     async fn read_output_power(&self) -> Result<Power, Error<I::Error>> {
         let mut psu = self.shared.acquire().await?;
         let (i2c, config) = psu.split();
-        ina230::read_power_mw(
+        ina230::read_power(
             i2c,
             config.ina_output_address,
-            config.ina_output_max_current_a,
+            config.ina_output_max_current,
         )
         .await
-        .map(Power::from_mw)
         .map_err(Error::Bus)
     }
 
     async fn read_output_voltage(&self) -> Result<Voltage, Error<I::Error>> {
         let mut psu = self.shared.acquire().await?;
         let (i2c, config) = psu.split();
-        ina230::read_bus_voltage_mv(i2c, config.ina_output_address)
+        ina230::read_bus_voltage(i2c, config.ina_output_address)
             .await
-            .map(Voltage::from_mv)
             .map_err(Error::Bus)
     }
 

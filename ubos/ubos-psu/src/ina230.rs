@@ -28,11 +28,12 @@
 //! receiver these operations would otherwise want.
 //!
 //! Calibration math operates in integer microamps and microohms:
-//! `current_lsb_microamps = max_current_a * 1_000_000 / 32_768`
+//! `current_lsb_microamps = max_current_ma * 1_000 / 32_768`
 //! `cal_value = 5_120_000_000 / (current_lsb_microamps * shunt_microohm)`
 //! `power_mw = power_register * 25 * current_lsb_microamps / 1_000_000`
 
 use embedded_hal_async::i2c::I2c;
+use ubos_core::units::{Current, Power, Voltage};
 
 #[cfg(test)]
 #[path = "tests/ina230.rs"]
@@ -51,13 +52,13 @@ const BUS_VOLTAGE_LSB_MICROVOLTS: u32 = 1_250;
 /// shunt+bus. Bits laid out per datasheet Table 6-2.
 const CONFIG_VALUE: u16 = 0b0100_0001_0010_0111;
 
-/// Current LSB in microamps for a full-scale current of `max_current_a`.
+/// Current LSB in microamps for a full-scale current of `max_current`.
 ///
 /// The current register is signed 16-bit, so one LSB is the full-scale
 /// current divided by 2^15. Every other scaling here derives from this
 /// one value.
-pub(crate) const fn current_lsb_microamps(max_current_a: u32) -> u32 {
-    max_current_a * 1_000_000 / 32_768
+pub(crate) const fn current_lsb_microamps(max_current: Current) -> u32 {
+    max_current.ma() * 1_000 / 32_768
 }
 
 /// CALIBRATION register value for a current LSB and a shunt resistance.
@@ -83,17 +84,38 @@ pub(crate) const fn calibration_value(current_lsb_microamps: u32, shunt_microohm
     }
 }
 
-/// Convert a POWER register reading to milliwatts.
-///
+/// A raw POWER register reading with the full-scale current that
+/// calibrated it, because the register alone does not give the power.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct RawPower {
+    pub(crate) register: u16,
+    pub(crate) max_current: Current,
+}
+
 /// The power LSB is fixed at 25 times the current LSB, so the result is
 /// `register * 25 * current_lsb_microamps` scaled from microwatts. The
 /// intermediate is `u64`, because the microwatt product overflows `u32`
 /// at the currents this part measures.
-pub(crate) const fn power_to_mw(power_register: u16, current_lsb_microamps: u32) -> u32 {
-    // power_lsb_microwatts = 25 * current_lsb_microamps (datasheet)
-    // power_milliwatts = power_register * power_lsb_microwatts / 1_000
-    let microwatts = power_register as u64 * 25 * current_lsb_microamps as u64;
-    (microwatts / 1_000) as u32
+impl From<RawPower> for Power {
+    fn from(raw: RawPower) -> Self {
+        // power_lsb_microwatts = 25 * current_lsb_microamps (datasheet)
+        // power_milliwatts = power_register * power_lsb_microwatts / 1_000
+        let microwatts =
+            u64::from(raw.register) * 25 * u64::from(current_lsb_microamps(raw.max_current));
+        Self::from_mw((microwatts / 1_000) as u32)
+    }
+}
+
+/// A raw bus-voltage register reading.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct RawBusVoltage(pub(crate) u16);
+
+/// The register is unsigned 16-bit with a 1.25 mV LSB, so the value
+/// fits in `u32` for any rail this driver targets.
+impl From<RawBusVoltage> for Voltage {
+    fn from(raw: RawBusVoltage) -> Self {
+        Self::from_mv((u32::from(raw.0) * BUS_VOLTAGE_LSB_MICROVOLTS) / 1_000)
+    }
 }
 
 /// Program the CONFIG and CALIBRATION registers.
@@ -108,7 +130,7 @@ pub(crate) const fn power_to_mw(power_register: u16, current_lsb_microamps: u32)
 pub(crate) async fn init<I, E>(
     i2c: &mut I,
     address: u8,
-    max_current_a: u32,
+    max_current: Current,
     shunt_microohm: u32,
 ) -> Result<(), E>
 where
@@ -119,33 +141,37 @@ where
     config_buffer[1..].copy_from_slice(&CONFIG_VALUE.to_be_bytes());
     i2c.write(address, &config_buffer).await?;
 
-    let cal = calibration_value(current_lsb_microamps(max_current_a), shunt_microohm);
+    let cal = calibration_value(current_lsb_microamps(max_current), shunt_microohm);
     let mut cal_buffer = [0u8; 3];
     cal_buffer[0] = REG_CALIBRATION;
     cal_buffer[1..].copy_from_slice(&cal.to_be_bytes());
     i2c.write(address, &cal_buffer).await
 }
 
-/// Read the POWER register and return milliwatts.
+/// Read the POWER register.
 ///
-/// `max_current_a` must match what [`init`] was given, because the
+/// `max_current` must match what [`init`] was given, because the
 /// scaling is derived from it rather than read back from the part.
 ///
 /// # Errors
 ///
 /// Returns the bus error when the read fails.
-pub(crate) async fn read_power_mw<I, E>(
+pub(crate) async fn read_power<I, E>(
     i2c: &mut I,
     address: u8,
-    max_current_a: u32,
-) -> Result<u32, E>
+    max_current: Current,
+) -> Result<Power, E>
 where
     I: I2c<Error = E>,
 {
     let mut buffer = [0u8; 2];
     i2c.write_read(address, &[REG_POWER], &mut buffer).await?;
     let power_register = u16::from_be_bytes(buffer);
-    let milliwatts = power_to_mw(power_register, current_lsb_microamps(max_current_a));
+    let power: Power = RawPower {
+        register: power_register,
+        max_current,
+    }
+    .into();
     #[cfg(feature = "defmt")]
     ubos_logging::trace!(
         "INA230 power @{:x}: raw=[{:x} {:x}] reg={:x} -> {} mW",
@@ -153,16 +179,13 @@ where
         buffer[0],
         buffer[1],
         power_register,
-        milliwatts,
+        power.mw(),
     );
-    Ok(milliwatts)
+    Ok(power)
 }
 
-/// Read the bus-voltage register and return millivolts.
-///
-/// The register is unsigned 16-bit with a 1.25 mV LSB, so the value
-/// fits in `u32` for any rail this driver targets.
-pub(crate) async fn read_bus_voltage_mv<I, E>(i2c: &mut I, address: u8) -> Result<u32, E>
+/// Read the bus-voltage register.
+pub(crate) async fn read_bus_voltage<I, E>(i2c: &mut I, address: u8) -> Result<Voltage, E>
 where
     I: I2c<Error = E>,
 {
@@ -170,5 +193,5 @@ where
     i2c.write_read(address, &[REG_BUS_VOLTAGE], &mut buffer)
         .await?;
     let register = u16::from_be_bytes(buffer);
-    Ok((u32::from(register) * BUS_VOLTAGE_LSB_MICROVOLTS) / 1_000)
+    Ok(RawBusVoltage(register).into())
 }
