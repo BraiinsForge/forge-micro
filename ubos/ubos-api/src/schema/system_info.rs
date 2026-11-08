@@ -27,6 +27,7 @@
 
 use heapless::String;
 use serde::Serialize;
+use ubos_core::units::{FanPwm, FanRpm, Frequency, Voltage};
 
 use crate::hw_info::{HashboardIds, HwString};
 
@@ -129,10 +130,14 @@ pub struct SystemInfo<'response> {
     pub hashrate: u64,
     /// Firmware uptime in whole seconds since boot.
     pub uptime_seconds: u64,
-    /// Fan rotational speed in RPM; zero if no fan is present.
-    pub fan_speed_rpm: u32,
-    /// Fan PWM duty cycle in percent; zero if no fan is present.
-    pub fan_pwm_percent: u8,
+    /// Fan rotational speed; zero if no fan is present. The body carries
+    /// it as integer RPM under `fanSpeedRpm`.
+    #[serde(rename = "fanSpeedRpm")]
+    pub fan_speed: FanRpm,
+    /// Fan PWM duty cycle; zero if no fan is present. The body carries it
+    /// as integer percent under `fanPwmPercent`.
+    #[serde(rename = "fanPwmPercent")]
+    pub fan_pwm: FanPwm,
     /// Bitmask of connected pool slots; bit N is set when pool N is
     /// alive.
     pub pools_bitmap: u8,
@@ -146,10 +151,14 @@ pub struct SystemInfo<'response> {
     pub asic_count: u8,
     /// ASIC chip model name.
     pub asic_model: &'static str,
-    /// Default mining frequency in kHz programmed at boot.
-    pub default_frequency_khz: u32,
-    /// Default ASIC core voltage in millivolts programmed at boot.
-    pub default_voltage_mv: u32,
+    /// Default mining frequency programmed at boot. The body carries it
+    /// as integer kHz under `defaultFrequencyKhz`.
+    #[serde(rename = "defaultFrequencyKhz")]
+    pub default_frequency: Frequency,
+    /// Default ASIC core voltage programmed at boot. The body carries it
+    /// as integer millivolts under `defaultVoltageMv`.
+    #[serde(rename = "defaultVoltageMv")]
+    pub default_voltage: Voltage,
     /// Accepted shares since boot, sourced from the stratum-client
     /// session counter.
     pub shares_accepted: u64,

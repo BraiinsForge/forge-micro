@@ -36,6 +36,8 @@ use edge_nal::Readable;
 use edge_nal::TcpSplit;
 use embedded_io_async::{ErrorType, Read, Write};
 
+use ubos_core::units::{FanPwm, FanRpm, Frequency, Voltage};
+
 use crate::ota::{OtaError, StagedConfig};
 use crate::system::{DispatchOutcome, Route, route};
 
@@ -725,15 +727,15 @@ fn serialize_system_info_with_ota(
         hostname: "test",
         hashrate: 0,
         uptime_seconds: 0,
-        fan_speed_rpm: 0,
-        fan_pwm_percent: 0,
+        fan_speed: FanRpm::from_rpm(u32::MAX),
+        fan_pwm: FanPwm::FULL,
         pools_bitmap: 0,
         ip: heapless::String::new(),
         time: heapless::String::new(),
         asic_count: 0,
         asic_model: "BM1362",
-        default_frequency_khz: 0,
-        default_voltage_mv: 0,
+        default_frequency: Frequency::from_khz(u32::MAX),
+        default_voltage: Voltage::from_mv(u32::MAX),
         shares_accepted: 0,
         shares_rejected: 0,
         shares_total: 0,
@@ -765,6 +767,21 @@ fn system_info_running_serializes_paused_false_and_null_reason() {
         json.contains("\"pauseReason\":null"),
         "expected pauseReason:null in {json}"
     );
+}
+
+/// The fan speed, the fan duty and the boot defaults go out under the
+/// names the clients read, each as a bare integer.
+#[test]
+fn system_info_units_serialize_as_integers_under_their_names() {
+    let json = serialize_system_info(false, None, default_hw_info());
+    for expected in [
+        "\"fanSpeedRpm\":4294967295",
+        "\"fanPwmPercent\":100",
+        "\"defaultFrequencyKhz\":4294967295",
+        "\"defaultVoltageMv\":4294967295",
+    ] {
+        assert!(json.contains(expected), "expected {expected} in {json}");
+    }
 }
 
 /// When `UserRequest` is the active reason `paused` is `true` and
@@ -832,7 +849,7 @@ fn system_info_hw_info_serializes_published_versions() {
 /// fails here, and updating this constant is the prompt to check the
 /// comment on `SCRATCH_SIZE`. The `const` block holds the claim that
 /// comment makes, so the pinned length cannot be moved past the buffer.
-const WORST_CASE_SYSTEM_INFO_LEN: usize = 1335;
+const WORST_CASE_SYSTEM_INFO_LEN: usize = 1364;
 const _: () = assert!(WORST_CASE_SYSTEM_INFO_LEN <= super::SCRATCH_SIZE);
 
 /// The scratch buffer `system.rs` serializes into must hold the largest

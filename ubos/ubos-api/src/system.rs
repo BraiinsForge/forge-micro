@@ -79,7 +79,7 @@ use embassy_time::{Duration, Instant, Timer};
 use embedded_io_async::{Read, Write};
 use heapless::String;
 use ubos_config::{Source, Statistic};
-use ubos_core::units::Temperature;
+use ubos_core::units::{FanPwm, FanRpm, Temperature};
 use ubos_http::write_json_response;
 use ubos_logging::{info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
@@ -339,8 +339,8 @@ where
     let chain_stats = ubos_metrics::chain::handle();
     let hashrate_hps = chain_stats.machine_hashrate();
     let fan = ubos_cooling::handle().current();
-    let fan_speed_rpm = fan.map_or(0, |f| f.rpm.rpm());
-    let fan_pwm_percent = fan.map_or(0, |f| f.pwm.percent());
+    let fan_speed = fan.map_or_else(FanRpm::default, |f| f.rpm);
+    let fan_pwm = fan.map_or_else(FanPwm::default, |f| f.pwm);
     let pools_bitmap = stratum_client::pool_alive_bitmap();
     let shares_accepted = stratum_client::shares_accepted();
     let shares_rejected = stratum_client::shares_rejected();
@@ -385,15 +385,15 @@ where
         hostname,
         hashrate: hashrate_hps,
         uptime_seconds,
-        fan_speed_rpm,
-        fan_pwm_percent,
+        fan_speed,
+        fan_pwm,
         pools_bitmap,
         ip: build_ip_string(),
         time: build_time_string(),
         asic_count: mining_info.asic_count,
         asic_model: mining_info.asic_model,
-        default_frequency_khz: mining_info.default_frequency.khz(),
-        default_voltage_mv: mining_info.default_voltage.mv(),
+        default_frequency: mining_info.default_frequency,
+        default_voltage: mining_info.default_voltage,
         shares_accepted,
         shares_rejected,
         shares_total,

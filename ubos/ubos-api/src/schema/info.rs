@@ -26,7 +26,7 @@
 
 use heapless::{String, Vec};
 use serde::Serialize;
-use ubos_core::units::Temperature;
+use ubos_core::units::{FanPwm, FanRpm, Frequency, Power, Temperature, Voltage};
 use ubos_metrics::chain::{ChainPresence, ChainStats, MAX_CHAINS};
 
 use crate::hw_info::HwString;
@@ -46,20 +46,32 @@ pub struct ApiInfo {
     pub hashrate: u64,
     /// Firmware uptime in whole seconds since boot.
     pub uptime: u64,
-    /// Fan speed in RPM, or zero where no fan reports.
-    pub fan_rpm: u32,
-    /// Fan PWM duty cycle in percent, or zero where no fan reports.
-    pub fan_pwm: u8,
-    /// Supply input power in milliwatts, or zero before the first reading.
-    pub power_in_mw: u32,
-    /// Supply output power in milliwatts, or zero before the first reading.
-    pub power_out_mw: u32,
-    /// Output voltage the supply was set to, in millivolts.
-    pub psu_voltage_set_mv: u32,
-    /// Output voltage the supply measured, in millivolts.
-    pub psu_voltage_measured_mv: u32,
-    /// Chain voltage in millivolts, or zero where the board measures none.
-    pub chain_voltage_mv: u32,
+    /// Fan speed, or zero where no fan reports. The body carries it as
+    /// integer RPM.
+    pub fan_rpm: FanRpm,
+    /// Fan PWM duty cycle, or zero where no fan reports. The body carries
+    /// it as integer percent.
+    pub fan_pwm: FanPwm,
+    /// Supply input power, or zero before the first reading. The body
+    /// carries it as integer milliwatts under `power_in_mw`.
+    #[serde(rename = "power_in_mw")]
+    pub power_in: Power,
+    /// Supply output power, or zero before the first reading. The body
+    /// carries it as integer milliwatts under `power_out_mw`.
+    #[serde(rename = "power_out_mw")]
+    pub power_out: Power,
+    /// Output voltage the supply was set to. The body carries it as
+    /// integer millivolts under `psu_voltage_set_mv`.
+    #[serde(rename = "psu_voltage_set_mv")]
+    pub psu_voltage_set: Voltage,
+    /// Output voltage the supply measured. The body carries it as
+    /// integer millivolts under `psu_voltage_measured_mv`.
+    #[serde(rename = "psu_voltage_measured_mv")]
+    pub psu_voltage_measured: Voltage,
+    /// Chain voltage, or zero where the board measures none. The body
+    /// carries it as integer millivolts under `chain_voltage_mv`.
+    #[serde(rename = "chain_voltage_mv")]
+    pub chain_voltage: Voltage,
     /// `true` when the supply reports a sensor fault.
     pub psu_fault: bool,
     /// Bitmask of live pool slots: bit N is set when pool N is alive.
@@ -113,8 +125,10 @@ pub struct ApiInfoChain {
     pub state: &'static str,
     /// Chips the chain enumerated.
     pub chips: u16,
-    /// The chain's clock in kHz.
-    pub frequency_khz: u32,
+    /// The chain's clock. The body carries it as integer kHz under
+    /// `frequency_khz`.
+    #[serde(rename = "frequency_khz")]
+    pub frequency: Frequency,
     /// The chain's smoothed hashrate in hashes per second.
     pub hashrate: u64,
     /// The chain's hottest die in whole degrees Celsius, or `null` before
@@ -137,7 +151,7 @@ impl ApiInfoChain {
                 ChainPresence::Faulted { .. } => "faulted",
             },
             chips: stats.chips(),
-            frequency_khz: stats.frequency().khz(),
+            frequency: stats.frequency(),
             hashrate: stats.hashrate(),
             hottest_c: stats.hottest().map(Temperature::celsius_i32),
             pool: stats.active_pool(),

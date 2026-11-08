@@ -26,7 +26,7 @@ extern crate std;
 
 use core::fmt::Write as _;
 
-use ubos_core::units::{Efficiency, Power, Temperature};
+use ubos_core::units::{Efficiency, FanPwm, FanRpm, Frequency, Power, Temperature, Voltage};
 
 use crate::ota::{MAX_BUILD_ID_LEN, OtaPhase, OtaWritePhase, ResetReason};
 use crate::rest::{API_INFO_BODY_BUFFER_SIZE, CONFIG_RESPONSE_BUFFER_SIZE};
@@ -60,7 +60,8 @@ fn leaked(text: &str, len: usize) -> &'static str {
 ///   "Waveshare ESP32-S3-LCD-Driver-Board W5100S").
 /// - All `u64` numeric fields: `u64::MAX` (20 decimal digits).
 /// - All `u32` numeric fields: `u32::MAX` (10 decimal digits).
-/// - `fan_pwm`/`pools` (`u8`/`u8`): `u8::MAX` = 255 (3 digits).
+/// - `fan_pwm` (`FanPwm`): 100, its ceiling (3 digits).
+/// - `pools` (`u8`): `u8::MAX` = 255 (3 digits).
 /// - `psu_fault`/`hasPreviousImage`/`resetOtaActive`: `true` (4 chars).
 /// - `ip`: `"255.255.255.255"` (15 chars).
 /// - `mac`: `"ff:ff:ff:ff:ff:ff"` (17 chars).
@@ -99,7 +100,7 @@ fn api_info_body_fits_in_buffer() {
             chain,
             state: "unknown",
             chips: u16::MAX,
-            frequency_khz: u32::MAX,
+            frequency: Frequency::from_khz(u32::MAX),
             hashrate: u64::MAX,
             hottest_c: Some(chain_hottest_c),
             pool: None,
@@ -110,13 +111,13 @@ fn api_info_body_fits_in_buffer() {
         name: leaked("A", 42),
         hashrate: u64::MAX,
         uptime: u64::MAX,
-        fan_rpm: u32::MAX,
-        fan_pwm: u8::MAX,
-        power_in_mw: u32::MAX,
-        power_out_mw: u32::MAX,
-        psu_voltage_set_mv: u32::MAX,
-        psu_voltage_measured_mv: u32::MAX,
-        chain_voltage_mv: u32::MAX,
+        fan_rpm: FanRpm::from_rpm(u32::MAX),
+        fan_pwm: FanPwm::FULL,
+        power_in: Power::from_mw(u32::MAX),
+        power_out: Power::from_mw(u32::MAX),
+        psu_voltage_set: Voltage::from_mv(u32::MAX),
+        psu_voltage_measured: Voltage::from_mv(u32::MAX),
+        chain_voltage: Voltage::from_mv(u32::MAX),
         psu_fault: true,
         pools: u8::MAX,
         net_confirm_seconds: u64::MAX,
@@ -165,7 +166,7 @@ fn api_info_body_fits_in_buffer() {
          \"hashrate\":{max_u64},\
          \"uptime\":{max_u64},\
          \"fan_rpm\":{max_u32},\
-         \"fan_pwm\":{max_u8},\
+         \"fan_pwm\":100,\
          \"power_in_mw\":{max_u32},\
          \"power_out_mw\":{max_u32},\
          \"psu_voltage_set_mv\":{max_u32},\
@@ -247,13 +248,13 @@ fn api_info_without_ota_leaves_the_key_out() {
         name: "board",
         hashrate: 0,
         uptime: 0,
-        fan_rpm: 0,
-        fan_pwm: 0,
-        power_in_mw: 0,
-        power_out_mw: 0,
-        psu_voltage_set_mv: 0,
-        psu_voltage_measured_mv: 0,
-        chain_voltage_mv: 0,
+        fan_rpm: FanRpm::default(),
+        fan_pwm: FanPwm::default(),
+        power_in: Power::default(),
+        power_out: Power::default(),
+        psu_voltage_set: Voltage::default(),
+        psu_voltage_measured: Voltage::default(),
+        chain_voltage: Voltage::default(),
         psu_fault: false,
         pools: 0,
         net_confirm_seconds: 0,

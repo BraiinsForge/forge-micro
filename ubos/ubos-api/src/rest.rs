@@ -32,6 +32,7 @@ use edge_nal::TcpSplit;
 use embassy_net::Stack;
 use embassy_time::{Duration, Instant, Timer};
 use embedded_io_async::{Read, Write};
+use ubos_core::units::{FanPwm, FanRpm, Power, Voltage};
 use ubos_logging::{info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
 use ubos_thermal::Handle as ThermalHandle;
@@ -190,16 +191,17 @@ impl RestApiService {
             name: self.board_name,
             hashrate: chain_stats.machine_hashrate(),
             uptime: Instant::now().as_secs(),
-            fan_rpm: fan.map_or(0, |f| f.rpm.rpm()),
-            fan_pwm: fan.map_or(0, |f| f.pwm.percent()),
-            power_in_mw: psu_reading.map_or(0, |r| r.input_power.mw()),
-            power_out_mw: psu_reading.map_or(0, |r| r.output_power.mw()),
-            psu_voltage_set_mv: psu_reading.map_or(0, |r| r.output_voltage_set.mv()),
-            psu_voltage_measured_mv: psu_reading.map_or(0, |r| r.output_voltage_measured.mv()),
-            chain_voltage_mv: thermal_reading
+            fan_rpm: fan.map_or_else(FanRpm::default, |f| f.rpm),
+            fan_pwm: fan.map_or_else(FanPwm::default, |f| f.pwm),
+            power_in: psu_reading.map_or_else(Power::default, |r| r.input_power),
+            power_out: psu_reading.map_or_else(Power::default, |r| r.output_power),
+            psu_voltage_set: psu_reading.map_or_else(Voltage::default, |r| r.output_voltage_set),
+            psu_voltage_measured: psu_reading
+                .map_or_else(Voltage::default, |r| r.output_voltage_measured),
+            chain_voltage: thermal_reading
                 .as_ref()
                 .and_then(|reading| reading.chain_voltage)
-                .map_or(0, |voltage| voltage.mv()),
+                .unwrap_or_default(),
             psu_fault: psu_reading.is_some_and(|r| r.sensor_fault),
             pools: stratum_client::pool_alive_bitmap(),
             net_confirm_seconds: ubos_config::pending_seconds_remaining(),
