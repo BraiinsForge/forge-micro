@@ -268,6 +268,18 @@ impl Temperature {
         Self(millicelsius)
     }
 
+    /// Construct from fractional degrees Celsius, for a driver whose
+    /// conversion formula computes in them, rounded to the nearest
+    /// millicelsius.
+    // A temperature in degrees times a thousand is well inside i32.
+    #[allow(clippy::cast_possible_truncation)]
+    #[must_use]
+    pub fn from_celsius_f64(celsius: f64) -> Self {
+        let millicelsius = celsius * 1000.0;
+        let nudge = if millicelsius < 0.0 { -0.5 } else { 0.5 };
+        Self((millicelsius + nudge) as i32)
+    }
+
     /// Construct from whole degrees Celsius, for a value stated in degrees,
     /// such as a board's setpoint or halt threshold.
     #[must_use]

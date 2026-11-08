@@ -110,3 +110,12 @@ fn a_temperature_displays_in_degrees() {
     assert_eq!(shown(-1_500), "-1.500");
     assert_eq!(shown(-500), "-0.500");
 }
+
+#[test]
+fn a_fractional_temperature_rounds_to_the_nearest_millicelsius() {
+    let millicelsius = |celsius| Temperature::from_celsius_f64(celsius).millicelsius();
+    assert_eq!(millicelsius(41.5), 41_500);
+    assert_eq!(millicelsius(41.4996), 41_500);
+    assert_eq!(millicelsius(41.4994), 41_499);
+    assert_eq!(millicelsius(-1.4996), -1_500);
+}
