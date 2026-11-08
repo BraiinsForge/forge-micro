@@ -135,8 +135,7 @@ fifth is the temperature the cooling PID follows, under "Cooling PID".
 - `board_mcu_temperature_millicelsius` is the temperature of the MCU die
   on the control board. `ubos_thermal::run_thermal` writes it on every
   tick, from the board's `ubos_thermal::McuTemperatureSensor`, on the
-  boards whose MCU carries an internal thermometer: esp32s3, stm32f407
-  and stm32f439.
+  boards whose MCU carries an internal thermometer: esp32s3.
 
 The three gauges measure different hardware. Under load a control board
 is tens of degrees cooler than a hashboard, and the air is cooler again.

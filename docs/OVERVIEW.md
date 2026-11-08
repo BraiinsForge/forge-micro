@@ -20,17 +20,15 @@ The evaluation and adapter board table lives in
 
 ## Firmware architecture
 
-Each board crate brings up its own SPI or RMII link, then hands an
+Each board crate brings up its own SPI link, then hands an
 `embassy_net::Stack<'static>` to the shared `ubos-*` library crates.
 From that point every board runs the same above-the-link-layer tasks:
 DHCP bring-up, NTP sync, the HTTP listeners, the Prometheus metrics
 endpoint, the watchdog, and the display where present.
 
-The link layer differs by board. WIZnet boards use
-`embassy-net-wiznet` in MACRAW mode, so smoltcp owns the full TCP/IP
-stack and one code path covers the W5500, W5100S, and W6100. The STM32
-boards use the on-chip RMII MAC via `embassy-stm32::eth`; their PHY
-wiring is in [BOARDS.md](BOARDS.md).
+Every board uses a WIZnet chip through `embassy-net-wiznet` in MACRAW
+mode, so smoltcp owns the full TCP/IP stack. One code path covers the
+W5500, W5100S, and W6100.
 
 ## Mining backend
 

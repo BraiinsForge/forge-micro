@@ -3,7 +3,7 @@
 Board facts for the evaluation and adapter boards: the board table,
 wiring and pin assignments, size budget, build and flash commands, and
 per-board OTA specifics. These boards carry no product-specific
-support; they are what keeps the OS honest across five MCU parts.
+support; they are what keeps the OS honest across three MCU parts.
 The hashnode and forge-axe product boards and the rp2350-bootloader
 they flash with are covered in [OVERVIEW.md](OVERVIEW.md),
 [SETUP.md](SETUP.md), [OTA.md](OTA.md), and
@@ -19,8 +19,6 @@ product-board rows.
 | `firmware/rp2040` | RP2040 | W6100 (SPI) | `thumbv6m-none-eabi` |
 | `firmware/rp2350` | RP2350A | W6100 (SPI) | `thumbv8m.main-none-eabihf` |
 | `firmware/bmm-pico` | RP2350A (BMM Adapter) | W5500 (SPI) | `thumbv8m.main-none-eabihf` |
-| `firmware/stm32f407` | STM32F407VGT6 | LAN8720 (RMII, WT32-ETH01 cannibalized) | `thumbv7em-none-eabihf` |
-| `firmware/stm32f439` | STM32F439ZIT6 | LAN8742A (RMII, onboard) | `thumbv7em-none-eabihf` |
 | `firmware/esp32s3` | ESP32-S3 | W5100S (SPI) | `xtensa-esp32s3-none-elf` |
 
 The esp32s3 board's on-die temperature sensor is supported by
@@ -96,21 +94,6 @@ the fan must swap pins 3 and 4 relative to the schematic net names.
 
 TODO: Drop this note when a future board revision renames the nets.
 
-### DevEBox STM32F407 + LAN8720 (stm32f407)
-
-See `firmware/stm32f407/README.md` for the full RMII and management
-interface wiring.
-
-### Nucleo-F439ZI + LAN8742A (stm32f439)
-
-Same RMII pin mapping as the STM32F407 except TX_EN on PG11 and TXD0 on
-PG13 -- MB1137 routes these to the onboard LAN8742A via solder bridges
-SB183 and SB182 in their default state. The MB1137 carries an onboard
-LAN8742A with its own 25 MHz crystal and drives the 50 MHz RMII reference
-clock from the PHY, so no oscillator enable pin is needed. LED is on PB0
-(Nucleo LD1 green). Debug via onboard ST-LINK. Full clock and pin setup is
-in `firmware/stm32f439/src/config.rs`.
-
 ### ESP32-S3 + W5100S (esp32s3)
 
 Repurposes the LCD header pins on an ESP32-S3 dev board.
@@ -140,8 +123,6 @@ cd firmware/rp2040    && cargo run --release
 cd firmware/rp2350    && cargo run --release
 cd firmware/hashnode  && cargo run --release
 cd firmware/bmm-pico  && cargo run --release
-cd firmware/stm32f407 && cargo run --release
-cd firmware/stm32f439 && cargo run --release
 ```
 
 ESP32-S3 targets need the ESP dev shell:
@@ -168,17 +149,14 @@ is the last measurement plus the larger metrics render buffer. Every
 row was measured with the fee switch off. On a board with four
 sessions, a build that ships the fee slot adds one session task
 future to Main RAM. `rp2040` and `esp32s3` run three sessions in both
-states and `stm32f407` runs one and no fee, so their rows hold in
-both states.
+states, so their rows hold in both states.
 
-| Board     | Flash     | Main RAM   | CCM RAM      | Headroom note                                  |
-|-----------|-----------|------------|--------------|------------------------------------------------|
-| bmm-pico  | 566 / 2048 KiB | ~406 / 512 KiB (79%, est.) | — | comfortable; ~106 KiB free     |
-| rp2040    | 590 / 2048 KiB | 245 / 256 KiB (96%) | —   | tight; ~10.7 KiB free. The board holds the full 128-series map, which costs it about 19 KiB over a 64-series one. Dropping its `MAX_METRICS` to 64 is the first relief if a new static needs the room |
-| rp2350    | 567 / 2048 KiB | ~406 / 512 KiB (79%, est.) | — | comfortable; ~106 KiB free     |
-| stm32f407 | 621 / 1024 KiB | 118 / 128 KiB (92%) | 35 / 64 KiB CCM | tight; ~9.6 KiB free. Runs a single pool slot (`POOL_SLOTS = 1`), and any new static must go to CCM |
-| stm32f439 | 622 / 2048 KiB | 155 / 192 KiB (81%) | 28 / 64 KiB CCM | OK; ~36 KiB free                           |
-| esp32s3   | 826 / 8192 KiB | 284 / 320 KiB DRAM (89%) | — | tight; ~36 KiB DRAM free. Holds 64 series, because the 128-series map and its buffer leave less than the 24 KiB boot stack floor |
+| Board     | Flash     | Main RAM   | Headroom note                                  |
+|-----------|-----------|------------|------------------------------------------------|
+| bmm-pico  | 566 / 2048 KiB | ~406 / 512 KiB (79%, est.) | comfortable; ~106 KiB free     |
+| rp2040    | 590 / 2048 KiB | 245 / 256 KiB (96%) | tight; ~10.7 KiB free. The board holds the full 128-series map, which costs it about 19 KiB over a 64-series one. Dropping its `MAX_METRICS` to 64 is the first relief if a new static needs the room |
+| rp2350    | 567 / 2048 KiB | ~406 / 512 KiB (79%, est.) | comfortable; ~106 KiB free     |
+| esp32s3   | 826 / 8192 KiB | 284 / 320 KiB DRAM (89%) | tight; ~36 KiB DRAM free. Holds 64 series, because the 128-series map and its buffer leave less than the 24 KiB boot stack floor |
 
 Reproduce the esp32s3 numbers with the commands below. The workspace
 puts its build output at the root, so the size tool is pointed there and

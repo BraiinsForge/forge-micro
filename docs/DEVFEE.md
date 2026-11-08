@@ -74,14 +74,13 @@ with `a fee slot needs an operator slot beside it`.
 
 | Board | Sessions | Switch off | Switch on |
 |---|---|---|---|
-| `bmm-pico`, `forge-axe`, `hashnode`, `rp2350`, `stm32f439` | 4 | operator 0, 1, 2 | operator 0, 1, 2 and the fee at 3 |
+| `bmm-pico`, `forge-axe`, `hashnode`, `rp2350` | 4 | operator 0, 1, 2 | operator 0, 1, 2 and the fee at 3 |
 | `rp2040`, `esp32s3` | 3 | operator 0, 1, 2 | operator 0, 1 and the fee at 2 |
-| `stm32f407` | 1 | operator 0 | operator 0 |
 
 The stored config keeps three operator entries on every board. A
 board with two operator slots runs the first two and keeps the third,
-as `stm32f407` keeps two today. The fee costs such a board no RAM:
-the session count does not change.
+as `rp2040` and `esp32s3` do with the switch on. The fee costs such a
+board no RAM: the session count does not change.
 
 ## Build
 
@@ -234,8 +233,6 @@ decoding.
 | `hashnode` | `0x0183` | `_4MB` |
 | `rp2040` | `0x0184` | `_4QB` |
 | `rp2350` | `0x0185` | `_4UB` |
-| `stm32f407` | `0x0186` | `_4YB` |
-| `stm32f439` | `0x0187` | `_4cB` |
 
 ## How the share is kept
 

@@ -88,10 +88,7 @@ Buffer sizes:
 | :80 `ubos_http::consts::Http` | 2 KiB | 2 KiB | 2 KiB | **6 KiB** |
 | :8081 `ubos_metrics::consts::Metrics` | 512 B | 1 KiB | 512 B | **2 KiB** |
 
-The sizes are the same on every board. What differs is where the buffers
-sit: `stm32f407` and `stm32f439` put them in CCM through the
-`ccmram-bss` feature of `ubos-http`, which a board reaches as
-`ubos-firmware/ccmram-bss`. See "Which memory the pool sits in" below.
+The sizes are the same on every board, and the buffers sit in main SRAM.
 
 Shipped pool depths are per board:
 
@@ -99,7 +96,7 @@ Shipped pool depths are per board:
 |-------|-------------|---------------------|
 | bmm-pico, rp2350, hashnode, forge-axe | 8 | 5 |
 | esp32s3 | 4 | 3 |
-| rp2040, stm32f407, stm32f439 | 2 | 1 |
+| rp2040 | 2 | 1 |
 
 Each board takes the largest depth its RAM links. Two is the floor
 everywhere. One slot puts the OTA recovery path behind whatever worker
@@ -196,14 +193,7 @@ discovers each board's ceiling. Measured with the web UI and API pools at
 `5` each (ten worker futures), before the metrics listener joined the pool
 design:
 
-- **rp2040** overflows `.bss` by ~50 KiB (264 KiB SRAM, no CCM).
-- **stm32f407** overflows main `.bss` by ~64 KiB *and* `.ccmram.bss` by
-  ~8 KiB — too small at 128 KiB main plus 64 KiB CCM. The `.ccmram.bss`
-  half of that is the auth and mining statics; the pool buffers were in
-  main SRAM at the time of that measurement and are in CCM now.
-- **stm32f439** overflows `.ccmram.bss` by ~7 KiB and the stack by a few
-  hundred bytes: ten worker futures plus the 5/5 buffers do not fit in its
-  combined RAM.
+- **rp2040** overflows `.bss` by ~50 KiB (264 KiB SRAM).
 
 The dominant cost is the per-listener worker `TaskStorage` futures, which
 live in main SRAM on every board.
@@ -218,41 +208,10 @@ Measured with `cargo size --release -- -A` across the merge:
 |-------|--------------|------------|-----------|
 | rp2350 | 5 + 5 | 8 | +15 040 B |
 | rp2040 | 1 + 1 | 2 | +12 240 B |
-| stm32f407 | 1 + 1 | 2, buffers in CCM | −2 112 B |
-| stm32f439 | 1 + 1 | 2, buffers in CCM | −14 336 B |
 
 The merge is therefore not a way to reclaim RAM. It buys one origin, no
 CORS, one request for each API call instead of two, and one acceptor. It
-costs main SRAM on every board that keeps its buffers there. The two
-STM32 boards come out ahead only because the move to CCM takes more off
-main SRAM than the extra slot puts back.
-
-## Which memory the pool sits in
-
-`http_pool_static!` in `ubos-http` declares the `TcpBuffers` and the
-parse area. Under `ccmram-bss` it puts them in `.ccmram.bss`. Two facts
-make that safe, and both were checked in the source rather than assumed:
-
-- **Nothing here is a DMA target.** The STM32 ethernet driver builds its
-  descriptor rings from `Packet<RX_BUFFER_SIZE>` and
-  `Packet<TX_BUFFER_SIZE>` arrays and from nothing else, which is the
-  board's own `PACKETS` static. The socket buffers go the other way:
-  `embassy_net::tcp::TcpSocket::new` hands them to a
-  `smoltcp::tcp::SocketBuffer`, and smoltcp copies between the packet
-  queue and them. CCM is not reachable by DMA, so a buffer that a
-  descriptor ever pointed at could not move there.
-- **Both statics are all-zero at rest**, which `.ccmram.bss` requires
-  because the pre-init helper zeroes the whole section. `TcpBuffers` is
-  a pool of `Cell<bool>` flags that start `false` over a `MaybeUninit`
-  payload, and the parse area is a zeroed array.
-
-CAUTION: On `stm32f407` the stack shares CCM with `.ccmram.bss`, so
-every pool slot added there takes 6 KiB of the stack's room. `memory.x`
-holds a 16 KiB floor under what is left and fails the link below it. The
-board links with about 29 KiB today.
-
-`stm32f439` keeps its stack in main SRAM, so the move grows that stack
-rather than shrinking it.
+costs main SRAM on every board.
 
 This is a deliberate change from an earlier design that folded the
 whole worker pool into one `join_array` future. That future grew with the
@@ -324,12 +283,9 @@ not shared:
 - **esp32s3:** `4` is the deepest merged pool that clears the stack floor
   its `build.rs` link-time ASSERT enforces. The pool lives in `.bss`,
   which shares `dram_seg` with the core-0 stack.
-- **rp2040, stm32f439:** tight, and at the floor of `2` with the default
+- **rp2040:** tight, and at the floor of `2` with the default
   buffer sizes. Raising them needs a buffer trim first, and the per-board
   `StackResources` must be re-checked.
-- **stm32f407:** the tightest, and at the floor only because its pool
-  buffers sit in CCM. That memory is shared with the stack there, so
-  `memory.x` holds a floor under what is left of it.
 
 ## How to measure
 

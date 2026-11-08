@@ -171,7 +171,7 @@ consts the machines wrap — so it cannot drift from the firmware.
   board, and a **generic machine builder** that spawns tasks from a
   `MachineDescriptor` plus a `HardwareBindings` trait — the
   formalized binding seam. The per-platform support crates now hold the
-  shareable per-MCU work: `ubos-rp`, `ubos-stm32`, `ubos-esp32` and
+  shareable per-MCU work: `ubos-rp`, `ubos-esp32` and
   `ubos-build`. The builder no longer has to hoist it.
 - **`MAX_CHAINS` is a fixed ceiling, not a per-machine size.** Every
   per-chain table in `ubos/` — the chain accounting in `ubos-mining`,

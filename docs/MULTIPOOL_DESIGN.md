@@ -71,14 +71,13 @@ Each board picks its own session-slot count as a compile-time const
 in its `main.rs`, carried upstream by the generics:
 
 ```
-pub(crate) const POOL_SLOTS: usize = ubos_config::POOL_SLOTS;  // rp2040: MAX_POOLS, f407: 1
+pub(crate) const POOL_SLOTS: usize = ubos_config::POOL_SLOTS;  // rp2040: MAX_POOLS
 static ASIC_SESSION: AsicSession<POOL_SLOTS> = AsicSession::new();
 ```
 
 The config schema stays at `MAX_POOLS` capacity fleet-wide (one
 schema hash, one REST API), so a board with
-`POOL_SLOTS < MAX_POOLS` — stm32f407, whose 128 KiB main SRAM cannot
-afford the extra per-slot session-task futures — persists pool
+`POOL_SLOTS < MAX_POOLS` persists pool
 entries it never runs: they validate, store, and render as Dead on
 the dashboard. Accepted limitation; runtime capacity reporting in
 the API is a follow-up. `host-runner` and unit tests instantiate
@@ -689,9 +688,7 @@ dual-accept transitional code.
 The dominant per-slot cost is the statically allocated session-task
 future (`pool_size = POOL_SLOTS` copies): each holds the 2 × 2 KiB
 TCP buffers, the protocol-client state, a config snapshot, and the
-`StratumState` — roughly 10–13 KiB per slot, measured on stm32f407
-where the 3-slot build overflowed 128 KiB RAM by ~25.7 KiB and the
-1-slot build links with margin. Each slot also adds a
+`StratumState` — roughly 10–13 KiB per slot. Each slot also adds a
 `WorkAssignment`-sized watch cell and a solution channel (~150 B).
 The cost scales with the board's `POOL_SLOTS`, not with how many
 pools are configured.

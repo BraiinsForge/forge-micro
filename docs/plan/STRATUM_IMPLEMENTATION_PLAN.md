@@ -747,7 +747,7 @@ Each phase is independently `cargo check`-clean, `cargo clippy
 8. **rp2040 firmware migration.** Wire rp2040 to `stratum-client` +
    ubos-mining hashboard driver. Verify against ckpool. Other firmwares
    stay on `ubos-backend` for now.
-9. **Migrate remaining firmwares.** rp2350, stm32f407, stm32f439,
+9. **Migrate remaining firmwares.** rp2350 and
    bmm-pico move to `stratum-client` + ubos-mining. Once all firmwares
    are migrated, `ubos-backend` and `cpu-miner` are deleted.
 10. **Host integration harness.** Stand up `ubos-main-host` with
@@ -790,7 +790,7 @@ a pool well before the submit path is complete.
   is no longer the dispatch shape.
 - **secp256k1 verify-only context size on RP2040.** The
   `preallocated_verification_only` context is on the order of tens of
-  KB of static RAM. Comfortable on RP2350 / STM32F439 / STM32F407;
+  KB of static RAM. Comfortable on RP2350;
   visible on RP2040 (264 KB total). Measure at phase 12; if too tight,
   fall back to `ValidateNothing` on RP2040 or use the secp256k1
   `low-memory` feature.

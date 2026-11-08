@@ -121,7 +121,6 @@ typed `TaskPool` static and so rejects generic task functions.
 | `ubos-machine`     | per-board `MachineDescriptor` consts composing the hashboard, PSU, and sensor descriptors with a control-board and platform descriptor; pure const data read by firmware and the host runner |
 | `ubos-rp`          | per-platform support for the RP2040 and RP2350 control boards: the `#[panic_handler]` and `HardFault` symbols, reset diagnostic, `BoardWatchdog`, fan PWM and tachometer, the shared I2C bus aliases, `MinerUart`, the WS2812 adapter for the breathing status LED, the boot glue for the MAC, the seeds and the WIZnet bring-up, and the `spawn_miner_core1!` macro |
 | `rp-bootloader`    | the `embassy-boot-rp` swap sequence shared by `rp2040-bootloader` and `rp2350-bootloader`; no `ubos` library above it |
-| `ubos-stm32`       | per-platform support for the STM32F407 and STM32F439 control boards: fan PWM and tachometer, the shared I2C bus aliases, `MinerUart`, `BoardWatchdog`, and the Ethernet `Device` type with the `ethernet_device!` macro |
 | `ubos-esp32`       | per-platform support for the ESP32-S3 control board: reset diagnostic, idle-accounting executor callbacks, the persistent event ring, `BoardWatchdog`, `MinerUart`, fan PWM and tachometer, the shared I2C bus aliases, the expander-driven reset pin, and the `spawn_miner_core1!` macro |
 | `ubos-firmware`    | top-of-graph assembly: `events::install`, `net::bring_up`, shared stratum session, task-shell macros, the `serve_all!` listener macro; consumed only by the `firmware/<board>` binaries |
 
@@ -159,9 +158,7 @@ firmware/
 ├── rp2040/              thumbv6m-none-eabi         (RP2040)
 ├── rp2040-bootloader/   thumbv6m-none-eabi
 ├── rp2350/              thumbv8m.main-none-eabihf  (RP2350A)
-├── rp2350-bootloader/   thumbv8m.main-none-eabihf
-├── stm32f407/           thumbv7em-none-eabihf      (STM32F407VGT6)
-└── stm32f439/           thumbv7em-none-eabihf      (STM32F439ZIT6)
+└── rp2350-bootloader/   thumbv8m.main-none-eabihf
 ```
 
 Firmware crate names are the board name, unprefixed. The directory
@@ -241,35 +238,19 @@ to Main RAM, so read the headroom against that. Each board states
 the switch in its own `.cargo/config.toml`, and every board here
 states `0`.
 
-| Board     | Flash     | Main RAM   | CCM RAM      | Headroom note                                  |
-|-----------|-----------|------------|--------------|------------------------------------------------|
-| hashnode  | 576 / 2048 KiB | ~406 / 512 KiB (79%, est.) | — | comfortable; ~106 KiB free     |
+| Board     | Flash     | Main RAM   | Headroom note                                  |
+|-----------|-----------|------------|------------------------------------------------|
+| hashnode  | 576 / 2048 KiB | ~406 / 512 KiB (79%, est.) | comfortable; ~106 KiB free     |
 
 The rows for the evaluation and adapter boards live in
 [BOARDS.md](BOARDS.md).
 
-`ubos-metrics`, `ubos-auth`, `ubos-api`, and `ubos-webui` expose a
-`ccmram-bss` cargo feature that places non-DMA static state (metric
-map, HTTP scratch buffers, credential / session / CSRF / CSPRNG
-tables) in a `.ccmram.bss` section, for boards whose MCU carries a
-Core-Coupled Memory region the linker otherwise leaves unused. No
-board in this tree enables the feature, so the `link_section`
-annotations are no-ops here; the boards that do, and their per-board
-`memory.x`, are covered in [BOARDS.md](BOARDS.md). New CCM-eligible
-statics should still carry:
-
-```rust
-#[cfg_attr(feature = "ccmram-bss", link_section = ".ccmram.bss")]
-```
-
 Each board states the size of the Prometheus exposition map as
 `MAX_METRICS` and `METRICS_RESPONSE_BYTES` in its own `config.rs`, and
 `ubos_firmware::serve_all!` declares the statics from there. Every board
-in this tree holds 128 series, except `esp32s3`, `stm32f407` and
-`stm32f439`, which hold 64. The RAM of these three boards does not hold
-the larger map. On every board except the two STM32 boards, the buffer
-has `METRIC_LINE_BYTES` for each series, so it holds a full map. The two
-STM32 boards keep 4096 bytes.
+in this tree holds 128 series, except `esp32s3`, which holds 64. The
+RAM of that board does not hold the larger map. On every board, the
+buffer has `METRIC_LINE_BYTES` for each series, so it holds a full map.
 
 Reproduce with:
 

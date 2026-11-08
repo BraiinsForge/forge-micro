@@ -54,8 +54,6 @@ Fixing this first kept the EEPROM work from naming the wrong board:
   - `CONTROL_BOARD_ESP32S3.name`: `"ESP32-S3 W5100S"` →
     `"Waveshare ESP32-S3-LCD-Driver-Board W5100S"`, matching the real
     hardware named in that board's SPI-wiring comment.
-  - STM32F407 (`"DevEBox STM32F407 LAN8720"`) and STM32F439
-    (`"Nucleo-F439ZI LAN8742A"`) were already accurate — no change.
   - `CONTROL_BOARD_RP2040` read `"W5500-EVB-Pico"` and the audit
     accepted it. A register read off the racked board shows a W6100.
     The name is now `"W6100-EVB-Pico"`.
@@ -139,12 +137,11 @@ cleanly and only a human reading the values catches it.
   field (wire-level data, same tier as the PSU/sensor addresses already
   on descriptors): `Some(0x50)` for `BMM101_HASHBOARD`, `Some(0x57)`
   for `BFMX4_HASHBOARD`.
-- Every board firmware (bmm-pico, hashnode, rp2040, rp2350, stm32f407,
-  stm32f439, esp32s3) reads the EEPROM once at boot, before powering
-  the rail, and logs the parsed product name/serial/asic/batch plus
-  the default operating point. The EEPROM shares the PSU/sensor I2C
-  bus, so the read borrows a fresh `I2cDevice` off the existing bus
-  mutex.
+- Every board firmware (bmm-pico, hashnode, rp2040, rp2350, esp32s3)
+  reads the EEPROM once at boot, before powering the rail, and logs
+  the parsed product name/serial/asic/batch plus the default operating
+  point. The EEPROM shares the PSU/sensor I2C bus, so the read borrows
+  a fresh `I2cDevice` off the existing bus mutex.
 - A read or parse failure only logs a warning. This is a sanity check
   and traceability source, not a config source: descriptors stay
   compile-time (per [MACHINE.md](MACHINE.md)'s no-runtime-autodetection

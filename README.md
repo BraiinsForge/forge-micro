@@ -4,9 +4,9 @@ Bare-metal Rust miner firmware. The product boards are the Braiins
 Forge Miner x4 (`firmware/hashnode`), an RP2350B driving a 4-chip
 BM1370 hashboard over Ethernet, and the Forge Axe
 (`firmware/forge-axe`), an RP2350B driving the same
-hashboard; alongside them the tree carries six evaluation
-and adapter boards across five MCU parts — RP2040, RP2350, STM32F407,
-STM32F439, and ESP32-S3 — which is what keeps the OS portable rather
+hashboard; alongside them the tree carries four evaluation
+and adapter boards across three MCU parts — RP2040, RP2350, and
+ESP32-S3 — which is what keeps the OS portable rather
 than shaped to one part. Each board serves a small HTTP dashboard that
 polls `/api/info` and renders uptime, DHCP-assigned IP, current
 hashrate from the on-board BM13xx ASIC via the `ubos-mining` driver,
