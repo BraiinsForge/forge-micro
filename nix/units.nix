@@ -153,7 +153,6 @@ let
   targetSpecs = {
     "thumbv8m.main-none-eabihf" =
       armTarget "thumbv8m.main-none-eabihf" lib.systems.examples.armhf-embedded;
-    "thumbv7em-none-eabihf" = armTarget "thumbv7em-none-eabihf" lib.systems.examples.armhf-embedded;
     "thumbv6m-none-eabi" = armTarget "thumbv6m-none-eabi" lib.systems.examples.arm-embedded;
   }
   // extraTargets;

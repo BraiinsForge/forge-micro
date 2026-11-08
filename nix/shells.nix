@@ -137,7 +137,6 @@ pkgs.lib.mapAttrs (_: helpers.withWebuiDist) {
       '';
     }
     // helpers.armCc "thumbv6m-none-eabi"
-    // helpers.armCc "thumbv7em-none-eabihf"
     // helpers.armCc "thumbv8m.main-none-eabihf"
   );
 

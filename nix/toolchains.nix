@@ -61,7 +61,6 @@ rec {
     ];
     targets = [
       "thumbv6m-none-eabi"
-      "thumbv7em-none-eabihf"
       "thumbv8m.main-none-eabihf"
     ];
   };
