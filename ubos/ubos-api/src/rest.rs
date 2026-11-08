@@ -191,7 +191,6 @@ impl RestApiService {
     /// the OTA target mutex never blocks the dashboard's poll.
     fn info(&self) -> ApiInfo {
         let chain_stats = ubos_metrics::chain::handle();
-        let thermal_reading = self.thermal.current();
         let fan = self.cooling.current();
         let psu_reading = self.psu.current();
         let pause_reasons = self.manager.pause_reasons();
@@ -214,10 +213,7 @@ impl RestApiService {
             psu_voltage_set: psu_reading.map_or_else(Voltage::default, |r| r.output_voltage_set),
             psu_voltage_measured: psu_reading
                 .map_or_else(Voltage::default, |r| r.output_voltage_measured),
-            chain_voltage: thermal_reading
-                .as_ref()
-                .and_then(|reading| reading.chain_voltage)
-                .unwrap_or_default(),
+            chain_voltage: chain_stats.lowest_voltage().unwrap_or_default(),
             psu_fault: psu_reading.is_some_and(|r| r.sensor_fault),
             pools: self.stratum.pool_alive_bitmap(),
             net_confirm_seconds: self.config.pending_seconds_remaining(),
