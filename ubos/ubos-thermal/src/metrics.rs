@@ -28,10 +28,10 @@
 use core::fmt::Write as _;
 
 use embedded_hal_async::i2c::SevenBitAddress;
-use ubos_core::index::HashboardIndex;
+use ubos_core::index::{ChipAddress, HashboardIndex};
 use ubos_core::units::Temperature;
 use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value};
-use ubos_temperature::{ChipId, Reading, TempSource};
+use ubos_temperature::{Reading, TempSource};
 
 use crate::Source;
 use crate::chain::chain_labels;
@@ -123,7 +123,11 @@ async fn publish_board_reading(source: &'static str, address: SevenBitAddress, v
 /// TODO: A board that read one chip both through a sensor diode and over
 /// its chain would write this series from two places, each overwriting the
 /// other. No board does today; one that does needs the series told apart.
-pub(crate) async fn publish_chip_reading(chain: HashboardIndex, chip: ChipId, value: Temperature) {
+pub(crate) async fn publish_chip_reading(
+    chain: HashboardIndex,
+    chip: ChipAddress,
+    value: Temperature,
+) {
     let mut chip_str = heapless::String::new();
     let _ = write!(chip_str, "{chip}");
     let mut labels = reading_labels(CHIP_SOURCE, chain);

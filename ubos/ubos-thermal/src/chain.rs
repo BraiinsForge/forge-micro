@@ -55,8 +55,8 @@ use crate::metrics::publish_chip_reading;
 use crate::{Accumulator, Reading, TempSample, TemperatureSensor};
 use embassy_futures::poll_once;
 use embassy_time::{Duration, Instant, Ticker};
-use ubos_asic::{ChainPvt, ChipIndex};
-use ubos_core::index::HashboardIndex;
+use ubos_asic::ChainPvt;
+use ubos_core::index::{ChipAddress, HashboardIndex};
 use ubos_core::units::{Temperature, Voltage};
 use ubos_logging::{debug, warn};
 use ubos_metrics::chain::ChainStatsHandle;
@@ -229,7 +229,7 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
             return;
         }
         self.reported_answer[slot] = answered;
-        for chip in (0..=ChipIndex::MAX).take(CHIPS) {
+        for chip in ChipAddress::range(CHIPS) {
             let Some(value) = self.pvt[slot].temperature(chip) else {
                 continue;
             };

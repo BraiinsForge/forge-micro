@@ -20,6 +20,7 @@
 //! Machine composition: control board plus hashboard, PSU, and sensors.
 
 use ubos_asic::HashboardDescriptor;
+use ubos_core::index::ChipAddress;
 use ubos_core::units::{Current, Power, Temperature, Voltage};
 use ubos_psu::sic45x::{LoopScale, Sic45xConfig};
 use ubos_psu::tps53647::{Phases, Tps53647Config};
@@ -159,7 +160,7 @@ pub const BFMX4_SENSORS: [SensorDescriptor; 3] = [
     SensorDescriptor::Tmp461(Tmp461 {
         address: 0x4E,
         local: TempSource::Hashboard,
-        remote: TempSource::Chip(0),
+        remote: TempSource::Chip(ChipAddress::One(0)),
     }),
     SensorDescriptor::Tmp102(Tmp102 {
         address: 0x48,
@@ -238,10 +239,10 @@ pub const FORGE_AXE_SENSORS: [SensorDescriptor; 3] = [
         address: 0x4A,
         local: TempSource::Hashboard,
         remote: [
-            Some(TempSource::Chip(0)),
-            Some(TempSource::Chip(1)),
-            Some(TempSource::Chip(2)),
-            Some(TempSource::Chip(3)),
+            Some(TempSource::Chip(ChipAddress::One(0))),
+            Some(TempSource::Chip(ChipAddress::One(1))),
+            Some(TempSource::Chip(ChipAddress::One(2))),
+            Some(TempSource::Chip(ChipAddress::One(3))),
         ],
     }),
     SensorDescriptor::Tmp102(Tmp102 {

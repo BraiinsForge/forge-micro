@@ -40,10 +40,8 @@ use core::num::NonZeroU8;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time::Instant;
+use ubos_core::index::ChipAddress;
 use ubos_core::units::{Temperature, Voltage};
-
-/// Index of a chip on its chain, the byte the driver addresses it by.
-pub type ChipIndex = u8;
 
 #[cfg(test)]
 #[path = "tests/pvt.rs"]
@@ -101,13 +99,13 @@ impl<const CHIPS: usize> ChainPvt<CHIPS> {
     /// be absent when its read failed.
     pub fn record(
         &self,
-        chip: ChipIndex,
+        chip: ChipAddress,
         temperature: Option<Temperature>,
         voltage: Option<Voltage>,
     ) {
         self.readings.lock(|readings| {
             let mut readings = readings.borrow_mut();
-            let Some(entry) = readings.chips.get_mut(usize::from(chip)) else {
+            let Some(entry) = readings.chips.get_mut(chip.slot()) else {
                 return;
             };
             if let Some(value) = temperature {
@@ -133,12 +131,12 @@ impl<const CHIPS: usize> ChainPvt<CHIPS> {
     /// The die temperature `chip` last reported, or `None` until it has
     /// reported one.
     #[must_use]
-    pub fn temperature(&self, chip: ChipIndex) -> Option<Temperature> {
+    pub fn temperature(&self, chip: ChipAddress) -> Option<Temperature> {
         self.readings.lock(|readings| {
             readings
                 .borrow()
                 .chips
-                .get(usize::from(chip))
+                .get(chip.slot())
                 .and_then(|entry| entry.temperature)
         })
     }

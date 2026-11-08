@@ -36,6 +36,7 @@ pub mod tmp464;
 
 use embedded_hal_async::i2c::{I2c, SevenBitAddress};
 use heapless::Vec;
+use ubos_core::index::ChipAddress;
 use ubos_core::units::Temperature;
 
 use crate::lm75a::Lm75a;
@@ -102,17 +103,13 @@ impl<Bus: I2c> Sensor<Bus> {
     }
 }
 
-/// Index of a chip on its chain. The chain itself is the reader's to
-/// know: a worker reads one chain and names its chips within it.
-pub type ChipId = u8;
-
 /// What a [`Reading`] measures.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TempSource {
     /// The hashboard under the sensor.
     Hashboard,
     /// The die of one chip.
-    Chip(ChipId),
+    Chip(ChipAddress),
     /// The air around the board.
     Ambient,
     /// The control board.
