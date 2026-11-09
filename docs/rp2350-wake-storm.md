@@ -293,9 +293,9 @@ on Arm systems, especially for cross-core wakeups. See for example:
   - RP2350 datasheet notes cross-core events and a "sticky" event flag for `SEV`
     and `WFE` on the Arm core:
     - <https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf>
-  - ST's Cortex-M33 programming manual (PM0264) covers `WFE/WFI` and
+  - Arm's Cortex-M33 Devices Generic User Guide covers `WFE/WFI` and
     `SCB.SCR.SEVONPEND` behavior:
-    - <https://www.st.com/resource/en/programming_manual/pm0264-stm32-cortexm33-mcus-and-mpus-programming-manual-stmicroelectronics.pdf>
+    - <https://developer.arm.com/documentation/100235/latest/>
   - Arm Community discussion of `WFE/WFI` and pending interrupts:
     - <https://community.arm.com/support-forums/f/architectures-and-processors-forum/4039/wfe-wfi-and-pending-interrupts/10463>
   - `WFE` operation summary (event register semantics, `SEVONPEND` wake-on-pend):
