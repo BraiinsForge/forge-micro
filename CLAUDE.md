@@ -139,7 +139,10 @@ finished change is committed in the turn that finishes it.
 - One logical change per iteration, in plan mode when non-trivial.
 - One logical change per commit, granular enough to review fast; a
   commit holding two is split before it merges, never excused by size.
-- **Push only when the user asks**, never to `master`. The user merges.
+- **Push only when the user asks, and only from a session that holds
+  a write credential.** Any other session has none, so its push fails
+  on authentication, and that error is reported. Never push to
+  `master`. The user merges.
 
 The four skills under `.claude/skills/` own the rest: `/commit`,
 `/review-branch`, `/fix-review` and `/branch-cleanup`. A fact has one

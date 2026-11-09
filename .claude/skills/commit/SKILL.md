@@ -120,7 +120,6 @@ Interactive patch mode (`git add -p`) commands:
   source and lockfile must move together
 
 **Never:**
-- NEVER push to remote
 - NEVER use --amend unless explicitly requested
 - NEVER skip cargo check when Rust code changed
 - NEVER add Co-Authored-By or any other signature/trailer to commit messages

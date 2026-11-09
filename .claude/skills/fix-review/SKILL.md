@@ -116,4 +116,3 @@ nits: <N> not fixed -- <one line naming what they were about>
 - A prose finding is rejected by default, per step 2.
 - One finding per fixup commit.
 - A fixup carries nothing beyond its finding.
-- Never push.

@@ -171,4 +171,3 @@ with it, so the rules it judges by are these:
   reader beside it doubles the findings and settles nothing.
 - Do not substitute for a gate that cannot run. Report it `BLOCKED` with
   the reason.
-- Never push.

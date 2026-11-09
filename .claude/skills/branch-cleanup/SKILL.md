@@ -359,7 +359,6 @@ When a rebase encounters a conflict:
 
 ## Rules
 
-- NEVER push to remote
 - NEVER delete backup branch automatically
 - NEVER use destructive commands (`reset --hard`, `checkout -- .`, `clean -f`)
 - ALWAYS create backup branch before any rebase
