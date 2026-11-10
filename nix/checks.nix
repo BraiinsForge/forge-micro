@@ -137,7 +137,12 @@ let
     pkgs.linkFarmFromDrvs name (units.testsOf (units.hostPlan ({ fee = fee.on; } // row)) row.crate);
 
   hostClippyChecks = builtins.mapAttrs mkHostClippy {
-    clippy-ubos-core.crate = "ubos-core";
+    # The schema feature adds the JsonSchema derives on the units, so
+    # clippy reads them too.
+    clippy-ubos-core = {
+      crate = "ubos-core";
+      features = [ "schema" ];
+    };
     clippy-ubos-led.crate = "ubos-led";
     clippy-ubos-http = {
       crate = "ubos-http";

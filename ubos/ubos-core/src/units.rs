@@ -53,6 +53,11 @@ mod tests;
     serde::Deserialize,
 )]
 #[serde(transparent)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(
+    feature = "schema",
+    schemars(inline, description = "A frequency in kHz.")
+)]
 pub struct Frequency(u32);
 
 /// The schema of the integer a [`Frequency`] serializes as, so a record that
@@ -197,6 +202,8 @@ impl FrequencyRange {
     serde::Deserialize,
 )]
 #[serde(transparent)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(inline, description = "A voltage in mV."))]
 pub struct Voltage(u32);
 
 /// The schema of the integer a [`Voltage`] serializes as, so a record that
@@ -242,6 +249,8 @@ impl Voltage {
     serde::Deserialize,
 )]
 #[serde(transparent)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(inline, description = "A power in mW."))]
 pub struct Power(u32);
 
 /// The schema of the integer a [`Power`] serializes as, so a record that
@@ -297,6 +306,8 @@ impl Power {
     serde::Deserialize,
 )]
 #[serde(transparent)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(inline, description = "A current in mA."))]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Current(u32);
 
@@ -336,6 +347,11 @@ impl Current {
     Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
 #[serde(transparent)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(
+    feature = "schema",
+    schemars(inline, description = "An efficiency in mJ/TH, never zero.")
+)]
 pub struct Efficiency(NonZeroU32);
 
 /// The schema of the integer an [`Efficiency`] serializes as, so a record
@@ -417,6 +433,11 @@ show_in_thousandths!(Efficiency, |efficiency| efficiency.mj_per_th());
     postcard_schema::Schema,
 )]
 #[serde(transparent)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(
+    feature = "schema",
+    schemars(inline, description = "A temperature in millidegrees Celsius.")
+)]
 pub struct Temperature(i32);
 
 /// Degrees Celsius with three decimals, computed in integers so that a log
@@ -501,6 +522,11 @@ impl Temperature {
 #[repr(transparent)]
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize)]
 #[serde(transparent)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(
+    feature = "schema",
+    schemars(inline, description = "A fan duty cycle in percent, 0 to 100.")
+)]
 pub struct FanPwm(u8);
 
 impl FanPwm {
@@ -527,6 +553,11 @@ impl FanPwm {
 #[repr(transparent)]
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize)]
 #[serde(transparent)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(
+    feature = "schema",
+    schemars(inline, description = "A fan speed in RPM.")
+)]
 pub struct FanRpm(u32);
 
 impl FanRpm {
