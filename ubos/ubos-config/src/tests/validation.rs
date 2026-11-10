@@ -20,6 +20,7 @@
 //! Tests for [`crate::ConfigUpdate::validate`].
 
 use crate::{PidTarget, Source, Statistic, TemperatureDescriptor};
+use ubos_asic::{CoolingSource, CoolingStatistic};
 use ubos_core::units::{Efficiency, Frequency, Power, Temperature, Voltage};
 
 use crate::{
@@ -524,6 +525,28 @@ fn cooling_target_on_a_chip_only_machine_uses_the_chip_threshold() {
         min_fan_pwm: None,
     });
     assert!(update.validate(&current, &crate::mining::BOUNDS).is_ok());
+}
+
+/// The default target is the reading, reduction and setpoint the board's
+/// cooling profile names.
+#[test]
+fn default_target_follows_the_boards_profile() {
+    let mut board = ubos_asic::BMM101_HASHBOARD;
+    board.cooling.target_source = CoolingSource::Chip;
+    board.cooling.target_statistic = CoolingStatistic::Mean;
+    board.cooling.target_temp = Temperature::from_celsius(70);
+    assert_eq!(
+        PidTarget::default_for(&board),
+        PidTarget {
+            source: Source::Chip,
+            statistic: Statistic::Mean,
+            temp: Temperature::from_celsius(70),
+        }
+    );
+
+    let target = PidTarget::default_for(&ubos_asic::BMM101_HASHBOARD);
+    assert_eq!(target.source, Source::Hashboard);
+    assert_eq!(target.statistic, Statistic::Max);
 }
 
 /// `cooling.target` equal to `dangerous_hashboard_temp` is rejected.

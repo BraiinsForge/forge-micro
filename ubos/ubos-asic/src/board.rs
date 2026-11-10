@@ -41,19 +41,37 @@ use crate::bm13xx::chip::{BM1362, BM1370};
 #[path = "tests/board.rs"]
 mod tests;
 
+/// The kind of reading a board's cooling setpoint is compared with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CoolingSource {
+    /// A sensor on the hashboard.
+    Hashboard,
+    /// A chip's own die.
+    Chip,
+}
+
+/// How the readings of one kind reduce to the single value the cooling PID
+/// follows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CoolingStatistic {
+    /// The hottest reading.
+    Max,
+    /// The mean of the readings.
+    Mean,
+}
+
 /// Per-board cooling profile. Grouped onto [`HashboardDescriptor`] so the
 /// cooling defaults travel with the board rather than as loose fields.
 /// A setpoint is compared with the kind of reading it names, so a board
 /// that tracks a hashboard reading sets it below the die temperature it means.
 #[derive(Clone, Copy)]
 pub struct BoardCooling {
-    /// Cooling PID setpoint on the hottest die, or `None` where the board
-    /// does not name one.
-    pub target_chip_temp: Option<Temperature>,
-    /// Cooling PID setpoint on the hottest hashboard reading, or `None`
-    /// where the board does not name one. The PID starts on this one where
-    /// the board names both.
-    pub target_hashboard_temp: Option<Temperature>,
+    /// The kind of reading the cooling PID starts on.
+    pub target_source: CoolingSource,
+    /// How the readings of that kind reduce to the value the PID follows.
+    pub target_statistic: CoolingStatistic,
+    /// The setpoint the PID starts on, compared with that value.
+    pub target_temp: Temperature,
     /// Cooling PID fan-floor (minimum duty).
     pub min_fan_pwm: u8,
     /// Half-decay time of the smoother on the temperature the cooling PID
@@ -166,8 +184,9 @@ pub const BMM101_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     ),
     swarm_color: "blue",
     cooling: BoardCooling {
-        target_chip_temp: None,
-        target_hashboard_temp: Some(Temperature::from_celsius(60)),
+        target_source: CoolingSource::Hashboard,
+        target_statistic: CoolingStatistic::Max,
+        target_temp: Temperature::from_celsius(60),
         min_fan_pwm: 20,
         input_smoother_half_decay_secs: 0,
     },
@@ -198,8 +217,9 @@ pub const BFMX4_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     ),
     swarm_color: "blue",
     cooling: BoardCooling {
-        target_chip_temp: None,
-        target_hashboard_temp: Some(Temperature::from_celsius(47)),
+        target_source: CoolingSource::Hashboard,
+        target_statistic: CoolingStatistic::Max,
+        target_temp: Temperature::from_celsius(47),
         min_fan_pwm: 20,
         input_smoother_half_decay_secs: 0,
     },
@@ -231,8 +251,9 @@ pub const FORGE_AXE_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     // Same cooling profile and hashboard halt threshold as the hashnode until
     // tuned on hardware.
     cooling: BoardCooling {
-        target_chip_temp: None,
-        target_hashboard_temp: Some(Temperature::from_celsius(47)),
+        target_source: CoolingSource::Hashboard,
+        target_statistic: CoolingStatistic::Max,
+        target_temp: Temperature::from_celsius(47),
         min_fan_pwm: 20,
         input_smoother_half_decay_secs: 0,
     },

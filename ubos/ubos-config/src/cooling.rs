@@ -27,7 +27,7 @@
 use core::ops::RangeInclusive;
 
 use crate::thermal::{Source, TemperatureDescriptor};
-use ubos_asic::HashboardDescriptor;
+use ubos_asic::{CoolingSource, CoolingStatistic, HashboardDescriptor};
 use ubos_core::units::Temperature;
 
 pub use crate::versions::live::{CoolingConfig, FanMode, PidConfig, PidTarget, Statistic};
@@ -44,28 +44,21 @@ impl Statistic {
 }
 
 impl PidTarget {
-    /// The target `board` starts with: its setpoint on the hottest
-    /// hashboard reading where it names one, and its setpoint on the
-    /// hottest die otherwise.
-    ///
-    /// # Panics
-    ///
-    /// Panics on a board that names neither setpoint, which the machine
-    /// test in `ubos-machine` rules out for every machine.
+    /// The target `board` starts with: the reading, reduction and
+    /// setpoint its cooling profile names.
     #[must_use]
     pub const fn default_for(board: &HashboardDescriptor) -> Self {
-        let (source, temp) = match (
-            board.cooling.target_hashboard_temp,
-            board.cooling.target_chip_temp,
-        ) {
-            (Some(temp), _) => (Source::Hashboard, temp),
-            (None, Some(temp)) => (Source::Chip, temp),
-            (None, None) => panic!("BUG: board names no cooling setpoint"),
-        };
+        let cooling = &board.cooling;
         Self {
-            source,
-            statistic: Statistic::Max,
-            temp,
+            source: match cooling.target_source {
+                CoolingSource::Hashboard => Source::Hashboard,
+                CoolingSource::Chip => Source::Chip,
+            },
+            statistic: match cooling.target_statistic {
+                CoolingStatistic::Max => Statistic::Max,
+                CoolingStatistic::Mean => Statistic::Mean,
+            },
+            temp: cooling.target_temp,
         }
     }
 }

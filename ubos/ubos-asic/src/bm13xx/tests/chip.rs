@@ -181,8 +181,9 @@ const BMM_TEST_MULTI_DOMAIN: HashboardDescriptor = HashboardDescriptor {
     default_efficiency: ubos_core::units::Efficiency::from_mj_per_th(core::num::NonZeroU32::MIN),
     swarm_color: "blue",
     cooling: crate::board::BoardCooling {
-        target_chip_temp: None,
-        target_hashboard_temp: Some(ubos_core::units::Temperature::from_celsius(0)),
+        target_source: crate::board::CoolingSource::Hashboard,
+        target_statistic: crate::board::CoolingStatistic::Max,
+        target_temp: ubos_core::units::Temperature::from_celsius(0),
         min_fan_pwm: 0,
         input_smoother_half_decay_secs: 0,
     },
@@ -205,8 +206,9 @@ const BM1370_TEST_BOARD: HashboardDescriptor = HashboardDescriptor {
     default_efficiency: ubos_core::units::Efficiency::from_mj_per_th(core::num::NonZeroU32::MIN),
     swarm_color: "blue",
     cooling: crate::board::BoardCooling {
-        target_chip_temp: None,
-        target_hashboard_temp: Some(ubos_core::units::Temperature::from_celsius(0)),
+        target_source: crate::board::CoolingSource::Hashboard,
+        target_statistic: crate::board::CoolingStatistic::Max,
+        target_temp: ubos_core::units::Temperature::from_celsius(0),
         min_fan_pwm: 0,
         input_smoother_half_decay_secs: 0,
     },
