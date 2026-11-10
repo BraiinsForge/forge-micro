@@ -21,16 +21,13 @@
 //!
 //! The -1 variant corresponds to the specific [`ADDRESS`].
 //!
-//! The fans are [operated as an open-drain with normal polarity at the 26 kHz base frequency](https://ww1.microchip.com/downloads/aemDocuments/documents/MSLD/ProductDocuments/DataSheets/EMC2301-2-3-5-Data-Sheet-DS20006532A.pdf#page=14).
-//! They are driven by PWM duty i.e. [Direct Setting mode](https://ww1.microchip.com/downloads/aemDocuments/documents/MSLD/ProductDocuments/DataSheets/EMC2301-2-3-5-Data-Sheet-DS20006532A.pdf#page=13),
-//! which is chosen by [ENAGx = 0](https://ww1.microchip.com/downloads/aemDocuments/documents/MSLD/ProductDocuments/DataSheets/EMC2301-2-3-5-Data-Sheet-DS20006532A.pdf#page=38).
-//! set in Fan Configuration registers on power-on-reset e.g.
-//! [Fan Configuration 1 resets to 2Bh = 00101011b](https://ww1.microchip.com/downloads/aemDocuments/documents/MSLD/ProductDocuments/DataSheets/EMC2301-2-3-5-Data-Sheet-DS20006532A.pdf#page=25).
+//! The fans run open-drain with normal polarity at the 26 kHz base
+//! frequency, driven by PWM duty in Direct Setting mode, which `ENAGx` = 0
+//! selects and which the Fan Configuration registers hold from power-on.
 //!
-//! There is a watchdog spawned on power-up which checks there is an activity on any of the fans,
-//! if there is none for four seconds, it drives both fans to full drive,
-//! so a board whose firmware never reaches the cooling loop still cools
-//! ([4.11 Watchdog Timer, 4.11.1 Power-Up Operation](https://ww1.microchip.com/downloads/aemDocuments/documents/MSLD/ProductDocuments/DataSheets/EMC2301-2-3-5-Data-Sheet-DS20006532A.pdf#page=19)).
+//! The chip's power-up watchdog drives both fans to full when neither
+//! fan sees activity for four seconds, so a board whose firmware never
+//! reaches the cooling loop still cools.
 // TODO: Consider CONTINUOUS OPERATION.
 
 use bitfield_struct::bitfield;
@@ -48,11 +45,9 @@ mod tests;
 pub const FANS: usize = 2;
 
 /// The EMC2302-1's I2C address (-2 uses `0x2F`).
-/// <https://ww1.microchip.com/downloads/aemDocuments/documents/MSLD/ProductDocuments/DataSheets/EMC2301-2-3-5-Data-Sheet-DS20006532A.pdf#page=21>
 const ADDRESS: SevenBitAddress = 0x2E;
 
 /// Fan Configuration 1 - ENAG[7],RNG[6:5],EDG[4:3],UDT[2:0]
-/// <https://ww1.microchip.com/downloads/aemDocuments/documents/MSLD/ProductDocuments/DataSheets/EMC2301-2-3-5-Data-Sheet-DS20006532A.pdf#page=38>
 #[bitfield(u8)]
 #[derive(PartialEq, Eq)]
 struct FanConfig1 {
@@ -70,7 +65,6 @@ struct FanConfig1 {
 }
 
 /// RNG: the slowest speed the tach reads and the tach count multiplier m.
-/// <https://ww1.microchip.com/downloads/aemDocuments/documents/MSLD/ProductDocuments/DataSheets/EMC2301-2-3-5-Data-Sheet-DS20006532A.pdf#page=38>
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Range {
     /// m = 1.
@@ -85,7 +79,6 @@ pub enum Range {
 
 impl Range {
     /// Fan Configuration 1 resets to 2Bh, RNG = 01
-    /// <https://ww1.microchip.com/downloads/aemDocuments/documents/MSLD/ProductDocuments/DataSheets/EMC2301-2-3-5-Data-Sheet-DS20006532A.pdf#page=25>
     const POWER_ON: Self = Self::RpmMin1000;
 
     /// The tach count multiplier m.
@@ -99,7 +92,6 @@ impl Range {
     }
 
     /// RNG bits of each range.
-    /// <https://ww1.microchip.com/downloads/aemDocuments/documents/MSLD/ProductDocuments/DataSheets/EMC2301-2-3-5-Data-Sheet-DS20006532A.pdf#page=38>
     const RPM_MIN_500: u8 = 0b00;
     const RPM_MIN_1000: u8 = 0b01;
     const RPM_MIN_2000: u8 = 0b10;
@@ -128,8 +120,6 @@ impl Range {
 /// Factor to calculate RPM from TACH reading count and [`Range`] multiplier.
 const RPM_FACTOR: u32 = 3_932_160;
 
-/// [`RPM_FACTOR`] is calculated from these parameters.
-/// <https://ww1.microchip.com/downloads/aemDocuments/documents/MSLD/ProductDocuments/DataSheets/EMC2301-2-3-5-Data-Sheet-DS20006532A.pdf#page=16>
 #[test]
 fn test_rpm_factor_matches_parameters() {
     let poles = 2; // poles on the fan
@@ -147,8 +137,7 @@ struct RawTach {
 }
 
 /// RPM of a TACH Reading count; 0 above the valid maximum and at zero.
-/// Equation 4-3: RPM = [`RPM_FACTOR`] * m / COUNT.
-/// <https://ww1.microchip.com/downloads/aemDocuments/documents/MSLD/ProductDocuments/DataSheets/EMC2301-2-3-5-Data-Sheet-DS20006532A.pdf#page=17>
+/// RPM = [`RPM_FACTOR`] * m / COUNT.
 impl From<RawTach> for FanRpm {
     fn from(raw: RawTach) -> Self {
         match raw.count {
@@ -160,8 +149,7 @@ impl From<RawTach> for FanRpm {
     }
 }
 
-/// TACH Reading, Registers 6-23 and 6-24 the count in the top 13 bits.
-/// <https://ww1.microchip.com/downloads/aemDocuments/documents/MSLD/ProductDocuments/DataSheets/EMC2301-2-3-5-Data-Sheet-DS20006532A.pdf#page=47>
+/// The TACH Reading registers hold the count in their top 13 bits.
 #[bitfield(u16)]
 struct TachReading {
     #[bits(3)]
@@ -170,10 +158,10 @@ struct TachReading {
     count: u16,
 }
 
-/// [Valid TACH Count resets to F5h](https://ww1.microchip.com/downloads/aemDocuments/documents/MSLD/ProductDocuments/DataSheets/EMC2301-2-3-5-Data-Sheet-DS20006532A.pdf#page=25),
-/// with [bit weights 4096 down to 32, i.e. count bits 12:5](https://ww1.microchip.com/downloads/aemDocuments/documents/MSLD/ProductDocuments/DataSheets/EMC2301-2-3-5-Data-Sheet-DS20006532A.pdf#page=43),
+/// Valid TACH Count resets to F5h,
+/// with bit weights 4096 down to 32, i.e. count bits 12:5,
 /// so F5h << 5 = 7840 counts, ~501 RPM * m. Any higher TACH Reading count
-/// reads 0, as [above the Valid TACH Count a fan is stalled](https://ww1.microchip.com/downloads/aemDocuments/documents/MSLD/ProductDocuments/DataSheets/EMC2301-2-3-5-Data-Sheet-DS20006532A.pdf#page=17).
+/// reads 0, as above the Valid TACH Count a fan is stalled.
 const TACH_COUNT_VALID_MAX: u16 = 0xF5 << 5;
 
 /// One fan channel of the EMC2302: the label its RPM series and log lines
@@ -190,10 +178,7 @@ struct Channel {
     tach: u8,
 }
 
-/// Fan `a` and fan `b` registers:
-/// * [Fan Drive Setting Register](https://ww1.microchip.com/downloads/aemDocuments/documents/MSLD/ProductDocuments/DataSheets/EMC2301-2-3-5-Data-Sheet-DS20006532A.pdf#page=37)
-/// * [Fan Configuration Registers](https://ww1.microchip.com/downloads/aemDocuments/documents/MSLD/ProductDocuments/DataSheets/EMC2301-2-3-5-Data-Sheet-DS20006532A.pdf#page=38)
-/// * [TACH Reading Registers](https://ww1.microchip.com/downloads/aemDocuments/documents/MSLD/ProductDocuments/DataSheets/EMC2301-2-3-5-Data-Sheet-DS20006532A.pdf#page=47)
+/// The registers of fan `a` and fan `b`.
 const CHANNELS: [Channel; FANS] = [
     Channel {
         label: "a",
@@ -265,7 +250,6 @@ impl Channel {
             return FanRpm::from_rpm(0);
         }
         // TACH reading bytes are high then low
-        // <https://ww1.microchip.com/downloads/aemDocuments/documents/MSLD/ProductDocuments/DataSheets/EMC2301-2-3-5-Data-Sheet-DS20006532A.pdf#page=25>
         let reading = u16::from_be_bytes(reading);
         RawTach {
             count: TachReading::from_bits(reading).count(),
@@ -276,7 +260,6 @@ impl Channel {
 }
 
 /// Scale a duty to the 8-bit Fan Setting, where `u8::MAX` is full drive.
-/// [EQUATION 4-1: fan setting register value to drive (PWM duty)](https://ww1.microchip.com/downloads/aemDocuments/documents/MSLD/ProductDocuments/DataSheets/EMC2301-2-3-5-Data-Sheet-DS20006532A.pdf#page=13)
 fn duty_to_setting(pwm: FanPwm) -> u8 {
     let setting = u16::from(pwm.percent()) * u16::from(u8::MAX) / u16::from(FanPwm::FULL.percent());
     // A duty never exceeds full, so the setting never exceeds u8::MAX.

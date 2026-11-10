@@ -55,19 +55,19 @@ const REG_LOCAL: u8 = 0x00;
 const REG_REMOTE_OPEN_STATUS: u8 = 0x23;
 
 /// Value the result registers return for a shorted remote diode
-/// (datasheet: −256 °C). The local channel shares the same ADC and rails
-/// here too on an internal fault, though the datasheet defines the rail
+/// as −256 °C. The local channel shares the same ADC and rails
+/// here too on an internal fault, though the part defines the rail
 /// only for the diode-fault comparator.
 const SHORT_CIRCUIT: Temperature = Temperature::from_millicelsius(-256_000);
 
-/// Valid range for a remote channel. The datasheet spans −55..150 °C for
+/// Valid range for a remote channel. The part spans −55..150 °C for
 /// a remote diode, but a powered hashboard never runs below 0 °C; 160 °C
 /// gives headroom above the diode ceiling for a transient bus glitch
 /// without rejecting a valid near-limit reading.
 const REMOTE_MIN: Temperature = Temperature::from_millicelsius(0);
 const REMOTE_MAX: Temperature = Temperature::from_millicelsius(160_000);
 
-/// Valid range for the local channel. The datasheet spans −40..125 °C,
+/// Valid range for the local channel. The part spans −40..125 °C,
 /// but a powered hashboard never runs below 0 °C, so rejecting sub-zero
 /// local readings catches sensor faults without masking any valid
 /// operating condition.
@@ -77,7 +77,7 @@ const LOCAL_MAX: Temperature = Temperature::from_millicelsius(160_000);
 /// The 13-bit two's-complement result occupies bits 15:3 of the 16-bit
 /// register; bits 2:0 are reserved and always read 0.
 const RESULT_SHIFT: u32 = 3;
-/// Datasheet resolution: 0.0625 °C per LSB = 62.5 m°C, kept as 125/2 to
+/// Resolution is 0.0625 °C per LSB, 62.5 m°C, kept as 125/2 to
 /// stay in integer math.
 const MILLICELSIUS_NUMERATOR: i32 = 125;
 const MILLICELSIUS_DENOMINATOR: i32 = 2;

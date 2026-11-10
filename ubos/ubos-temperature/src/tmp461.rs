@@ -44,7 +44,7 @@ const STATUS_OPEN: u8 = 1 << 2;
 const REG_CONFIG: u8 = 0x03;
 /// `RANGE` bit: 1 = extended (−64..191 °C, +64 offset), 0 = standard.
 const CONFIG_EXTENDED_RANGE: u8 = 1 << 2;
-/// Value the remote channel returns for a shorted diode (datasheet).
+/// Value the remote channel returns for a shorted diode.
 const SHORT_CIRCUIT: Temperature = Temperature::from_millicelsius(-64_000);
 /// Full-scale rail in standard range. An unbiased or floating remote diode
 /// rails here, so the value is a channel fault and not a die reading.
@@ -62,7 +62,7 @@ const REG_LOCAL_LOW: u8 = 0x15;
 const REMOTE_MIN: Temperature = Temperature::from_millicelsius(0);
 const REMOTE_MAX: Temperature = Temperature::from_millicelsius(160_000);
 
-/// Valid range for the local channel in standard mode. The datasheet
+/// Valid range for the local channel in standard mode. The part
 /// specifies −40 °C as the device minimum, but a powered hashboard never
 /// operates below 0 °C, so rejecting sub-zero local readings catches sensor
 /// faults without masking any valid operating condition.

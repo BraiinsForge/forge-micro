@@ -35,7 +35,7 @@ mod tests;
 
 const REG_TEMPERATURE: u8 = 0x00;
 
-/// Datasheet supported range, exclusive of garbage readings on bus
+/// Supported range of the part, exclusive of garbage readings on bus
 /// errors that produce e.g. `0xff80`, which decodes to a plausible
 /// −1°C, or `0x7fff`. The chip itself only reports −55..=125°C.
 const MIN_TEMPERATURE: Temperature = Temperature::from_millicelsius(-55_000);

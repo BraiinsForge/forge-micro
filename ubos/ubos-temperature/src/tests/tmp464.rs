@@ -19,12 +19,10 @@
 
 use super::*;
 
-/// Decodes every row of Table 1, "Temperature Data Format", so the decode
-/// is checked against the datasheet's own examples. Each row is the
-/// table's temperature in millicelsius, truncated toward zero as the
-/// decode's integer math is, beside the register's high and low byte.
-/// The datasheet, revision SBOS835C:
-/// <https://www.ti.com/lit/ds/symlink/tmp464.pdf>
+// Every row of the part's temperature data format table, so the decode
+// is checked against the vendor's own examples. Each row is the
+// temperature in millicelsius, truncated toward zero as the decode's
+// integer math is, beside the register's high and low byte.
 #[test]
 fn table_1_temperature_data_format() {
     let table_1 = [

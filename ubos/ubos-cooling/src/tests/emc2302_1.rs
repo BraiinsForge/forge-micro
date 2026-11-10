@@ -17,16 +17,15 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! The EMC2302-1 conversions: the datasheet's own example, the valid
+//! The EMC2302-1 conversions: the vendor's own example, the valid
 //! count limit, a stopped fan, the ranges and the duty range.
 
 use super::*;
 
-/// Section 4.3: "3000 RPM, then the user would input the hexadecimal
-/// equivalent of 1296 (51h in the TACH Target Register)".
-/// <https://ww1.microchip.com/downloads/aemDocuments/documents/MSLD/ProductDocuments/DataSheets/EMC2301-2-3-5-Data-Sheet-DS20006532A.pdf#page=14>
+// The vendor's own example: 3000 RPM is a TACH target of 1296, 51h in
+// the TACH Target Register.
 #[test]
-fn datasheet_example() {
+fn vendor_example() {
     // 1296 is 510h; 51h is its leading two hex digits.
     assert_eq!(1296, 0x510);
     // At RNG = 00 (m = 1) the TACH Reading holds 1296 as 28h 80h.
@@ -73,7 +72,7 @@ fn count_past_the_valid_maximum_reads_stopped() {
     }
 }
 
-/// Register 6-13: RNG 00, 01, 10 and 11 multiply the count by 1, 2, 4, 8.
+// RNG 00, 01, 10 and 11 multiply the count by 1, 2, 4 and 8.
 #[test]
 fn range_multipliers() {
     let ranges = [
