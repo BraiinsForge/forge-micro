@@ -290,10 +290,8 @@ struct ChainFixture {
 ///
 /// Runs inside `critical_section::with`, the same serialisation
 /// `tests/serial.rs` uses around every test that drives `Serial::run`:
-/// `run` counts itself into the module-global park for the
-/// park handshake and, under the `defmt` feature, writes through one
-/// global logger, so two runs live at once would make either
-/// meaningless.
+/// under the `defmt` feature `run` writes through one global logger, so
+/// two runs live at once would interleave its frames.
 fn run_bring_up_chain(
     fixture: &ChainFixture,
     driver: BringUpDriver,
@@ -311,6 +309,7 @@ fn run_bring_up_chain(
             assert!(matches!(terminate_result, Ok(())));
         };
         let run = fixture.actor.run(
+            crate::fixture::park(),
             QuietSerial,
             fixture.session,
             &BMM101_HASHBOARD,
@@ -551,6 +550,7 @@ fn a_bring_up_with_no_chain_present_recovers() {
             bring_up_outcome
         };
         let run_a = ACTOR_A.run(
+            crate::fixture::park(),
             QuietSerial,
             &SESSION,
             &BMM101_HASHBOARD,
@@ -559,6 +559,7 @@ fn a_bring_up_with_no_chain_present_recovers() {
             stats_handle.chain(HashboardIndex(0)),
         );
         let run_b = ACTOR_B.run(
+            crate::fixture::park(),
             QuietSerial,
             &SESSION,
             &BMM101_HASHBOARD,
@@ -656,6 +657,7 @@ fn a_bring_up_with_one_chain_present_starts_work() {
         };
         // Chain A comes up present; chain B stays absent.
         let run_a = ACTOR_A.run(
+            crate::fixture::park(),
             QuietSerial,
             &SESSION,
             &BMM101_HASHBOARD,
@@ -664,6 +666,7 @@ fn a_bring_up_with_one_chain_present_starts_work() {
             stats_handle.chain(HashboardIndex(0)),
         );
         let run_b = ACTOR_B.run(
+            crate::fixture::park(),
             QuietSerial,
             &SESSION,
             &BMM101_HASHBOARD,
@@ -886,6 +889,7 @@ fn plans_order_shared_rail_writes_and_preserve_successful_partial_progress() {
             B.terminate().await.expect("actor terminates");
         };
         let run_a = A.run(
+            crate::fixture::park(),
             QuietSerial,
             &SESSION,
             &BMM101_HASHBOARD,
@@ -894,6 +898,7 @@ fn plans_order_shared_rail_writes_and_preserve_successful_partial_progress() {
             &STATS[0],
         );
         let run_b = B.run(
+            crate::fixture::park(),
             QuietSerial,
             &SESSION,
             &BMM101_HASHBOARD,

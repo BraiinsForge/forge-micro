@@ -171,10 +171,11 @@ Each chunk therefore costs one request rather than two.
    The OTA engine checks this separately through the park mechanism below.
 
 2. `begin()` verifies the running image is in the confirmed booted state, then
-   calls `park_core1_and_wait()`. This spin-polls `ubos_mining::core1_is_parked`
-   (with a 50 ms budget, 100 µs per poll) after repeatedly calling
-   `ubos_mining::request_core1_park()`. A board with more than one chain runs
-   one serial actor per chain on core 1, and `core1_is_parked` returns `true`
+   calls `park_core1_and_wait()`. This spin-polls `is_parked` on the
+   `ubos_mining::Park` that the board handed to the engine (with a 50 ms
+   budget, 100 µs per poll) after repeatedly calling
+   `request` on it. A board with more than one chain runs
+   one serial actor per chain on core 1, and `is_parked` returns `true`
    only once every live actor has reached its own park point; see [Multiple
    chains and the core-1 park](MINING.md#multiple-chains-and-the-core-1-park).
    The 50 ms budget and the 100 µs poll interval must cover every actor's
@@ -198,7 +199,7 @@ Each chunk therefore costs one request rather than two.
 4. The final chunk (`X-OTA-Final: 1`) calls `finish()` after the write.
    `finish()` calls `updater.mark_updated()`, which writes the swap magic into
    the STATE partition. It then clears the OTA breadcrumb (SCRATCH0 and SCRATCH2)
-   and releases the core-1 park via `ubos_mining::release_core1_park()`.
+   and releases the core-1 park via `release` on that `Park`.
 
 5. If `ota.staged_config()` gives a value other than `None`, the handler
    calls `config.downgrade()` with it. The call waits up to five seconds for the

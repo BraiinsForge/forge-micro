@@ -39,7 +39,7 @@ use crate::config::{CHIP, MINER_SERIAL_PATH};
 pub static CHAINS: [ubos_mining::serial::Serial; 1] = ubos_mining::serial::Serial::table();
 
 #[embassy_executor::task]
-pub async fn miner_serial_task() -> ! {
+pub async fn miner_serial_task(park: &'static ubos_mining::Park) -> ! {
     let serial = match Serial::open(MINER_SERIAL_PATH, INITIAL_BAUDRATE) {
         Ok(serial) => serial,
         Err(error) => {
@@ -58,6 +58,7 @@ pub async fn miner_serial_task() -> ! {
     let scheduler = ubos_mining::scheduler::RatioScheduler::new();
     match CHAINS[0]
         .run(
+            park,
             serial,
             &ASIC_SESSION,
             crate::BOARD,

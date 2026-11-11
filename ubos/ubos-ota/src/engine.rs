@@ -112,6 +112,8 @@ pub trait OtaBackend: Send {
 /// the live upload offset.
 pub struct OtaEngine<B> {
     backend: B,
+    /// The park that pauses and releases the core-1 serial workers.
+    park: &'static ubos_mining::Park,
     firmware_version: u32,
     /// Maximum firmware image the board accepts, reported through
     /// [`ubos_api::OtaTarget::max_image_bytes`]. Set by the board from its
@@ -124,13 +126,20 @@ pub struct OtaEngine<B> {
 }
 
 impl<B: OtaBackend> OtaEngine<B> {
-    /// Creates an engine over `backend`, reporting `firmware_version` as the
-    /// running image version and `max_image_bytes` as the largest upload the
-    /// board accepts. No session is active until `begin`.
+    /// Creates an engine over `backend` that parks through `park`, reporting
+    /// `firmware_version` as the running image version and `max_image_bytes`
+    /// as the largest upload the board accepts. No session is active until
+    /// `begin`.
     #[must_use]
-    pub const fn new(backend: B, firmware_version: u32, max_image_bytes: u64) -> Self {
+    pub const fn new(
+        backend: B,
+        park: &'static ubos_mining::Park,
+        firmware_version: u32,
+        max_image_bytes: u64,
+    ) -> Self {
         Self {
             backend,
+            park,
             firmware_version,
             max_image_bytes,
             write_offset: None,
@@ -149,10 +158,10 @@ impl<B: OtaBackend> OtaEngine<B> {
     /// park counter. The caller releases the park; this only acquires and
     /// waits.
     fn park_core1_and_wait(&self) -> bool {
-        ubos_mining::request_core1_park();
+        self.park.request();
         let mut attempts = 0u32;
         loop {
-            if ubos_mining::core1_is_parked() {
+            if self.park.is_parked() {
                 return true;
             }
             if attempts >= PARK_POLL_MAX_ATTEMPTS {
@@ -160,7 +169,7 @@ impl<B: OtaBackend> OtaEngine<B> {
             }
             self.backend.park_poll_delay();
             attempts += 1;
-            ubos_mining::signal_core1_park();
+            self.park.resignal();
         }
     }
 }
@@ -203,7 +212,7 @@ impl<B: OtaBackend> ubos_api::OtaTarget for OtaEngine<B> {
 
         if !self.park_core1_and_wait() {
             defmt::warn!("OTA begin: core 1 did not park within timeout; aborting");
-            ubos_mining::release_core1_park();
+            self.park.release();
             // No dedicated timeout variant exists; a failed park means no write
             // can proceed, so it surfaces as a flash failure like any other
             // pre-write abort.
@@ -245,13 +254,13 @@ impl<B: OtaBackend> ubos_api::OtaTarget for OtaEngine<B> {
     /// because the subsequent `abort` is idempotent.
     fn finish(&mut self) -> Result<(), OtaError> {
         if self.write_offset.is_none() {
-            ubos_mining::release_core1_park();
+            self.park.release();
             return Err(OtaError::Flash);
         }
         let result = self.backend.activate();
         self.write_offset = None;
         self.backend.clear_breadcrumb();
-        ubos_mining::release_core1_park();
+        self.park.release();
         result
     }
 
@@ -266,14 +275,14 @@ impl<B: OtaBackend> ubos_api::OtaTarget for OtaEngine<B> {
     /// Called by the REST handler on every error or abandoned-upload path
     /// after `begin` succeeded. Idempotent.
     fn abort(&mut self) {
-        ubos_mining::release_core1_park();
+        self.park.release();
         self.backend.clear_breadcrumb();
         self.write_offset = None;
     }
 
     /// Releases the park and resets into the activated image. Never returns.
     fn reboot_into_new(&mut self) -> ! {
-        ubos_mining::release_core1_park();
+        self.park.release();
         self.backend.reboot()
     }
 }

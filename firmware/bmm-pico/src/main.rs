@@ -207,6 +207,10 @@ pub(crate) const FEE_SLOT: Option<ubos_config::FeeSlot> =
 /// stratum client task and the mining serial task on core 1.
 static ASIC_SESSION: ubos_firmware::AsicSession<POOL_SLOTS> = ubos_firmware::AsicSession::new();
 
+/// The core-1 park of this firmware. The serial workers join it and the
+/// flash writers request it, so both sides meet at the same counters.
+static PARK: ubos_mining::Park = ubos_mining::Park::new();
+
 /// Board task shell around the shared stratum session loop, spawned once per
 /// pool slot. The loop body lives in `ubos-firmware`; the
 /// `#[embassy_executor::task]` shell stays per board because the attribute
@@ -270,6 +274,7 @@ async fn main(spawner: Spawner) {
 
     let ota_target = OTA_TARGET.init(ubos_ota::OtaEngine::new(
         ubos_ota::RpBackend::new(shared_flash),
+        &PARK,
         config::FIRMWARE_VERSION,
         config::Ota::MAX_IMAGE_BYTES,
     ));
@@ -292,6 +297,7 @@ async fn main(spawner: Spawner) {
             executor.run(|core1_spawner: Spawner| {
                 core1_spawner.spawn(unwrap!(mining::serial_task(
                     &mining::CHAINS[0],
+                    &PARK,
                     miner_serial,
                     &ASIC_SESSION,
                     ubos_asic::Bm13xxDriver::new(config::CHIP)
@@ -380,7 +386,7 @@ async fn main(spawner: Spawner) {
     }
 
     let config_storage = FlashStorage::new(
-        SyncFlash(ubos_ota::SharedBlockingFlash::new(shared_flash)),
+        SyncFlash(ubos_ota::SharedBlockingFlash::new(shared_flash, &PARK)),
         config::Flash::CONFIG_RANGE,
     );
     spawner.spawn(unwrap!(config_task(config_storage, None)));

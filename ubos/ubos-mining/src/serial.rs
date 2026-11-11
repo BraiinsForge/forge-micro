@@ -35,13 +35,8 @@
 //! the scheduler's configured policy. Found shares submit back to the
 //! slot whose dispatch produced them via `AsicSession::submit_solution`.
 //!
-//! The core-1 park surface at the end of this module is the exception to
-//! all of that, and it is free functions on purpose. Those five reach
-//! the one [`Park`] in a private static, because every caller is on the
-//! other core from the actor and holds no [`Serial`]: `ubos-ota` parks
-//! core 1 before a flash write, and a board's `main` parks it at boot. A
-//! static is the only thing that crosses from core 0 to core 1, so a
-//! method on the handle could not serve them.
+//! Every actor joins the [`Park`] that its `run` is given, which the board
+//! owns and shares with the flash writers on the other core.
 
 use core::fmt;
 use core::ops::ControlFlow;
@@ -72,42 +67,6 @@ use ubos_metrics::chain::ChainStats;
 #[cfg(test)]
 #[path = "tests/serial.rs"]
 mod tests;
-
-/// The park that every serial worker of the image joins. The five
-/// functions below request it for the callers on the other core.
-static PARK: Park = Park::new();
-
-/// Requests that the core-1 serial workers enter their park loop. After
-/// this call, poll [`core1_is_parked`] to wait for the ack. Pair every
-/// call with exactly one [`release_core1_park`].
-pub fn request_core1_park() {
-    PARK.request();
-}
-
-/// Releases one core-1 park request.
-pub fn release_core1_park() {
-    PARK.release();
-}
-
-/// Re-wakes every serial worker for a park that is already requested, so
-/// a requester polling for the ack can retry a wake that was lost.
-pub fn signal_core1_park() {
-    PARK.resignal();
-}
-
-/// Returns `true` while at least one chain's serial worker is running and
-/// able to answer a park request.
-#[must_use]
-pub fn core1_serial_running() -> bool {
-    PARK.has_workers()
-}
-
-/// Returns `true` while every live chain's serial worker is spinning in
-/// the park loop.
-#[must_use]
-pub fn core1_is_parked() -> bool {
-    PARK.is_parked()
-}
 
 use crate::park::Park;
 use crate::registry::WorkRegistry;
@@ -707,9 +666,10 @@ impl Serial {
     /// `driver.descriptor()` are asserted identical below, so a caller
     /// wiring a board descriptor against the wrong driver panics here
     /// instead of tuning the wrong chip's frequency envelope.
-    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines, clippy::too_many_arguments)]
     pub async fn run<S, C, const N: usize, const CHAINS: usize, Sch: Scheduler<N>>(
         &self,
+        park: &'static Park,
         mut serial: S,
         session: &'static AsicSession<N, CHAINS>,
         board: &'static HashboardDescriptor,
@@ -752,7 +712,6 @@ impl Serial {
             .pool_weights
             .receiver()
             .expect("BUG: a Serial's pool weights watch serves one actor");
-        let park = &PARK;
         let mut park_wake = park.join();
 
         loop {
@@ -1266,6 +1225,7 @@ macro_rules! serial_task {
         #[embassy_executor::task(pool_size = $chains.len())]
         pub async fn serial_task(
             actor: &'static ubos_mining::serial::Serial,
+            park: &'static ubos_mining::Park,
             serial: $uart,
             session: &'static $session,
             driver: $driver,
@@ -1275,6 +1235,7 @@ macro_rules! serial_task {
 
             match actor
                 .run(
+                    park,
                     serial,
                     session,
                     $board,

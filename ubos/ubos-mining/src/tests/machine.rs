@@ -75,6 +75,7 @@ fn run_mining_with_driver<M: MachineTuner<1>>(
         outcome
     };
     let run = actor.run(
+        crate::fixture::park(),
         QuietSerial,
         &SESSION,
         &BMM101_HASHBOARD,
@@ -1019,7 +1020,15 @@ fn live_frequency_and_voltage_edits_do_not_cut_power() {
             plan_log: Some((0, &LOG)),
             ..BringUpDriver::new(&[4])
         };
-        let run = ACTOR.run(QuietSerial, &SESSION, board, driver, NoWork, &STATS);
+        let run = ACTOR.run(
+            crate::fixture::park(),
+            QuietSerial,
+            &SESSION,
+            board,
+            driver,
+            NoWork,
+            &STATS,
+        );
         match block_on(select(
             join3(exercise, edit, run),
             Timer::after(Duration::from_millis(500)),
@@ -1142,6 +1151,7 @@ fn the_pool_wait_holds_until_a_slot_holds_a_job_and_cuts_the_rail_on_halt() {
             ACTOR.terminate().await.expect("actor terminates");
         };
         let run = ACTOR.run(
+            crate::fixture::park(),
             QuietSerial,
             &SESSION,
             &BMM101_HASHBOARD,
@@ -1202,6 +1212,7 @@ fn the_pool_wait_ignores_a_fee_job_and_opens_on_an_operator_job() {
             ACTOR.terminate().await.expect("actor terminates");
         };
         let run = ACTOR.run(
+            crate::fixture::park(),
             QuietSerial,
             &SESSION,
             &BMM101_HASHBOARD,

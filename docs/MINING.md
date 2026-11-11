@@ -377,7 +377,7 @@ chains)` takes this chain's index and the board's total chain count so
 sibling chains never hash identical headers.
 
 A flash write that needs exclusive access to the chip UARTs calls
-`request_core1_park()` and waits for `core1_is_parked()`, which is
+`request` on the board's `Park` and waits for `is_parked`, which is
 `true` only once every live chain's actor has parked. Each actor's park
 loop yields to the embassy executor on every iteration instead of
 busy-spinning, so on a board with more than one chain pinned to the same

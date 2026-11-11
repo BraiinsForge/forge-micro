@@ -125,40 +125,42 @@ const PARK_RESIGNAL_SPINS: u32 = 0xFFFF;
 /// its RX interrupt on the way out, so waiting would fail every later save for
 /// nothing.
 #[derive(Clone, Copy)]
-pub struct RpGuard;
+pub struct RpGuard(&'static ubos_mining::Park);
 
 impl<const FLASH_SIZE: usize> SharedBlockingFlash<FLASH_SIZE> {
-    /// Wraps the `'static` flash mutex in a handle that parks the core-1
-    /// serial workers around each write and erase. It is the one
+    /// Wraps the `'static` flash mutex in a handle that parks through `park`
+    /// around each write and erase. The board also hands `park` to its serial
+    /// actors, so that both sides meet at the same counters. It is the one
     /// constructor of the guard, so an RP flash handle always parks.
     #[must_use]
-    pub const fn new(mutex: &'static SharedFlashMutex<FLASH_SIZE>) -> Self {
-        Self::with_guard(mutex, RpGuard)
+    pub const fn new(
+        mutex: &'static SharedFlashMutex<FLASH_SIZE>,
+        park: &'static ubos_mining::Park,
+    ) -> Self {
+        Self::with_guard(mutex, RpGuard(park))
     }
 }
 
 impl FlashGuard<flash::Error> for RpGuard {
     fn guard<R>(&self, op: impl FnOnce() -> Result<R, flash::Error>) -> Result<R, flash::Error> {
-        if !ubos_mining::core1_serial_running() {
+        let park = self.0;
+        if !park.has_workers() {
             return op();
         }
 
-        ubos_mining::request_core1_park();
+        let _request = park.hold();
         let mut spins = 0u32;
-        while !ubos_mining::core1_is_parked() {
+        while !park.is_parked() {
             if spins >= MAX_PARK_SPINS {
-                ubos_mining::release_core1_park();
                 return Err(flash::Error::Other);
             }
             core::hint::spin_loop();
             spins += 1;
             if spins & PARK_RESIGNAL_SPINS == 0 {
-                ubos_mining::signal_core1_park();
+                park.resignal();
             }
         }
-        let result = op();
-        ubos_mining::release_core1_park();
-        result
+        op()
     }
 }
 

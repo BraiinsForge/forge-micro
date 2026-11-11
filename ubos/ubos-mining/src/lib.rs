@@ -34,6 +34,9 @@
 pub mod chain;
 pub mod consts;
 mod control;
+#[cfg(test)]
+#[path = "tests/fixture.rs"]
+mod fixture;
 pub mod miner;
 mod park;
 pub mod publishers;
@@ -47,10 +50,6 @@ pub use chain::ChainHandle;
 pub use control::{Handle, Message, MiningState, MiningSubscription, handle};
 pub use miner::{Miner, MinerError, PsuErrorKind};
 pub use park::{Park, ParkRequest};
-pub use serial::{
-    core1_is_parked, core1_serial_running, release_core1_park, request_core1_park,
-    signal_core1_park,
-};
 
 use ubos_core::units::Frequency;
 

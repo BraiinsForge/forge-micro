@@ -127,6 +127,10 @@ ubos_http::http_worker_task!(metrics_worker_task, MetricsService, METRICS_HTTP_P
 static EXECUTOR: StaticCell<Executor> = StaticCell::new();
 static RESOURCES: StaticCell<StackResources<SOCKET_COUNT>> = StaticCell::new();
 
+/// The park that the serial worker joins. The host has no flash writer, so
+/// no one requests it.
+static PARK: ubos_mining::Park = ubos_mining::Park::new();
+
 /// Heap-allocated secp256k1 context for the SV2 noise handshake.
 /// The host has no SRAM ceiling, so the firmware's preallocated
 /// `AllPreallocated` buffer is replaced with the standard
@@ -605,7 +609,10 @@ fn main() {
                 spawner
                     .spawn(psu::power_stats_task(miner_psu).expect("BUG: psu power_stats token"));
                 spawner
-                    .spawn(miner_serial::miner_serial_task().expect("BUG: miner_serial_task token"));
+                    .spawn(
+                        miner_serial::miner_serial_task(&PARK)
+                            .expect("BUG: miner_serial_task token"),
+                    );
                 spawner.spawn(miner::miner_task(miner_psu).expect("BUG: miner_task token"));
             }
             None => {

@@ -1326,9 +1326,8 @@ impl ChainDriver for ResultDriver {
 #[test]
 fn read_of_zero_bytes_ends_the_run_and_the_same_actor_serves_a_later_command() {
     // Serializes against every other test that drives `Serial::run`,
-    // since `run` counts itself into the module-global park for the
-    // park handshake, and two runs live at once would make that count
-    // meaningless to any test that reads it.
+    // since `run` writes through the one global logger under the `defmt`
+    // feature, and two runs live at once would interleave its frames.
     critical_section::with(|_| {
         static SESSION: AsicSession<1> = AsicSession::new();
         static LINE_ERRORS: AtomicU32 = AtomicU32::new(0);
@@ -1340,6 +1339,7 @@ fn read_of_zero_bytes_ends_the_run_and_the_same_actor_serves_a_later_command() {
         let serial = ScriptedSerial::new(ReadStep::Eof);
 
         let result = block_on(actor.run(
+            crate::fixture::park(),
             serial,
             &SESSION,
             &BMM101_HASHBOARD,
@@ -1368,6 +1368,7 @@ fn read_of_zero_bytes_ends_the_run_and_the_same_actor_serves_a_later_command() {
         let (terminate_result, run_result) = block_on(join(
             actor.terminate(),
             actor.run(
+                crate::fixture::park(),
                 serial,
                 &SESSION,
                 &BMM101_HASHBOARD,
@@ -1405,6 +1406,7 @@ fn read_line_error_recovers_the_parser_and_the_actor_keeps_serving_commands() {
         let (terminate_result, run_result) = block_on(join(
             caller,
             actor.run(
+                crate::fixture::park(),
                 serial,
                 &SESSION,
                 &BMM101_HASHBOARD,
@@ -1476,6 +1478,7 @@ fn a_poll_collects_a_solution_through_process_solutions_without_calling_ingest()
         let (solution, run_result) = block_on(join(
             caller,
             actor.run(
+                crate::fixture::park(),
                 serial,
                 &SESSION,
                 &BMM101_HASHBOARD,
@@ -1562,6 +1565,7 @@ fn run_clamps_a_driver_reporting_more_work_slots_than_the_registry_holds() {
         let ((), run_result) = block_on(join(
             caller,
             actor.run(
+                crate::fixture::park(),
                 serial,
                 &SESSION,
                 &BMM101_HASHBOARD,
@@ -1644,6 +1648,7 @@ fn published_pool_weights_reach_the_scheduler() {
         let ((), run_result) = block_on(join(
             caller,
             actor.run(
+                crate::fixture::park(),
                 serial,
                 &SESSION,
                 &BMM101_HASHBOARD,
@@ -1721,6 +1726,7 @@ fn a_command_waits_for_an_in_flight_poll_and_the_solution_survives() {
         let (solution, run_result) = block_on(join(
             caller,
             actor.run(
+                crate::fixture::park(),
                 serial,
                 &SESSION,
                 &BMM101_HASHBOARD,
@@ -1800,12 +1806,9 @@ fn transport_read_consumes_a_line_error_and_returns_the_bytes_behind_it() {
 
 /// Drives the park handshake end to end by polling
 /// `park_if_requested`'s future manually with a no-op waker, rather than
-/// through a real embassy executor. Serializes against every test that
-/// drives `Serial::run` with the same critical section those tests now
-/// take too, since all of them read or write the counters of the
-/// module's one park, and a concurrent run would otherwise observe this
-/// test's in-flight request, or this test would observe another run's
-/// live actor.
+/// through a real embassy executor. The park is this test's own, so the
+/// counts it asserts are exact. It takes the critical section that every
+/// test driving `Serial::run` takes, for the one global logger.
 #[test]
 fn park_if_requested_parks_and_unparks_across_release() {
     use core::future::Future;
@@ -1816,7 +1819,7 @@ fn park_if_requested_parks_and_unparks_across_release() {
         let waker = core::task::Waker::noop();
         let mut cx = core::task::Context::from_waker(waker);
 
-        let park = &PARK;
+        let park = crate::fixture::park();
 
         // Nothing requested yet: the future resolves immediately to
         // `false` on its very first poll.
@@ -1877,7 +1880,7 @@ fn one_park_request_wakes_every_running_actor() {
         let waker = core::task::Waker::noop();
         let mut cx = core::task::Context::from_waker(waker);
 
-        let park = &PARK;
+        let park = crate::fixture::park();
         let mut first_wake = park.join();
         let mut second_wake = park.join();
         // Drop whatever an earlier park left in the watch, so what the
