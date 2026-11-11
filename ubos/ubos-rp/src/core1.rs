@@ -38,7 +38,13 @@
 ///     uart = (hw.uart, hw.uart_tx, hw.uart_rx),
 ///     run = |miner_serial| {
 ///         ubos_metrics::cpu_load::run_cortex_m_executor::<1, _>(|spawner: Spawner| {
-///             spawner.spawn(unwrap!(mining::serial_task(miner_serial, &ASIC_SESSION)));
+///             spawner.spawn(unwrap!(mining::serial_task(
+///                 &mining::CHAINS[0],
+///                 &PARK,
+///                 miner_serial,
+///                 &ASIC_SESSION,
+///                 driver,
+///             )));
 ///         });
 ///     },
 /// );
