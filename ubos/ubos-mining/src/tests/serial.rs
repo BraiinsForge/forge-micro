@@ -45,6 +45,7 @@
 //! genuinely in flight when it arrives.
 
 use super::*;
+use portable_atomic::AtomicU32;
 use ubos_asic::{PollBatch, SolutionBatch, rolled_version};
 use ubos_core::index::HashboardIndex;
 
@@ -1325,9 +1326,9 @@ impl ChainDriver for ResultDriver {
 #[test]
 fn read_of_zero_bytes_ends_the_run_and_the_same_actor_serves_a_later_command() {
     // Serializes against every other test that drives `Serial::run`,
-    // since `run` counts itself into the module-global `LIVE_ACTORS`
-    // for the park handshake, and two runs live at once would make
-    // that count meaningless to any test that reads it.
+    // since `run` counts itself into the module-global park for the
+    // park handshake, and two runs live at once would make that count
+    // meaningless to any test that reads it.
     critical_section::with(|_| {
         static SESSION: AsicSession<1> = AsicSession::new();
         static LINE_ERRORS: AtomicU32 = AtomicU32::new(0);
@@ -1801,10 +1802,10 @@ fn transport_read_consumes_a_line_error_and_returns_the_bytes_behind_it() {
 /// `park_if_requested`'s future manually with a no-op waker, rather than
 /// through a real embassy executor. Serializes against every test that
 /// drives `Serial::run` with the same critical section those tests now
-/// take too, since all of them read or write the module's shared
-/// `PARK_REQUESTED`/`LIVE_ACTORS`/`PARKED_ACTORS` statics and a
-/// concurrent run would otherwise observe this test's in-flight
-/// request, or this test would observe another run's live actor.
+/// take too, since all of them read or write the counters of the
+/// module's one park, and a concurrent run would otherwise observe this
+/// test's in-flight request, or this test would observe another run's
+/// live actor.
 #[test]
 fn park_if_requested_parks_and_unparks_across_release() {
     use core::future::Future;
@@ -1815,10 +1816,12 @@ fn park_if_requested_parks_and_unparks_across_release() {
         let waker = core::task::Waker::noop();
         let mut cx = core::task::Context::from_waker(waker);
 
+        let park = &PARK;
+
         // Nothing requested yet: the future resolves immediately to
         // `false` on its very first poll.
         {
-            let mut fut = core::pin::pin!(actor.park_if_requested(&mut serial));
+            let mut fut = core::pin::pin!(actor.park_if_requested(park, &mut serial));
             match fut.as_mut().poll(&mut cx) {
                 core::task::Poll::Ready(parked) => assert!(!parked, "no park was requested"),
                 core::task::Poll::Pending => {
@@ -1827,37 +1830,33 @@ fn park_if_requested_parks_and_unparks_across_release() {
             }
         }
 
-        request_core1_park();
-        LIVE_ACTORS.fetch_add(1, Ordering::Release);
+        park.request();
+        let _wake = park.join();
 
-        let mut fut = core::pin::pin!(actor.park_if_requested(&mut serial));
+        let mut fut = core::pin::pin!(actor.park_if_requested(park, &mut serial));
         for _ in 0..3 {
             assert_eq!(
                 fut.as_mut().poll(&mut cx),
                 core::task::Poll::Pending,
                 "the actor stays parked while a park is outstanding"
             );
-            assert_eq!(
-                PARKED_ACTORS.load(Ordering::Acquire),
-                1,
-                "exactly one actor is parked"
-            );
-            assert!(core1_is_parked());
+            assert_eq!(park.parked_count(), 1, "exactly one actor is parked");
+            assert!(park.is_parked());
         }
 
-        release_core1_park();
+        park.release();
 
         match fut.as_mut().poll(&mut cx) {
             core::task::Poll::Ready(parked) => assert!(parked, "the release must unpark it"),
             core::task::Poll::Pending => panic!("a released park must resolve"),
         }
         assert_eq!(
-            PARKED_ACTORS.load(Ordering::Acquire),
+            park.parked_count(),
             0,
             "unparking drops the parked count back to zero"
         );
 
-        LIVE_ACTORS.fetch_sub(1, Ordering::Release);
+        park.leave(false);
     });
 }
 
@@ -1878,15 +1877,15 @@ fn one_park_request_wakes_every_running_actor() {
         let waker = core::task::Waker::noop();
         let mut cx = core::task::Context::from_waker(waker);
 
-        let mut first_wake = PARK_WATCH.receiver().expect("a receiver slot per chain");
-        let mut second_wake = PARK_WATCH.receiver().expect("a receiver slot per chain");
+        let park = &PARK;
+        let mut first_wake = park.join();
+        let mut second_wake = park.join();
         // Drop whatever an earlier park left in the watch, so what the
         // assertions below see is this test's own request.
         let _ = first_wake.try_changed();
         let _ = second_wake.try_changed();
 
-        request_core1_park();
-        LIVE_ACTORS.fetch_add(2, Ordering::Release);
+        park.request();
 
         assert!(
             first_wake.try_changed().is_some(),
@@ -1897,21 +1896,21 @@ fn one_park_request_wakes_every_running_actor() {
             "the second actor must be woken by the same request"
         );
 
-        let mut first_park = core::pin::pin!(first.park_if_requested(&mut first_serial));
-        let mut second_park = core::pin::pin!(second.park_if_requested(&mut second_serial));
+        let mut first_park = core::pin::pin!(first.park_if_requested(park, &mut first_serial));
+        let mut second_park = core::pin::pin!(second.park_if_requested(park, &mut second_serial));
         assert_eq!(first_park.as_mut().poll(&mut cx), core::task::Poll::Pending);
         assert_eq!(
             second_park.as_mut().poll(&mut cx),
             core::task::Poll::Pending
         );
         assert_eq!(
-            PARKED_ACTORS.load(Ordering::Acquire),
+            park.parked_count(),
             2,
             "both actors park against the one request"
         );
-        assert!(core1_is_parked(), "every live actor is parked");
+        assert!(park.is_parked(), "every live actor is parked");
 
-        release_core1_park();
+        park.release();
 
         assert_eq!(
             first_park.as_mut().poll(&mut cx),
@@ -1921,9 +1920,10 @@ fn one_park_request_wakes_every_running_actor() {
             second_park.as_mut().poll(&mut cx),
             core::task::Poll::Ready(true)
         );
-        assert_eq!(PARKED_ACTORS.load(Ordering::Acquire), 0);
+        assert_eq!(park.parked_count(), 0);
 
-        LIVE_ACTORS.fetch_sub(2, Ordering::Release);
+        park.leave(false);
+        park.leave(false);
     });
 }
 

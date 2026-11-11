@@ -36,6 +36,11 @@ use portable_atomic::{AtomicU32, AtomicUsize, Ordering};
 /// One wake receiver for each chain that a board can run.
 const WAKE_RECEIVERS: usize = ubos_metrics::chain::MAX_CHAINS;
 
+/// The receiver a serial worker awaits the park wake on, from
+/// [`Park::join`].
+pub(crate) type WakeReceiver =
+    embassy_sync::watch::Receiver<'static, CriticalSectionRawMutex, u32, WAKE_RECEIVERS>;
+
 /// The state of the core-1 park, shared by every serial worker and every
 /// requester.
 ///
@@ -189,6 +194,59 @@ impl Park {
         let parked = self.parked.load(Ordering::Acquire);
         let live = self.live.load(Ordering::Acquire);
         live > 0 && parked == live
+    }
+
+    /// Joins a serial worker to the park and returns the receiver that it
+    /// awaits the wake on. From here the worker counts as live, so a
+    /// requester waits for it to park. The worker calls [`Self::leave`] on
+    /// its way out, and dropping the receiver frees its slot.
+    ///
+    /// # Panics
+    ///
+    /// Panics when more workers join than a board has chains.
+    pub(crate) fn join(&'static self) -> WakeReceiver {
+        let wake = self
+            .wake
+            .receiver()
+            .expect("BUG: park watch must have a receiver slot per chain");
+        self.live.fetch_add(1, Ordering::Release);
+        wake
+    }
+
+    /// Retires a worker that joined. `was_parked` says that it died inside
+    /// the park loop, so its parked count is dropped with its live count and
+    /// a requester does not wait for it.
+    pub(crate) fn leave(&self, was_parked: bool) {
+        if was_parked {
+            self.parked.fetch_sub(1, Ordering::Release);
+        }
+        self.live.fetch_sub(1, Ordering::Release);
+    }
+
+    /// Returns `true` while a park request is outstanding, which is when a
+    /// worker enters the park loop and stays in it.
+    pub(crate) fn is_requested(&self) -> bool {
+        self.requested.load(Ordering::Acquire) > 0
+    }
+
+    /// Counts a worker as parked. The worker calls it after it masked its
+    /// receive interrupt, because the requester starts the flash operation
+    /// once every live worker is counted.
+    pub(crate) fn enter(&self) {
+        self.parked.fetch_add(1, Ordering::Release);
+    }
+
+    /// Counts a worker as running again, after the last request was
+    /// released.
+    pub(crate) fn exit(&self) {
+        self.parked.fetch_sub(1, Ordering::Release);
+    }
+
+    /// The number of workers in the park loop, for a test that asserts the
+    /// exact count.
+    #[cfg(test)]
+    pub(crate) fn parked_count(&self) -> usize {
+        self.parked.load(Ordering::Acquire)
     }
 }
 

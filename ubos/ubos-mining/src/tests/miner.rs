@@ -290,7 +290,7 @@ struct ChainFixture {
 ///
 /// Runs inside `critical_section::with`, the same serialisation
 /// `tests/serial.rs` uses around every test that drives `Serial::run`:
-/// `run` counts itself into the module-global `LIVE_ACTORS` for the
+/// `run` counts itself into the module-global park for the
 /// park handshake and, under the `defmt` feature, writes through one
 /// global logger, so two runs live at once would make either
 /// meaningless.

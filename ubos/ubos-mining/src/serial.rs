@@ -37,14 +37,11 @@
 //!
 //! The core-1 park surface at the end of this module is the exception to
 //! all of that, and it is free functions on purpose. Those five reach
-//! cross-core state in private statics, because every caller is on the
+//! the one [`Park`] in a private static, because every caller is on the
 //! other core from the actor and holds no [`Serial`]: `ubos-ota` parks
 //! core 1 before a flash write, and a board's `main` parks it at boot. A
 //! static is the only thing that crosses from core 0 to core 1, so a
-//! method on the handle could not serve them. The park is addressed to
-//! every chain at once rather than to one actor, so the wake is a
-//! [`embassy_sync::watch::Watch`] with a receiver per actor rather than
-//! a `Signal`, which keeps one waker and so would wake one actor only.
+//! method on the handle could not serve them.
 
 use core::fmt;
 use core::ops::ControlFlow;
@@ -59,7 +56,7 @@ use embassy_time::{Duration, Instant, Ticker, Timer, with_timeout};
 use embedded_io::ErrorKind;
 use embedded_io_async::{Error as _, Read, Write};
 use mining_protocol::hashing::hash_meets_target;
-use portable_atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use portable_atomic::{AtomicBool, Ordering};
 use serial_baudrate::BaudRate;
 use stratum_client::{AsicSession, Solution, WorkAssignment};
 use ubos_asic::{
@@ -76,142 +73,43 @@ use ubos_metrics::chain::ChainStats;
 #[path = "tests/serial.rs"]
 mod tests;
 
-// ---------------------------------------------------------------------------
-// Core-1 park primitives
-//
-// These three items coordinate a cooperative pause of the serial worker
-// so a different core can run flash operations safely. The request
-// functions are called from the OTA flash path and, on the boards that
-// have one, from the firmware-reset path; a board that exercises
-// neither leaves the park loop dormant for the image's lifetime.
-// ---------------------------------------------------------------------------
+/// The park that every serial worker of the image joins. The five
+/// functions below request it for the callers on the other core.
+static PARK: Park = Park::new();
 
-/// Outstanding park requests. Non-zero means the serial worker should
-/// enter (and stay in) the park loop.
-///
-/// A counter rather than a flag so nested requesters compose: OTA holds
-/// a park across a whole upload while a config flash write parks around
-/// its single erase/write. [`request_core1_park`] increments,
-/// [`release_core1_park`] decrements, and the worker parks while the
-/// count is non-zero, so an inner release cannot drop an outer park.
-pub(crate) static PARK_REQUESTED: AtomicU32 = AtomicU32::new(0);
-
-/// Count of serial actors currently running [`Serial::run`] on any core,
-/// across every chain a board owns.
-///
-/// A flash write that lands when this is `0` has nothing to park, and
-/// waiting for an ack that can never come would fail the write. The case
-/// that matters is a worker that has exited on serial EOF: its task then
-/// idles forever, so every later config save would burn the writer's whole
-/// park budget and fail. `run` masks the chip-UART RX interrupt on its way
-/// out, so once an actor's count is dropped there is no interrupt left to
-/// wake its core out of the flash-pause `wfe` either.
-///
-/// The count is `0` for a short window at boot too, between a core arming
-/// the UART interrupt and reaching `run`. Nothing writes flash there:
-/// config saves come from the API, which needs the network up.
-static LIVE_ACTORS: AtomicUsize = AtomicUsize::new(0);
-
-/// Count of serial actors currently spinning in [`Serial::park_if_requested`]'s
-/// park loop.
-///
-/// [`core1_is_parked`] compares this against [`LIVE_ACTORS`] so a park
-/// requester can wait for every live chain to park, not just one.
-static PARKED_ACTORS: AtomicUsize = AtomicUsize::new(0);
-
-/// Wakes every running serial worker's `select` loop when a park is
-/// requested.
-///
-/// A worker may be blocked inside `serial.read` waiting for UART data
-/// when a park request arrives. A send here wakes every worker's
-/// `select4` so the park arm fires promptly rather than waiting for the
-/// next UART byte. The value carried is the outstanding request count at
-/// the time of the send; a worker acts on [`PARK_REQUESTED`] itself, so
-/// what the send is for is the wake rather than the value.
-///
-/// A `Watch` rather than a `Signal` because a board drives one worker
-/// per chain and the park is addressed to all of them. A `Signal` keeps
-/// a single waker, so two workers awaiting one would displace each
-/// other's waker on every poll and only one of them would be woken. A
-/// `Watch` keeps a waker per receiver, and a worker takes its receiver
-/// in [`Serial::run`] and drops it on the way out, so a chain whose task
-/// never started or has already exited holds none and a send still
-/// reaches every worker that is running. Module-private: external
-/// callers park through [`request_core1_park`] and friends, never by
-/// touching the watch directly.
-static PARK_WATCH: Watch<CriticalSectionRawMutex, u32, { ubos_metrics::chain::MAX_CHAINS }> =
-    Watch::new();
-
-/// Requests that the core-1 serial workers enter their park loop.
-///
-/// Increments [`PARK_REQUESTED`] with `Release` ordering and sends on
-/// [`PARK_WATCH`] to wake every running worker's `select` loop
-/// immediately. After this call, poll [`core1_is_parked`] to wait for
-/// the ack; flash operations must not begin until the ack is observed.
-/// Pair every call with exactly one [`release_core1_park`].
+/// Requests that the core-1 serial workers enter their park loop. After
+/// this call, poll [`core1_is_parked`] to wait for the ack. Pair every
+/// call with exactly one [`release_core1_park`].
 pub fn request_core1_park() {
-    let requested = PARK_REQUESTED.fetch_add(1, Ordering::Release) + 1;
-    PARK_WATCH.sender().send(requested);
+    PARK.request();
 }
 
 /// Releases one core-1 park request.
-///
-/// Decrements [`PARK_REQUESTED`] with `Release` ordering, saturating at
-/// zero so an unbalanced release cannot wrap the counter and strand the
-/// worker parked forever. The worker leaves its busy-spin only once the
-/// count reaches zero, so an inner requester's release does not drop an
-/// outer requester's park.
 pub fn release_core1_park() {
-    let _ = PARK_REQUESTED.fetch_update(Ordering::Release, Ordering::Acquire, |count| {
-        Some(count.saturating_sub(1))
-    });
+    PARK.release();
 }
 
-/// Re-wakes every serial worker for a park that is already requested.
-///
-/// Sends on [`PARK_WATCH`] without touching [`PARK_REQUESTED`], so a
-/// requester polling for the ack can retry a cross-core wake that was lost
-/// while core 1 sat in `wfe` with interrupts briefly disabled. Calling
-/// [`request_core1_park`] again instead would leave an increment behind
-/// that no release balances.
+/// Re-wakes every serial worker for a park that is already requested, so
+/// a requester polling for the ack can retry a wake that was lost.
 pub fn signal_core1_park() {
-    PARK_WATCH
-        .sender()
-        .send(PARK_REQUESTED.load(Ordering::Acquire));
+    PARK.resignal();
 }
 
 /// Returns `true` while at least one chain's serial worker is running and
 /// able to answer a park request.
-///
-/// A flash writer must check this before waiting on [`core1_is_parked`]:
-/// when it returns `false` there is no worker to park, and no chip-UART
-/// interrupt armed on any core either, so the write is safe to run
-/// unparked. See [`LIVE_ACTORS`].
 #[must_use]
 pub fn core1_serial_running() -> bool {
-    LIVE_ACTORS.load(Ordering::Acquire) > 0
+    PARK.has_workers()
 }
 
 /// Returns `true` while every live chain's serial worker is spinning in
 /// the park loop.
-///
-/// Reads [`PARKED_ACTORS`] before [`LIVE_ACTORS`]. An actor that dies
-/// between the two loads (its `run` returns and decrements both counts)
-/// can only make this check stricter, never looser: the parked count read
-/// first can undercount relative to the live count read second, so a
-/// borderline case reports not-yet-parked rather than falsely reporting
-/// every actor parked while a live, unparked actor still runs. A dead
-/// actor must never be allowed to block a flash write by appearing to
-/// still need parking. Flash operations may proceed once this returns
-/// `true`; no worker leaves the park loop until [`release_core1_park`]
-/// is called.
 #[must_use]
 pub fn core1_is_parked() -> bool {
-    let parked = PARKED_ACTORS.load(Ordering::Acquire);
-    let live = LIVE_ACTORS.load(Ordering::Acquire);
-    live > 0 && parked == live
+    PARK.is_parked()
 }
 
+use crate::park::Park;
 use crate::registry::WorkRegistry;
 use crate::scheduler::Scheduler;
 
@@ -431,7 +329,7 @@ pub struct Serial {
     /// `true` while this actor is parked. Set and cleared by
     /// [`Serial::park_if_requested`]; read back by [`Serial::stand_down`]
     /// so an actor that dies mid-park still releases its
-    /// [`PARKED_ACTORS`] count.
+    /// parked count.
     parked: AtomicBool,
 }
 
@@ -715,24 +613,21 @@ impl Serial {
     }
 
     /// Retires the worker: masks the chip-UART RX interrupt for good, then
-    /// decrements [`LIVE_ACTORS`].
+    /// leaves the park with [`Park::leave`], which drops its live count.
     ///
     /// Once `run` returns nothing drains the UART, but the RX interrupt
     /// stays armed on the NVIC and a chip byte would still pend it —
     /// enough to wake the core out of the flash-pause `wfe` and fault it
     /// on suspended XIP. Masking removes that hazard for the rest of the
     /// image's life, which is what lets a flash write skip the park once
-    /// [`core1_serial_running`] no longer counts this actor. The mask is
+    /// [`Park::has_workers`] no longer counts this actor. The mask is
     /// published before the count so an observer cannot race an armed
-    /// interrupt. If this actor was parked when it died, its
-    /// [`PARKED_ACTORS`] count and `self.parked` flag are cleared too, so
+    /// interrupt. If this actor was parked when it died, `leave` drops its
+    /// parked count too and the `self.parked` flag is cleared, so
     /// a park request cannot wait forever on an actor that died mid-park.
-    fn stand_down(&self, serial: &mut impl BaudRate) {
+    fn stand_down(&self, park: &Park, serial: &mut impl BaudRate) {
         serial.set_rx_irq_enabled(false);
-        if self.parked.swap(false, Ordering::Release) {
-            PARKED_ACTORS.fetch_sub(1, Ordering::Release);
-        }
-        LIVE_ACTORS.fetch_sub(1, Ordering::Release);
+        park.leave(self.parked.swap(false, Ordering::Release));
     }
 
     /// If a park was requested, park this actor until it is released and
@@ -764,14 +659,14 @@ impl Serial {
     /// via `embassy_futures::yield_now`, so every other task pending on
     /// the same core's executor gets a chance to run and reach its own
     /// park point in turn; a board with more than one chain on the same
-    /// core relies on that to park all of them, and on [`PARK_WATCH`]
+    /// core relies on that to park all of them, and on the wake of the park
     /// holding a waker per actor so the request wakes each of them out
     /// of its select rather than only the one that registered last.
     /// Because the loop yields
     /// rather than busy-spinning, a test can also drive it by polling the
     /// returned future manually instead of needing on-hardware bring-up.
-    async fn park_if_requested(&self, serial: &mut impl BaudRate) -> bool {
-        if PARK_REQUESTED.load(Ordering::Acquire) == 0 {
+    async fn park_if_requested(&self, park: &Park, serial: &mut impl BaudRate) -> bool {
+        if !park.is_requested() {
             return false;
         }
         // Mask the RX interrupt before acking the park. The requester runs a
@@ -781,11 +676,11 @@ impl Serial {
         // flash. Restored on release.
         serial.set_rx_irq_enabled(false);
         self.parked.store(true, Ordering::Release);
-        PARKED_ACTORS.fetch_add(1, Ordering::Release);
-        while PARK_REQUESTED.load(Ordering::Acquire) > 0 {
+        park.enter();
+        while park.is_requested() {
             embassy_futures::yield_now().await;
         }
-        PARKED_ACTORS.fetch_sub(1, Ordering::Release);
+        park.exit();
         self.parked.store(false, Ordering::Release);
         serial.set_rx_irq_enabled(true);
         true
@@ -853,18 +748,16 @@ impl Serial {
         // grant this chain cannot split is reported once per grant
         // rather than once per work tick.
         let mut last_version_mask: Option<u32> = None;
-        let mut park_wake = PARK_WATCH
-            .receiver()
-            .expect("BUG: park watch must have a receiver slot per chain");
         let mut pool_weights = self
             .pool_weights
             .receiver()
             .expect("BUG: a Serial's pool weights watch serves one actor");
-        LIVE_ACTORS.fetch_add(1, Ordering::Release);
+        let park = &PARK;
+        let mut park_wake = park.join();
 
         loop {
             // Honor a park request before the select; see park_if_requested.
-            if self.park_if_requested(&mut serial).await {
+            if self.park_if_requested(park, &mut serial).await {
                 continue;
             }
 
@@ -925,7 +818,7 @@ impl Serial {
                 Either4::Fourth(ResultEvent::Read(Ok(0))) => {
                     error!("Serial port EOF");
                     stats.add_desync_bytes(driver.take_desync());
-                    self.stand_down(&mut serial);
+                    self.stand_down(park, &mut serial);
                     return Err(ErrorKind::BrokenPipe);
                 }
                 Either4::Fourth(ResultEvent::Read(Ok(n))) => {
@@ -986,7 +879,7 @@ impl Serial {
                         )
                         .await
                     {
-                        self.stand_down(&mut serial);
+                        self.stand_down(park, &mut serial);
                         return Ok(());
                     }
                 }
