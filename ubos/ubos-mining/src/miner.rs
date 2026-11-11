@@ -231,10 +231,12 @@ where
     /// Set the open-core rail and start work only on configured chains.
     async fn start_chains(&self) -> Result<(), MinerError> {
         const WORK_PERIOD: Duration = Duration::from_secs(1);
-        self.psu
+        let set = self
+            .psu
             .set_voltage(self.board.max_rail_voltage())
             .await
             .map_err(|error| MinerError::Psu(error.into()))?;
+        ubos_psu::record_set_voltage(set);
         for chain in self.chains.iter().filter(|chain| chain.is_present()) {
             chain.start_sending_work(WORK_PERIOD).await?;
         }
@@ -245,8 +247,8 @@ where
     ///
     /// The setpoint is present by construction. `start_chains` commands
     /// the open-core rail and [`StartWork`] leads to
-    /// [`Step`] only after that command succeeded, and
-    /// `Psu::set_voltage` records a successful write before it returns.
+    /// [`Step`] only after that command succeeded, and `start_chains`
+    /// records the voltage the command set before it returns.
     fn readings(&self) -> Readings<CHAINS> {
         Readings {
             now: Instant::now(),
@@ -326,10 +328,12 @@ where
         else {
             return Ok(false);
         };
-        self.psu
+        let set = self
+            .psu
             .set_voltage(voltage)
             .await
             .map_err(|error| MinerError::Psu(error.into()))?;
+        ubos_psu::record_set_voltage(set);
         Ok(true)
     }
 }

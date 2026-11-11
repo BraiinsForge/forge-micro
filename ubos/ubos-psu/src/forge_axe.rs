@@ -105,14 +105,7 @@ impl<I: I2c + 'static> Psu for ForgeAxePsu<I> {
     async fn set_voltage(&self, voltage: Voltage) -> Result<Voltage, Error<I::Error>> {
         let mut psu = self.shared.acquire().await?;
         let (i2c, config) = psu.split();
-        let result = tps53647::set_voltage(i2c, &config.tps, voltage).await;
-        // Record the commanded value so telemetry consumers can compare
-        // it with the READ_VOUT readback. Only on success: a failed
-        // write leaves the rail at the previous commanded value.
-        if let Ok(set) = result {
-            crate::record_set_voltage(set);
-        }
-        result
+        tps53647::set_voltage(i2c, &config.tps, voltage).await
     }
 
     async fn read_input_power(&self) -> Result<Power, Error<I::Error>> {

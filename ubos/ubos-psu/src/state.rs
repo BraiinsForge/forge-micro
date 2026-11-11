@@ -32,9 +32,6 @@
 //!   driver, takes the lock, runs init once, and hands back a [`Ready`].
 //!   Reach the bus and the config through [`Ready::split`] and never through
 //!   the guard.
-//! - Call [`crate::record_set_voltage`] after a successful `set_voltage` so the
-//!   shared telemetry publisher ([`crate::run_power_stats`]) reports the
-//!   commanded value.
 //!
 //! Two callers want a different protocol and get their own method.
 //! [`Shared::terminate`] must proceed where `acquire` refuses, and

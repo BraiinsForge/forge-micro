@@ -156,13 +156,12 @@ static SET_VOLTAGE_MV: AtomicU32 = AtomicU32::new(0);
 /// places below.
 const SET_VOLTAGE_METRIC: &str = "board_psu_output_voltage_set_mv";
 
-/// Record a successful `set_voltage` write so the metrics publisher
-/// can include the commanded value in the next [`PsuReading`].
+/// Record the voltage a successful [`Psu::set_voltage`] set the rail to,
+/// so the metrics publisher can include it in the next [`PsuReading`].
 ///
-/// Part of the PSU-driver support interface in [`state`]: a driver's
-/// [`Psu::set_voltage`] calls this after a successful write so
-/// [`run_power_stats`] reports the commanded voltage alongside the measured
-/// one. In-tree and out-of-tree drivers call it the same way.
+/// The task that commands the rail calls this with the voltage the
+/// driver answered, so [`run_power_stats`] reports the set voltage
+/// alongside the measured one.
 pub fn record_set_voltage(voltage: Voltage) {
     SET_VOLTAGE_MV.store(voltage.mv(), AtomicOrdering::Relaxed);
 }
@@ -487,9 +486,8 @@ pub trait Psu {
     /// that the measured voltage has settled.
     async fn enable(&self) -> Result<(), Error<Self::BusError>>;
     async fn disable(&self) -> Result<(), Error<Self::BusError>>;
-    /// Program the rail and call [`record_set_voltage`] before returning success.
-    /// Consumers use that record immediately, independently of metrics polling.
-    /// Returns the voltage the rail was set to.
+    /// Program the rail to `voltage`, or to the nearest value the supply
+    /// can produce, and return the voltage the rail was set to.
     async fn set_voltage(&self, voltage: Voltage) -> Result<Voltage, Error<Self::BusError>>;
     async fn read_input_power(&self) -> Result<Power, Error<Self::BusError>>;
     async fn read_output_power(&self) -> Result<Power, Error<Self::BusError>>;

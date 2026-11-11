@@ -771,7 +771,6 @@ impl Psu for TestPsu {
                 embassy_futures::yield_now().await;
             }
         }
-        ubos_psu::record_set_voltage(voltage);
         Ok(voltage)
     }
     async fn read_input_power(&self) -> Result<Power, PsuError<Infallible>> {
