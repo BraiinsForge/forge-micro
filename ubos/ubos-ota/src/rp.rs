@@ -124,10 +124,21 @@ const PARK_RESIGNAL_SPINS: u32 = 0xFFFF;
 /// worker that exited on serial EOF never acks again, and has already masked
 /// its RX interrupt on the way out, so waiting would fail every later save for
 /// nothing.
+#[derive(Clone, Copy)]
 pub struct RpGuard;
 
+impl<const FLASH_SIZE: usize> SharedBlockingFlash<FLASH_SIZE> {
+    /// Wraps the `'static` flash mutex in a handle that parks the core-1
+    /// serial workers around each write and erase. It is the one
+    /// constructor of the guard, so an RP flash handle always parks.
+    #[must_use]
+    pub const fn new(mutex: &'static SharedFlashMutex<FLASH_SIZE>) -> Self {
+        Self::with_guard(mutex, RpGuard)
+    }
+}
+
 impl FlashGuard<flash::Error> for RpGuard {
-    fn guard<R>(op: impl FnOnce() -> Result<R, flash::Error>) -> Result<R, flash::Error> {
+    fn guard<R>(&self, op: impl FnOnce() -> Result<R, flash::Error>) -> Result<R, flash::Error> {
         if !ubos_mining::core1_serial_running() {
             return op();
         }

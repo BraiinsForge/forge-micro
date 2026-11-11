@@ -40,7 +40,6 @@
 //! `rp` module and parks the core-1 serial worker.
 
 use core::cell::RefCell;
-use core::marker::PhantomData;
 
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -65,14 +64,15 @@ pub trait FlashGuard<E> {
     /// Returns whatever `op` returns; a guard that cannot obtain the
     /// bracket it needs reports that as `E`, the flash driver's own error
     /// type, rather than running `op` unguarded.
-    fn guard<R>(op: impl FnOnce() -> Result<R, E>) -> Result<R, E>;
+    fn guard<R>(&self, op: impl FnOnce() -> Result<R, E>) -> Result<R, E>;
 }
 
 /// The default guard, which runs the operation directly.
+#[derive(Clone, Copy)]
 pub struct NoGuard;
 
 impl<E> FlashGuard<E> for NoGuard {
-    fn guard<R>(op: impl FnOnce() -> Result<R, E>) -> Result<R, E> {
+    fn guard<R>(&self, op: impl FnOnce() -> Result<R, E>) -> Result<R, E> {
         op()
     }
 }
@@ -81,15 +81,28 @@ impl<E> FlashGuard<E> for NoGuard {
 ///
 /// Implements the synchronous [`embedded_storage`] `NorFlash` traits by
 /// locking the mutex for the span of each operation and delegating to `F`.
-/// Write and erase run through [`FlashGuard`]; read does not. Cheap to copy,
-/// so the config backend and any other consumer can each hold one.
+/// Write and erase run through [`FlashGuard`]; read does not. With a `Copy`
+/// guard it is cheap to copy, so the config backend and any other consumer
+/// can each hold one.
 pub struct SharedFlash<F, G = NoGuard>
 where
     F: NorFlash + 'static,
     G: FlashGuard<F::Error>,
 {
     mutex: &'static SharedFlashMutex<F>,
-    _guard: PhantomData<G>,
+    guard: G,
+}
+
+impl<F> SharedFlash<F>
+where
+    F: NorFlash + 'static,
+{
+    /// Wraps the `'static` flash mutex in a fresh `Copy` handle that runs
+    /// each write and erase directly.
+    #[must_use]
+    pub const fn new(mutex: &'static SharedFlashMutex<F>) -> Self {
+        Self::with_guard(mutex, NoGuard)
+    }
 }
 
 impl<F, G> SharedFlash<F, G>
@@ -97,20 +110,18 @@ where
     F: NorFlash + 'static,
     G: FlashGuard<F::Error>,
 {
-    /// Wraps the `'static` flash mutex in a fresh `Copy` handle.
+    /// Wraps the `'static` flash mutex in a fresh handle that runs `guard`
+    /// around each write and erase. The handle is `Copy` when `guard` is.
     #[must_use]
-    pub const fn new(mutex: &'static SharedFlashMutex<F>) -> Self {
-        Self {
-            mutex,
-            _guard: PhantomData,
-        }
+    pub const fn with_guard(mutex: &'static SharedFlashMutex<F>, guard: G) -> Self {
+        Self { mutex, guard }
     }
 }
 
 impl<F, G> Clone for SharedFlash<F, G>
 where
     F: NorFlash + 'static,
-    G: FlashGuard<F::Error>,
+    G: FlashGuard<F::Error> + Copy,
 {
     fn clone(&self) -> Self {
         *self
@@ -120,7 +131,7 @@ where
 impl<F, G> Copy for SharedFlash<F, G>
 where
     F: NorFlash + 'static,
-    G: FlashGuard<F::Error>,
+    G: FlashGuard<F::Error> + Copy,
 {
 }
 
@@ -158,13 +169,14 @@ where
     const ERASE_SIZE: usize = <F as NorFlash>::ERASE_SIZE;
 
     fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
-        G::guard(|| {
+        self.guard.guard(|| {
             self.mutex
                 .lock(|cell| cell.borrow_mut().write(offset, bytes))
         })
     }
 
     fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-        G::guard(|| self.mutex.lock(|cell| cell.borrow_mut().erase(from, to)))
+        self.guard
+            .guard(|| self.mutex.lock(|cell| cell.borrow_mut().erase(from, to)))
     }
 }
