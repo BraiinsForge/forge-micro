@@ -35,6 +35,7 @@ pub mod chain;
 pub mod consts;
 mod control;
 pub mod miner;
+mod park;
 pub mod publishers;
 mod registry;
 pub mod reset;
@@ -45,6 +46,7 @@ pub mod tuner;
 pub use chain::ChainHandle;
 pub use control::{Handle, Message, MiningState, MiningSubscription, handle};
 pub use miner::{Miner, MinerError, PsuErrorKind};
+pub use park::{Park, ParkRequest};
 pub use serial::{
     core1_is_parked, core1_serial_running, release_core1_park, request_core1_park,
     signal_core1_park,
