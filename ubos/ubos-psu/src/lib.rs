@@ -496,7 +496,11 @@ impl<P: Psu> PowerSupply<P> {
 
     /// One poll: read the power, the voltage and the status, push their
     /// gauges, and publish a [`PsuReading`]. Answers `None` when it
-    /// stopped for a queued command.
+    /// stopped for a queued command. A gauge is dropped when the metrics
+    /// channel is full, so a rail command never waits on the channel's
+    /// reader, and the next poll pushes the gauge again. A status flag
+    /// the supply clears on read is pushed by the one poll that read it,
+    /// and the fault event carries it when that gauge is dropped.
     ///
     /// Every driver call comes before the first gauge, so a poll that
     /// stops for a command has published nothing and the poll that runs
@@ -538,14 +542,12 @@ impl<P: Psu> PowerSupply<P> {
                     "board_psu_input_power_mw",
                     Value::Uint(u64::from(input.mw())),
                 )
-                .push()
-                .await;
+                .try_push();
                 Metric::with_no_labels(
                     "board_psu_output_power_mw",
                     Value::Uint(u64::from(output.mw())),
                 )
-                .push()
-                .await;
+                .try_push();
             }
             (Err(error), Ok(_)) | (Ok(_), Err(error)) => {
                 ubos_logging::error!(
@@ -563,7 +565,7 @@ impl<P: Psu> PowerSupply<P> {
         }
 
         match &voltage_result {
-            Ok(voltage) => publish_measured_voltage(*voltage, self.driver.voltage_source()).await,
+            Ok(voltage) => publish_measured_voltage(*voltage, self.driver.voltage_source()),
             Err(error) => {
                 ubos_logging::error!(
                     "psu voltage read failed: {:?}",
@@ -574,7 +576,7 @@ impl<P: Psu> PowerSupply<P> {
         if let Some(secondary) = secondary_result {
             match secondary {
                 Ok(voltage) => {
-                    publish_measured_voltage(voltage, self.driver.secondary_voltage_source()).await;
+                    publish_measured_voltage(voltage, self.driver.secondary_voltage_source());
                 }
                 Err(error) => {
                     ubos_logging::error!(
@@ -586,8 +588,7 @@ impl<P: Psu> PowerSupply<P> {
         }
         if set_voltage.mv() != 0 {
             Metric::with_no_labels(SET_VOLTAGE_METRIC, Value::Uint(u64::from(set_voltage.mv())))
-                .push()
-                .await;
+                .try_push();
         }
 
         match (input_result, output_result, voltage_result) {
@@ -622,26 +623,22 @@ impl<P: Psu> PowerSupply<P> {
                     "board_psu_status_current_limit",
                     Value::Uint(u64::from(flags.current_limit)),
                 )
-                .push()
-                .await;
+                .try_push();
                 Metric::with_no_labels(
                     "board_psu_status_thermal_shutdown",
                     Value::Uint(u64::from(flags.thermal_shutdown)),
                 )
-                .push()
-                .await;
+                .try_push();
                 Metric::with_no_labels(
                     "board_psu_status_overvoltage",
                     Value::Uint(u64::from(flags.overvoltage)),
                 )
-                .push()
-                .await;
+                .try_push();
                 Metric::with_no_labels(
                     "board_psu_status_undervoltage",
                     Value::Uint(u64::from(flags.undervoltage)),
                 )
-                .push()
-                .await;
+                .try_push();
                 let fault_now = flags.current_limit
                     || flags.thermal_shutdown
                     || flags.overvoltage
@@ -694,13 +691,11 @@ pub const COMMAND_GRACE: embassy_time::Duration = embassy_time::Duration::from_m
 /// label so a board that reads the rail from more than one sensor (e.g. the
 /// SIC's `READ_VOUT` and a separate INA230) keeps them as distinct series
 /// under one metric name.
-async fn publish_measured_voltage(voltage: Voltage, source: Option<&'static str>) {
+fn publish_measured_voltage(voltage: Voltage, source: Option<&'static str>) {
     use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value};
     let value = Value::Uint(u64::from(voltage.mv()));
     let Some(source) = source else {
-        Metric::with_no_labels("board_psu_output_voltage_measured_mv", value)
-            .push()
-            .await;
+        Metric::with_no_labels("board_psu_output_voltage_measured_mv", value).try_push();
         return;
     };
     let mut labels = Labels::new();
@@ -708,9 +703,7 @@ async fn publish_measured_voltage(voltage: Voltage, source: Option<&'static str>
         name: "source",
         value: LabelValue::Static(source),
     });
-    Metric::with_labels("board_psu_output_voltage_measured_mv", labels, value)
-        .push()
-        .await;
+    Metric::with_labels("board_psu_output_voltage_measured_mv", labels, value).try_push();
 }
 
 pub trait Psu {
