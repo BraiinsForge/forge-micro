@@ -22,10 +22,15 @@ map and the dependency direction.
    `Signal<T>` for edge-triggered single-shot. Atomics are an
    implementation detail of `Watch` for `Copy` scalars. Do not expose
    an atomic across a crate boundary.
-4. **Handles, not statics.** Each subsystem exposes one `…Handle`
+4. **Handles, not statics.** A handle is how one task talks to
+   another. Each subsystem that runs a task exposes one `…Handle`
    struct: a small `Copy` value over `&'static` references to the
    module's private primitives. Consumers take the concrete handle,
-   not a trait. The firmware passes handles at spawn time.
+   not a trait. The firmware passes handles at spawn time. Use a
+   handle for nothing else: state that several tasks share and that
+   has no task of its own, such as the core-1 park, is a plain type
+   with private fields. The firmware owns it as a `static` in
+   `main.rs` and passes a `&'static` reference at spawn time.
 5. **Pure core, thin shell.** Module decision logic lives in pure
    functions. The embassy task is an I/O wrapper.
 6. **Glue lives in one place.** Subsystems do not know each other
@@ -37,11 +42,11 @@ map and the dependency direction.
 9. **Typed units at module APIs.** `Frequency`, `Voltage`, `Power`,
    `Current`, `Efficiency`, `FanPwm`, `FanRpm`, and `Temperature` are
    newtypes in `ubos-core`.
-10. **Uniform module template.** Every subsystem follows the same
-    skeleton: private `STATE_WATCH` and `COMMAND_CHANNEL` statics, a
-    public `Command` enum with domain variants, a public `State`
-    snapshot, a `Copy` handle, and one `run` task. The handle is the
-    API. The statics are not.
+10. **Uniform module template.** Every subsystem that runs a task
+    follows the same skeleton: private `STATE_WATCH` and
+    `COMMAND_CHANNEL` statics, a public `Command` enum with domain
+    variants, a public `State` snapshot, a `Copy` handle, and one `run`
+    task. The handle is the API. The statics are not.
 11. **One consumer per channel.** Exactly one task, `run`, drains each
     module's `COMMAND_CHANNEL` and owns that module's policy. Slow
     work delegates inside the module via a sibling `Signal` or worker
@@ -62,9 +67,12 @@ map and the dependency direction.
 
 ## Communication rules
 
-All cross-module traffic flows through `…Handle` methods. The set of
-edges is the sum of the handle surfaces, so the crate docs are the
-contract: a module that a handle does not connect does not talk.
+All traffic between the tasks of different modules flows through
+`…Handle` methods. The set of edges is the sum of the handle surfaces,
+so the crate docs are the contract: a module that a handle does not
+connect does not talk. A shared type that the firmware owns under
+principle 4 is the one other edge, and its crate docs name every
+task that holds it.
 
 - **One writer per `STATE_WATCH`** — the module's own `run` task.
 - **Only the manager writes `halt`/`resume`.** Every other producer
