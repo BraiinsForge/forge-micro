@@ -248,7 +248,7 @@ impl<D: Device> Shared<D> {
     /// Take the lock without running init, and hand back the device only
     /// when a previous init succeeded.
     ///
-    /// This is the watchdog's entry point. A heartbeat keeps a running
+    /// This is the heartbeat's entry point. A heartbeat keeps a running
     /// device alive and must never be what brings one up.
     ///
     /// Returns `None` for a terminated driver, read under the lock for the
@@ -277,7 +277,7 @@ impl<D: Device> Shared<D> {
 
     /// Read from the driver config under the lock, without running init.
     ///
-    /// The watchdog needs its own interval before the device is up, which
+    /// The heartbeat needs its interval before the device is up, which
     /// is the one read that neither [`Shared::acquire`] nor
     /// [`Shared::initialized`] can serve.
     pub async fn with_config<T>(&self, read: impl FnOnce(&D::Config) -> T) -> T {
@@ -352,7 +352,7 @@ pub(crate) mod test_support {
         buffer_out_cal.extend_from_slice(&cal_out.to_be_bytes());
 
         vec![
-            Transaction::write(config.watchdog_address, vec![0x7a, 0x00]),
+            Transaction::write(config.heartbeat_address, vec![0x7a, 0x00]),
             Transaction::write(config.ina_input_address, buffer_in_config),
             Transaction::write(config.ina_input_address, buffer_in_cal),
             Transaction::write(config.ina_output_address, buffer_out_config),
@@ -371,8 +371,8 @@ pub(crate) mod test_support {
                     .to_vec(),
             ),
             Transaction::write(config.dcdc_address, tps6287x::encode_vset(dac).to_vec()),
-            Transaction::write(config.watchdog_address, vec![0x7a, 0x01]),
-            Transaction::write(config.watchdog_address, vec![0x7a, 0x00]),
+            Transaction::write(config.heartbeat_address, vec![0x7a, 0x01]),
+            Transaction::write(config.heartbeat_address, vec![0x7a, 0x00]),
         ]
     }
 }

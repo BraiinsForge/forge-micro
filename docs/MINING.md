@@ -35,7 +35,7 @@ driver is exercised without a hashboard on the bench.
 | `psu_task` | `psu.rs` | Drives `ubos_psu::PowerSupply::run`. Carries out the rail commands the other tasks send through the PSU handle, records the voltage each command sets, and polls the SIC45x input/output power every `POWER_STATS_INTERVAL` (two seconds) and publishes it. |
 
 The SIC45x rail is gated by the `SIC_EN` GPIO the `BoardPsu` owns, not by
-a PMBus register, so there is no separate PSU-watchdog task; only
+a PMBus register, so there is no separate PSU-heartbeat task; only
 `psu_task` drives `SIC_EN`, on the commands `miner_task` sends through
 the PSU handle: high during bring-up, and low when mining halts.
 

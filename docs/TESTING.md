@@ -106,7 +106,7 @@ pure helpers. Firmware `main.rs` files should remain wiring code.
 
 Cover with mocks or pure tests:
 
-- PSU state transitions, register encoding, miniminer watchdog behavior.
+- PSU state transitions, register encoding, miniminer heartbeat behavior.
 - Fan PID behavior and tach/RPM conversion.
 - Thermal thresholds and pause/resume reasons.
 - BM1362 frame parsing, reset sequencing, and serial actor error handling.

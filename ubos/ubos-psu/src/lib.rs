@@ -88,13 +88,13 @@ pub mod bmm;
 pub mod config;
 pub mod forge_axe;
 pub mod gated;
+pub mod heartbeat;
 pub mod ina230;
 mod pmbus;
 pub mod sic45x;
 pub mod state;
 pub mod tps53647;
 pub mod tps6287x;
-pub mod watchdog;
 
 pub use bfm::{BfmDevice, BfmPsu, BfmPsuDescriptor, BfmShared};
 pub use bmm::{BmmDevice, BmmPsu, BmmShared};

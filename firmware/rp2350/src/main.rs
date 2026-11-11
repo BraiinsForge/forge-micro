@@ -343,7 +343,7 @@ async fn boot(spawner: Spawner) {
 
     let mining_handle = ubos_mining::handle();
 
-    // BMM101 hashboard PSU on I2C1: shared bus, PSU watchdog, power
+    // BMM101 hashboard PSU on I2C1: shared bus, PSU heartbeat, power
     // stats, and the miner bring-up task all run on core 0 so the I2C
     // bus mutex can stay NoopRawMutex.
     let psu_handle = {

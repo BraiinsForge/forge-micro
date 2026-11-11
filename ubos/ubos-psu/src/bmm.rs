@@ -28,7 +28,7 @@ use ubos_logging::{info, warn};
 use ubos_core::units::{Power, Voltage};
 
 use crate::state::{Device, Shared};
-use crate::{BmmPsuDescriptor, Error, ModelString, Psu, ina230, tps6287x, watchdog};
+use crate::{BmmPsuDescriptor, Error, ModelString, Psu, heartbeat, ina230, tps6287x};
 
 #[cfg(test)]
 #[path = "tests/bmm.rs"]
@@ -45,12 +45,12 @@ impl<I: I2c> Device for BmmDevice<I> {
     type BusError = I::Error;
 
     /// Initialization sequence for the BMM power stage: SLG46826G
-    /// watchdog, both INA230 monitors, then the `TPS6287x` converter.
+    /// heartbeat, both INA230 monitors, then the `TPS6287x` converter.
     async fn init(
         i2c: &mut I,
         config: &mut BmmPsuDescriptor,
     ) -> Result<Option<ModelString>, Error<I::Error>> {
-        watchdog::init(i2c, config.watchdog_address)
+        heartbeat::init(i2c, config.heartbeat_address)
             .await
             .map_err(Error::Bus)?;
         ina230::init(
@@ -70,7 +70,7 @@ impl<I: I2c> Device for BmmDevice<I> {
         .await
         .map_err(Error::Bus)?;
         tps6287x::init(i2c, config).await?;
-        watchdog::heartbeat(i2c, config.watchdog_address)
+        heartbeat::pulse(i2c, config.heartbeat_address)
             .await
             .map_err(Error::Bus)?;
         Ok(None)
@@ -96,8 +96,8 @@ impl<I: I2c + 'static> BmmPsu<I> {
         Self { shared }
     }
 
-    /// Watchdog driver: takes the lock once per
-    /// `config.watchdog_interval` and sends a heartbeat to the
+    /// Heartbeat driver: takes the lock once per
+    /// `config.heartbeat_interval` and sends a heartbeat to the
     /// `SLG46826G` if init has succeeded. Returns once [`Psu::terminate`]
     /// has run.
     ///
@@ -107,7 +107,7 @@ impl<I: I2c + 'static> BmmPsu<I> {
     pub async fn run_watchdog(&self) {
         let interval = self
             .shared
-            .with_config(|config| config.watchdog_interval)
+            .with_config(|config| config.heartbeat_interval)
             .await;
         let mut ticker = Ticker::every(interval);
         loop {
@@ -119,10 +119,10 @@ impl<I: I2c + 'static> BmmPsu<I> {
                 continue;
             };
             let (i2c, config) = psu.split();
-            let address = config.watchdog_address;
-            info!("feeding the watchdog");
-            if let Err(_error) = watchdog::heartbeat(i2c, address).await {
-                warn!("psu watchdog heartbeat failed");
+            let address = config.heartbeat_address;
+            info!("sending the heartbeat");
+            if let Err(_error) = heartbeat::pulse(i2c, address).await {
+                warn!("psu heartbeat failed");
             }
         }
     }

@@ -24,7 +24,7 @@
 //! handle. `I` is a generic parameter, so no inherent `impl` in this
 //! crate can name it, and the caller in `bmm.rs` has already locked its
 //! `State` and drives this converter alongside an `INA230` and a
-//! watchdog over the same bus. A method that locked again would
+//! heartbeat part over the same bus. A method that locked again would
 //! deadlock. `state.rs` holds the receiver these would otherwise want.
 
 use ubos_core::units::Voltage;

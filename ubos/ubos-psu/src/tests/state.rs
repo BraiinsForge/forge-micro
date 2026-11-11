@@ -61,9 +61,9 @@ fn acquire_runs_init_once_and_caches_the_success() {
 #[test]
 fn acquire_caches_the_failure_kind() {
     let config = BmmPsuDescriptor::DEFAULT;
-    // First transaction errors out: NACK on the watchdog write.
+    // First transaction errors out: NACK on the heartbeat write.
     let expectations = [
-        Transaction::write(config.watchdog_address, vec![0x7a, 0x00]).with_error(
+        Transaction::write(config.heartbeat_address, vec![0x7a, 0x00]).with_error(
             embedded_hal_async::i2c::ErrorKind::NoAcknowledge(
                 embedded_hal_async::i2c::NoAcknowledgeSource::Address,
             ),
@@ -178,7 +178,7 @@ fn a_terminate_taken_while_a_heartbeat_queues_refuses_that_heartbeat() {
     let mut expectations = bus.clone();
     let shared = Shared::<BmmDevice<SlowMock>>::new(SlowMock(bus), config);
 
-    // The same interleaving as above, with the watchdog's entry point as
+    // The same interleaving as above, with the heartbeat's entry point as
     // the waiter. `initialized` reads no flag before the lock, so the
     // window is wider here than for `acquire`: the heartbeat is already
     // queued when the stopper sets the flag.

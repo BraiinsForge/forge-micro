@@ -23,7 +23,7 @@
 //! a driver handle. Two things fix that shape. `I` is a generic
 //! parameter, so no inherent `impl` in this crate can name it, and the
 //! caller is a PSU handle that has already locked its `State` and drives
-//! this part alongside a converter and a watchdog on the same bus. A
+//! this part alongside a converter and a heartbeat part on the same bus. A
 //! method that locked again would deadlock. `state.rs` holds the
 //! receiver these operations would otherwise want.
 //!
