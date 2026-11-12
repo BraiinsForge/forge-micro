@@ -145,7 +145,9 @@ cleanly and only a human reading the values catches it.
 - A read or parse failure only logs a warning. This is a sanity check
   and traceability source, not a config source: descriptors stay
   compile-time (per [MACHINE.md](MACHINE.md)'s no-runtime-autodetection
-  stance) regardless of what the EEPROM reports.
+  stance) regardless of what the EEPROM reports. The Forge Axe is the
+  exception: it composes its machine from its Forge EEPROMs, as
+  [Forge Axe boards](#forge-axe-boards) describes.
 - Read-only. Writing stays out of firmware scope, matching BOS (factory
   writes go through a separate flasher tool, not the mining daemon).
 
@@ -156,6 +158,95 @@ reads `hashboard EEPROM: product=BMM101 P00 serial=SN asic=BM1362AC
 batch=BATCH` — `"BMM101 P00"` is the exact product-name string
 BOS registers for `BRAIINS_MINI_BMM101_BM1362_4X1`, confirming the
 address, the wire format, and the `BMM101_HASHBOARD` rename all at once.
+
+## Forge EEPROM record
+
+`ubos_eeprom::forge` parses the record of the Forge machines. One record
+sits on each board that has an EEPROM. A record fills the 256-byte
+EEPROM:
+
+| Field | Size | Content |
+|---|---|---|
+| `magic` | 2 B | `b"Br"` |
+| `eeprom_version` | 8 B | The schema hash of the layout |
+| layout | 246 B | The fields of the layout that `eeprom_version` names |
+
+Each layout holds these fields:
+
+| Field | Version 1 | Content |
+|---|---|---|
+| `hw_type` | 4 B | The kind of board as text: `HB`, `PSU`, `CB` or `FP` |
+| `hw_version` | 16 B | The board as text, for example `FAHB0001` |
+| `reserved` | 224 B | The data of the board, then erased bytes |
+| `crc` | 2 B | CRC-16 (`CRC_16_IBM_3740`) of all bytes before it, little-endian |
+
+Text fields hold ASCII, with NUL bytes after the text.
+
+`eeprom_version` is the postcard-schema hash of the layout. `ubos-config`
+writes the same kind of hash in front of its record. A literal in
+`forge.rs` holds the hash of each layout. A compile-time assertion
+compares each literal with the schema. A change to a layout thus stops
+the build. A board can store a layout already, so a change adds a layout
+and an arm to `Record::parse`.
+
+`Record::parse` checks the magic first. Then `eeprom_version` selects the
+layout, and that layout checks its CRC and parses its fields. The CRC is
+a field of the layout, so a later layout can use another check. The parse
+rejects a record of an unknown layout.
+
+### Reserved bytes
+
+The reserved bytes start with the data of the board. The descriptor of
+the board names the layout of that data. Each byte after the data must
+be erased, that is `0xFF`, as in the reserved bytes of the hashboard
+EEPROM. A board whose descriptor names no layout keeps all its reserved
+bytes erased. The CRC covers the reserved bytes too.
+
+Only the control board has data now. `ControlBoardDescriptor::eeprom_layout`
+names its layout, and version 1 of `ControlBoardEepromLayout` holds these
+fields:
+
+| Field | Size | Content |
+|---|---|---|
+| `mac_address` | 6 B | The MAC address of the board |
+| `brand_color` | 4 B | The brand color: red, green and blue, then a pad byte |
+| `brand_name` | 32 B | The brand name as text |
+| `device_name` | 32 B | The device name as text |
+
+### Forge Axe boards
+
+The `forge_axe` module of `ubos-machine` has one lookup for each kind of
+board: `forge_axe_hashboard`, `forge_axe_psu`, `forge_axe_control_board`
+and `forge_axe_front_panel`. Each lookup takes the record of its board and
+gives the descriptor that the `hw_version` of the record names. Each
+hashboard descriptor and PSU descriptor lists the temperature sensors on
+that board. `MachineDescriptor::forge_axe` composes the machine of a
+control board, a hashboard and a PSU.
+
+The `hw_version` strings are placeholders until the boards have product
+codes:
+
+| `hw_version` | Board |
+|---|---|
+| `FAHB0001` | Hashboard with a TMP102 at `0x48` and a TMP464 at `0x4A` |
+| `FAPS0001` | PSU with a TMP102 at `0x49` |
+| `FACB0001` | Control board, with control-board data of version 1 |
+| `FAFP0001` | Front panel |
+
+The Forge Axe has its EEPROMs on I2C1. `ForgeAxeEeprom` in the same module
+names their addresses:
+
+| Board | Address |
+|---|---|
+| PSU | `0x0B` |
+| Hashboard | `0x57` |
+| Control board | `0x50` |
+| Front panel | `0x51` |
+
+At boot, the forge-axe firmware composes its machine of the boards that
+these EEPROMs name. If the EEPROM of the hashboard, the PSU or the
+control board names no known board, the firmware logs an error and stops
+the boot. It does not power the rail, and the network does not start.
 
 ## Known limitations
 

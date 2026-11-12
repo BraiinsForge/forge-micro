@@ -62,7 +62,8 @@ its own for it.
 `MachineDescriptor` is generic over its PSU type (`Psu: Copy`) rather
 than wrapping a `Bmm`/`Bfm` sum type: no code ever handles a
 `MachineDescriptor` generically, every board names its own concrete
-`MINIMINER_*`/`HASHNODE` const, so a sum type would only add a
+`MINIMINER_*`/`HASHNODE` const or, on the Forge Axe, composes one
+machine type at boot, so a sum type would only add a
 match arm each board must unwrap without ever exercising the other
 side. The generic keeps the wrong PSU family for a board a type
 error, not a possibility a `match` has to rule out.
@@ -109,7 +110,7 @@ that names types and singletons, and nothing else:
 ```rust
 // 1. init the HAL, extract peripherals                  (per MCU)
 // 2. impl the hardware bindings: pins, buses, PHY, reset (per board)
-// 3. name the machine it builds:
+// 3. name the machine it builds (the Forge Axe composes it at boot):
 const MACHINE: MachineDescriptor<BmmPsuDescriptor> = ubos_machine::MINIMINER_RP2350;
 ```
 
@@ -173,7 +174,9 @@ consts the machines wrap — so it cannot drift from the firmware.
   `MachineDescriptor` plus a `HardwareBindings` trait — the
   formalized binding seam. The per-platform support crates now hold the
   shareable per-MCU work: `ubos-rp`, `ubos-esp32` and
-  `ubos-build`. The builder no longer has to hoist it.
+  `ubos-build`. The builder no longer has to hoist it. The Forge Axe
+  picks its hashboard, PSU and control board from their EEPROMs at
+  boot: see [EEPROM.md](EEPROM.md#forge-axe-boards).
 - **`MAX_CHAINS` is a fixed ceiling, not a per-machine size.** Every
   per-chain table in `ubos/` — the chain accounting in `ubos-mining`,
   the hashboard serial vector in `ubos-api`, the work receiver budget
