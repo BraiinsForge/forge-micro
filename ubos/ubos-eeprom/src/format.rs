@@ -275,7 +275,7 @@ impl<'a> HashboardEepromData<'a> {
 /// invalidate a record whose magic, version, and CRC all checked out.
 /// Real hardware has produced exactly that, in fields BOS fills with
 /// `0xFF` past their content and leaves without a NUL terminator.
-fn ascii_field(bytes: &[u8]) -> &str {
+pub(crate) fn ascii_field(bytes: &[u8]) -> &str {
     let text = match bytes.iter().position(|b| *b == 0) {
         Some(nul) => &bytes[..nul],
         None => bytes,

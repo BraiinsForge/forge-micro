@@ -17,6 +17,7 @@ crc                = { workspace = true }
 defmt              = { workspace = true, optional = true }
 embedded-hal-async = { workspace = true }
 heapless           = { workspace = true }
+postcard-schema    = { workspace = true }
 ubos-core          = { workspace = true }
 ubos-logging       = { workspace = true }
 zerocopy           = { workspace = true }

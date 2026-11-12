@@ -21,6 +21,8 @@
 //! BOS-compatible wire format for the factory-programmed operational
 //! data (product name, serial number, batch, ASIC type, default
 //! operating point) every hashboard carries.
+//! [`forge`] parses the record that every EEPROM of a Forge machine
+//! holds, whatever board it sits on.
 //!
 //! [`HashboardEeprom`] carries no bus type in its signature so a chip
 //! on a different bus can implement it without the [`format`] parsing
@@ -33,6 +35,7 @@
 #![cfg_attr(not(test), no_std)]
 #![allow(async_fn_in_trait)]
 
+pub mod forge;
 pub mod format;
 mod hashboard_eeprom;
 pub mod i2c;

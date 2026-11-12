@@ -26,6 +26,7 @@
 use embedded_hal_async::i2c::I2c;
 
 use crate::HashboardEeprom;
+use crate::forge::{RECORD_LEN, ReadError, Record};
 
 #[cfg(test)]
 #[path = "tests/i2c.rs"]
@@ -44,6 +45,21 @@ impl<'bus, I: I2c> I2cEeprom<'bus, I> {
     #[must_use]
     pub fn new(address: u8, bus: &'bus mut I) -> Self {
         Self { address, bus }
+    }
+
+    /// Read the Forge record of the EEPROM into `raw`, then parse it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReadError::I2c`] when the EEPROM does not answer, and
+    /// [`ReadError::Record`] when its bytes hold no record.
+    pub async fn read_record<'a>(
+        &mut self,
+        raw: &'a mut [u8; RECORD_LEN],
+    ) -> Result<Record<'a>, ReadError<I::Error>> {
+        self.read(raw).await.map_err(ReadError::I2c)?;
+        let raw: &'a [u8; RECORD_LEN] = raw;
+        Record::parse(raw).map_err(ReadError::Record)
     }
 }
 
