@@ -45,8 +45,8 @@ static DRIVER: StaticCell<HostPsu> = StaticCell::new();
 static PSU: StaticCell<PowerSupply<HostPsu>> = StaticCell::new();
 
 /// Open the I2C bus from `UBOS_I2C_BUS`, stand up the PSU state, and
-/// return the driver the miner and watchdog tasks take and the
-/// `PowerSupply` over it.
+/// return the driver the watchdog task takes and the `PowerSupply` over
+/// it.
 /// Returns `None` if the env var is unset/empty or the bus cannot be
 /// opened.
 pub fn open() -> Option<(&'static HostPsu, &'static PowerSupply<HostPsu>)> {

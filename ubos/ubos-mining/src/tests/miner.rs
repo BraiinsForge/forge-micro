@@ -48,7 +48,7 @@ use embassy_time::{Duration, Timer};
 use portable_atomic::{AtomicU8, Ordering};
 use ubos_config::TunerInfo;
 use ubos_core::units::{Power, Voltage};
-use ubos_psu::{Error as PsuError, Psu, StatusFlags};
+use ubos_psu::{Error as PsuError, PowerSupply, Psu, StatusFlags};
 use ubos_tuner::{Plan, Readings};
 
 use embassy_futures::block_on;
@@ -525,14 +525,14 @@ fn a_bring_up_with_no_chain_present_recovers() {
         static STATS: [ChainStats; 2] = [ChainStats::new(), ChainStats::new()];
         static ACTIVE: AtomicU8 = AtomicU8::new(2);
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
-        let psu = TestPsu {
+        let (_, psu) = test_psu(TestPsu {
             log: &LOG,
             disable_fails: false,
             behavior: Cell::new(VoltageWrite::Succeed),
-        };
+        });
         let stats_handle = ChainStatsHandle::new(&STATS, &ACTIVE);
         let mut miner = test_miner::<crate::tuner::Tuners, 2>(
-            &psu,
+            psu.handle(),
             [&ACTOR_A, &ACTOR_B],
             [
                 stats_handle.chain(HashboardIndex(0)),
@@ -571,7 +571,7 @@ fn a_bring_up_with_no_chain_present_recovers() {
         );
 
         let (bring_up_outcome, primary_run, secondary_run) =
-            block_on(join3(bring_up, run_a, run_b));
+            block_on_with(psu, join3(bring_up, run_a, run_b));
         assert!(matches!(primary_run, Ok(())));
         assert!(matches!(secondary_run, Ok(())));
         assert!(matches!(bring_up_outcome, Some(MinerState::Recover(_))));
@@ -589,14 +589,14 @@ fn empty_cycles_spend_the_outer_budget_and_a_good_cycle_starts_it_again() {
     static ACTIVE: AtomicU8 = AtomicU8::new(1);
 
     static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
-    let psu = TestPsu {
+    let (_, psu) = test_psu(TestPsu {
         log: &LOG,
         disable_fails: false,
         behavior: Cell::new(VoltageWrite::Succeed),
-    };
+    });
     let stats_handle = ChainStatsHandle::new(&STATS, &ACTIVE);
     let mut miner = test_miner::<crate::tuner::Tuners, 1>(
-        &psu,
+        psu.handle(),
         [&ACTOR],
         [stats_handle.chain(HashboardIndex(0))],
     );
@@ -631,14 +631,14 @@ fn a_bring_up_with_one_chain_present_starts_work() {
         static ACTIVE: AtomicU8 = AtomicU8::new(2);
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
         const EXPECTED: u8 = BMM101_HASHBOARD.num_chips;
-        let psu = TestPsu {
+        let (_, psu) = test_psu(TestPsu {
             log: &LOG,
             disable_fails: false,
             behavior: Cell::new(VoltageWrite::Succeed),
-        };
+        });
         let stats_handle = ChainStatsHandle::new(&STATS, &ACTIVE);
         let mut miner = test_miner::<crate::tuner::Tuners, 2>(
-            &psu,
+            psu.handle(),
             [&ACTOR_A, &ACTOR_B],
             [
                 stats_handle.chain(HashboardIndex(0)),
@@ -678,7 +678,7 @@ fn a_bring_up_with_one_chain_present_starts_work() {
         );
 
         let (bring_up_outcome, primary_run, secondary_run) =
-            block_on(join3(bring_up, run_a, run_b));
+            block_on_with(psu, join3(bring_up, run_a, run_b));
         assert!(matches!(primary_run, Ok(())));
         assert!(matches!(secondary_run, Ok(())));
         assert!(matches!(bring_up_outcome, Some(MinerState::StartWork(_))));
@@ -776,46 +776,89 @@ impl Psu for TestPsu {
         Ok(voltage)
     }
     async fn read_input_power(&self) -> Result<Power, PsuError<Infallible>> {
-        panic!("unexpected read")
+        Ok(Power::from_mw(0))
     }
     async fn read_output_power(&self) -> Result<Power, PsuError<Infallible>> {
-        panic!("unexpected read")
+        Ok(Power::from_mw(0))
     }
     async fn read_output_voltage(&self) -> Result<Voltage, PsuError<Infallible>> {
-        panic!("unexpected read")
+        Ok(Voltage::from_mv(0))
     }
     async fn read_status(&self) -> Result<StatusFlags, PsuError<Infallible>> {
-        panic!("unexpected read")
+        Ok(StatusFlags::default())
     }
     async fn terminate(&self) {
         panic!("unexpected termination")
     }
 }
 
-/// The one handle every test miner reads the PSU through, as a board's
-/// tasks all read the one handle its supply hands out. No PSU task runs
-/// behind it, so it reports no reading.
-fn test_handle() -> &'static ubos_psu::Handle {
-    static HANDLE: std::sync::OnceLock<&'static ubos_psu::Handle> = std::sync::OnceLock::new();
-    static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
-    HANDLE.get_or_init(|| {
-        let driver = std::boxed::Box::leak(std::boxed::Box::new(TestPsu {
-            log: &LOG,
-            disable_fails: false,
-            behavior: Cell::new(VoltageWrite::Succeed),
-        }));
-        std::boxed::Box::leak(std::boxed::Box::new(ubos_psu::PowerSupply::new(driver))).handle()
-    })
+/// A psu over `driver`, both leaked so they are `'static` the way a
+/// board's are.
+fn test_psu(driver: TestPsu) -> (&'static TestPsu, &'static PowerSupply<TestPsu>) {
+    let driver: &'static TestPsu = std::boxed::Box::leak(std::boxed::Box::new(driver));
+    let psu = std::boxed::Box::leak(std::boxed::Box::new(PowerSupply::new(driver)));
+    (driver, psu)
+}
+
+/// `future` with the PSU task polled beside it, the way a board runs
+/// the miner beside it.
+async fn beside_psu<F: core::future::Future>(
+    psu: &'static PowerSupply<TestPsu>,
+    future: F,
+) -> F::Output {
+    match select(future, psu.run()).await {
+        Either::First(output) => output,
+        Either::Second(never) => never,
+    }
+}
+
+/// The most PSU commands one raced future sends before it is ready.
+const RACED_PSU_COMMANDS: usize = 4;
+
+/// Poll `future` [`RACED_PSU_COMMANDS`] times in a row with no time
+/// passing between, and answer the first ready output. A future racing
+/// the PSU task needs one more poll per PSU command, for the task to
+/// answer it.
+fn poll_settled<F: core::future::Future>(
+    mut future: core::pin::Pin<&mut F>,
+    context: &mut core::task::Context<'_>,
+) -> core::task::Poll<F::Output> {
+    for _ in 0..RACED_PSU_COMMANDS {
+        if let core::task::Poll::Ready(output) = future.as_mut().poll(context) {
+            return core::task::Poll::Ready(output);
+        }
+    }
+    core::task::Poll::Pending
+}
+
+/// Run `future` to completion beside the PSU task.
+fn block_on_with<F: core::future::Future>(
+    psu: &'static PowerSupply<TestPsu>,
+    future: F,
+) -> F::Output {
+    block_on(beside_psu(psu, future))
+}
+
+/// Have `psu` report `voltage` as already set, as a rail already running
+/// would, and leave no trace of the write in the log of `psu_driver`.
+fn seed_voltage(
+    psu_driver: &'static TestPsu,
+    psu: &'static PowerSupply<TestPsu>,
+    voltage: Voltage,
+) {
+    let behavior = psu_driver.behavior.replace(VoltageWrite::Succeed);
+    block_on_with(psu, psu.handle().set_voltage(voltage)).expect("seed write");
+    psu_driver.behavior.set(behavior);
+    psu_driver.log.lock(|log| log.borrow_mut().clear());
 }
 
 fn test_miner<'a, T: MachineTuner<CHAINS, PlatformReadings = ()>, const CHAINS: usize>(
-    psu: &'a TestPsu,
+    psu_handle: &'a ubos_psu::Handle,
     actors: [&'static Serial; CHAINS],
     stats: [&'static ChainStats; CHAINS],
-) -> Miner<'a, TestPsu, LoggingResetPin, T, CHAINS> {
+) -> Miner<'a, LoggingResetPin, T, CHAINS> {
     Miner {
-        psu,
-        psu_handle: test_handle(),
+        psu_handle,
         board: &BMM101_HASHBOARD,
         chains: core::array::from_fn(|index| ChainHandle {
             serial: actors[index],
@@ -850,12 +893,12 @@ fn plans_order_shared_rail_writes_and_preserve_successful_partial_progress() {
         static STATS: [ChainStats; 3] = [const { ChainStats::new() }; 3];
         static SESSION: AsicSession<1, 3> = AsicSession::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
-        let psu = TestPsu {
+        let (_, psu) = test_psu(TestPsu {
             log: &LOG,
             disable_fails: false,
             behavior: Cell::new(VoltageWrite::Succeed),
-        };
-        let mut miner = test_miner(&psu, [&A, &ABSENT, &B], STATS.each_ref());
+        });
+        let mut miner = test_miner(psu.handle(), [&A, &ABSENT, &B], STATS.each_ref());
         STATS[0].set_presence(ChainPresence::Present { chips: 4 });
         STATS[1].set_presence(ChainPresence::Absent);
         STATS[2].set_presence(ChainPresence::Present { chips: 4 });
@@ -924,10 +967,13 @@ fn plans_order_shared_rail_writes_and_preserve_successful_partial_progress() {
             NoWork,
             &STATS[2],
         );
-        let outcome = block_on(select(
-            join3(exercise, run_a, run_b),
-            Timer::after(Duration::from_millis(500)),
-        ));
+        let outcome = block_on_with(
+            psu,
+            select(
+                join3(exercise, run_a, run_b),
+                Timer::after(Duration::from_millis(500)),
+            ),
+        );
         let Either::First(((), a, b)) = outcome else {
             panic!("plan execution timed out")
         };
@@ -937,7 +983,7 @@ fn plans_order_shared_rail_writes_and_preserve_successful_partial_progress() {
 }
 
 async fn check_voltage_only_plans(
-    miner: &mut Miner<'_, TestPsu, LoggingResetPin, crate::tuner::Tuners, 3>,
+    miner: &mut Miner<'_, LoggingResetPin, crate::tuner::Tuners, 3>,
     log: &HardwareLog,
     plan: &Plan<3>,
 ) {
@@ -962,7 +1008,7 @@ async fn check_voltage_only_plans(
 }
 
 async fn check_partial_plan_failures(
-    miner: &mut Miner<'_, TestPsu, LoggingResetPin, crate::tuner::Tuners, 3>,
+    miner: &mut Miner<'_, LoggingResetPin, crate::tuner::Tuners, 3>,
     log: &HardwareLog,
     refused: Frequency,
     voltage: Voltage,
@@ -1000,7 +1046,7 @@ async fn check_partial_plan_failures(
 }
 
 async fn check_plan_bounds(
-    miner: &mut Miner<'_, TestPsu, LoggingResetPin, crate::tuner::Tuners, 3>,
+    miner: &mut Miner<'_, LoggingResetPin, crate::tuner::Tuners, 3>,
     log: &HardwareLog,
 ) {
     let range = miner.board.chip.frequency_range;

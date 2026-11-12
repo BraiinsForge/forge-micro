@@ -368,9 +368,10 @@ async fn boot(spawner: Spawner) {
 
     // I2C1 bus + PSU + mining + sensors + fans.
     // The TPS53647 rail is gated by PWR_EN (GPIO33, ENABLE pin) plus the
-    // OPERATION on-bit. The BoardPsu owns that pin; only the miner task
-    // raises it, during bring-up, and drops it again when mining halts, so
-    // an idle board never holds the chip powered in reset.
+    // OPERATION on-bit. The BoardPsu owns that pin; only the PSU task
+    // drives it, on the miner task's commands: high during bring-up, and
+    // low again when mining halts, so an idle board never holds the chip
+    // powered in reset.
     use embassy_rp::i2c::{Config as I2cConfig, I2c};
 
     static I2C1_BUS: StaticCell<i2c::Bus> = StaticCell::new();

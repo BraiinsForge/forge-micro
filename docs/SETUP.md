@@ -49,10 +49,11 @@ passthrough TX/RX pair, and GND must be common with the target.
 
 RP2350B with a W5500 over SPI0. Drives a 4-chip BM1370 hashboard via
 UART1 and a BfmPsu (SIC45x) over I2C1. GPIO30 (`SIC_EN`, active-high,
-10 kΩ pull-down) gates the SIC45x power stage; it is driven high by the
-miner task during bring-up. GPIO23 is the third fan tachometer input
-(`RP_TACH_C`). The full peripheral map, including the SPI0 and I2C1
-pinout, is in `firmware/hashnode/src/config.rs`.
+10 kΩ pull-down) gates the SIC45x power stage. The PSU task drives it
+high during bring-up, when the miner task sends the command. GPIO23 is
+the third fan tachometer input (`RP_TACH_C`). The full peripheral map,
+including the SPI0 and I2C1 pinout, is in
+`firmware/hashnode/src/config.rs`.
 
 ## Building and flashing
 

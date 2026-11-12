@@ -29,7 +29,6 @@ use embassy_time::{Duration, with_timeout};
 use transitions::{Lift, Machine, machine, successors};
 use ubos_config::ConfigSubscription;
 use ubos_logging::{info, warn};
-use ubos_psu::Psu;
 
 use super::Miner;
 use super::states::{
@@ -40,12 +39,13 @@ use crate::control::{Message, MiningState};
 use crate::reset::ResetPin;
 use crate::tuner::MachineTuner;
 
-/// Maximum time an interrupted hardware plan can finish before the rail cut.
+/// How long an interrupted hardware plan has to finish before the miner
+/// drops it and asks for the rail cut. The PSU task then gives a call
+/// still on the bus its own `COMMAND_GRACE` before it starts the cut.
 pub(super) const INTERRUPT_TIMEOUT: Duration = Duration::from_millis(100);
 
-impl<P, R, T, const CHAINS: usize> Miner<'_, P, R, T, CHAINS>
+impl<R, T, const CHAINS: usize> Miner<'_, R, T, CHAINS>
 where
-    P: Psu,
     R: ResetPin,
     T: MachineTuner<CHAINS>,
 {
@@ -184,13 +184,12 @@ where
 /// subscription the state reads the tuning through. The subscription is
 /// a borrow, so a test drives the machine from a configuration of its
 /// own.
-pub(super) struct Context<'m, 'a, P, R, T, const CHAINS: usize>
+pub(super) struct Context<'m, 'a, R, T, const CHAINS: usize>
 where
-    P: Psu,
     R: ResetPin,
     T: MachineTuner<CHAINS>,
 {
-    pub(super) miner: &'m mut Miner<'a, P, R, T, CHAINS>,
+    pub(super) miner: &'m mut Miner<'a, R, T, CHAINS>,
     pub(super) config: &'m mut ConfigSubscription,
 }
 

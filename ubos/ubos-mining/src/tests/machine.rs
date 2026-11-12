@@ -45,7 +45,7 @@ fn run<M>(tuner: M) -> Run<M> {
 /// Run the machine from `state` until STOP ends it, which returns `None`,
 /// or until it reaches [`Halted`], which is returned.
 async fn drive<M: MachineTuner<CHAINS>, const CHAINS: usize>(
-    miner: &mut Miner<'_, TestPsu, LoggingResetPin, M, CHAINS>,
+    miner: &mut Miner<'_, LoggingResetPin, M, CHAINS>,
     mut state: MinerState<M>,
     subscription: &mut ubos_config::ConfigSubscription,
 ) -> Option<MinerState<M>> {
@@ -60,7 +60,8 @@ async fn drive<M: MachineTuner<CHAINS>, const CHAINS: usize>(
 /// Drive the machine from [`Step`] with a real actor, so cancelled
 /// writes can complete after the rail cut. Returns what [`drive`] returns.
 fn run_mining_with_driver<M: MachineTuner<1>>(
-    miner: &mut Miner<'_, TestPsu, LoggingResetPin, M, 1>,
+    psu: &'static PowerSupply<TestPsu>,
+    miner: &mut Miner<'_, LoggingResetPin, M, 1>,
     tuner: M,
     subscription: &mut ubos_config::ConfigSubscription,
     driver: BringUpDriver,
@@ -83,10 +84,13 @@ fn run_mining_with_driver<M: MachineTuner<1>>(
         NoWork,
         stats,
     );
-    match block_on(select(
-        join(exercise, run),
-        Timer::after(Duration::from_millis(500)),
-    )) {
+    match block_on_with(
+        psu,
+        select(
+            join(exercise, run),
+            Timer::after(Duration::from_millis(500)),
+        ),
+    ) {
         Either::First((outcome, result)) => {
             result.expect("actor succeeds");
             outcome
@@ -122,15 +126,15 @@ fn stop_finishes_the_pending_voltage_write_without_a_shutdown_ramp() {
         static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
-        let psu = TestPsu {
+        let (psu_driver, psu) = test_psu(TestPsu {
             log: &LOG,
             behavior: Cell::new(VoltageWrite::StopThenSucceed),
             disable_fails: false,
-        };
+        });
         STATS.set_presence(ChainPresence::Present { chips: 4 });
         STATS.set_frequency(BMM101_HASHBOARD.chip.frequency_range.min());
-        ubos_psu::record_set_voltage(BMM101_HASHBOARD.max_rail_voltage());
-        let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
+        seed_voltage(psu_driver, psu, BMM101_HASHBOARD.max_rail_voltage());
+        let mut miner = test_miner(psu.handle(), [&ACTOR], [&STATS]);
         let voltage = Voltage::from_mv(1100);
         let tuner = OnePlanTuner(Plan {
             frequencies: [None],
@@ -139,6 +143,7 @@ fn stop_finishes_the_pending_voltage_write_without_a_shutdown_ramp() {
         });
         let mut subscription = test_config().0;
         let outcome = run_mining_with_driver(
+            psu,
             &mut miner,
             tuner,
             &mut subscription,
@@ -151,7 +156,7 @@ fn stop_finishes_the_pending_voltage_write_without_a_shutdown_ramp() {
                 &[Write::Voltage(voltage), Write::Disable,]
             );
         });
-        assert_eq!(super::test_handle().commanded_voltage(), Some(voltage));
+        assert_eq!(psu.handle().commanded_voltage(), Some(voltage));
     });
 }
 
@@ -161,17 +166,17 @@ fn cancellation_timeout_cuts_power_without_a_shutdown_frequency_write() {
         static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
-        let psu = TestPsu {
+        let (psu_driver, psu) = test_psu(TestPsu {
             log: &LOG,
             behavior: Cell::new(VoltageWrite::Succeed),
             disable_fails: false,
-        };
+        });
         let safe = BMM101_HASHBOARD.chip.frequency_range.min();
         let raised = Frequency::from_khz(safe.khz() + BMM101_HASHBOARD.chip.frequency_step.khz());
         STATS.set_presence(ChainPresence::Present { chips: 4 });
         STATS.set_frequency(safe);
-        ubos_psu::record_set_voltage(BMM101_HASHBOARD.max_rail_voltage());
-        let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
+        seed_voltage(psu_driver, psu, BMM101_HASHBOARD.max_rail_voltage());
+        let mut miner = test_miner(psu.handle(), [&ACTOR], [&STATS]);
         let tuner = OnePlanTuner(Plan {
             frequencies: [Some(raised)],
             rail: None,
@@ -184,7 +189,7 @@ fn cancellation_timeout_cuts_power_without_a_shutdown_frequency_write() {
             ..BringUpDriver::new(&[4])
         };
         let mut subscription = test_config().0;
-        let outcome = run_mining_with_driver(&mut miner, tuner, &mut subscription, driver);
+        let outcome = run_mining_with_driver(psu, &mut miner, tuner, &mut subscription, driver);
         assert!(outcome.is_none());
         LOG.lock(|log| {
             assert_eq!(
@@ -310,17 +315,17 @@ fn waiting_between_refused_commands_does_not_refresh_the_budget() {
         static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
-        let psu = TestPsu {
+        let (psu_driver, psu) = test_psu(TestPsu {
             log: &LOG,
             disable_fails: false,
             behavior: Cell::new(VoltageWrite::Fail),
-        };
+        });
         STATS.set_presence(ChainPresence::Present {
             chips: BMM101_HASHBOARD.num_chips,
         });
         STATS.set_frequency(BMM101_HASHBOARD.chip.frequency_range.min());
-        ubos_psu::record_set_voltage(BMM101_HASHBOARD.max_rail_voltage());
-        let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
+        seed_voltage(psu_driver, psu, BMM101_HASHBOARD.max_rail_voltage());
+        let mut miner = test_miner(psu.handle(), [&ACTOR], [&STATS]);
         let state = MinerState::Step(Step {
             run: run(HoldingRailTuner { calls: 0 }),
         });
@@ -336,13 +341,16 @@ fn waiting_between_refused_commands_does_not_refresh_the_budget() {
             .await;
             crate::handle().stop();
         };
-        let Either::First((outcome, ())) = block_on(select(
-            join(
-                drive(&mut miner, state, &mut subscription),
-                stop_after_the_cut,
+        let Either::First((outcome, ())) = block_on_with(
+            psu,
+            select(
+                join(
+                    drive(&mut miner, state, &mut subscription),
+                    stop_after_the_cut,
+                ),
+                Timer::after(Duration::from_millis(500)),
             ),
-            Timer::after(Duration::from_millis(500)),
-        )) else {
+        ) else {
             panic!("waits between refused commands kept the miner off the fault path")
         };
         assert!(outcome.is_none());
@@ -369,17 +377,17 @@ fn a_plan_that_applies_clears_the_failure_budget() {
         // Without the reset the last of those would spend the budget and
         // cut the rail.
         const SCRIPT: &[bool] = &[false, true, false, false];
-        let psu = TestPsu {
+        let (psu_driver, psu) = test_psu(TestPsu {
             log: &LOG,
             disable_fails: false,
             behavior: Cell::new(VoltageWrite::Script(SCRIPT)),
-        };
+        });
         STATS.set_presence(ChainPresence::Present {
             chips: BMM101_HASHBOARD.num_chips,
         });
         STATS.set_frequency(BMM101_HASHBOARD.chip.frequency_range.min());
-        ubos_psu::record_set_voltage(BMM101_HASHBOARD.max_rail_voltage());
-        let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
+        seed_voltage(psu_driver, psu, BMM101_HASHBOARD.max_rail_voltage());
+        let mut miner = test_miner(psu.handle(), [&ACTOR], [&STATS]);
         let state = MinerState::Step(Step {
             run: run(RailStepTuner { calls: 0 }),
         });
@@ -395,13 +403,16 @@ fn a_plan_that_applies_clears_the_failure_budget() {
             .await;
             crate::handle().stop();
         };
-        let Either::First((outcome, ())) = block_on(select(
-            join(
-                drive(&mut miner, state, &mut subscription),
-                stop_once_the_script_is_spent,
+        let Either::First((outcome, ())) = block_on_with(
+            psu,
+            select(
+                join(
+                    drive(&mut miner, state, &mut subscription),
+                    stop_once_the_script_is_spent,
+                ),
+                Timer::after(Duration::from_millis(500)),
             ),
-            Timer::after(Duration::from_millis(500)),
-        )) else {
+        ) else {
             panic!("the mining loop never reached the end of the script")
         };
         assert!(outcome.is_none());
@@ -429,15 +440,16 @@ fn a_configuration_naming_no_available_tuner_holds_with_the_rail_off() {
         static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
-        let psu = TestPsu {
+        let (_, psu) = test_psu(TestPsu {
             log: &LOG,
             disable_fails: false,
             behavior: Cell::new(VoltageWrite::Succeed),
-        };
+        });
         STATS.set_presence(ChainPresence::Present {
             chips: BMM101_HASHBOARD.num_chips,
         });
-        let mut miner = test_miner::<crate::tuner::fixed::FixedTuner, 1>(&psu, [&ACTOR], [&STATS]);
+        let mut miner =
+            test_miner::<crate::tuner::fixed::FixedTuner, 1>(psu.handle(), [&ACTOR], [&STATS]);
         let power = ubos_config::Tuning::Power(ubos_config::PowerTarget {
             input_power: ubos_core::units::Power::from_mw(3_000_000),
             efficiency: ubos_core::units::Efficiency::from_mj_per_th(core::num::NonZeroU32::MIN),
@@ -489,10 +501,13 @@ fn a_configuration_naming_no_available_tuner_holds_with_the_rail_off() {
             ));
             Timer::after(Duration::from_millis(10)).await;
         };
-        let Either::Second(Either::First(())) = block_on(select(
-            machine,
-            select(pause_the_machine, Timer::after(Duration::from_millis(500))),
-        )) else {
+        let Either::Second(Either::First(())) = block_on_with(
+            psu,
+            select(
+                machine,
+                select(pause_the_machine, Timer::after(Duration::from_millis(500))),
+            ),
+        ) else {
             panic!("the hold stopped reading the command channel")
         };
         assert!(
@@ -516,17 +531,17 @@ fn empty_plans_wait_before_retrying_and_stop_during_a_write_cuts_the_rail() {
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
         static CALLS: AtomicU8 = AtomicU8::new(0);
-        let psu = TestPsu {
+        let (psu_driver, psu) = test_psu(TestPsu {
             log: &LOG,
             disable_fails: false,
             behavior: Cell::new(VoltageWrite::Fail),
-        };
+        });
         STATS.set_presence(ChainPresence::Present {
             chips: BMM101_HASHBOARD.num_chips,
         });
         STATS.set_frequency(BMM101_HASHBOARD.chip.frequency_range.min());
-        ubos_psu::record_set_voltage(BMM101_HASHBOARD.max_rail_voltage());
-        let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
+        seed_voltage(psu_driver, psu, BMM101_HASHBOARD.max_rail_voltage());
+        let mut miner = test_miner(psu.handle(), [&ACTOR], [&STATS]);
         let state = MinerState::Step(Step {
             run: run(WaitingTuner::new(&CALLS)),
         });
@@ -542,10 +557,13 @@ fn empty_plans_wait_before_retrying_and_stop_during_a_write_cuts_the_rail() {
             .await;
             crate::handle().stop();
         };
-        let (outcome, ()) = block_on(join(
-            drive(&mut miner, state, &mut subscription),
-            stop_after_failure,
-        ));
+        let (outcome, ()) = block_on_with(
+            psu,
+            join(
+                drive(&mut miner, state, &mut subscription),
+                stop_after_failure,
+            ),
+        );
         assert!(outcome.is_none());
         // Two empty plans, then a rail write on every call until the
         // budget of failures runs out.
@@ -565,9 +583,10 @@ fn empty_plans_wait_before_retrying_and_stop_during_a_write_cuts_the_rail() {
         STATS.set_presence(ChainPresence::Present {
             chips: BMM101_HASHBOARD.num_chips,
         });
-        psu.behavior.set(VoltageWrite::Interrupt);
+        psu_driver.behavior.set(VoltageWrite::Interrupt);
         LOG.lock(|log| log.borrow_mut().clear());
         let outcome = run_mining_with_driver(
+            psu,
             &mut miner,
             WaitingTuner::new(&CALLS),
             &mut subscription,
@@ -589,16 +608,16 @@ fn stop_before_work_initialization_prevents_voltage_commands() {
         static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
-        let psu = TestPsu {
+        let (_, psu) = test_psu(TestPsu {
             log: &LOG,
             disable_fails: false,
             behavior: Cell::new(VoltageWrite::Succeed),
-        };
-        let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
+        });
+        let mut miner = test_miner(psu.handle(), [&ACTOR], [&STATS]);
         let mut subscription = test_config().0;
         crate::handle().stop();
         let state = MinerState::<OnePlanTuner>::StartWork(StartWork);
-        assert!(block_on(miner.advance(state, &mut subscription)).is_none());
+        assert!(block_on_with(psu, miner.advance(state, &mut subscription)).is_none());
         LOG.lock(|log| assert_eq!(log.borrow().as_slice(), &[Write::Disable]));
     });
 }
@@ -611,16 +630,18 @@ fn settling_ignores_resume_and_preserves_a_resume_queued_after_halt() {
         static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
-        let psu = TestPsu {
+        let (_, psu) = test_psu(TestPsu {
             log: &LOG,
             disable_fails: false,
             behavior: Cell::new(VoltageWrite::Succeed),
-        };
-        let mut miner = test_miner::<OnePlanTuner, 1>(&psu, [&ACTOR], [&STATS]);
+        });
+        let mut miner = test_miner::<OnePlanTuner, 1>(psu.handle(), [&ACTOR], [&STATS]);
         let mut subscription = test_config().0;
         {
-            let mut settle =
-                core::pin::pin!(miner.advance(MinerState::Enable(Enable), &mut subscription));
+            let mut settle = core::pin::pin!(beside_psu(
+                psu,
+                miner.advance(MinerState::Enable(Enable), &mut subscription)
+            ));
             let mut context = Context::from_waker(Waker::noop());
             assert!(COMMAND_CHANNEL.try_send(Message::Resume).is_ok());
             assert!(settle.as_mut().poll(&mut context).is_pending());
@@ -628,12 +649,15 @@ fn settling_ignores_resume_and_preserves_a_resume_queued_after_halt() {
             assert!(COMMAND_CHANNEL.try_send(Message::Halt).is_ok());
             assert!(COMMAND_CHANNEL.try_send(Message::Resume).is_ok());
             assert!(matches!(
-                settle.as_mut().poll(&mut context),
+                poll_settled(settle.as_mut(), &mut context),
                 Poll::Ready(Some(MinerState::Halted(_)))
             ));
         }
         assert!(matches!(
-            block_on(miner.advance(MinerState::Halted(Halted), &mut subscription)),
+            block_on_with(
+                psu,
+                miner.advance(MinerState::Halted(Halted), &mut subscription)
+            ),
             Some(MinerState::Choose(_))
         ));
         LOG.lock(|log| assert_eq!(log.borrow().as_slice(), &[Write::Disable]));
@@ -646,13 +670,13 @@ fn stop_ready_before_a_step_cuts_the_rail_without_a_plan() {
         static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
-        let psu = TestPsu {
+        let (psu_driver, psu) = test_psu(TestPsu {
             log: &LOG,
             behavior: Cell::new(VoltageWrite::Succeed),
             disable_fails: false,
-        };
-        let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
-        ubos_psu::record_set_voltage(Voltage::from_mv(1000));
+        });
+        let mut miner = test_miner(psu.handle(), [&ACTOR], [&STATS]);
+        seed_voltage(psu_driver, psu, Voltage::from_mv(1000));
         let state = MinerState::Step(Step {
             run: run(OnePlanTuner(Plan {
                 rail: Some(Voltage::from_mv(1150)),
@@ -662,7 +686,7 @@ fn stop_ready_before_a_step_cuts_the_rail_without_a_plan() {
         });
         let mut subscription = test_config().0;
         crate::handle().stop();
-        assert!(block_on(miner.advance(state, &mut subscription)).is_none());
+        assert!(block_on_with(psu, miner.advance(state, &mut subscription)).is_none());
         LOG.lock(|log| assert_eq!(log.borrow().as_slice(), &[Write::Disable]));
     });
 }
@@ -673,14 +697,14 @@ fn stop_during_plan_delay_does_not_wait_or_issue_another_plan() {
         static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
-        let psu = TestPsu {
+        let (psu_driver, psu) = test_psu(TestPsu {
             log: &LOG,
             behavior: Cell::new(VoltageWrite::Succeed),
             disable_fails: false,
-        };
-        let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
+        });
+        let mut miner = test_miner(psu.handle(), [&ACTOR], [&STATS]);
         let voltage = Voltage::from_mv(1150);
-        ubos_psu::record_set_voltage(Voltage::from_mv(1000));
+        seed_voltage(psu_driver, psu, Voltage::from_mv(1000));
         let delay = Duration::from_millis(500);
         let state = MinerState::Step(Step {
             run: run(OnePlanTuner(Plan {
@@ -690,14 +714,17 @@ fn stop_during_plan_delay_does_not_wait_or_issue_another_plan() {
             })),
         });
         let mut subscription = test_config().0;
-        let paused =
-            block_on(miner.advance(state, &mut subscription)).expect("no stop is signalled");
+        let paused = block_on_with(psu, miner.advance(state, &mut subscription))
+            .expect("no stop is signalled");
         assert!(matches!(paused, MinerState::Pause(_)));
         crate::handle().stop();
-        let Either::First(outcome) = block_on(select(
-            miner.advance(paused, &mut subscription),
-            Timer::after(delay / 2),
-        )) else {
+        let Either::First(outcome) = block_on_with(
+            psu,
+            select(
+                miner.advance(paused, &mut subscription),
+                Timer::after(delay / 2),
+            ),
+        ) else {
             panic!("the stop waited for the plan delay")
         };
         assert!(outcome.is_none());
@@ -716,14 +743,14 @@ fn a_tuner_change_during_the_plan_delay_cuts_the_rail_and_chooses_again() {
         static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
-        let psu = TestPsu {
+        let (_, psu) = test_psu(TestPsu {
             log: &LOG,
             behavior: Cell::new(VoltageWrite::Succeed),
             disable_fails: false,
-        };
-        let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
+        });
+        let mut miner = test_miner(psu.handle(), [&ACTOR], [&STATS]);
         let (mut subscription, publish) = test_config();
-        block_on(subscription.get());
+        block_on_with(psu, subscription.get());
         let state = MinerState::Pause(Pause {
             run: run(OnePlanTuner(Plan {
                 rail: None,
@@ -744,7 +771,7 @@ fn a_tuner_change_during_the_plan_delay_cuts_the_rail_and_chooses_again() {
             ..ubos_config::Config::default()
         });
         assert!(matches!(
-            block_on(miner.advance(state, &mut subscription)),
+            block_on_with(psu, miner.advance(state, &mut subscription)),
             Some(MinerState::Choose(_))
         ));
         LOG.lock(|log| assert_eq!(log.borrow().as_slice(), &[Write::Disable]));
@@ -759,14 +786,14 @@ fn halt_finishes_the_pending_voltage_write_before_cutting_the_rail() {
         static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
-        let psu = TestPsu {
+        let (psu_driver, psu) = test_psu(TestPsu {
             log: &LOG,
             behavior: Cell::new(VoltageWrite::YieldThenSucceed),
             disable_fails: false,
-        };
-        let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
+        });
+        let mut miner = test_miner(psu.handle(), [&ACTOR], [&STATS]);
         let voltage = Voltage::from_mv(1100);
-        ubos_psu::record_set_voltage(Voltage::from_mv(1000));
+        seed_voltage(psu_driver, psu, Voltage::from_mv(1000));
         let state = MinerState::Step(Step {
             run: run(OnePlanTuner(Plan {
                 rail: Some(voltage),
@@ -776,18 +803,19 @@ fn halt_finishes_the_pending_voltage_write_before_cutting_the_rail() {
         });
         let mut subscription = test_config().0;
         {
-            let mut step = core::pin::pin!(miner.advance(state, &mut subscription));
+            let mut step =
+                core::pin::pin!(beside_psu(psu, miner.advance(state, &mut subscription)));
             let mut context = Context::from_waker(Waker::noop());
             // The voltage write yields once before it completes.
             assert!(step.as_mut().poll(&mut context).is_pending());
-            block_on(crate::handle().halt());
-            block_on(crate::handle().resume());
+            block_on_with(psu, crate::handle().halt());
+            block_on_with(psu, crate::handle().resume());
             assert!(matches!(
-                step.as_mut().poll(&mut context),
+                poll_settled(step.as_mut(), &mut context),
                 Poll::Ready(Some(MinerState::Halted(_)))
             ));
         }
-        assert_eq!(super::test_handle().commanded_voltage(), Some(voltage));
+        assert_eq!(psu.handle().commanded_voltage(), Some(voltage));
         LOG.lock(|log| {
             assert_eq!(
                 log.borrow().as_slice(),
@@ -795,7 +823,10 @@ fn halt_finishes_the_pending_voltage_write_before_cutting_the_rail() {
             );
         });
         assert!(matches!(
-            block_on(miner.advance(MinerState::Halted(Halted), &mut subscription)),
+            block_on_with(
+                psu,
+                miner.advance(MinerState::Halted(Halted), &mut subscription)
+            ),
             Some(MinerState::Choose(_))
         ));
     });
@@ -809,13 +840,13 @@ fn halt_during_stop_grace_period_keeps_stop_and_queued_resume() {
         static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
-        let psu = TestPsu {
+        let (psu_driver, psu) = test_psu(TestPsu {
             log: &LOG,
             behavior: Cell::new(VoltageWrite::Interrupt),
             disable_fails: false,
-        };
-        let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
-        ubos_psu::record_set_voltage(Voltage::from_mv(1000));
+        });
+        let mut miner = test_miner(psu.handle(), [&ACTOR], [&STATS]);
+        seed_voltage(psu_driver, psu, Voltage::from_mv(1000));
         let state = MinerState::Step(Step {
             run: run(OnePlanTuner(Plan {
                 rail: Some(Voltage::from_mv(1100)),
@@ -826,19 +857,20 @@ fn halt_during_stop_grace_period_keeps_stop_and_queued_resume() {
         let mut subscription = test_config().0;
         let mut context = Context::from_waker(Waker::noop());
         {
-            let mut step = core::pin::pin!(miner.advance(state, &mut subscription));
+            let mut step =
+                core::pin::pin!(beside_psu(psu, miner.advance(state, &mut subscription)));
             // The voltage write signals STOP and never completes.
             assert!(step.as_mut().poll(&mut context).is_pending());
             // Consume STOP and enter the grace period with the write pending.
             assert!(step.as_mut().poll(&mut context).is_pending());
-            block_on(crate::handle().halt());
-            block_on(crate::handle().resume());
+            block_on_with(psu, crate::handle().halt());
+            block_on_with(psu, crate::handle().resume());
             assert!(step.as_mut().poll(&mut context).is_pending());
             assert!(matches!(
-                block_on(select(
-                    step.as_mut(),
-                    Timer::after(Duration::from_millis(200)),
-                )),
+                block_on_with(
+                    psu,
+                    select(step.as_mut(), Timer::after(Duration::from_millis(200)),)
+                ),
                 Either::First(None)
             ));
         }
@@ -850,11 +882,11 @@ fn halt_during_stop_grace_period_keeps_stop_and_queued_resume() {
         });
         // The halt and the resume sent during the grace are still queued.
         assert!(matches!(
-            block_on(crate::handle().next_message()),
+            block_on_with(psu, crate::handle().next_message()),
             Message::Halt
         ));
         assert!(matches!(
-            block_on(crate::handle().next_message()),
+            block_on_with(psu, crate::handle().next_message()),
             Message::Resume
         ));
     });
@@ -869,17 +901,17 @@ fn a_halt_read_in_the_first_choose_cuts_the_rail_again() {
         static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
-        let psu = TestPsu {
+        let (_, psu) = test_psu(TestPsu {
             log: &LOG,
             behavior: Cell::new(VoltageWrite::Succeed),
             disable_fails: false,
-        };
-        let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
+        });
+        let mut miner = test_miner(psu.handle(), [&ACTOR], [&STATS]);
         let mut subscription = test_config().0;
-        block_on(crate::handle().halt());
+        block_on_with(psu, crate::handle().halt());
         let state = MinerState::<OnePlanTuner>::Choose(Choose);
         assert!(matches!(
-            block_on(miner.advance(state, &mut subscription)),
+            block_on_with(psu, miner.advance(state, &mut subscription)),
             Some(MinerState::Halted(_))
         ));
         LOG.lock(|log| assert_eq!(log.borrow().as_slice(), &[Write::Disable]));
@@ -899,23 +931,23 @@ fn halt_publishes_stopped_after_reset_even_if_psu_disable_fails() {
         let mut subscription = test_config().0;
         for disable_fails in [false, true] {
             LOG.lock(|log| log.borrow_mut().clear());
-            let psu = TestPsu {
+            let (_, psu) = test_psu(TestPsu {
                 log: &LOG,
                 behavior: Cell::new(VoltageWrite::Succeed),
                 disable_fails,
-            };
-            let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
+            });
+            let mut miner = test_miner(psu.handle(), [&ACTOR], [&STATS]);
             mining.publish(MiningState::Starting);
-            block_on(mining.halt());
-            assert_eq!(block_on(states.changed()), MiningState::Starting);
+            block_on_with(psu, mining.halt());
+            assert_eq!(block_on_with(psu, states.changed()), MiningState::Starting);
             let state = MinerState::<OnePlanTuner>::Reset(Reset);
             assert!(matches!(
-                block_on(miner.advance(state, &mut subscription)),
+                block_on_with(psu, miner.advance(state, &mut subscription)),
                 Some(MinerState::Halted(_))
             ));
             assert_eq!(miner.chains[0].reset.log.as_slice(), &[ResetCall::Enter]);
             LOG.lock(|log| assert_eq!(log.borrow().as_slice(), &[Write::Disable]));
-            assert_eq!(block_on(states.changed()), MiningState::Stopped);
+            assert_eq!(block_on_with(psu, states.changed()), MiningState::Stopped);
         }
     });
 }
@@ -966,19 +998,19 @@ fn live_frequency_and_voltage_edits_do_not_cut_power() {
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
         static SESSION: AsicSession<1, 1> = AsicSession::new();
-        let psu = TestPsu {
+        let (psu_driver, psu) = test_psu(TestPsu {
             log: &LOG,
             behavior: Cell::new(VoltageWrite::Succeed),
             disable_fails: false,
-        };
+        });
         let board = &BMM101_HASHBOARD;
         let safe = board.chip.frequency_range.min();
         STATS.set_presence(ChainPresence::Present {
             chips: board.num_chips,
         });
         STATS.set_frequency(safe);
-        ubos_psu::record_set_voltage(board.max_rail_voltage());
-        let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
+        seed_voltage(psu_driver, psu, board.max_rail_voltage());
+        let mut miner = test_miner(psu.handle(), [&ACTOR], [&STATS]);
         let state = MinerState::Step(Step {
             run: run(LiveTuner(crate::tuner::fixed::FixedTuner::new(board))),
         });
@@ -1006,7 +1038,7 @@ fn live_frequency_and_voltage_edits_do_not_cut_power() {
             voltage = Voltage::from_mv(voltage.mv() - 100);
             publish(fixed_config(frequency, voltage));
             core::future::poll_fn(|_| {
-                if super::test_handle().commanded_voltage() == Some(voltage) {
+                if psu.handle().commanded_voltage() == Some(voltage) {
                     core::task::Poll::Ready(())
                 } else {
                     core::task::Poll::Pending
@@ -1029,10 +1061,13 @@ fn live_frequency_and_voltage_edits_do_not_cut_power() {
             NoWork,
             &STATS,
         );
-        match block_on(select(
-            join3(exercise, edit, run),
-            Timer::after(Duration::from_millis(500)),
-        )) {
+        match block_on_with(
+            psu,
+            select(
+                join3(exercise, edit, run),
+                Timer::after(Duration::from_millis(500)),
+            ),
+        ) {
             Either::First(((), (), result)) => result.expect("actor succeeds"),
             Either::Second(()) => panic!("live target timed out"),
         }
@@ -1055,12 +1090,12 @@ fn stop_has_priority_over_halt_in_every_state() {
         static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
         static STATS: ChainStats = ChainStats::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
-        let psu = TestPsu {
+        let (_, psu) = test_psu(TestPsu {
             log: &LOG,
             behavior: Cell::new(VoltageWrite::Succeed),
             disable_fails: false,
-        };
-        let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
+        });
+        let mut miner = test_miner(psu.handle(), [&ACTOR], [&STATS]);
         let mut subscription = test_config().0;
         let states: [MinerState<OnePlanTuner>; 7] = [
             MinerState::Reset(Reset),
@@ -1073,10 +1108,10 @@ fn stop_has_priority_over_halt_in_every_state() {
         ];
         for state in states {
             crate::handle().stop();
-            block_on(crate::handle().halt());
-            assert!(block_on(miner.advance(state, &mut subscription)).is_none());
+            block_on_with(psu, crate::handle().halt());
+            assert!(block_on_with(psu, miner.advance(state, &mut subscription)).is_none());
             assert!(matches!(
-                block_on(crate::handle().next_message()),
+                block_on_with(psu, crate::handle().next_message()),
                 Message::Halt
             ));
         }
@@ -1118,12 +1153,12 @@ fn the_pool_wait_holds_until_a_slot_holds_a_job_and_cuts_the_rail_on_halt() {
         static STATS: ChainStats = ChainStats::new();
         static SESSION: AsicSession<1, 1> = AsicSession::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
-        let psu = TestPsu {
+        let (_, psu) = test_psu(TestPsu {
             log: &LOG,
             behavior: Cell::new(VoltageWrite::Succeed),
             disable_fails: false,
-        };
-        let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
+        });
+        let mut miner = test_miner(psu.handle(), [&ACTOR], [&STATS]);
         let mut subscription = test_config().0;
         let waiting = || MinerState::<OnePlanTuner>::WaitForPool(WaitForPool);
         let exercise = async {
@@ -1159,10 +1194,10 @@ fn the_pool_wait_holds_until_a_slot_holds_a_job_and_cuts_the_rail_on_halt() {
             RatioScheduler::<1>::new(),
             &STATS,
         );
-        let outcome = block_on(select(
-            join(exercise, run),
-            Timer::after(Duration::from_secs(10)),
-        ));
+        let outcome = block_on_with(
+            psu,
+            select(join(exercise, run), Timer::after(Duration::from_secs(10))),
+        );
         let Either::First(((), result)) = outcome else {
             panic!("pool wait timed out")
         };
@@ -1184,12 +1219,12 @@ fn the_pool_wait_ignores_a_fee_job_and_opens_on_an_operator_job() {
         static STATS: ChainStats = ChainStats::new();
         static SESSION: AsicSession<2, 1> = AsicSession::new();
         static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
-        let psu = TestPsu {
+        let (_, psu) = test_psu(TestPsu {
             log: &LOG,
             behavior: Cell::new(VoltageWrite::Succeed),
             disable_fails: false,
-        };
-        let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
+        });
+        let mut miner = test_miner(psu.handle(), [&ACTOR], [&STATS]);
         let mut subscription = test_config().0;
         let waiting = || MinerState::<OnePlanTuner>::WaitForPool(WaitForPool);
         let exercise = async {
@@ -1220,10 +1255,10 @@ fn the_pool_wait_ignores_a_fee_job_and_opens_on_an_operator_job() {
             FeeScheduler::<2>::new(20),
             &STATS,
         );
-        let outcome = block_on(select(
-            join(exercise, run),
-            Timer::after(Duration::from_secs(10)),
-        ));
+        let outcome = block_on_with(
+            psu,
+            select(join(exercise, run), Timer::after(Duration::from_secs(10))),
+        );
         let Either::First(((), result)) = outcome else {
             panic!("pool wait timed out")
         };
@@ -1236,7 +1271,7 @@ fn the_pool_wait_ignores_a_fee_job_and_opens_on_an_operator_job() {
 /// only a halt can leave.
 #[test]
 fn every_state_is_reachable_and_leads_back_to_choose() {
-    type TestContext = Context<'static, 'static, TestPsu, LoggingResetPin, OnePlanTuner, 1>;
+    type TestContext = Context<'static, 'static, LoggingResetPin, OnePlanTuner, 1>;
     assert_eq!(
         transitions::check::<MinerState<OnePlanTuner>, TestContext>(
             <Choose as transitions::Named>::NAME

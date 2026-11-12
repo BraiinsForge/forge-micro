@@ -31,13 +31,13 @@ driver is exercised without a hashboard on the bench.
 | Task | Owner | Role |
 |------|-------|------|
 | `serial_task` | `mining.rs` | Drives one entry of the board's static `mining::CHAINS` array through `Serial::run(...)`. One actor per hashboard chain: command dispatch, parser, in-flight work registry, baud-rate switch, and that chain's own `ChainStats`. Pinned to Core 1 so embassy-net on Core 0 stays responsive. |
-| `miner_task` | `mining.rs` | Drives `Miner::<_, _, T, CHAINS>::new(psu, BOARD, chains, platform).run()` against the tuner `MinerConfig::tuning` selects from the firmware's tuner set `T`. Bring-up / teardown state machine: reset assert, wait until the scheduler would dispatch work, PSU up, reset release, per-chain enumeration, per-chain safe-boot configuration, start work, apply tuner plans, PSU off. |
-| `psu_task` | `psu.rs` | Drives `ubos_psu::PowerSupply::run`. Polls the SIC45x input/output power every `POWER_STATS_INTERVAL` (two seconds) and publishes it. |
+| `miner_task` | `mining.rs` | Drives `Miner::<_, T, CHAINS>::new(psu_handle, BOARD, chains, platform).run()` against the tuner `MinerConfig::tuning` selects from the firmware's tuner set `T`. Bring-up / teardown state machine: reset assert, wait until the scheduler would dispatch work, PSU up, reset release, per-chain enumeration, per-chain safe-boot configuration, start work, apply tuner plans, PSU off. |
+| `psu_task` | `psu.rs` | Drives `ubos_psu::PowerSupply::run`. Carries out the rail commands the other tasks send through the PSU handle, records the voltage each command sets, and polls the SIC45x input/output power every `POWER_STATS_INTERVAL` (two seconds) and publishes it. |
 
 The SIC45x rail is gated by the `SIC_EN` GPIO the `BoardPsu` owns, not by
 a PMBus register, so there is no separate PSU-watchdog task; only
-`miner_task` raises `SIC_EN`, during bring-up, and drops it when mining
-halts.
+`psu_task` drives `SIC_EN`, on the commands `miner_task` sends through
+the PSU handle: high during bring-up, and low when mining halts.
 
 `serial_task` and `miner_task` never return under normal operation.
 `Miner::run` responds to `Handle::stop` with a rail cut.
@@ -236,7 +236,7 @@ An empty plan leaves the operating point unchanged and schedules another step.
 It does not signal completion to the mining loop.
 
 Each serial actor records its chain's frequency after a successful command.
-The PSU driver records the shared voltage after a successful command.
+The PSU task records the voltage a successful PSU command sets.
 The plan executor first lowers frequencies, then changes the rail, then raises frequencies.
 
 The firmware names the tuner set as the `T` of `Miner` and the fifth argument of `miner_task!`.

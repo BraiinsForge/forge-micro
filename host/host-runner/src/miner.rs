@@ -18,16 +18,15 @@
 // shall be considered distinct from the grant above.
 
 //! Drives `ubos_mining::Miner` against the gpiocdev-backed reset pin
-//! and the workspace-static `BmmPsu`.
+//! and the handle of the workspace-static `BmmPsu`.
 
 use embassy_time::{Duration, Timer};
 use log::{error, info};
 
 use crate::gpiod::{GpiodResetPin, RESET_LINE};
-use crate::psu::HostPsu;
 
 #[embassy_executor::task]
-pub async fn miner_task(psu: &'static HostPsu, psu_handle: &'static ubos_psu::Handle) -> ! {
+pub async fn miner_task(psu_handle: &'static ubos_psu::Handle) -> ! {
     let reset_pin = match GpiodResetPin::open(RESET_LINE) {
         Ok(pin) => pin,
         Err(error) => {
@@ -36,8 +35,7 @@ pub async fn miner_task(psu: &'static HostPsu, psu_handle: &'static ubos_psu::Ha
         }
     };
     info!("host-runner: miner bringup");
-    let mut miner = ubos_mining::Miner::<_, _, crate::TunerSet, 1>::new(
-        psu,
+    let mut miner = ubos_mining::Miner::<_, crate::TunerSet, 1>::new(
         psu_handle,
         crate::BOARD,
         [(&crate::miner_serial::CHAINS[0], reset_pin)],

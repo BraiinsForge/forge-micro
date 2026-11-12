@@ -49,7 +49,7 @@ use ubos_asic::HashboardDescriptor;
 use ubos_core::units::{Frequency, Voltage};
 use ubos_logging::{Debug2Format, info, warn};
 use ubos_metrics::chain::ChainPresence;
-use ubos_psu::{Handle as PsuHandle, Psu};
+use ubos_psu::Handle as PsuHandle;
 use ubos_tuner::{ChainReadings, Plan, Readings};
 
 use crate::chain::{ChainControl, ChainHandle};
@@ -87,18 +87,16 @@ pub async fn run_idle() -> ! {
 
 /// The ASIC mining state machine driving the injected chain driver.
 ///
-/// Owns the PSU reference and every chain of the machine. Firmware
+/// Holds the PSU handle and owns every chain of the machine. Firmware
 /// constructs this with [`Miner::new`] and calls [`Miner::run`] to
-/// run the state machine. The `'a` lifetime covers the PSU reference
+/// run the state machine. The `'a` lifetime covers the PSU handle,
 /// which today is always `'static` at the firmware call site. `T` is the
 /// machine's tuner set.
-pub struct Miner<'a, P, R, T, const CHAINS: usize>
+pub struct Miner<'a, R, T, const CHAINS: usize>
 where
-    P: Psu,
     R: ResetPin,
     T: MachineTuner<CHAINS>,
 {
-    psu: &'a P,
     psu_handle: &'a PsuHandle,
     board: &'static HashboardDescriptor,
     chains: [ChainHandle<R>; CHAINS],
@@ -114,14 +112,12 @@ where
     empty_cycles: u8,
 }
 
-impl<'a, P, R, T, const CHAINS: usize> Miner<'a, P, R, T, CHAINS>
+impl<'a, R, T, const CHAINS: usize> Miner<'a, R, T, CHAINS>
 where
-    P: Psu,
     R: ResetPin,
     T: MachineTuner<CHAINS>,
 {
-    /// Construct a `Miner` from a PSU reference and the handle it reads
-    /// the PSU through, the board descriptor
+    /// Construct a `Miner` from the PSU handle, the board descriptor
     /// whose chip facts drive the tuner, one serial actor with its reset
     /// pin per chain of the machine, in chain order, and the function that
     /// reads what the platform reports beyond the common readings.
@@ -132,8 +128,9 @@ where
     /// so a board names the two together and there is no second array
     /// whose order could drift from the first.
     ///
-    /// The PSU is borrowed for lifetime `'a`; on all current firmware
-    /// targets `'a` is `'static` because the PSU lives in a static.
+    /// The PSU handle is borrowed for lifetime `'a`; on all current
+    /// firmware targets `'a` is `'static` because the PSU lives in a
+    /// static.
     ///
     /// # Panics
     ///
@@ -146,7 +143,6 @@ where
     /// which the per-chain accounting table has no slot for, fails to
     /// compile.
     pub fn new(
-        psu: &'a P,
         psu_handle: &'a PsuHandle,
         board: &'static HashboardDescriptor,
         chains: [(&'static Serial, R); CHAINS],
@@ -182,7 +178,6 @@ where
         });
         ubos_metrics::chain::set_chain_count(CHAINS);
         Self {
-            psu,
             psu_handle,
             board,
             chains,
@@ -227,7 +222,7 @@ where
                 chain.stats.set_presence(ChainPresence::Unknown);
             }
         }
-        if let Err(error) = self.psu.disable().await {
+        if let Err(error) = self.psu_handle.disable().await {
             warn!("psu disable failed: {:?}", Debug2Format(&error));
         }
     }
@@ -235,12 +230,10 @@ where
     /// Set the open-core rail and start work only on configured chains.
     async fn start_chains(&self) -> Result<(), MinerError> {
         const WORK_PERIOD: Duration = Duration::from_secs(1);
-        let set = self
-            .psu
+        self.psu_handle
             .set_voltage(self.board.max_rail_voltage())
             .await
             .map_err(|error| MinerError::Psu(error.into()))?;
-        ubos_psu::record_set_voltage(set);
         for chain in self.chains.iter().filter(|chain| chain.is_present()) {
             chain.start_sending_work(WORK_PERIOD).await?;
         }
@@ -251,8 +244,8 @@ where
     ///
     /// The setpoint is present by construction. `start_chains` commands
     /// the open-core rail and [`StartWork`] leads to
-    /// [`Step`] only after that command succeeded, and `start_chains`
-    /// records the voltage the command set before it returns.
+    /// [`Step`] only after that command succeeded, and the PSU task
+    /// records the voltage a successful command set before it answers.
     fn readings(&self) -> Readings<CHAINS> {
         Readings {
             now: Instant::now(),
@@ -333,12 +326,10 @@ where
         else {
             return Ok(false);
         };
-        let set = self
-            .psu
+        self.psu_handle
             .set_voltage(voltage)
             .await
             .map_err(|error| MinerError::Psu(error.into()))?;
-        ubos_psu::record_set_voltage(set);
         Ok(true)
     }
 }
@@ -358,15 +349,15 @@ macro_rules! miner_task {
     ($psu:ty, $reset:ty, $board:expr, $chains:expr, $tuner:ty, $platform:expr) => {
         #[embassy_executor::task]
         pub async fn miner_task(
-            psu: &'static $psu,
+            _psu: &'static $psu,
             psu_handle: &'static ubos_psu::Handle,
             chains: [(&'static ubos_mining::serial::Serial, $reset); $chains],
         ) -> ! {
             /// Park interval after the state machine returns.
             const PARK_INTERVAL: embassy_time::Duration = embassy_time::Duration::from_secs(60);
 
-            let mut miner = ubos_mining::Miner::<_, _, $tuner, { $chains }>::new(
-                psu, psu_handle, $board, chains, $platform,
+            let mut miner = ubos_mining::Miner::<_, $tuner, { $chains }>::new(
+                psu_handle, $board, chains, $platform,
             );
             miner.run().await;
             defmt::info!("ubos-mining miner exited");
