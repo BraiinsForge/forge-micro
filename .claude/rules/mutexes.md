@@ -133,8 +133,11 @@ and a blocking mutex makes that cost real where an async one hid it.
   and 2 in one object.
 - **`ubos_mining::serial::Serial`** — one task owns the resource and the
   others send it tagged messages. Prefer this shape where the trait allows
-  it. The `Psu` trait takes `&self`, so the PSU drivers cannot be it and a
-  lock is the right answer there. The tag is the part to copy for any
+  it. `ubos_psu::PowerSupply` is that shape over a PSU driver: its task
+  is the one caller of the driver, and every other task sends it commands
+  through the `Handle`. The `Psu` trait takes `&self`, so the driver under
+  that task still reaches its bus through a lock, and the task is the
+  lock's one taker. The tag is the part to copy for any
   request-and-acknowledgement pair: without it, a caller dropped mid-wait
   hands its acknowledgement to the next one, which is the interleaving the
   serialising lock was there to prevent.
