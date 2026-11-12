@@ -19,8 +19,8 @@
 
 //! Descriptor-driven multi-sensor hashboard temperature aggregator.
 //!
-//! A board describes its sensor topology as a `&'static [SensorDescriptor]`
-//! table, then instantiates [`SensorArray`] with that table. On each sample,
+//! A board describes its sensor topology as `&'static` [`SensorDescriptor`]
+//! entries, then instantiates [`SensorArray`] with them. On each sample,
 //! `SensorArray` reads every sensor through the drivers in
 //! `ubos-temperature`, folds the chip and the hashboard readings each into
 //! their hottest and their mean, and publishes every reading it took.
@@ -47,23 +47,29 @@ const CHAIN: HashboardIndex = HashboardIndex(0);
 /// sensors behind it.
 const READ_TIMEOUT: Duration = Duration::from_millis(250);
 
-/// Multi-sensor hashboard aggregator over a board's sensor table.
+/// Multi-sensor hashboard aggregator over a board's sensor table of up
+/// to `N` sensors.
 pub struct SensorArray<const N: usize, Bus> {
-    sensors: [Sensor<Bus>; N],
+    sensors: heapless::Vec<Sensor<Bus>, N>,
 }
 
 impl<const N: usize, Bus: I2c> SensorArray<N, Bus> {
-    /// One [`Sensor`] for each entry of `sensors`, each read through a
-    /// device of its own from `bus_device`.
+    /// One [`Sensor`] for each of `sensors`, each read through a device
+    /// of its own from `bus_device`.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `sensors` holds more than `N` entries.
     #[must_use]
     pub fn new(
-        sensors: &'static [SensorDescriptor; N],
+        sensors: impl IntoIterator<Item = &'static SensorDescriptor>,
         mut bus_device: impl FnMut() -> Bus,
     ) -> Self {
         Self {
             sensors: sensors
-                .each_ref()
-                .map(|descriptor| Sensor::new(descriptor, bus_device())),
+                .into_iter()
+                .map(|descriptor| Sensor::new(descriptor, bus_device()))
+                .collect(),
         }
     }
 }
