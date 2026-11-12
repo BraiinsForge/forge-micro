@@ -154,7 +154,7 @@ async fn mdns_task(stack: embassy_net::Stack<'static>, hostname: &'static str) -
 // through a remote diode, so the safety gate runs on the die
 // readings.
 ubos_thermal::thermal_task!(
-    ubos_thermal::SensorArray<{ config::MACHINE.temp.len() }, i2c::Device>,
+    ubos_thermal::SensorArray<{ config::MACHINE.sensor_count() }, i2c::Device>,
     ubos_thermal::NoAmbient,
     ubos_thermal::NoMcu
 );
@@ -410,7 +410,7 @@ async fn boot(spawner: Spawner) {
 
     // Temperature and fan monitor via shared I2C bus.
     let hashboard_temp =
-        ubos_thermal::SensorArray::new(config::MACHINE.temp, || I2cDevice::new(bus));
+        ubos_thermal::SensorArray::new(config::MACHINE.sensors(), || I2cDevice::new(bus));
     // Both fan connectors hang off the EMC2302-1 on the same bus.
     let (board_fan, board_tach) =
         emc2302_1::new_with_range(emc2302_1::Range::RpmMin500, || I2cDevice::new(bus)).await;

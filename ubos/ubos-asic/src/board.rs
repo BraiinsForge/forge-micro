@@ -36,7 +36,13 @@ use ubos_config::{
     DefaultTuning, HashboardDefaults, MiningBounds, MiningInfo, PidTarget, Source, Statistic,
     TemperatureDescriptor, TunerInfo,
 };
+use ubos_core::index::ChipAddress;
 use ubos_core::units::{Efficiency, FanPwm, Frequency, Power, Temperature, Voltage};
+use ubos_temperature::lm75a::Lm75a;
+use ubos_temperature::tmp102::Tmp102;
+use ubos_temperature::tmp461::Tmp461;
+use ubos_temperature::tmp464::Tmp464;
+use ubos_temperature::{SensorDescriptor, TempSource};
 
 use crate::ChipDescriptor;
 // The built-in hashboard statics below are populated with the built-in
@@ -95,6 +101,8 @@ pub struct HashboardDescriptor {
     /// yet known; a `Some` value may still be tentative and pending
     /// hardware confirmation — see docs/EEPROM.md.
     pub eeprom_i2c_address: Option<u8>,
+    /// The temperature sensors on the hashboard.
+    pub temp: &'static [SensorDescriptor],
 }
 
 impl HashboardDescriptor {
@@ -196,6 +204,25 @@ pub const BMM101_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     // resolves to `0x50 + 1 - 1`), which shares this same I2C bus with the
     // 0x40/0x43/0x46/0x08 PSU addresses `BmmPsuDescriptor::DEFAULT` uses.
     eeprom_i2c_address: Some(0x50),
+    // The four LM75A board sensors, IC12D..IC12A at `0x49..=0x4c`.
+    temp: &[
+        SensorDescriptor::Lm75a(Lm75a {
+            address: 0x49,
+            local: TempSource::Hashboard,
+        }),
+        SensorDescriptor::Lm75a(Lm75a {
+            address: 0x4a,
+            local: TempSource::Hashboard,
+        }),
+        SensorDescriptor::Lm75a(Lm75a {
+            address: 0x4b,
+            local: TempSource::Hashboard,
+        }),
+        SensorDescriptor::Lm75a(Lm75a {
+            address: 0x4c,
+            local: TempSource::Hashboard,
+        }),
+    ],
 };
 
 /// Hashboard descriptor for the 4-chip BM1370 `BFMX4` (Braiins Forge Miner
@@ -232,6 +259,26 @@ pub const BFMX4_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     // against a parsed product-name match the way 0x50 was. See
     // docs/EEPROM.md.
     eeprom_i2c_address: Some(0x57),
+    // The TMP461 remote diode on the ASIC die plus two TMP102 PCB sensors.
+    // The die reading and the hashboard readings, the TMP102 pair's and the
+    // TMP461 local channel's, each gate thermal shutdown against the
+    // threshold of their own kind, and the hashboard readings drive the
+    // cooling PID.
+    temp: &[
+        SensorDescriptor::Tmp461(Tmp461 {
+            address: 0x4E,
+            local: TempSource::Hashboard,
+            remote: TempSource::Chip(ChipAddress::One(0)),
+        }),
+        SensorDescriptor::Tmp102(Tmp102 {
+            address: 0x48,
+            local: TempSource::Hashboard,
+        }),
+        SensorDescriptor::Tmp102(Tmp102 {
+            address: 0x49,
+            local: TempSource::Hashboard,
+        }),
+    ],
 };
 
 /// The Forge Axe hashboard: four BM1370 in a single parallel voltage
@@ -267,4 +314,20 @@ pub const FORGE_AXE_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     swarm_color: "blue",
     model: "Forge Axe",
     eeprom_i2c_address: None,
+    temp: &[
+        SensorDescriptor::Tmp102(Tmp102 {
+            address: 0x48,
+            local: TempSource::Hashboard,
+        }),
+        SensorDescriptor::Tmp464(Tmp464 {
+            address: 0x4A,
+            local: TempSource::Hashboard,
+            remote: [
+                Some(TempSource::Chip(ChipAddress::One(0))),
+                Some(TempSource::Chip(ChipAddress::One(1))),
+                Some(TempSource::Chip(ChipAddress::One(2))),
+                Some(TempSource::Chip(ChipAddress::One(3))),
+            ],
+        }),
+    ],
 };

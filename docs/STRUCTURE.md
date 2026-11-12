@@ -54,8 +54,9 @@ The firmware framework is split along domain lines. `ubos-core` and
 `ubos-logging` are leaf crates with no workspace dependency.
 `ubos-events` depends only on `ubos-logging`. `ubos-config` depends only
 on those three crates, and it names no board. `ubos-asic` depends on
-`ubos-core` and `ubos-config`, because a hashboard descriptor holds the
-values that its model hands to a new config. `nix/crate-layers.nix`
+`ubos-core`, `ubos-config` and `ubos-temperature`. A hashboard
+descriptor holds the values that its model hands to a new config, and
+it lists the sensors on its board. `nix/crate-layers.nix`
 lists the workspace crates that each of these base crates can depend
 on. The `crate-layers` check fails when a manifest of a base crate
 lists a workspace crate that its row does not name.

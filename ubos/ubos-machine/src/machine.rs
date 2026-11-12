@@ -20,15 +20,11 @@
 //! Machine composition: control board plus hashboard, PSU, and sensors.
 
 use ubos_asic::HashboardDescriptor;
-use ubos_core::index::ChipAddress;
 use ubos_core::units::{Current, Power, Temperature, Voltage};
 use ubos_psu::sic45x::{LoopScale, Sic45xConfig};
 use ubos_psu::tps53647::{Phases, Tps53647Config};
 use ubos_psu::{BfmPsuDescriptor, BmmPsuDescriptor, ForgeAxePsuDescriptor};
-use ubos_temperature::lm75a::Lm75a;
 use ubos_temperature::tmp102::Tmp102;
-use ubos_temperature::tmp461::Tmp461;
-use ubos_temperature::tmp464::Tmp464;
 use ubos_temperature::{SensorDescriptor, TempSource};
 
 use crate::control_board::{
@@ -73,31 +69,24 @@ pub struct MachineDescriptor<Psu: Copy> {
     pub chains: usize,
     /// The PSU powering the hashboard rail.
     pub psu: Psu,
-    /// The hashboard temperature-sensor topology.
-    pub temp: &'static [SensorDescriptor],
+    /// The temperature sensors on the PSU. The machine holds them for a
+    /// PSU descriptor that has them, because it is generic over the PSU.
+    pub psu_temp: &'static [SensorDescriptor],
 }
 
-/// The BMM101 hashboard's four LM75A board sensors, IC12D..IC12A at
-/// `0x49..=0x4c`. Shared by every miniminer machine and the host runner
-/// so the two cannot drift.
-pub const BMM101_SENSORS: [SensorDescriptor; 4] = [
-    SensorDescriptor::Lm75a(Lm75a {
-        address: 0x49,
-        local: TempSource::Hashboard,
-    }),
-    SensorDescriptor::Lm75a(Lm75a {
-        address: 0x4a,
-        local: TempSource::Hashboard,
-    }),
-    SensorDescriptor::Lm75a(Lm75a {
-        address: 0x4b,
-        local: TempSource::Hashboard,
-    }),
-    SensorDescriptor::Lm75a(Lm75a {
-        address: 0x4c,
-        local: TempSource::Hashboard,
-    }),
-];
+impl<Psu: Copy> MachineDescriptor<Psu> {
+    /// How many temperature sensors the machine reads.
+    #[must_use]
+    pub const fn sensor_count(&self) -> usize {
+        self.hashboard.temp.len() + self.psu_temp.len()
+    }
+
+    /// The temperature sensors the machine reads: those on the hashboard,
+    /// then those on the PSU.
+    pub fn sensors(&self) -> impl Iterator<Item = &'static SensorDescriptor> + use<Psu> {
+        self.hashboard.temp.iter().chain(self.psu_temp)
+    }
+}
 
 impl MachineDescriptor<BmmPsuDescriptor> {
     /// Compose the miniminer machine on a given control board. Every
@@ -116,7 +105,7 @@ impl MachineDescriptor<BmmPsuDescriptor> {
             hashboard: ubos_asic::BMM101_HASHBOARD,
             chains: CHAINS,
             psu: BmmPsuDescriptor::DEFAULT,
-            temp: &BMM101_SENSORS,
+            psu_temp: &[],
         }
     }
 }
@@ -141,27 +130,6 @@ pub const MINIMINER_ESP32S3: MachineDescriptor<BmmPsuDescriptor> =
 /// lowest to the highest the BMM101 supply delivers.
 pub const MINIMINER_INPUT_POWER: core::ops::RangeInclusive<Power> =
     Power::from_mw(19_000)..=Power::from_mw(67_000);
-
-/// The Hashnode's TMP461 remote diode on the ASIC die plus two TMP102 PCB
-/// sensors. The die reading and the hashboard readings, the TMP102 pair's
-/// and the TMP461 local channel's, each gate thermal shutdown against the
-/// threshold of their own kind, and the hashboard readings drive the
-/// cooling PID.
-pub const BFMX4_SENSORS: [SensorDescriptor; 3] = [
-    SensorDescriptor::Tmp461(Tmp461 {
-        address: 0x4E,
-        local: TempSource::Hashboard,
-        remote: TempSource::Chip(ChipAddress::One(0)),
-    }),
-    SensorDescriptor::Tmp102(Tmp102 {
-        address: 0x48,
-        local: TempSource::Hashboard,
-    }),
-    SensorDescriptor::Tmp102(Tmp102 {
-        address: 0x49,
-        local: TempSource::Hashboard,
-    }),
-];
 
 /// `SIC45x` configuration for the Hashnode 4-domain 4.8 V rail.
 ///
@@ -214,33 +182,12 @@ pub const HASHNODE: MachineDescriptor<BfmPsuDescriptor> = MachineDescriptor {
     hashboard: ubos_asic::BFMX4_HASHBOARD,
     chains: 1,
     psu: HASHNODE_PSU,
-    temp: &BFMX4_SENSORS,
+    psu_temp: &[],
 };
 const _: () = assert!(
     HASHNODE.chains <= MAX_CHAINS,
     "the Hashnode has more chains than MAX_CHAINS"
 );
-
-pub const FORGE_AXE_SENSORS: [SensorDescriptor; 3] = [
-    SensorDescriptor::Tmp102(Tmp102 {
-        address: 0x48,
-        local: TempSource::Hashboard,
-    }),
-    SensorDescriptor::Tmp464(Tmp464 {
-        address: 0x4A,
-        local: TempSource::Hashboard,
-        remote: [
-            Some(TempSource::Chip(ChipAddress::One(0))),
-            Some(TempSource::Chip(ChipAddress::One(1))),
-            Some(TempSource::Chip(ChipAddress::One(2))),
-            Some(TempSource::Chip(ChipAddress::One(3))),
-        ],
-    }),
-    SensorDescriptor::Tmp102(Tmp102 {
-        address: 0x49,
-        local: TempSource::Psu,
-    }),
-];
 
 /// TPS53647 configuration for the Forge Axe 1.2 V rail. The `PMBus`
 /// address is the ADDR-TRISE strap candidate (R1 16.5k / R2 24.3k),
@@ -254,7 +201,14 @@ const FORGE_AXE_TPS: Tps53647Config = Tps53647Config {
     ..Tps53647Config::DEFAULT
 };
 
-const FORGE_AXE_PSU: ForgeAxePsuDescriptor = ForgeAxePsuDescriptor { tps: FORGE_AXE_TPS };
+/// The Forge Axe PSU, with the TMP102 that reads it.
+const FORGE_AXE_PSU: ForgeAxePsuDescriptor = ForgeAxePsuDescriptor {
+    tps: FORGE_AXE_TPS,
+    temp: &[SensorDescriptor::Tmp102(Tmp102 {
+        address: 0x49,
+        local: TempSource::Psu,
+    })],
+};
 
 /// The Forge Axe: four BM1370 in one parallel voltage domain on an
 /// integrated RP2350B control board, with a TPS53647 multiphase VRM.
@@ -264,7 +218,7 @@ pub const FORGE_AXE: MachineDescriptor<ForgeAxePsuDescriptor> = MachineDescripto
     hashboard: ubos_asic::FORGE_AXE_HASHBOARD,
     chains: 1,
     psu: FORGE_AXE_PSU,
-    temp: &FORGE_AXE_SENSORS,
+    psu_temp: FORGE_AXE_PSU.temp,
 };
 const _: () = assert!(
     FORGE_AXE.chains <= MAX_CHAINS,

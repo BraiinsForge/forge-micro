@@ -4218,6 +4218,7 @@ dependencies = [
  "sha2 0.10.9",
  "ubos-config",
  "ubos-core",
+ "ubos-temperature",
 ]
 
 [[package]]
@@ -4587,6 +4588,7 @@ dependencies = [
  "ubos-events",
  "ubos-logging",
  "ubos-metrics",
+ "ubos-temperature",
 ]
 
 [[package]]

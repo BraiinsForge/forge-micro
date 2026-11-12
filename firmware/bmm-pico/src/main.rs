@@ -139,7 +139,7 @@ async fn mdns_task(stack: embassy_net::Stack<'static>, hostname: &'static str) -
 }
 
 ubos_thermal::thermal_task!(
-    ubos_thermal::SensorArray<{ config::MACHINE.temp.len() }, i2c::Device>,
+    ubos_thermal::SensorArray<{ config::MACHINE.sensor_count() }, i2c::Device>,
     ubos_thermal::NoAmbient,
     ubos_thermal::NoMcu
 );
@@ -366,7 +366,7 @@ async fn main(spawner: Spawner) {
         )));
 
         // Temperature + fan monitor via shared I2C bus.
-        let hashboard_temp = ubos_thermal::SensorArray::new(config::MACHINE.temp, || {
+        let hashboard_temp = ubos_thermal::SensorArray::new(config::MACHINE.sensors(), || {
             embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus)
         });
         let board_fan =

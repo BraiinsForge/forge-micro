@@ -22,13 +22,13 @@
 //! Reads the four LM75A board sensors via Linux i2c-dev; the
 //! controller exposes the maximum across all sensors so a single hot
 //! spot wins. Mirrors the `BRAIINS_MINI_BMM101_BM1362_4X1` descriptor
-//! in BOS. The sensor table is `ubos_machine::BMM101_SENSORS`, the same
-//! const the miniminer machines wrap, so it cannot drift from the
+//! in BOS. The sensor table is `ubos_asic::BMM101_HASHBOARD.temp`, the
+//! same const the miniminer machines wrap, so it cannot drift from the
 //! firmware.
 
 use embedded_i2c_unix::I2c as HostI2c;
 use log::{error, info};
-use ubos_machine::BMM101_SENSORS;
+use ubos_asic::BMM101_HASHBOARD;
 use ubos_temperature::Sensor;
 use ubos_thermal::{Accumulator, Reading, TempSample, TemperatureSensor};
 
@@ -49,7 +49,8 @@ impl HashboardTemperature {
         if path.is_empty() {
             return None;
         }
-        let sensors = BMM101_SENSORS
+        let sensors = BMM101_HASHBOARD
+            .temp
             .iter()
             .map(|desc| HostI2c::open(path).map(|bus| Sensor::new(desc, bus)))
             .collect();
@@ -62,7 +63,7 @@ impl HashboardTemperature {
         };
         info!(
             "temperature: opened {path} for {} LM75A sensor(s)",
-            BMM101_SENSORS.len()
+            BMM101_HASHBOARD.temp.len()
         );
         Some(Self { sensors })
     }

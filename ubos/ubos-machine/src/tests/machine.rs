@@ -43,7 +43,7 @@ fn sources(sensor: &SensorDescriptor) -> [Option<TempSource>; 5] {
 /// it has a threshold for, so its default target follows a kind it reads.
 fn kinds_match_sensors<Psu: Copy>(machine: &MachineDescriptor<Psu>) -> bool {
     let reads =
-        |kind: fn(TempSource) -> bool| machine.temp.iter().flat_map(sources).flatten().any(kind);
+        |kind: fn(TempSource) -> bool| machine.sensors().flat_map(sources).flatten().any(kind);
     let defaults = machine.hashboard.defaults;
     let dangerous = defaults.dangerous;
     dangerous.chip.is_some() == reads(|source| matches!(source, TempSource::Chip(_)))

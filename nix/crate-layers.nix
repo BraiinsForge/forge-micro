@@ -50,13 +50,15 @@ let
       "ubos-events"
       "ubos-logging"
     ];
-    # A hashboard descriptor holds units and the defaults of a config.
-    # The tests compare a header hash with the one mining-protocol
-    # computes, and that crate lists no workspace crate.
+    # A hashboard descriptor holds units, the defaults of a config and
+    # the sensors on its board. The tests compare a header hash with the
+    # one mining-protocol computes, and that crate lists no workspace
+    # crate.
     ubos-asic = [
       "mining-protocol"
       "ubos-config"
       "ubos-core"
+      "ubos-temperature"
     ];
   };
 

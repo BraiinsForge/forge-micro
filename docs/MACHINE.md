@@ -21,7 +21,7 @@ the crate that owns the component:
 | `HashboardDescriptor` | `ubos-asic` | `BMM101_HASHBOARD`, `BFMX4_HASHBOARD` |
 | `BmmPsuDescriptor` | `ubos-psu` | `BmmPsuDescriptor::DEFAULT` |
 | `BfmPsuDescriptor` | `ubos-psu` | `BfmPsuDescriptor::DEFAULT` |
-| `SensorDescriptor` | `ubos-temperature` | enum only; the tables (`BMM101_SENSORS`, `BFMX4_SENSORS`) live in `ubos-machine` |
+| `SensorDescriptor` | `ubos-temperature` | enum only; the `temp` field of each hashboard and PSU descriptor lists the sensors on that board |
 | `PlatformDescriptor` | `ubos-machine` | `RP2040` .. `ESP32S3` |
 | `ControlBoardDescriptor` | `ubos-machine` | `CONTROL_BOARD_*` |
 | `MachineDescriptor<Psu>` | `ubos-machine` | `MINIMINER_*`, `HASHNODE` |
@@ -163,7 +163,7 @@ binaries and `host-runner` are the composition roots: each depends on
 
 `host-runner` is not one of the boards and has no
 `MachineDescriptor`; it reads the base descriptors directly —
-`BmmPsuDescriptor::DEFAULT` and `ubos_machine::BMM101_SENSORS`, the same
+`BmmPsuDescriptor::DEFAULT` and `ubos_asic::BMM101_HASHBOARD.temp`, the same
 consts the machines wrap — so it cannot drift from the firmware.
 
 ## Follow-up work (not in this model yet)

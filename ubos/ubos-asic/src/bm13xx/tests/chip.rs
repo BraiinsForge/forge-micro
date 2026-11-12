@@ -199,6 +199,7 @@ const BMM_TEST_MULTI_DOMAIN: HashboardDescriptor = HashboardDescriptor {
     swarm_color: "blue",
     model: "test",
     eeprom_i2c_address: None,
+    temp: &[],
 };
 
 /// Single-chip BM1370 hashboard used in the `MiscSettings` bring-up
@@ -213,6 +214,7 @@ const BM1370_TEST_BOARD: HashboardDescriptor = HashboardDescriptor {
     swarm_color: "blue",
     model: "test",
     eeprom_i2c_address: None,
+    temp: &[],
 };
 
 /// Runs the full BM1366 bring-up against the multi-domain test board.

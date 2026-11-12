@@ -25,6 +25,7 @@ use core::marker::PhantomData;
 
 use embedded_hal_async::i2c::I2c;
 use ubos_core::units::{Power, Voltage};
+use ubos_temperature::SensorDescriptor;
 
 use crate::state::{Device, Shared};
 use crate::tps53647::{self, Tps53647Config};
@@ -35,16 +36,19 @@ use crate::{Error, ModelString, Psu, VoltageSource};
 mod tests;
 
 /// Runtime configuration for `ForgeAxePsu`.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 pub struct ForgeAxePsuDescriptor {
     /// TPS53647 VRM configuration.
     pub tps: Tps53647Config,
+    /// The temperature sensors on the PSU.
+    pub temp: &'static [SensorDescriptor],
 }
 
 impl ForgeAxePsuDescriptor {
     /// Default configuration for the Forge Axe board.
     pub const DEFAULT: Self = Self {
         tps: Tps53647Config::DEFAULT,
+        temp: &[],
     };
 }
 

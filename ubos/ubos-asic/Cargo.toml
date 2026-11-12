@@ -22,6 +22,7 @@ sha2            = { workspace = true }
 # config, in the type the config schema declares.
 ubos-config     = { workspace = true }
 ubos-core       = { workspace = true }
+ubos-temperature = { workspace = true }
 
 [dev-dependencies]
 # The store keeps a chip's silence on `Instant`, so the host tests need
