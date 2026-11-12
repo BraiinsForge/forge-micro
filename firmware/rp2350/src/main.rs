@@ -371,6 +371,7 @@ async fn boot(spawner: Spawner) {
         let reset = mining::BoardResetPin::new(Output::new(hw.hb_rst, Level::Low));
         spawner.spawn(unwrap!(mining::miner_task(
             psu_driver,
+            psu_handle,
             ubos_mining::serial::Serial::wire(&mining::CHAINS, [reset])
         )));
 

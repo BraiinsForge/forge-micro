@@ -49,7 +49,7 @@ use ubos_asic::HashboardDescriptor;
 use ubos_core::units::{Frequency, Voltage};
 use ubos_logging::{Debug2Format, info, warn};
 use ubos_metrics::chain::ChainPresence;
-use ubos_psu::Psu;
+use ubos_psu::{Handle as PsuHandle, Psu};
 use ubos_tuner::{ChainReadings, Plan, Readings};
 
 use crate::chain::{ChainControl, ChainHandle};
@@ -99,6 +99,7 @@ where
     T: MachineTuner<CHAINS>,
 {
     psu: &'a P,
+    psu_handle: &'a PsuHandle,
     board: &'static HashboardDescriptor,
     chains: [ChainHandle<R>; CHAINS],
     /// Readings only this board's platform has. Read once per step and
@@ -119,7 +120,8 @@ where
     R: ResetPin,
     T: MachineTuner<CHAINS>,
 {
-    /// Construct a `Miner` from a PSU reference, the board descriptor
+    /// Construct a `Miner` from a PSU reference and the handle it reads
+    /// the PSU through, the board descriptor
     /// whose chip facts drive the tuner, one serial actor with its reset
     /// pin per chain of the machine, in chain order, and the function that
     /// reads what the platform reports beyond the common readings.
@@ -145,6 +147,7 @@ where
     /// compile.
     pub fn new(
         psu: &'a P,
+        psu_handle: &'a PsuHandle,
         board: &'static HashboardDescriptor,
         chains: [(&'static Serial, R); CHAINS],
         read_platform: fn() -> T::PlatformReadings,
@@ -180,6 +183,7 @@ where
         ubos_metrics::chain::set_chain_count(CHAINS);
         Self {
             psu,
+            psu_handle,
             board,
             chains,
             read_platform,
@@ -252,10 +256,11 @@ where
     fn readings(&self) -> Readings<CHAINS> {
         Readings {
             now: Instant::now(),
-            voltage: ubos_psu::handle()
+            voltage: self
+                .psu_handle
                 .commanded_voltage()
                 .expect("BUG: tuning starts only after a successful PSU voltage command"),
-            psu: ubos_psu::handle().current(),
+            psu: self.psu_handle.current(),
             chains: self.chains.each_ref().map(|chain| {
                 chain.is_present().then(|| ChainReadings {
                     chips: chain.stats.chips(),
@@ -324,7 +329,7 @@ where
     /// Reports whether the rail was written.
     async fn set_voltage_if_different(&self, voltage: Option<Voltage>) -> Result<bool, MinerError> {
         let Some(voltage) =
-            voltage.filter(|next| Some(*next) != ubos_psu::handle().commanded_voltage())
+            voltage.filter(|next| Some(*next) != self.psu_handle.commanded_voltage())
         else {
             return Ok(false);
         };
@@ -354,13 +359,14 @@ macro_rules! miner_task {
         #[embassy_executor::task]
         pub async fn miner_task(
             psu: &'static $psu,
+            psu_handle: &'static ubos_psu::Handle,
             chains: [(&'static ubos_mining::serial::Serial, $reset); $chains],
         ) -> ! {
             /// Park interval after the state machine returns.
             const PARK_INTERVAL: embassy_time::Duration = embassy_time::Duration::from_secs(60);
 
             let mut miner = ubos_mining::Miner::<_, _, $tuner, { $chains }>::new(
-                psu, $board, chains, $platform,
+                psu, psu_handle, $board, chains, $platform,
             );
             miner.run().await;
             defmt::info!("ubos-mining miner exited");

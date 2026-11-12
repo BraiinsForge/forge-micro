@@ -29,6 +29,8 @@
 //! `configure` hand back; `LoggingResetPin` records the reset-pin call
 //! sequence a chain's hardware reset produces.
 
+extern crate std;
+
 use super::Miner;
 use super::machine::MinerState;
 use super::states::BringUp;
@@ -790,6 +792,22 @@ impl Psu for TestPsu {
     }
 }
 
+/// The one handle every test miner reads the PSU through, as a board's
+/// tasks all read the one handle its supply hands out. No PSU task runs
+/// behind it, so it reports no reading.
+fn test_handle() -> &'static ubos_psu::Handle {
+    static HANDLE: std::sync::OnceLock<&'static ubos_psu::Handle> = std::sync::OnceLock::new();
+    static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
+    HANDLE.get_or_init(|| {
+        let driver = std::boxed::Box::leak(std::boxed::Box::new(TestPsu {
+            log: &LOG,
+            disable_fails: false,
+            behavior: Cell::new(VoltageWrite::Succeed),
+        }));
+        std::boxed::Box::leak(std::boxed::Box::new(ubos_psu::PowerSupply::new(driver))).handle()
+    })
+}
+
 fn test_miner<'a, T: MachineTuner<CHAINS, PlatformReadings = ()>, const CHAINS: usize>(
     psu: &'a TestPsu,
     actors: [&'static Serial; CHAINS],
@@ -797,6 +815,7 @@ fn test_miner<'a, T: MachineTuner<CHAINS, PlatformReadings = ()>, const CHAINS: 
 ) -> Miner<'a, TestPsu, LoggingResetPin, T, CHAINS> {
     Miner {
         psu,
+        psu_handle: test_handle(),
         board: &BMM101_HASHBOARD,
         chains: core::array::from_fn(|index| ChainHandle {
             serial: actors[index],

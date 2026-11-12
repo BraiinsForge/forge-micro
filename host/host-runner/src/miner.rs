@@ -27,7 +27,7 @@ use crate::gpiod::{GpiodResetPin, RESET_LINE};
 use crate::psu::HostPsu;
 
 #[embassy_executor::task]
-pub async fn miner_task(psu: &'static HostPsu) -> ! {
+pub async fn miner_task(psu: &'static HostPsu, psu_handle: &'static ubos_psu::Handle) -> ! {
     let reset_pin = match GpiodResetPin::open(RESET_LINE) {
         Ok(pin) => pin,
         Err(error) => {
@@ -38,6 +38,7 @@ pub async fn miner_task(psu: &'static HostPsu) -> ! {
     info!("host-runner: miner bringup");
     let mut miner = ubos_mining::Miner::<_, _, crate::TunerSet, 1>::new(
         psu,
+        psu_handle,
         crate::BOARD,
         [(&crate::miner_serial::CHAINS[0], reset_pin)],
         || (),

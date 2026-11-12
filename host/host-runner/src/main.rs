@@ -617,7 +617,7 @@ fn main() {
                         miner_serial::miner_serial_task(&PARK)
                             .expect("BUG: miner_serial_task token"),
                     );
-                spawner.spawn(miner::miner_task(psu_driver).expect("BUG: miner_task token"));
+                spawner.spawn(miner::miner_task(psu_driver, psu_handle).expect("BUG: miner_task token"));
             }
             None => {
                 warn!(
