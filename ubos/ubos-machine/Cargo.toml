@@ -5,14 +5,22 @@ name    = "ubos-machine"
 version = "0.1.0"
 
 [features]
-# Forwards `defmt` to the component crates so a consumer that logs
-# through defmt compiles them with the same backend.
-defmt = ["ubos-asic/defmt", "ubos-eeprom/defmt", "ubos-psu/defmt", "ubos-temperature/defmt"]
+# Formats the Forge Axe board errors for defmt, and forwards `defmt` to the
+# component crates so a consumer that logs through defmt compiles them
+# with the same backend.
+defmt = [
+    "dep:defmt",
+    "ubos-asic/defmt",
+    "ubos-eeprom/defmt",
+    "ubos-psu/defmt",
+    "ubos-temperature/defmt",
+]
 
 [lints]
 workspace = true
 
 [dependencies]
+defmt            = { workspace = true, optional = true }
 ubos-asic        = { workspace = true }
 ubos-core        = { workspace = true }
 ubos-eeprom      = { workspace = true }

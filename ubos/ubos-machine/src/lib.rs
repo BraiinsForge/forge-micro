@@ -36,9 +36,12 @@
 #![no_std]
 
 pub mod control_board;
+pub mod forge_axe;
+pub mod front_panel;
 pub mod machine;
 pub mod platform;
 
 pub use control_board::*;
+pub use front_panel::*;
 pub use machine::*;
 pub use platform::*;

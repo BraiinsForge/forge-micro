@@ -202,7 +202,7 @@ const FORGE_AXE_TPS: Tps53647Config = Tps53647Config {
 };
 
 /// The Forge Axe PSU, with the TMP102 that reads it.
-const FORGE_AXE_PSU: ForgeAxePsuDescriptor = ForgeAxePsuDescriptor {
+pub(crate) const FORGE_AXE_PSU: ForgeAxePsuDescriptor = ForgeAxePsuDescriptor {
     tps: FORGE_AXE_TPS,
     temp: &[SensorDescriptor::Tmp102(Tmp102 {
         address: 0x49,

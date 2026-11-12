@@ -4436,6 +4436,7 @@ dependencies = [
 name = "ubos-machine"
 version = "0.1.0"
 dependencies = [
+ "defmt 1.0.1",
  "ubos-asic",
  "ubos-core",
  "ubos-eeprom",
