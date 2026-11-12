@@ -88,7 +88,7 @@ reference impl at <https://gitlab.com/giacomocaironi/embassy-cpu-usage>).
 
 ## Voltage
 
-Code: `ubos/ubos-psu/src/lib.rs`,
+Code: `ubos/ubos-psu/src/supply.rs`,
 `ubos/ubos-mining/src/publishers.rs`,
 `ubos/ubos-thermal/src/chain.rs`.
 

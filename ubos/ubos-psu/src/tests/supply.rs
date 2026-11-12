@@ -18,6 +18,7 @@
 // shall be considered distinct from the grant above.
 
 use super::*;
+use crate::StatusFlags;
 use core::cell::{Cell, RefCell};
 use core::convert::Infallible;
 use core::future::{Future, pending, poll_fn};
@@ -25,27 +26,6 @@ use core::pin::pin;
 use core::task::Poll as TaskPoll;
 use embassy_futures::join::join;
 use embassy_futures::yield_now;
-
-#[test]
-fn status_flags_default_all_clear() {
-    let flags = StatusFlags::default();
-    assert!(!flags.current_limit);
-    assert!(!flags.thermal_shutdown);
-    assert!(!flags.overvoltage);
-    assert!(!flags.undervoltage);
-}
-
-#[test]
-fn error_init_failed_carries_kind() {
-    let err: Error<core::convert::Infallible> =
-        Error::InitFailed(embedded_hal_async::i2c::ErrorKind::Bus);
-    match err {
-        Error::InitFailed(kind) => {
-            assert!(matches!(kind, embedded_hal_async::i2c::ErrorKind::Bus));
-        }
-        _ => panic!("BUG: variant mismatch"),
-    }
-}
 
 /// The step the fake supply lands every voltage command on.
 const LANDED: Voltage = Voltage::from_mv(1200);
