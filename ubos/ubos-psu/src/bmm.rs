@@ -19,16 +19,19 @@
 
 //! `BmmPsu` handle and `Psu` trait impl.
 
+use core::cell::Cell;
 use core::marker::PhantomData;
 
+use embassy_sync::blocking_mutex::Mutex as BlockingMutex;
 use embassy_time::Duration;
 use embedded_hal_async::i2c::I2c;
+use portable_atomic::{AtomicBool, Ordering};
 use ubos_logging::info;
 
 use ubos_core::units::{Power, Voltage};
 
-use crate::state::{Device, Shared};
-use crate::{BmmPsuDescriptor, Error, ModelString, Psu, heartbeat, ina230, tps6287x};
+use crate::state::{Device, RawMutex, Shared};
+use crate::{BmmPsuDescriptor, Error, ModelString, Psu, StatusFlags, heartbeat, ina230, tps6287x};
 
 #[cfg(test)]
 #[path = "tests/bmm.rs"]
@@ -84,12 +87,25 @@ pub type BmmShared<I> = Shared<BmmDevice<I>>;
 /// the caller.
 pub struct BmmPsu<I: I2c + 'static> {
     shared: &'static BmmShared<I>,
+    /// The fault flags a disable read off the converter before it stopped
+    /// it, kept until the next status read reports them. The STATUS
+    /// register clears on read, so they exist nowhere else by then.
+    latched: BlockingMutex<RawMutex, Cell<StatusFlags>>,
+    /// Set once an enable has run to its end, where it clears the
+    /// undervoltage the soft-start ramp latches, and cleared by a disable.
+    /// A disable reads the flags as faults only while this is set, because
+    /// an enable dropped during the ramp leaves that undervoltage behind.
+    ramped: AtomicBool,
 }
 
 impl<I: I2c + 'static> BmmPsu<I> {
     /// Construct a handle.
     pub fn new(shared: &'static BmmShared<I>) -> Self {
-        Self { shared }
+        Self {
+            shared,
+            latched: BlockingMutex::new(Cell::new(StatusFlags::default())),
+            ramped: AtomicBool::new(false),
+        }
     }
 }
 
@@ -99,12 +115,31 @@ impl<I: I2c + 'static> Psu for BmmPsu<I> {
     async fn enable(&self) -> Result<(), Error<I::Error>> {
         let mut psu = self.shared.acquire().await?;
         let (i2c, config) = psu.split();
-        tps6287x::enable(i2c, config).await
+        tps6287x::enable(i2c, config).await?;
+        self.ramped.store(true, Ordering::SeqCst);
+        Ok(())
     }
 
+    /// Stop the converter, after reading the fault flags it latched while
+    /// it was switching.
+    ///
+    /// A stopped converter reports undervoltage, and the status read
+    /// clears that flag while the rail is off. A sag that latched just
+    /// before a rail cut is therefore read here, where it can still be
+    /// told from the stop, and the next status read reports it. A read
+    /// that fails is dropped, so the cut goes ahead. The flags are read
+    /// only behind an enable that ran to its end, so the undervoltage of
+    /// a ramp that a dropped enable left latched is never taken for a sag.
     async fn disable(&self) -> Result<(), Error<I::Error>> {
         let mut psu = self.shared.acquire().await?;
         let (i2c, config) = psu.split();
+        if self.ramped.swap(false, Ordering::SeqCst)
+            && let Ok(true) = tps6287x::is_switching(i2c, config).await
+            && let Ok(flags) = tps6287x::read_status(i2c, config).await
+        {
+            self.latched
+                .lock(|latched| latched.set(latched.get().union(flags)));
+        }
         tps6287x::disable(i2c, config).await
     }
 
@@ -142,10 +177,19 @@ impl<I: I2c + 'static> Psu for BmmPsu<I> {
             .map_err(Error::Bus)
     }
 
+    /// Read the converter's fault flags, with undervoltage cleared while
+    /// the converter is stopped, and report with them the flags the last
+    /// disable read before it stopped the converter.
+    ///
+    /// A stopped converter holds no voltage and reports that as
+    /// undervoltage, so the flag is a fault only while the rail is on.
     async fn read_status(&self) -> Result<crate::StatusFlags, Error<I::Error>> {
         let mut psu = self.shared.acquire().await?;
         let (i2c, config) = psu.split();
-        tps6287x::read_status(i2c, config).await
+        let switching = tps6287x::is_switching(i2c, config).await?;
+        let mut flags = tps6287x::read_status(i2c, config).await?;
+        flags.undervoltage &= switching;
+        Ok(flags.union(self.latched.lock(Cell::take)))
     }
 
     async fn heartbeat_interval(&self) -> Option<Duration> {

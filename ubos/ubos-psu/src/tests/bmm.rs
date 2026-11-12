@@ -120,3 +120,117 @@ fn terminate_disables_dcdc_and_short_circuits_subsequent_calls() {
 
     bus.done();
 }
+
+/// Read the status of a converter whose CONTROL1 reads `control1` and
+/// whose STATUS reports undervoltage.
+fn undervoltage_status(control1: u8) -> crate::StatusFlags {
+    let config = crate::BmmPsuDescriptor::DEFAULT;
+    let mut transactions = test_support::init_transactions(&config);
+    transactions.push(Transaction::write_read(
+        config.dcdc_address,
+        vec![tps6287x::REG_CONTROL1],
+        vec![control1],
+    ));
+    transactions.push(Transaction::write_read(
+        config.dcdc_address,
+        vec![tps6287x::REG_STATUS],
+        vec![0b0000_0010],
+    ));
+    let (psu, mut bus) = make_handle(Mock::new(&transactions), config);
+    let flags = run(psu.read_status()).expect("BUG: read_status failed");
+    bus.done();
+    flags
+}
+
+#[test]
+fn undervoltage_is_cleared_while_the_converter_is_stopped() {
+    assert!(!undervoltage_status(0).undervoltage);
+}
+
+#[test]
+fn undervoltage_is_reported_while_the_converter_switches() {
+    assert!(undervoltage_status(tps6287x::CONTROL1_SWEN).undervoltage);
+}
+
+#[test]
+fn undervoltage_latched_before_a_disable_is_reported_once() {
+    let config = crate::BmmPsuDescriptor::DEFAULT;
+    let control1 = |value: u8| {
+        Transaction::write_read(
+            config.dcdc_address,
+            vec![tps6287x::REG_CONTROL1],
+            vec![value],
+        )
+    };
+    let status = |value: u8| {
+        Transaction::write_read(config.dcdc_address, vec![tps6287x::REG_STATUS], vec![value])
+    };
+    let mut transactions = test_support::init_transactions(&config);
+    // The enable runs to its end and clears what the ramp latched.
+    transactions.push(Transaction::write(
+        config.dcdc_address,
+        tps6287x::encode_control1(true, config.dcdc_ramp_speed).to_vec(),
+    ));
+    transactions.push(status(0b0000_0010));
+    // The disable finds the converter switching with undervoltage latched.
+    transactions.push(control1(tps6287x::CONTROL1_SWEN));
+    transactions.push(status(0b0000_0010));
+    transactions.push(Transaction::write(
+        config.dcdc_address,
+        tps6287x::encode_control1(false, config.dcdc_ramp_speed).to_vec(),
+    ));
+    // Both status reads find the converter stopped and reporting that as
+    // undervoltage.
+    for _ in 0..2 {
+        transactions.push(control1(0));
+        transactions.push(status(0b0000_0010));
+    }
+    let (psu, mut bus) = make_handle(Mock::new(&transactions), config);
+
+    run(psu.enable()).expect("BUG: enable failed");
+    run(psu.disable()).expect("BUG: disable failed");
+    let first = run(psu.read_status()).expect("BUG: first read_status failed");
+    let second = run(psu.read_status()).expect("BUG: second read_status failed");
+
+    assert!(first.undervoltage);
+    assert!(!second.undervoltage);
+    bus.done();
+}
+
+#[test]
+fn undervoltage_of_a_ramp_cut_short_is_not_latched_by_the_disable() {
+    let config = crate::BmmPsuDescriptor::DEFAULT;
+    let switch = |on: bool| {
+        Transaction::write(
+            config.dcdc_address,
+            tps6287x::encode_control1(on, config.dcdc_ramp_speed).to_vec(),
+        )
+    };
+    let mut transactions = test_support::init_transactions(&config);
+    transactions.push(switch(false));
+    // The enable is dropped in its soft-start wait, before its status read.
+    transactions.push(switch(true));
+    // The disable stops the converter and reads no flags.
+    transactions.push(switch(false));
+    // The status read finds the converter stopped, with the undervoltage
+    // of the ramp still latched.
+    transactions.push(Transaction::write_read(
+        config.dcdc_address,
+        vec![tps6287x::REG_CONTROL1],
+        vec![0],
+    ));
+    transactions.push(Transaction::write_read(
+        config.dcdc_address,
+        vec![tps6287x::REG_STATUS],
+        vec![0b0000_0010],
+    ));
+    let (psu, mut bus) = make_handle(Mock::new(&transactions), config);
+
+    run(psu.disable()).expect("BUG: first disable failed");
+    assert!(embassy_futures::poll_once(psu.enable()).is_pending());
+    run(psu.disable()).expect("BUG: second disable failed");
+    let flags = run(psu.read_status()).expect("BUG: read_status failed");
+
+    assert!(!flags.undervoltage);
+    bus.done();
+}

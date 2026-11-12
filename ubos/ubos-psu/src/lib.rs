@@ -62,6 +62,19 @@ pub struct StatusFlags {
     pub undervoltage: bool,
 }
 
+impl StatusFlags {
+    /// The flags set in either value.
+    #[must_use]
+    pub const fn union(self, other: Self) -> Self {
+        Self {
+            current_limit: self.current_limit || other.current_limit,
+            thermal_shutdown: self.thermal_shutdown || other.thermal_shutdown,
+            overvoltage: self.overvoltage || other.overvoltage,
+            undervoltage: self.undervoltage || other.undervoltage,
+        }
+    }
+}
+
 /// Errors surfaced by the [`Psu`] trait. `E` is the underlying I2C
 /// bus error type.
 #[derive(Debug)]

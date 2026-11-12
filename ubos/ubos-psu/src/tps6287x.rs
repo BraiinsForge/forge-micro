@@ -38,6 +38,9 @@ pub(crate) const REG_CONTROL1: u8 = 0x01;
 pub(crate) const REG_CONTROL2: u8 = 0x02;
 pub(crate) const REG_STATUS: u8 = 0x04;
 
+/// CONTROL1 bit that starts the converter switching.
+pub(crate) const CONTROL1_SWEN: u8 = 1 << 5;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum VoltageRampSpeed {
     VRamp10,
@@ -178,7 +181,7 @@ pub(crate) fn encode_vset(dac: u8) -> [u8; 2] {
 pub(crate) fn encode_control1(swen: bool, vramp: VoltageRampSpeed) -> [u8; 2] {
     let mut value = 0u8;
     if swen {
-        value |= 1 << 5;
+        value |= CONTROL1_SWEN;
     }
     value |= 1 << 3; // dischen
     value |= vramp.bits();
@@ -362,6 +365,30 @@ where
         .await
         .map_err(Error::Bus)?;
     Ok(config.dcdc_voltage_range.dac_to_voltage(dac))
+}
+
+/// Read back from CONTROL1 whether the converter is switching.
+///
+/// The device holds the answer, so a status read can tell a rail that is
+/// off from one that sags without the driver keeping a copy that an
+/// enable or a disable failing part way would leave wrong.
+///
+/// # Errors
+///
+/// Returns [`Error::Bus`] on any I2C failure.
+pub(crate) async fn is_switching<I, E>(
+    i2c: &mut I,
+    config: &BmmPsuDescriptor,
+) -> Result<bool, Error<E>>
+where
+    I: I2c<Error = E>,
+    E: embedded_hal_async::i2c::Error,
+{
+    let mut buffer = [0u8; 1];
+    i2c.write_read(config.dcdc_address, &[REG_CONTROL1], &mut buffer)
+        .await
+        .map_err(Error::Bus)?;
+    Ok(buffer[0] & CONTROL1_SWEN != 0)
 }
 
 /// Read the STATUS register and decode the four shared fault flags.
