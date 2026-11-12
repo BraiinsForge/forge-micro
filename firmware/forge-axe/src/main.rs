@@ -35,7 +35,7 @@
 #![no_main]
 
 use core::cell::RefCell;
-use defmt::{info, unwrap};
+use defmt::{error, info, unwrap};
 use defmt_rtt as _;
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_executor::Spawner;
@@ -65,7 +65,14 @@ use ubos_config::{FlashStorage, SyncFlash};
 use ubos_cooling::emc2302_1;
 #[cfg(feature = "display")]
 use ubos_display::sh1106::{Rotation, Sh1106};
-use ubos_eeprom::HashboardEeprom as _;
+use ubos_eeprom::forge::RECORD_LEN;
+use ubos_eeprom::i2c::I2cEeprom;
+use ubos_machine::MachineDescriptor;
+use ubos_machine::forge_axe::{
+    FORGE_AXE_MAX_SENSORS, ForgeAxeEeprom, forge_axe_control_board, forge_axe_hashboard,
+    forge_axe_psu,
+};
+use ubos_psu::ForgeAxePsuDescriptor;
 use ubos_rp::i2c;
 use ubos_rp::rgb::Ws2812Ring;
 
@@ -149,12 +156,12 @@ async fn mdns_task(stack: embassy_net::Stack<'static>, hostname: &'static str) -
     .await
 }
 
-// This board's array is a TMP464 and two TMP102, from the
-// `ubos_machine::FORGE_AXE` sensor table. The TMP464 reads each die
-// through a remote diode, so the safety gate runs on the die
-// readings.
+// This board's array is the sensors of the hashboard and the PSU that its
+// EEPROMs name: a TMP102 and a TMP464 on the hashboard, and the PSU
+// TMP102. The TMP464 reads each die through a remote diode, so the
+// safety gate runs on the die readings.
 ubos_thermal::thermal_task!(
-    ubos_thermal::SensorArray<{ config::MACHINE.sensor_count() }, i2c::Device>,
+    ubos_thermal::SensorArray<{ FORGE_AXE_MAX_SENSORS }, i2c::Device>,
     ubos_thermal::NoAmbient,
     ubos_thermal::NoMcu
 );
@@ -258,6 +265,56 @@ fn main() -> ! {
     ubos_metrics::cpu_load::run_cortex_m_executor::<0, _>(|spawner| {
         spawner.spawn(unwrap!(boot(spawner)));
     })
+}
+
+/// The machine of the boards that the EEPROMs name, or `None` when the
+/// hashboard, the PSU or the control board names no known board. Logs the
+/// records, and why a record names no known board.
+async fn read_machine(bus: &'static i2c::Bus) -> Option<MachineDescriptor<ForgeAxePsuDescriptor>> {
+    let mut device = I2cDevice::new(bus);
+    let mut raw = [[0; RECORD_LEN]; 4];
+    let [hashboard, psu, control_board, front_panel] = &mut raw;
+    let hashboard = I2cEeprom::new(ForgeAxeEeprom::HASHBOARD, &mut device)
+        .read_record(hashboard)
+        .await;
+    let psu = I2cEeprom::new(ForgeAxeEeprom::PSU, &mut device)
+        .read_record(psu)
+        .await;
+    let control_board = I2cEeprom::new(ForgeAxeEeprom::CONTROL_BOARD, &mut device)
+        .read_record(control_board)
+        .await;
+    // TODO: the front panel takes the descriptor that its record names, with
+    // the code that drives the panel.
+    let front_panel = I2cEeprom::new(ForgeAxeEeprom::FRONT_PANEL, &mut device)
+        .read_record(front_panel)
+        .await;
+    info!(
+        "EEPROM: hashboard {}, PSU {}, control board {}, front panel {}",
+        hashboard, psu, control_board, front_panel
+    );
+    let hashboard = hashboard.ok().and_then(|record| {
+        forge_axe_hashboard(&record)
+            .inspect_err(|e| error!("EEPROM: hashboard: {}", e))
+            .ok()
+    });
+    let psu = psu.ok().and_then(|record| {
+        forge_axe_psu(&record)
+            .inspect_err(|e| error!("EEPROM: PSU: {}", e))
+            .ok()
+    });
+    let control_board = control_board.ok().and_then(|record| {
+        forge_axe_control_board(&record)
+            .inspect_err(|e| error!("EEPROM: control board: {}", e))
+            .ok()
+    });
+    // TODO: the network takes the MAC address of the control-board data,
+    // and the LED ring shows its brand color.
+    let (control_board, _control_board_eeprom) = control_board?;
+    Some(MachineDescriptor::forge_axe(
+        control_board,
+        hashboard?,
+        psu?,
+    ))
 }
 
 #[embassy_executor::task]
@@ -380,27 +437,29 @@ async fn boot(spawner: Spawner) {
     let i2c = I2c::new_async(hw.i2c, hw.scl, hw.sda, Irqs, I2cConfig::default());
     let bus: &'static i2c::Bus = I2C1_BUS.init(Mutex::new(i2c));
 
-    // Read the hashboard EEPROM once, before powering anything up, so its
-    // identity is in the log even if bring-up later fails.
-    if let Some(address) = config::BOARD.eeprom_i2c_address {
-        let mut device = I2cDevice::new(bus);
-        ubos_eeprom::i2c::I2cEeprom::new(address, &mut device)
-            .log_identity()
-            .await;
-    }
+    // PWR_EN (GPIO33) and HB_RST (GPIO32) start low before the EEPROMs
+    // are read, so the rail stays off and the chips stay in reset until
+    // the miner task brings them up.
+    // TODO: hold both low after the boot stops below: returning drops
+    // the outputs, and dropping an output releases its pin.
+    let pwr_en = Output::new(hw.pwr_en, Level::Low);
+    let hb_rst = Output::new(hw.hb_rst, Level::Low);
 
-    // PWR_EN starts low; the rail stays off until the miner task enables
-    // it.
-    let psu = psu::init(
-        bus,
-        Output::new(hw.pwr_en, Level::Low),
-        Input::new(hw.vr_rdy, Pull::None),
-    );
+    // Read the EEPROMs before powering anything up: the boards they name
+    // decide the PSU settings and the sensors the thermal monitor reads.
+    // Without a known hashboard, PSU and control board, the hardware is not
+    // known, so the rail stays off and the chips stay in reset. The
+    // watchdog and the LED already run, so the board does not reboot-loop.
+    let Some(machine) = read_machine(bus).await else {
+        // TODO: keep the network and OTA up without a known machine.
+        error!("boot: the EEPROMs name no known machine, so it stays off");
+        return;
+    };
+
+    let psu = psu::init(bus, machine.psu, pwr_en, Input::new(hw.vr_rdy, Pull::None));
     spawner.spawn(unwrap!(psu::psu_task(psu, runners.psu)));
 
-    // GPIO32: HIGH = enabled/out-of-reset; start LOW (in reset) until the
-    // miner task is ready to bring up the hashboard.
-    let reset = mining::BoardResetPin::new(Output::new(hw.hb_rst, Level::Low));
+    let reset = mining::BoardResetPin::new(hb_rst);
     spawner.spawn(unwrap!(mining::miner_task(
         handles.psu,
         ubos_mining::serial::Serial::wire(&mining::CHAINS, [reset]),
@@ -409,8 +468,7 @@ async fn boot(spawner: Spawner) {
     )));
 
     // Temperature and fan monitor via shared I2C bus.
-    let hashboard_temp =
-        ubos_thermal::SensorArray::new(config::MACHINE.sensors(), || I2cDevice::new(bus));
+    let hashboard_temp = ubos_thermal::SensorArray::new(machine.sensors(), || I2cDevice::new(bus));
     // Both fan connectors hang off the EMC2302-1 on the same bus.
     let (board_fan, board_tach) =
         emc2302_1::new_with_range(emc2302_1::Range::RpmMin500, || I2cDevice::new(bus)).await;

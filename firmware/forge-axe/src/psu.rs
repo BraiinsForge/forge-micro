@@ -29,8 +29,9 @@
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_rp::gpio::{Input, Output};
 use static_cell::StaticCell;
-use ubos_machine::FORGE_AXE as MACHINE;
-use ubos_psu::{ForgeAxePsu, ForgeAxeShared, GatedPsu, InnerGate, PowerSupply};
+use ubos_psu::{
+    ForgeAxePsu, ForgeAxePsuDescriptor, ForgeAxeShared, GatedPsu, InnerGate, PowerSupply,
+};
 use ubos_rp::i2c::{Bus, Device};
 
 /// The shared TPS53647 `PMBus` driver instantiated for this board's bus.
@@ -50,15 +51,17 @@ static PSU: StaticCell<PowerSupply<BoardPsu>> = StaticCell::new();
 const VR_RDY_SETTLE: embassy_time::Duration = embassy_time::Duration::from_millis(10);
 
 /// Construct the `BoardPsu` over an `I2cDevice` carved from `bus`,
+/// configured by `descriptor`,
 /// taking ownership of `PWR_EN` (passed in already driven low), and
 /// return the `PowerSupply` over it, whose handle every other task takes.
 pub fn init(
     bus: &'static Bus,
+    descriptor: ForgeAxePsuDescriptor,
     pwr_en: Output<'static>,
     vr_rdy: Input<'static>,
 ) -> &'static PowerSupply<BoardPsu> {
     let device = I2cDevice::new(bus);
-    let shared: &'static _ = SHARED.init(ForgeAxeShared::new(device, MACHINE.psu));
+    let shared: &'static _ = SHARED.init(ForgeAxeShared::new(device, descriptor));
     let inner = ForgeAxePsu::new(shared);
     let driver: &'static BoardPsu = DRIVER.init(GatedPsu::new(
         inner,
