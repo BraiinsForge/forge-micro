@@ -26,10 +26,15 @@ map and the dependency direction.
    another. Each subsystem that runs a task exposes one `…Handle`
    struct: a small `Copy` value over `&'static` references to the
    module's private primitives. Consumers take the concrete handle,
-   not a trait. The firmware passes handles at spawn time. Use a
-   handle for nothing else: state that several tasks share and that
-   has no task of its own, such as the core-1 park, is a plain type
-   with private fields. The firmware owns it as a `static` in
+   not a trait. The firmware passes handles at spawn time. The PSU is
+   the one exception in shape: its task is generic over the board's
+   driver, which a module static cannot be, so its `Handle` holds the
+   primitives itself, lives in the board's `'static` `PowerSupply`,
+   and reaches each consumer as `&'static Handle`. A board with no
+   supply holds `Handle::absent()` for the tasks that only read it.
+   Use a handle for nothing else: state that several tasks share and
+   that has no task of its own, such as the core-1 park, is a plain
+   type with private fields. The firmware owns it as a `static` in
    `main.rs` and passes a `&'static` reference at spawn time.
 5. **Pure core, thin shell.** Module decision logic lives in pure
    functions. The embassy task is an I/O wrapper.

@@ -151,7 +151,7 @@ fn stop_finishes_the_pending_voltage_write_without_a_shutdown_ramp() {
                 &[Write::Voltage(voltage), Write::Disable,]
             );
         });
-        assert_eq!(ubos_psu::handle().commanded_voltage(), Some(voltage));
+        assert_eq!(super::test_handle().commanded_voltage(), Some(voltage));
     });
 }
 
@@ -787,7 +787,7 @@ fn halt_finishes_the_pending_voltage_write_before_cutting_the_rail() {
                 Poll::Ready(Some(MinerState::Halted(_)))
             ));
         }
-        assert_eq!(ubos_psu::handle().commanded_voltage(), Some(voltage));
+        assert_eq!(super::test_handle().commanded_voltage(), Some(voltage));
         LOG.lock(|log| {
             assert_eq!(
                 log.borrow().as_slice(),
@@ -1006,7 +1006,7 @@ fn live_frequency_and_voltage_edits_do_not_cut_power() {
             voltage = Voltage::from_mv(voltage.mv() - 100);
             publish(fixed_config(frequency, voltage));
             core::future::poll_fn(|_| {
-                if ubos_psu::handle().commanded_voltage() == Some(voltage) {
+                if super::test_handle().commanded_voltage() == Some(voltage) {
                     core::task::Poll::Ready(())
                 } else {
                     core::task::Poll::Pending

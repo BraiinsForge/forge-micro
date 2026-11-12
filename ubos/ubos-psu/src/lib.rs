@@ -23,12 +23,10 @@
 //! Linux (via `embedded-i2c-unix`) and on rp2040/rp2350 (via
 //! `embassy-rp::i2c`).
 //!
-//! The metrics surface below is free functions over private statics,
-//! not methods on a type. There is one metrics store per firmware
-//! image, so a handle owning it would promise an instance no caller can
-//! choose. [`handle`] returns a `Handle` that is `Copy` and carries no
-//! state, which makes it a token rather than an owner. Six other crates
-//! in this tree expose the same `handle()` shape for the same reason.
+//! A board builds one [`PowerSupply`] over its driver and spawns
+//! [`PowerSupply::run`]. That task is the only writer of what it
+//! records about the supply; every other task reaches the PSU through
+//! the `&'static` [`Handle`] the board passes it at spawn.
 
 #![cfg_attr(not(test), no_std)]
 // Embassy executors do not require `Send`; adding the bound to
@@ -137,15 +135,10 @@ pub struct PsuReading {
     pub sensor_fault: bool,
 }
 
-/// Subscriber capacity for the PSU watch. No consumer subscribes
-/// today; the REST API peeks via [`Handle::current`], which does not
-/// consume a slot. The capacity reserves headroom for future
-/// `subscribe()` callers.
+/// Subscriber capacity for the reading watch. No consumer subscribes
+/// today; the REST API and the miner peek via [`Handle::current`], which
+/// does not consume a slot.
 const WATCH_CAPACITY: usize = 4;
-
-/// Module-internal state watch. Single writer is [`PowerSupply::run`];
-/// readers obtained via [`Handle::subscribe`] or [`Handle::current`].
-pub(crate) static STATE_WATCH: Watch<CSMutex, PsuReading, WATCH_CAPACITY> = Watch::new();
 
 /// Most recent voltage commanded via [`Psu::set_voltage`], in
 /// millivolts. Zero means no `set_voltage` call has succeeded yet on
@@ -193,34 +186,15 @@ pub const MODEL_LEN: usize = 40;
 /// The PSU model string a driver identifies during its one-shot init.
 pub type ModelString = heapless::String<MODEL_LEN>;
 
-/// Module-internal model watch. Written at most once, by
-/// [`PowerSupply::run`] once the driver identified a model; read via
-/// [`Handle::model`].
-static MODEL_WATCH: Watch<CSMutex, ModelString, 1> = Watch::new();
-
-/// Obtain a handle to the PSU metrics module. `Copy`; callers freely
-/// pass it to multiple tasks.
-#[must_use]
-pub fn handle() -> Handle {
-    HANDLE
-}
-
-/// The handle over the module statics, which every board's
-/// [`PowerSupply::handle`] hands out until the readings move into the
-/// supply.
-static HANDLE: Handle = Handle {
-    state: &STATE_WATCH,
-    model: &MODEL_WATCH,
-};
-
-/// Consumer-side handle for the PSU metrics.
+/// The one way into a running PSU: every fact [`PowerSupply::run`]
+/// records comes back out through it.
 ///
-/// `Copy` because it holds only `&'static` references. Every consumer
-/// task takes its own value.
-#[derive(Clone, Copy)]
+/// [`PowerSupply::handle`] hands it out as a `'static` reference, so
+/// every task borrows the one instance the supply owns. The task is the
+/// only writer of the state the handle reads.
 pub struct Handle {
-    state: &'static Watch<CSMutex, PsuReading, WATCH_CAPACITY>,
-    model: &'static Watch<CSMutex, ModelString, 1>,
+    reading: Watch<CSMutex, PsuReading, WATCH_CAPACITY>,
+    model: Watch<CSMutex, ModelString, 1>,
 }
 
 impl Handle {
@@ -228,9 +202,13 @@ impl Handle {
     /// answers `None`.
     #[must_use]
     pub const fn absent() -> Self {
+        Self::new()
+    }
+
+    const fn new() -> Self {
         Self {
-            state: &STATE_WATCH,
-            model: &MODEL_WATCH,
+            reading: Watch::new(),
+            model: Watch::new(),
         }
     }
 
@@ -248,18 +226,18 @@ impl Handle {
     /// completed a first successful poll yet.
     #[must_use]
     pub fn current(&self) -> Option<PsuReading> {
-        self.state.try_get()
+        self.reading.try_get()
     }
 
-    /// Per-task subscription. Call once per consumer task before
-    /// entering its loop.
+    /// Per-task subscription to the readings. Call once per consumer task
+    /// before entering its loop.
     ///
     /// # Panics
     ///
     /// Panics if the underlying `Watch` has no free receiver slots.
     #[must_use]
-    pub fn subscribe(&self) -> PsuSubscription {
-        self.state
+    pub fn subscribe(&'static self) -> PsuSubscription {
+        self.reading
             .receiver()
             .expect("BUG: Handle receiver slots exhausted; raise WATCH_CAPACITY")
     }
@@ -271,12 +249,15 @@ impl Handle {
     }
 }
 
-/// A board's PSU: the driver the PSU task polls.
+/// A board's PSU: the driver and the [`Handle`] every other task reaches
+/// it through.
 ///
-/// [`PowerSupply::run`] is the only writer of the readings and the model
-/// the [`Handle`] reads, so they are recorded where the driver answers.
+/// [`PowerSupply::run`] is the only writer of what the handle reads, so
+/// the readings and the model are recorded where the driver answers
+/// rather than by each caller.
 pub struct PowerSupply<P: 'static> {
     driver: &'static P,
+    handle: Handle,
 }
 
 /// What one poll hands the next.
@@ -295,13 +276,16 @@ impl<P: Psu> PowerSupply<P> {
     /// from [`PowerSupply::run`].
     #[must_use]
     pub const fn new(driver: &'static P) -> Self {
-        Self { driver }
+        Self {
+            driver,
+            handle: Handle::new(),
+        }
     }
 
     /// The handle the board passes to every task that reaches the PSU.
     #[must_use]
     pub fn handle(&'static self) -> &'static Handle {
-        &HANDLE
+        &self.handle
     }
 
     /// Run the PSU forever: every [`POWER_STATS_INTERVAL`] read the
@@ -313,10 +297,10 @@ impl<P: Psu> PowerSupply<P> {
         loop {
             ticker.next().await;
             self.poll(&mut poll).await;
-            if MODEL_WATCH.try_get().is_none()
+            if self.handle.model.try_get().is_none()
                 && let Some(model) = self.driver.model().await
             {
-                MODEL_WATCH.sender().send(model);
+                self.handle.model.sender().send(model);
             }
         }
     }
@@ -400,7 +384,7 @@ impl<P: Psu> PowerSupply<P> {
         match (input_result, output_result, voltage_result) {
             (Ok(input), Ok(output), Ok(voltage)) => {
                 poll.last_known = Some((input, output, voltage));
-                STATE_WATCH.sender().send(PsuReading {
+                self.handle.reading.sender().send(PsuReading {
                     input_power: input,
                     output_power: output,
                     output_voltage_set: set_voltage,
@@ -411,7 +395,7 @@ impl<P: Psu> PowerSupply<P> {
             }
             _ => {
                 if let Some((input, output, voltage)) = poll.last_known {
-                    STATE_WATCH.sender().send(PsuReading {
+                    self.handle.reading.sender().send(PsuReading {
                         input_power: input,
                         output_power: output,
                         output_voltage_set: set_voltage,
