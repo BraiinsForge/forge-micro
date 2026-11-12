@@ -244,7 +244,7 @@ pub(crate) fn downgrade_version(staged: StagedConfig, versions: &[Version]) -> O
 ///
 /// A packer copies the hash into the update header, so the firmware
 /// that installs the update knows which record the new image reads.
-/// `pkgs/config-schema-hash` reads the symbol. The linker refuses a
+/// `pkgs/elf-symbol` reads the symbol. The linker refuses a
 /// second definition of the name, so an image holds one hash. `used`
 /// keeps the static through the link, because nothing in the firmware
 /// reads it.

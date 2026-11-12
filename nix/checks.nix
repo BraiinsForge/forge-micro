@@ -330,9 +330,11 @@ let
     "rp2350-bootloader"
   ];
 
-  # The script a packer runs to read the config schema hash out of the
-  # ELF of an image.
-  configSchemaHash = pkgs.callPackage ../pkgs/config-schema-hash { };
+  # The script that reads a value out of the ELF of an image. The image
+  # guard runs it to hold that each image exports the config schema hash.
+  elfSymbol = pkgs.callPackage ../pkgs/elf-symbol { };
+  # The export name of SCHEMA_HASH_SYMBOL in ubos-config's versions module.
+  schemaHashSymbol = "UBOS_CONFIG_SCHEMA_HASH";
 
   # The image guard, a check over the ELF a board plan links. It
   # objcopies the ELF and enforces the OTA slot budget. cargo check and
@@ -349,7 +351,7 @@ let
     name: plan:
     pkgs.runCommand "build-${name}" { nativeBuildInputs = [ pkgs.gcc-arm-embedded ]; } (
       ''
-        ${configSchemaHash}/bin/config-schema-hash ${plan}/bin/${name}
+        ${elfSymbol}/bin/elf-symbol ${plan}/bin/${name} ${schemaHashSymbol} > /dev/null
         bin=$(mktemp --suffix=.bin)
         arm-none-eabi-objcopy -O binary ${plan}/bin/${name} "$bin"
       ''
@@ -1083,5 +1085,5 @@ hostClippyChecks
   rp2350-bootloader-run = pkgs.callPackage ../pkgs/rp2350-bootloader-runner { };
   setup-network = pkgs.callPackage ../pkgs/setup-network { };
   host-runner-run = pkgs.callPackage ../pkgs/host-runner-run { };
-  config-schema-hash = configSchemaHash;
+  elf-symbol = elfSymbol;
 }

@@ -17,16 +17,17 @@
 # to this program, or any part thereof, under any terms, and such a grant
 # shall be considered distinct from the grant above.
 
-# Prints the config schema hash that a firmware ELF declares, for a packer
-# that writes it into an update header. Packaged with writePython3Bin so
-# pyflakes and pyelftools come for free.
+# Writes the bytes of a symbol in a firmware ELF to standard output, for a
+# host tool that needs a value the image was built with, such as a packer
+# that writes the config schema hash into an update header. Packaged with
+# writePython3Bin so pyflakes and pyelftools come for free.
 {
   writers,
   python3Packages,
 }:
-writers.writePython3Bin "config-schema-hash" {
+writers.writePython3Bin "elf-symbol" {
   libraries = [ python3Packages.pyelftools ];
   # E501: each error message stays on one line rather than wrapping at 79
   # columns.
   flakeIgnore = [ "E501" ];
-} (builtins.readFile ./config_schema_hash.py)
+} (builtins.readFile ./elf_symbol.py)

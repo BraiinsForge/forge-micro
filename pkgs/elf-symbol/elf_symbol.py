@@ -18,12 +18,12 @@
 # shall be considered distinct from the grant above.
 
 """
-Print the config schema hash that a firmware ELF declares, as hex.
+Write the bytes of a symbol in a firmware ELF to standard output.
 
-ubos-config exports the schema hash of each build under one symbol. A
-packer that writes the hash into an update header reads it with this
-script from the ELF the image came from, so the header carries the hash
-the image was built with.
+A firmware exports a value that a host tool needs under a symbol name,
+such as the config schema hash that a packer writes into an update
+header. The tool reads the value with this script from the ELF that the
+image came from, so it gets the value that the image was built with.
 """
 
 import argparse
@@ -32,18 +32,13 @@ import sys
 from elftools.common.exceptions import ELFError
 from elftools.elf.elffile import ELFFile
 
-# The export name of SCHEMA_HASH_SYMBOL in ubos-config's versions module.
-SYMBOL = "UBOS_CONFIG_SCHEMA_HASH"
-# The length of a config schema hash in bytes.
-HASH_LEN = 8
 
+def symbol_bytes(path: str, name: str) -> bytes:
+    """The bytes of the symbol `name` in the ELF at `path`.
 
-def schema_hash(path: str) -> bytes:
-    """The bytes of the schema hash symbol in the ELF at `path`.
-
-    Exits with an error unless the ELF holds exactly one such symbol, of
-    the hash length, in a section that holds data, because a packer would
-    otherwise write a hash the image was not built with.
+    Exits with an error unless the ELF holds exactly one such symbol, with
+    at least one byte, in a section that holds data, because the caller
+    would otherwise use a value that the image was not built with.
     """
     with open(path, "rb") as stream:
         try:
@@ -53,25 +48,27 @@ def schema_hash(path: str) -> bytes:
         symtab = elf.get_section_by_name(".symtab")
         if symtab is None:
             sys.exit(f"Error: {path} has no symbol table. Use an ELF that is not stripped.")
-        symbols = symtab.get_symbol_by_name(SYMBOL) or []
+        symbols = symtab.get_symbol_by_name(name) or []
         if len(symbols) != 1:
-            sys.exit(f"Error: {path} has {len(symbols)} {SYMBOL} symbols. It must have exactly one.")
+            sys.exit(f"Error: {path} has {len(symbols)} {name} symbols. It must have exactly one.")
         symbol = symbols[0]
-        if symbol["st_size"] != HASH_LEN:
-            sys.exit(f"Error: The {SYMBOL} symbol in {path} has {symbol['st_size']} bytes. It must have {HASH_LEN} bytes.")
+        size = symbol["st_size"]
+        if size == 0:
+            sys.exit(f"Error: The {name} symbol in {path} is empty. It must have at least one byte.")
         index = symbol["st_shndx"]
         section = elf.get_section(index) if isinstance(index, int) else None
         if section is None or section["sh_type"] != "SHT_PROGBITS":
-            sys.exit(f"Error: The {SYMBOL} symbol in {path} is not in a section that holds data.")
+            sys.exit(f"Error: The {name} symbol in {path} is not in a section that holds data.")
         start = symbol["st_value"] - section["sh_addr"]
-        return section.data()[start:start + HASH_LEN]
+        return section.data()[start:start + size]
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Print the config schema hash that a firmware ELF declares")
-    parser.add_argument("elf", help="Firmware ELF that links ubos-config")
+    parser = argparse.ArgumentParser(description="Write the bytes of a symbol in a firmware ELF to standard output")
+    parser.add_argument("elf", help="Firmware ELF that exports the symbol")
+    parser.add_argument("symbol", help="Name of the symbol")
     args = parser.parse_args()
-    print(schema_hash(args.elf).hex())
+    sys.stdout.buffer.write(symbol_bytes(args.elf, args.symbol))
 
 
 if __name__ == "__main__":
