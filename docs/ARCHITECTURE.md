@@ -51,7 +51,9 @@ map and the dependency direction.
     follows the same skeleton: private `STATE_WATCH` and
     `COMMAND_CHANNEL` statics, a public `Command` enum with domain
     variants, a public `State` snapshot, a `Copy` handle, and one `run`
-    task. The handle is the API. The statics are not.
+    task. The handle is the API. The statics are not. The PSU keeps
+    the same parts inside the handle of principle 4, and its commands
+    are the methods of that handle over a private `Command` enum.
 11. **One consumer per channel.** Exactly one task, `run`, drains each
     module's `COMMAND_CHANNEL` and owns that module's policy. Slow
     work delegates inside the module via a sibling `Signal` or worker
@@ -68,7 +70,10 @@ map and the dependency direction.
 14. **Ack is opt-in.** A fire-and-forget handle method queues a
     command and returns `()`. A handle method that must return a
     `Result` carries an internal `Signal<Result>` and a serialising
-    `Mutex<()>`, with one call in flight per handle.
+    `Mutex<()>`, with one call in flight per handle. Where a caller can
+    be dropped while it waits, as the miner's PSU commands can, the
+    command and its reply carry a sequence number, so the next caller
+    discards a reply that answers the dropped one.
 
 ## Communication rules
 

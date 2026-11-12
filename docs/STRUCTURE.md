@@ -116,7 +116,7 @@ typed `TaskPool` static and so rejects generic task functions.
 | `rp235x-sha256`    | RP2350 hardware SHA-256 driver                     |
 | `serial-baudrate`  | trait for runtime baud-rate changes on a serial line |
 | `transitions`      | state machine types: states own their data and name the states they lead to, checked for unreachable states and dead ends |
-| `ubos-psu`         | async PSU driver over I2C                          |
+| `ubos-psu`         | async PSU drivers over I2C, and the PSU task every other task reaches through its handle |
 | `ubos-temperature` | LM75A, TMP102, TMP461 and TMP464 drivers, the `Reading` every sensor yields, and the sensor descriptor types a board declares its topology with. No task and no metric |
 | `ubos-machine`     | per-board `MachineDescriptor` consts composing the hashboard, PSU, and sensor descriptors with a control-board and platform descriptor; pure const data read by firmware and the host runner |
 | `ubos-rp`          | per-platform support for the RP2040 and RP2350 control boards: the `#[panic_handler]` and `HardFault` symbols, reset diagnostic, `BoardWatchdog`, fan PWM and tachometer, the shared I2C bus aliases, `MinerUart`, the WS2812 adapter for the breathing status LED, the boot glue for the MAC, the seeds and the WIZnet bring-up, and the `spawn_miner_core1!` macro |

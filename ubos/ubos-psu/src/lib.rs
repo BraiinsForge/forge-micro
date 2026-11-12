@@ -24,9 +24,10 @@
 //! `embassy-rp::i2c`).
 //!
 //! A board builds one [`PowerSupply`] over its driver and spawns
-//! [`PowerSupply::run`]. That task is the only writer of what it
-//! records about the supply; every other task reaches the PSU through
-//! the `&'static` [`Handle`] the board passes it at spawn.
+//! [`PowerSupply::run`]. That task is the only caller of the driver's
+//! rail commands and the only writer of what it records about them;
+//! every other task reaches the PSU through the `&'static` [`Handle`]
+//! the board passes it at spawn.
 
 #![cfg_attr(not(test), no_std)]
 // Embassy executors do not require `Send`; adding the bound to
@@ -102,9 +103,15 @@ pub use forge_axe::{ForgeAxeDevice, ForgeAxePsu, ForgeAxePsuDescriptor, ForgeAxe
 pub use gated::{GatedPsu, InnerGate};
 pub use state::{Device, RawMutex, Ready, Shared, State};
 
+use core::pin::pin;
+use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Channel;
+use embassy_sync::mutex::Mutex;
+use embassy_sync::signal::Signal;
 use embassy_sync::watch::{Receiver, Watch};
-use portable_atomic::{AtomicU32, Ordering as AtomicOrdering};
+use embedded_hal_async::i2c::ErrorKind;
+use portable_atomic::{AtomicU32, Ordering};
 use ubos_core::units::{Power, Voltage};
 use ubos_metrics::metrics::{Metric, Value};
 
@@ -157,7 +164,7 @@ const SET_VOLTAGE_METRIC: &str = "board_psu_output_voltage_set_mv";
 /// driver answered, so [`PowerSupply::run`] reports the set voltage
 /// alongside the measured one.
 pub fn record_set_voltage(voltage: Voltage) {
-    SET_VOLTAGE_MV.store(voltage.mv(), AtomicOrdering::Relaxed);
+    SET_VOLTAGE_MV.store(voltage.mv(), Ordering::Relaxed);
 }
 
 /// Record a successful `set_voltage` write and publish its gauge, for a
@@ -186,20 +193,64 @@ pub const MODEL_LEN: usize = 40;
 /// The PSU model string a driver identifies during its one-shot init.
 pub type ModelString = heapless::String<MODEL_LEN>;
 
-/// The one way into a running PSU: every fact [`PowerSupply::run`]
-/// records comes back out through it.
+/// The error a [`Handle`] command answers with: the driver's error with
+/// its bus error reduced to the standard kind, so no consumer is generic
+/// over the board's bus.
+pub type CommandError = Error<ErrorKind>;
+
+/// A command the PSU task carries out on the driver.
+enum Command {
+    Enable,
+    Disable,
+    SetVoltage(Voltage),
+}
+
+/// Ends a caller's turn on the handle when the caller returns or is
+/// dropped, by moving the awaited sequence number past its own.
+///
+/// A caller dropped before the PSU task took its command would otherwise
+/// leave an enable or a voltage write queued, and the task would start it
+/// ahead of the rail cut that follows a halt.
+struct Turn<'a> {
+    awaited: &'a AtomicU32,
+    seq: u32,
+}
+
+impl Drop for Turn<'_> {
+    fn drop(&mut self) {
+        self.awaited
+            .store(self.seq.wrapping_add(1), Ordering::SeqCst);
+    }
+}
+
+/// The one way into a running PSU: commands go to [`PowerSupply::run`],
+/// and every fact that task records comes back out.
 ///
 /// [`PowerSupply::handle`] hands it out as a `'static` reference, so
 /// every task borrows the one instance the supply owns. The task is the
-/// only writer of the state the handle reads.
+/// only consumer of the commands and the only writer of the state the
+/// handle reads.
 pub struct Handle {
+    commands: Channel<CSMutex, (u32, Command), 1>,
+    /// One reply slot, tagged with the sequence number of the command it
+    /// answers, see [`Handle::command`].
+    reply: Signal<CSMutex, (u32, Result<(), CommandError>)>,
+    /// Sequence number of the command a caller awaits, or of the next
+    /// command while no caller waits. The PSU task starts a command only
+    /// while its number is the awaited one.
+    awaited: AtomicU32,
+    /// Serialises callers. Two callers at once would share the one queue
+    /// slot and the one reply slot, and the second would move the awaited
+    /// number while the first still waits on it.
+    caller: Mutex<CSMutex, ()>,
     reading: Watch<CSMutex, PsuReading, WATCH_CAPACITY>,
     model: Watch<CSMutex, ModelString, 1>,
 }
 
 impl Handle {
     /// The handle a board holds when it has no supply. Every read
-    /// answers `None`.
+    /// answers `None`. A command sent to it waits forever, so such a
+    /// board spawns only the tasks that read the PSU.
     #[must_use]
     pub const fn absent() -> Self {
         Self::new()
@@ -207,16 +258,77 @@ impl Handle {
 
     const fn new() -> Self {
         Self {
+            commands: Channel::new(),
+            reply: Signal::new(),
+            awaited: AtomicU32::new(0),
+            caller: Mutex::new(()),
             reading: Watch::new(),
             model: Watch::new(),
         }
+    }
+
+    /// Send `command` stamped with the awaited sequence number and await
+    /// the reply tagged with that same number.
+    ///
+    /// The miner races PSU commands against STOP and halt, so a caller can
+    /// be dropped between the send and its reply. A command the task has
+    /// started by then is still carried out and answered once, unless it
+    /// is stuck, and the next caller discards that orphan rather than
+    /// taking it as its own.
+    /// A command still queued is skipped by the task, so the task starts
+    /// only a command somebody awaits.
+    async fn command(&self, command: Command) -> Result<(), CommandError> {
+        let _serial = self.caller.lock().await;
+        let seq = self.awaited.load(Ordering::SeqCst);
+        self.reply.reset();
+        // Declared after the caller lock, so the awaited number moves on
+        // while the lock is still held and the next caller reads its own.
+        let _turn = Turn {
+            awaited: &self.awaited,
+            seq,
+        };
+        self.commands.send((seq, command)).await;
+        loop {
+            let (reply_seq, reply) = self.reply.wait().await;
+            if reply_seq == seq {
+                return reply;
+            }
+        }
+    }
+
+    /// Enable the output rail.
+    ///
+    /// # Errors
+    ///
+    /// The driver's error, with its bus error reduced to the kind.
+    pub async fn enable(&self) -> Result<(), CommandError> {
+        self.command(Command::Enable).await
+    }
+
+    /// Disable the output rail.
+    ///
+    /// # Errors
+    ///
+    /// The driver's error, with its bus error reduced to the kind.
+    pub async fn disable(&self) -> Result<(), CommandError> {
+        self.command(Command::Disable).await
+    }
+
+    /// Set the rail to `voltage`, or to the nearest value the supply can
+    /// produce.
+    ///
+    /// # Errors
+    ///
+    /// The driver's error, with its bus error reduced to the kind.
+    pub async fn set_voltage(&self, voltage: Voltage) -> Result<(), CommandError> {
+        self.command(Command::SetVoltage(voltage)).await
     }
 
     /// Last successful voltage command, available before the next metrics poll.
     /// NOTE: This setpoint does not indicate whether the rail is enabled.
     #[must_use]
     pub fn commanded_voltage(&self) -> Option<Voltage> {
-        match SET_VOLTAGE_MV.load(AtomicOrdering::Relaxed) {
+        match SET_VOLTAGE_MV.load(Ordering::Relaxed) {
             0 => None,
             mv => Some(Voltage::from_mv(mv)),
         }
@@ -252,16 +364,16 @@ impl Handle {
 /// A board's PSU: the driver and the [`Handle`] every other task reaches
 /// it through.
 ///
-/// [`PowerSupply::run`] is the only writer of what the handle reads, so
-/// the readings and the model are recorded where the driver answers
-/// rather than by each caller.
+/// [`PowerSupply::run`] is the only caller of the driver's rail commands
+/// and the only writer of what the handle reads, so the set voltage and
+/// the model are recorded where the driver answers rather than by each
+/// caller.
 pub struct PowerSupply<P: 'static> {
     driver: &'static P,
     handle: Handle,
 }
 
 /// What one poll hands the next.
-#[derive(Default)]
 struct Poll {
     /// The last fully successful sample, republished with a fault flag
     /// when a later poll fails.
@@ -269,6 +381,13 @@ struct Poll {
     /// Whether a fault was active on the previous poll, so the event
     /// fires only on the rising edge rather than every poll.
     fault_active: bool,
+    /// Cleared once the driver reports itself terminated, which it never
+    /// recovers from.
+    live: bool,
+    /// Set once the driver has named its model, or has answered that it
+    /// has none on a poll whose read succeeded, so a supply that reports
+    /// no model is asked once.
+    model_settled: bool,
 }
 
 impl<P: Psu> PowerSupply<P> {
@@ -288,34 +407,124 @@ impl<P: Psu> PowerSupply<P> {
         &self.handle
     }
 
-    /// Run the PSU forever: every [`POWER_STATS_INTERVAL`] read the
-    /// power, the voltage and the status and publish them. Boards spawn
-    /// it through [`psu_task`].
+    /// Run the PSU forever: carry out each command from the [`Handle`]
+    /// and record its outcome, and every [`POWER_STATS_INTERVAL`] read
+    /// the power, the voltage and the status and publish them. Boards
+    /// spawn it through [`psu_task`].
+    ///
+    /// A driver call the task started runs on while no command waits
+    /// behind it. A poll stops between its calls for a queued command,
+    /// and runs again once that command is answered. A call still
+    /// running [`COMMAND_GRACE`] after a command queued behind it is
+    /// dropped, whether it is stuck on the bus or inside a long step such
+    /// as a device init, so a rail cut waits that long at most before it
+    /// starts. A driver built on [`state::Shared`] runs a dropped init
+    /// again on its next call.
     pub async fn run(&self) -> ! {
         let mut ticker = embassy_time::Ticker::every(POWER_STATS_INTERVAL);
-        let mut poll = Poll::default();
+        let mut poll = Poll {
+            last_known: None,
+            fault_active: false,
+            live: true,
+            model_settled: false,
+        };
         loop {
-            ticker.next().await;
-            self.poll(&mut poll).await;
-            if self.handle.model.try_get().is_none()
-                && let Some(model) = self.driver.model().await
-            {
-                self.handle.model.sender().send(model);
+            match select(self.handle.commands.receive(), ticker.next()).await {
+                Either::First(command) => self.answer(command).await,
+                Either::Second(()) => {
+                    while poll.live && self.poll(&mut poll).await.is_none() {
+                        let command = self.handle.commands.receive().await;
+                        self.answer(command).await;
+                    }
+                }
             }
         }
     }
 
+    /// Carry out a command its caller still awaits, and answer it.
+    ///
+    /// A command whose caller was dropped while it was queued is skipped,
+    /// so a rail cut never waits behind a write nobody started. A newer
+    /// command queues behind a running one only once the caller of the
+    /// running one was dropped, so a command dropped as stuck has nobody
+    /// to answer.
+    async fn answer(&self, (seq, command): (u32, Command)) {
+        if seq != self.handle.awaited.load(Ordering::SeqCst) {
+            return;
+        }
+        if let Some(reply) = self.finish(self.execute(command)).await {
+            self.handle.reply.signal((seq, reply));
+        }
+    }
+
+    /// Carry out one command on the driver and record what it changed.
+    async fn execute(&self, command: Command) -> Result<(), CommandError> {
+        match command {
+            Command::Enable => self.driver.enable().await.map_err(Error::reduce),
+            Command::Disable => self.driver.disable().await.map_err(Error::reduce),
+            Command::SetVoltage(requested) => {
+                let landed = self
+                    .driver
+                    .set_voltage(requested)
+                    .await
+                    .map_err(Error::reduce)?;
+                record_set_voltage(landed);
+                Ok(())
+            }
+        }
+    }
+
+    /// Run one driver call of a poll, or answer `None` and leave the call
+    /// unstarted when a command is queued.
+    async fn step<T>(&self, call: impl Future<Output = T>) -> Option<T> {
+        if !self.handle.commands.is_empty() {
+            return None;
+        }
+        self.finish(call).await
+    }
+
+    /// Run a driver call to its end. Once a command queues behind it the
+    /// call has [`COMMAND_GRACE`] left, and `None` answers for a call
+    /// dropped at the end of it.
+    async fn finish<T>(&self, call: impl Future<Output = T>) -> Option<T> {
+        let mut call = pin!(call);
+        match select(call.as_mut(), self.handle.commands.ready_to_receive()).await {
+            Either::First(output) => Some(output),
+            Either::Second(()) => embassy_time::with_timeout(COMMAND_GRACE, call).await.ok(),
+        }
+    }
+
     /// One poll: read the power, the voltage and the status, push their
-    /// gauges, and publish a [`PsuReading`].
+    /// gauges, and publish a [`PsuReading`]. Answers `None` when it
+    /// stopped for a queued command.
+    ///
+    /// Every driver call comes before the first gauge, so a poll that
+    /// stops for a command has published nothing and the poll that runs
+    /// again publishes once. The status read is the last call, because a
+    /// supply can clear its status on read, and a poll that stopped behind
+    /// it would lose the flags it read.
     // The function reads the power, the voltage and the status in a flat
     // sequence and pushes metrics inline; splitting it would only move the
     // pushes.
     #[allow(clippy::too_many_lines)]
-    async fn poll(&self, poll: &mut Poll) {
-        let input_result = self.driver.read_input_power().await;
-        let output_result = self.driver.read_output_power().await;
-        let voltage_result = self.driver.read_output_voltage().await;
-        let set_voltage = Voltage::from_mv(SET_VOLTAGE_MV.load(AtomicOrdering::Relaxed));
+    async fn poll(&self, poll: &mut Poll) -> Option<()> {
+        let input_result = self.step(self.driver.read_input_power()).await?;
+        let output_result = self.step(self.driver.read_output_power()).await?;
+        let voltage_result = self.step(self.driver.read_output_voltage()).await?;
+        let secondary_result = self.step(self.driver.read_secondary_voltage()).await?;
+        // A read that succeeded ran the driver's init, which is where it
+        // identifies its part, so its answer on such a poll is final.
+        if !poll.model_settled {
+            let initialized =
+                input_result.is_ok() || output_result.is_ok() || voltage_result.is_ok();
+            let model = self.step(self.driver.model()).await?;
+            poll.model_settled = initialized || model.is_some();
+            if let Some(model) = model {
+                self.handle.model.sender().send(model);
+            }
+        }
+        let status_result = self.step(self.driver.read_status()).await?;
+        let set_voltage = Voltage::from_mv(SET_VOLTAGE_MV.load(Ordering::Relaxed));
         let now_ms = embassy_time::Instant::now().as_millis();
 
         match (&input_result, &output_result) {
@@ -362,7 +571,7 @@ impl<P: Psu> PowerSupply<P> {
                 );
             }
         }
-        if let Some(secondary) = self.driver.read_secondary_voltage().await {
+        if let Some(secondary) = secondary_result {
             match secondary {
                 Ok(voltage) => {
                     publish_measured_voltage(voltage, self.driver.secondary_voltage_source()).await;
@@ -407,7 +616,7 @@ impl<P: Psu> PowerSupply<P> {
             }
         }
 
-        match self.driver.read_status().await {
+        match status_result {
             Ok(flags) => {
                 Metric::with_no_labels(
                     "board_psu_status_current_limit",
@@ -452,14 +661,12 @@ impl<P: Psu> PowerSupply<P> {
                 }
                 poll.fault_active = fault_now;
             }
-            // A terminated PSU will not recover; stop polling it so the
-            // task does not spam warn logs on every poll indefinitely.
-            // Parking here is symmetric with the `(Err(_), Err(_))` power-read
-            // path: both represent an unrecoverable device condition and
-            // neither can reset the hardware — the miner task owns that.
+            // A terminated PSU stays terminated, so the polling stops and
+            // the log stays quiet. The task goes on answering commands,
+            // which the driver refuses.
             Err(Error::Terminated) => {
-                ubos_logging::warn!("psu status: device terminated; halting poll loop");
-                core::future::pending::<()>().await;
+                ubos_logging::warn!("psu status: device terminated; polling stops");
+                poll.live = false;
             }
             Err(error) => {
                 ubos_logging::warn!(
@@ -468,6 +675,7 @@ impl<P: Psu> PowerSupply<P> {
                 );
             }
         }
+        Some(())
     }
 }
 
@@ -475,6 +683,12 @@ impl<P: Psu> PowerSupply<P> {
 /// Matches the host-runner cadence so the prometheus series rates are
 /// comparable across firmware targets.
 pub const POWER_STATS_INTERVAL: embassy_time::Duration = embassy_time::Duration::from_secs(2);
+
+/// How long a driver call may still run once a command has queued behind
+/// it. One bus transfer ends well inside it. A call that holds longer,
+/// such as a device init or a write with retries, is dropped with a
+/// stuck one, so the command behind it starts on time.
+pub const COMMAND_GRACE: embassy_time::Duration = embassy_time::Duration::from_millis(100);
 
 /// Publish a measured output-rail voltage, optionally tagged with a `source`
 /// label so a board that reads the rail from more than one sensor (e.g. the
@@ -553,4 +767,18 @@ macro_rules! psu_task {
             psu.run().await
         }
     };
+}
+
+impl<E: embedded_hal_async::i2c::Error> Error<E> {
+    /// Reduce a driver error to the standard bus error kind.
+    fn reduce(self) -> CommandError {
+        match self {
+            Error::Bus(bus) => Error::Bus(bus.kind()),
+            Error::InitFailed(kind) => Error::InitFailed(kind),
+            Error::OutOfRange => Error::OutOfRange,
+            Error::Fault(flags) => Error::Fault(flags),
+            Error::Terminated => Error::Terminated,
+            Error::Timeout => Error::Timeout,
+        }
+    }
 }
