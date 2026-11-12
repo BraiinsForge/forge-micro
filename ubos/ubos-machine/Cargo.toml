@@ -7,7 +7,7 @@ version = "0.1.0"
 [features]
 # Forwards `defmt` to the component crates so a consumer that logs
 # through defmt compiles them with the same backend.
-defmt = ["ubos-asic/defmt", "ubos-psu/defmt", "ubos-temperature/defmt"]
+defmt = ["ubos-asic/defmt", "ubos-eeprom/defmt", "ubos-psu/defmt", "ubos-temperature/defmt"]
 
 [lints]
 workspace = true
@@ -15,6 +15,7 @@ workspace = true
 [dependencies]
 ubos-asic        = { workspace = true }
 ubos-core        = { workspace = true }
+ubos-eeprom      = { workspace = true }
 ubos-psu         = { workspace = true }
 ubos-metrics     = { workspace = true, default-features = false }
 ubos-temperature = { workspace = true }

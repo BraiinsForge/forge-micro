@@ -19,6 +19,8 @@
 
 //! Control-board descriptors.
 
+use ubos_eeprom::forge::ControlBoardEepromLayout;
+
 use crate::platform::{ESP32S3, PlatformDescriptor, RP2040, RP2350};
 
 /// The board the firmware runs on.
@@ -59,6 +61,10 @@ pub struct ControlBoardDescriptor {
     pub metrics_http_pool: usize,
     /// Capacity of the retained event-log ring.
     pub event_log_capacity: usize,
+    /// The layout of the board-specific data at the start of the reserved
+    /// bytes of the Forge EEPROM of the board, or `None` on a board without
+    /// one.
+    pub eeprom_layout: Option<ControlBoardEepromLayout>,
 }
 
 /// The W6100-EVB-Pico control board. The HTTP pools and the 32-entry
@@ -70,6 +76,7 @@ pub const CONTROL_BOARD_RP2040: ControlBoardDescriptor = ControlBoardDescriptor 
     http_pool: 2,
     metrics_http_pool: 1,
     event_log_capacity: 32,
+    eeprom_layout: None,
 };
 
 /// The RP2350 control board: a genuine Wiznet W6100-EVB-Pico2 module.
@@ -80,6 +87,7 @@ pub const CONTROL_BOARD_RP2350: ControlBoardDescriptor = ControlBoardDescriptor 
     http_pool: 8,
     metrics_http_pool: 5,
     event_log_capacity: 128,
+    eeprom_layout: None,
 };
 
 /// A genuine Wiznet W5500-EVB-Pico2 module mounted on Braiins' own "BMM
@@ -93,6 +101,7 @@ pub const CONTROL_BOARD_BMM_ADAPTER: ControlBoardDescriptor = ControlBoardDescri
     http_pool: 8,
     metrics_http_pool: 5,
     event_log_capacity: 128,
+    eeprom_layout: None,
 };
 
 /// A Waveshare ESP32-S3-LCD-Driver-Board with an external W5100S wired
@@ -110,6 +119,7 @@ pub const CONTROL_BOARD_ESP32S3: ControlBoardDescriptor = ControlBoardDescriptor
     http_pool: 4,
     metrics_http_pool: 3,
     event_log_capacity: 128,
+    eeprom_layout: None,
 };
 
 /// The Hashnode: control board and hashboard are one integrated product,
@@ -124,6 +134,7 @@ pub const CONTROL_BOARD_HASHNODE: ControlBoardDescriptor = ControlBoardDescripto
     http_pool: 8,
     metrics_http_pool: 5,
     event_log_capacity: 128,
+    eeprom_layout: None,
 };
 
 /// The Forge Axe: control board and hashboard are one integrated
@@ -138,4 +149,5 @@ pub const CONTROL_BOARD_FORGE_AXE: ControlBoardDescriptor = ControlBoardDescript
     http_pool: 8,
     metrics_http_pool: 5,
     event_log_capacity: 128,
+    eeprom_layout: Some(ControlBoardEepromLayout::V1),
 };

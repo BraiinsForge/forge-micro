@@ -4438,6 +4438,7 @@ version = "0.1.0"
 dependencies = [
  "ubos-asic",
  "ubos-core",
+ "ubos-eeprom",
  "ubos-metrics",
  "ubos-psu",
  "ubos-temperature",
