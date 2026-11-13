@@ -31,6 +31,10 @@
 #![allow(clippy::missing_panics_doc)]
 #![allow(clippy::module_name_repetitions)]
 
+// The host test binary links std for `rusty-fork` and the shared park.
+#[cfg(test)]
+extern crate std;
+
 pub mod chain;
 pub mod consts;
 mod control;
@@ -47,7 +51,7 @@ pub mod serial;
 pub mod tuner;
 
 pub use chain::ChainHandle;
-pub use control::{Handle, Message, MiningState, MiningSubscription, handle};
+pub use control::{Handle, Message, MiningState, MiningSubscription, Runner};
 pub use miner::{Miner, MinerError, PsuErrorKind};
 pub use park::{Park, ParkRequest};
 

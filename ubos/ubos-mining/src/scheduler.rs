@@ -349,12 +349,14 @@ pub fn pool_weights(pool: &[ubos_config::PoolEntry]) -> [u32; crate::consts::MAX
 /// part-way through a bring-up holds its caller mutex for seconds, and a
 /// watcher blocked on the first chain would leave the rest of them on
 /// the old split for that whole window.
-pub async fn run_pool_weights_watcher(actors: &'static [crate::serial::Serial]) -> ! {
-    let handle = ubos_config::handle();
-    let mut generation = handle.subscribe_generation();
+pub async fn run_pool_weights_watcher(
+    actors: &'static [crate::serial::Serial],
+    config: ubos_config::Handle,
+) -> ! {
+    let mut generation = config.subscribe_generation();
     let mut last_sent: Option<[u32; crate::consts::MAX_POOL_SLOTS]> = None;
     loop {
-        let weights = pool_weights(&handle.current().pool);
+        let weights = pool_weights(&config.current().pool);
         if last_sent != Some(weights) {
             for actor in actors {
                 actor.set_pool_weights(weights);
@@ -372,8 +374,8 @@ pub async fn run_pool_weights_watcher(actors: &'static [crate::serial::Serial]) 
 macro_rules! pool_weights_task {
     ($actors:expr) => {
         #[embassy_executor::task]
-        async fn pool_weights_task() -> ! {
-            ubos_mining::scheduler::run_pool_weights_watcher($actors).await
+        async fn pool_weights_task(config: ubos_config::Handle) -> ! {
+            ubos_mining::scheduler::run_pool_weights_watcher($actors, config).await
         }
     };
 }

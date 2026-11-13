@@ -22,10 +22,12 @@
 //! Chain frequencies belong to `ubos_metrics::chain`; the shared rail
 //! setpoint belongs to `ubos_psu`. Only the miner writes lifecycle status.
 
+use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::signal::Signal;
 use embassy_sync::watch::{Receiver, Watch};
+use embassy_time::{Duration, Timer};
 
 type CSMutex = CriticalSectionRawMutex;
 
@@ -37,19 +39,29 @@ const WATCH_CAPACITY: usize = 5;
 /// `send()` once full.
 pub(crate) const CMD_CHANNEL_DEPTH: usize = 4;
 
-/// Module-internal state watch. Its single writer is the miner, through
-/// [`Handle::publish`]; readers are obtained via [`Handle::subscribe`].
-static STATE_WATCH: Watch<CSMutex, MiningState, WATCH_CAPACITY> = Watch::new();
+/// The watch that carries the lifecycle status. Its single writer is the
+/// miner, through [`Runner::publish`]; readers are obtained via
+/// [`Handle::subscribe`].
+type StateWatch = Watch<CSMutex, MiningState, WATCH_CAPACITY>;
+
+/// The channel that carries halt and resume to the miner.
+type CommandChannel = Channel<CSMutex, Message, CMD_CHANNEL_DEPTH>;
+
+/// The signal that carries a stop request to the miner.
+type StopSignal = Signal<CSMutex, ()>;
+
+/// The lifecycle status the firmware's one miner publishes.
+static STATE_WATCH: StateWatch = Watch::new();
 
 /// Module-internal command channel. Its single consumer is the miner,
-/// through [`Handle::next_message`]; producers send via the [`Handle`]
+/// through [`Runner::next_message`]; producers send via the [`Handle`]
 /// inherent methods.
-pub(crate) static COMMAND_CHANNEL: Channel<CSMutex, Message, CMD_CHANNEL_DEPTH> = Channel::new();
+pub(crate) static COMMAND_CHANNEL: CommandChannel = Channel::new();
 
 /// Module-internal stop request. Its single consumer is the miner,
-/// through [`Handle::stopped`]; producers signal it through
+/// through [`Runner::stopped`]; producers signal it through
 /// [`Handle::stop`].
-static STOP: Signal<CSMutex, ()> = Signal::new();
+static STOP: StopSignal = Signal::new();
 
 /// Mining lifecycle status, separate from hardware readings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -99,33 +111,40 @@ pub enum Message {
 /// Per-task subscription returned by [`Handle::subscribe`].
 pub type MiningSubscription = Receiver<'static, CSMutex, MiningState, WATCH_CAPACITY>;
 
-/// Obtain a handle to the mining module. `Copy`; callers freely
-/// pass it to multiple tasks.
-#[must_use]
-pub fn handle() -> Handle {
-    Handle {
-        state: &STATE_WATCH,
-        commands: &COMMAND_CHANNEL,
-        stop: &STOP,
-    }
-}
+/// Records that the firmware took the mining handle.
+static TAKEN: ubos_core::take_once::TakeOnce = ubos_core::take_once::TakeOnce::new("mining");
 
 /// Consumer-side handle for the mining subsystem.
 ///
-/// `Copy` because it holds only `&'static` references.
+/// The handle holds no data: its methods are the only way to the private
+/// statics of this module. A firmware takes it once and passes a copy to
+/// each task that uses it.
 #[derive(Clone, Copy)]
-pub struct Handle {
-    state: &'static Watch<CSMutex, MiningState, WATCH_CAPACITY>,
-    commands: &'static Channel<CSMutex, Message, CMD_CHANNEL_DEPTH>,
-    stop: &'static Signal<CSMutex, ()>,
-}
+pub struct Handle(());
+
+/// The right to run the miner, and the way to what the miner alone does:
+/// it publishes the lifecycle status and drains the commands and the stop
+/// request.
+///
+/// It is not `Copy`, so a firmware that gives it to one miner cannot give
+/// it to a second.
+pub struct Runner(());
 
 impl Handle {
+    /// The firmware's one mining handle, and the runner of the miner. A
+    /// second call panics.
+    #[must_use]
+    #[track_caller]
+    pub fn take() -> (Runner, Self) {
+        TAKEN.take();
+        (Runner(()), Self(()))
+    }
+
     /// Most recent published state, or `None` before the first
     /// publish.
     #[must_use]
     pub fn state(&self) -> Option<MiningState> {
-        self.state.try_get()
+        STATE_WATCH.try_get()
     }
 
     /// Obtain a long-lived subscription. Call once per consumer task
@@ -138,41 +157,78 @@ impl Handle {
     /// the consumer set; running out is a programming error.
     #[must_use]
     pub fn subscribe(&self) -> MiningSubscription {
-        self.state
+        STATE_WATCH
             .receiver()
             .expect("BUG: Handle receiver slots exhausted; raise WATCH_CAPACITY")
     }
 
     /// Queue a halt of the work loop. Idempotent.
     pub async fn halt(&self) {
-        self.commands.send(Message::Halt).await;
+        COMMAND_CHANNEL.send(Message::Halt).await;
     }
 
     /// Queue a resume from a previous halt. Idempotent.
     pub async fn resume(&self) {
-        self.commands.send(Message::Resume).await;
+        COMMAND_CHANNEL.send(Message::Resume).await;
+    }
+
+    /// Wait until the miner reports `Stopped`, and return `false` if that takes
+    /// longer than `timeout`. A miner that never started is already stopped,
+    /// so the wait returns at once.
+    pub async fn wait_stopped(&self, timeout: Duration) -> bool {
+        if self
+            .state()
+            .is_none_or(|state| state == MiningState::Stopped)
+        {
+            return true;
+        }
+        let mut subscription = self.subscribe();
+        let stopped = async { while subscription.changed().await != MiningState::Stopped {} };
+        matches!(
+            select(stopped, Timer::after(timeout)).await,
+            Either::First(()),
+        )
     }
 
     /// Request shutdown of the mining state machine from any state. The
     /// miner cuts the rail before [`Miner::run`](crate::Miner::run) returns.
     pub fn stop(&self) {
-        self.stop.signal(());
+        STOP.signal(());
     }
+}
 
+/// Each method takes the runner, so only its holder can call it.
+#[allow(clippy::unused_self)]
+impl Runner {
     /// Publish `state` as the miner's lifecycle status, on the watch every
-    /// [`Self::state`] and [`Self::subscribe`] reads. Crate-private, so
+    /// [`Handle::state`] and [`Handle::subscribe`] read. Crate-private, so
     /// the miner stays the only writer.
     pub(crate) fn publish(&self, state: MiningState) {
-        self.state.sender().send(state);
+        STATE_WATCH.sender().send(state);
     }
 
-    /// Wait for a stop request. The miner is the only consumer.
-    pub(crate) async fn stopped(&self) {
-        self.stop.wait().await;
+    /// Wait for a stop request. The miner is the only consumer. The future
+    /// holds nothing of the runner, so the miner can wait on it while it
+    /// borrows itself.
+    pub(crate) fn stopped(&self) -> impl Future<Output = ()> + use<> {
+        STOP.wait()
+    }
+
+    /// Wait for a halt and drop every resume before it, because a miner
+    /// that is not halted has nothing to resume. The miner is the only
+    /// consumer.
+    pub(crate) fn halted(&self) -> impl Future<Output = ()> + use<> {
+        async { while !matches!(COMMAND_CHANNEL.receive().await, Message::Halt) {} }
+    }
+
+    /// Wait for a resume and drop every halt before it. The miner is the
+    /// only consumer.
+    pub(crate) fn resumed(&self) -> impl Future<Output = ()> + use<> {
+        async { while !matches!(COMMAND_CHANNEL.receive().await, Message::Resume) {} }
     }
 
     /// Take the next halt or resume. The miner is the only consumer.
     pub(crate) async fn next_message(&self) -> Message {
-        self.commands.receive().await
+        COMMAND_CHANNEL.receive().await
     }
 }

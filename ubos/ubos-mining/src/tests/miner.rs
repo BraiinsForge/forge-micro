@@ -34,10 +34,11 @@ extern crate std;
 use super::Miner;
 use super::machine::MinerState;
 use super::states::BringUp;
+use rusty_fork::rusty_fork_test;
 
 #[path = "machine.rs"]
 mod machine;
-use crate::control::{COMMAND_CHANNEL, Message};
+use crate::control::Message;
 use crate::tuner::MachineTuner;
 use core::cell::{Cell, RefCell};
 use core::convert::Infallible;
@@ -122,7 +123,7 @@ struct BringUpDriver {
     silent_sweep: bool,
     plan_log: Option<(usize, &'static HardwareLog)>,
     refused_frequency: Option<Frequency>,
-    stop_during_frequency: Option<Duration>,
+    stop_during_frequency: Option<(crate::Handle, Duration)>,
 }
 
 impl BringUpDriver {
@@ -202,8 +203,8 @@ impl ChainDriver for BringUpDriver {
                     .expect("write log capacity");
             });
         }
-        if let Some(delay) = self.stop_during_frequency.take() {
-            crate::handle().stop();
+        if let Some((mining, delay)) = self.stop_during_frequency.take() {
+            mining.stop();
             Timer::after(delay).await;
         }
         if self.refused_frequency == Some(freq) {
@@ -325,372 +326,396 @@ fn run_bring_up_chain(
     })
 }
 
-#[test]
-fn a_chain_answering_the_expected_count_becomes_present_and_stays_out_of_reset() {
-    static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
-    static SESSION: AsicSession<1> = AsicSession::new();
-    static STATS: [ChainStats; 1] = [ChainStats::new()];
-    static ACTIVE: AtomicU8 = AtomicU8::new(1);
+rusty_fork_test! {
+    #[test]
+    fn a_chain_answering_the_expected_count_becomes_present_and_stays_out_of_reset() {
+        static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
+        static SESSION: AsicSession<1> = AsicSession::new();
+        static STATS: [ChainStats; 1] = [ChainStats::new()];
+        static ACTIVE: AtomicU8 = AtomicU8::new(1);
 
-    const EXPECTED: u8 = 4;
-    let fixture = ChainFixture {
-        actor: &ACTOR,
-        session: &SESSION,
-        stats: ChainStatsHandle::new(&STATS, &ACTIVE).chain(HashboardIndex(0)),
-    };
-    let driver = BringUpDriver::new(&[EXPECTED]);
-
-    let chain = run_bring_up_chain(&fixture, driver, EXPECTED);
-
-    assert_eq!(
-        fixture.stats.presence(),
-        ChainPresence::Present { chips: EXPECTED }
-    );
-    assert!(
-        chain.reset.log.is_empty(),
-        "a present chain is left as bring-up found it, with no reset pulse"
-    );
-}
-
-#[test]
-fn a_chain_answering_zero_chips_is_retried_to_the_budget_then_absent_and_left_in_reset() {
-    static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
-    static SESSION: AsicSession<1> = AsicSession::new();
-    static STATS: [ChainStats; 1] = [ChainStats::new()];
-    static ACTIVE: AtomicU8 = AtomicU8::new(1);
-
-    const EXPECTED: u8 = 4;
-    let fixture = ChainFixture {
-        actor: &ACTOR,
-        session: &SESSION,
-        stats: ChainStatsHandle::new(&STATS, &ACTIVE).chain(HashboardIndex(0)),
-    };
-    let driver = BringUpDriver::new(&[0]);
-
-    let chain = run_bring_up_chain(&fixture, driver, EXPECTED);
-
-    assert_eq!(fixture.stats.presence(), ChainPresence::Absent);
-    assert_eq!(
-        chain.reset.log.as_slice(),
-        &[
-            ResetCall::Enter,
-            ResetCall::Exit,
-            ResetCall::Enter,
-            ResetCall::Exit,
-            ResetCall::Enter
-        ],
-        "a silent chain is pulsed through reset between attempts and parked in reset"
-    );
-}
-
-#[test]
-fn a_wrong_non_zero_count_is_retried_up_to_the_attempt_budget_then_faulted_and_left_in_reset() {
-    static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
-    static SESSION: AsicSession<1> = AsicSession::new();
-    static STATS: [ChainStats; 1] = [ChainStats::new()];
-    static ACTIVE: AtomicU8 = AtomicU8::new(1);
-
-    const EXPECTED: u8 = 4;
-    const WRONG: u8 = 2;
-    let fixture = ChainFixture {
-        actor: &ACTOR,
-        session: &SESSION,
-        stats: ChainStatsHandle::new(&STATS, &ACTIVE).chain(HashboardIndex(0)),
-    };
-    let driver = BringUpDriver::new(&[WRONG]);
-
-    let chain = run_bring_up_chain(&fixture, driver, EXPECTED);
-
-    assert_eq!(
-        fixture.stats.presence(),
-        ChainPresence::Faulted { found: WRONG }
-    );
-    // Every attempt but the last is followed by a reset pulse, and the
-    // final Faulted verdict adds one more Enter to park the chain.
-    let expected_pulses = usize::from(ENUMERATE_ATTEMPTS - 1) * 2 + 1;
-    assert_eq!(chain.reset.log.len(), expected_pulses);
-    assert_eq!(
-        *chain
-            .reset
-            .log
-            .last()
-            .expect("bring_up always logs at least one reset call"),
-        ResetCall::Enter,
-        "the faulted chain is left in reset"
-    );
-}
-
-#[test]
-fn a_refused_configure_spends_the_same_budget_and_ends_faulted_with_the_expected_count() {
-    static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
-    static SESSION: AsicSession<1> = AsicSession::new();
-    static STATS: [ChainStats; 1] = [ChainStats::new()];
-    static ACTIVE: AtomicU8 = AtomicU8::new(1);
-
-    const EXPECTED: u8 = 4;
-    let fixture = ChainFixture {
-        actor: &ACTOR,
-        session: &SESSION,
-        stats: ChainStatsHandle::new(&STATS, &ACTIVE).chain(HashboardIndex(0)),
-    };
-    let driver = BringUpDriver::new(&[EXPECTED]).with_configure_err();
-
-    let chain = run_bring_up_chain(&fixture, driver, EXPECTED);
-
-    assert_eq!(
-        fixture.stats.presence(),
-        ChainPresence::Faulted { found: EXPECTED }
-    );
-    assert_eq!(
-        *chain
-            .reset
-            .log
-            .last()
-            .expect("bring_up always logs at least one reset call"),
-        ResetCall::Enter,
-        "the faulted chain is left in reset"
-    );
-}
-
-#[test]
-fn a_chain_whose_pvt_sweep_reads_nothing_is_faulted_rather_than_present() {
-    static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
-    static SESSION: AsicSession<1> = AsicSession::new();
-    static STATS: [ChainStats; 1] = [ChainStats::new()];
-    static ACTIVE: AtomicU8 = AtomicU8::new(1);
-
-    const EXPECTED: u8 = 4;
-    let fixture = ChainFixture {
-        actor: &ACTOR,
-        session: &SESSION,
-        stats: ChainStatsHandle::new(&STATS, &ACTIVE).chain(HashboardIndex(0)),
-    };
-    // The chain enumerates its full count and takes its configuration;
-    // only the temperature read answers nothing.
-    let driver = BringUpDriver::new(&[EXPECTED]).with_silent_sweep();
-
-    let chain = run_bring_up_chain(&fixture, driver, EXPECTED);
-
-    assert_eq!(
-        fixture.stats.presence(),
-        ChainPresence::Faulted { found: EXPECTED },
-        "a chain with no reading behind it must not reach the ramp"
-    );
-    assert_eq!(
-        *chain
-            .reset
-            .log
-            .last()
-            .expect("bring_up always logs at least one reset call"),
-        ResetCall::Enter,
-        "the faulted chain is left in reset"
-    );
-}
-
-#[test]
-fn between_two_attempts_the_chains_reset_is_pulsed_enter_then_exit() {
-    static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
-    static SESSION: AsicSession<1> = AsicSession::new();
-    static STATS: [ChainStats; 1] = [ChainStats::new()];
-    static ACTIVE: AtomicU8 = AtomicU8::new(1);
-
-    const EXPECTED: u8 = 4;
-    const WRONG: u8 = 2;
-    let fixture = ChainFixture {
-        actor: &ACTOR,
-        session: &SESSION,
-        stats: ChainStatsHandle::new(&STATS, &ACTIVE).chain(HashboardIndex(0)),
-    };
-    let driver = BringUpDriver::new(&[WRONG]);
-
-    let chain = run_bring_up_chain(&fixture, driver, EXPECTED);
-
-    // The retry pulse between the two attempts is Enter followed by
-    // Exit, at the head of the log.
-    assert_eq!(
-        &chain.reset.log[..2],
-        &[ResetCall::Enter, ResetCall::Exit],
-        "the retry pulse enters and then exits reset"
-    );
-}
-
-#[test]
-fn a_bring_up_with_no_chain_present_recovers() {
-    // See the doc comment on `run_bring_up_chain`: the two actors
-    // driven here must not overlap another test's `Serial::run`.
-    critical_section::with(|_| {
-        static ACTOR_A: Serial = Serial::new(HashboardIndex(0), 2);
-        static ACTOR_B: Serial = Serial::new(HashboardIndex(1), 2);
-        static SESSION: AsicSession<1, 2> = AsicSession::new();
-        static STATS: [ChainStats; 2] = [ChainStats::new(), ChainStats::new()];
-        static ACTIVE: AtomicU8 = AtomicU8::new(2);
-        static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
-        let (_, psu) = test_psu(TestPsu {
-            log: &LOG,
-            disable_fails: false,
-            behavior: Cell::new(VoltageWrite::Succeed),
-        });
-        let stats_handle = ChainStatsHandle::new(&STATS, &ACTIVE);
-        let mut miner = test_miner::<crate::tuner::Tuners, 2>(
-            psu.handle(),
-            [&ACTOR_A, &ACTOR_B],
-            [
-                stats_handle.chain(HashboardIndex(0)),
-                stats_handle.chain(HashboardIndex(1)),
-            ],
-        );
-        let mut subscription = test_config().0;
-
-        let bring_up = async {
-            let bring_up_outcome = miner
-                .advance(MinerState::BringUp(BringUp), &mut subscription)
-                .await;
-            let terminate_a = ACTOR_A.terminate().await;
-            let terminate_b = ACTOR_B.terminate().await;
-            assert!(matches!(terminate_a, Ok(())));
-            assert!(matches!(terminate_b, Ok(())));
-            bring_up_outcome
+        const EXPECTED: u8 = 4;
+        let fixture = ChainFixture {
+            actor: &ACTOR,
+            session: &SESSION,
+            stats: ChainStatsHandle::new(&STATS, &ACTIVE).chain(HashboardIndex(0)),
         };
-        let run_a = ACTOR_A.run(
-            crate::fixture::park(),
-            QuietSerial,
-            &SESSION,
-            &BMM101_HASHBOARD,
-            BringUpDriver::new(&[0]),
-            NoWork,
-            stats_handle.chain(HashboardIndex(0)),
-        );
-        let run_b = ACTOR_B.run(
-            crate::fixture::park(),
-            QuietSerial,
-            &SESSION,
-            &BMM101_HASHBOARD,
-            BringUpDriver::new(&[0]),
-            NoWork,
-            stats_handle.chain(HashboardIndex(1)),
-        );
+        let driver = BringUpDriver::new(&[EXPECTED]);
 
-        let (bring_up_outcome, primary_run, secondary_run) =
-            block_on_with(psu, join3(bring_up, run_a, run_b));
-        assert!(matches!(primary_run, Ok(())));
-        assert!(matches!(secondary_run, Ok(())));
-        assert!(matches!(bring_up_outcome, Some(MinerState::Recover(_))));
-    });
-}
+        let chain = run_bring_up_chain(&fixture, driver, EXPECTED);
 
-/// The outer budget: every cycle that brings no chain up cuts the rail
-/// and tries again, until `BRING_UP_CYCLES` is spent and the machine
-/// parks instead. A cycle that does bring a chain up starts the count
-/// again, so an occasional empty cycle never reaches the park.
-#[test]
-fn empty_cycles_spend_the_outer_budget_and_a_good_cycle_starts_it_again() {
-    static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
-    static STATS: [ChainStats; 1] = [ChainStats::new()];
-    static ACTIVE: AtomicU8 = AtomicU8::new(1);
-
-    static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
-    let (_, psu) = test_psu(TestPsu {
-        log: &LOG,
-        disable_fails: false,
-        behavior: Cell::new(VoltageWrite::Succeed),
-    });
-    let stats_handle = ChainStatsHandle::new(&STATS, &ACTIVE);
-    let mut miner = test_miner::<crate::tuner::Tuners, 1>(
-        psu.handle(),
-        [&ACTOR],
-        [stats_handle.chain(HashboardIndex(0))],
-    );
-
-    for cycle in 1..super::BRING_UP_CYCLES {
-        assert!(
-            !miner.empty_cycle_spends_the_budget(),
-            "cycle {cycle} of {} must still cut the rail and retry",
-            super::BRING_UP_CYCLES
-        );
-    }
-    assert!(
-        miner.empty_cycle_spends_the_budget(),
-        "the last cycle of the budget parks the machine"
-    );
-
-    miner.empty_cycles = 0;
-    assert!(
-        !miner.empty_cycle_spends_the_budget(),
-        "a cycle that brought a chain up gives the budget back"
-    );
-}
-
-#[test]
-fn a_bring_up_with_one_chain_present_starts_work() {
-    // See the doc comment on `run_bring_up_chain`.
-    critical_section::with(|_| {
-        static ACTOR_A: Serial = Serial::new(HashboardIndex(0), 2);
-        static ACTOR_B: Serial = Serial::new(HashboardIndex(1), 2);
-        static SESSION: AsicSession<1, 2> = AsicSession::new();
-        static STATS: [ChainStats; 2] = [ChainStats::new(), ChainStats::new()];
-        static ACTIVE: AtomicU8 = AtomicU8::new(2);
-        static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
-        const EXPECTED: u8 = BMM101_HASHBOARD.num_chips;
-        let (_, psu) = test_psu(TestPsu {
-            log: &LOG,
-            disable_fails: false,
-            behavior: Cell::new(VoltageWrite::Succeed),
-        });
-        let stats_handle = ChainStatsHandle::new(&STATS, &ACTIVE);
-        let mut miner = test_miner::<crate::tuner::Tuners, 2>(
-            psu.handle(),
-            [&ACTOR_A, &ACTOR_B],
-            [
-                stats_handle.chain(HashboardIndex(0)),
-                stats_handle.chain(HashboardIndex(1)),
-            ],
-        );
-        let mut subscription = test_config().0;
-
-        let bring_up = async {
-            let bring_up_outcome = miner
-                .advance(MinerState::BringUp(BringUp), &mut subscription)
-                .await;
-            let terminate_a = ACTOR_A.terminate().await;
-            let terminate_b = ACTOR_B.terminate().await;
-            assert!(matches!(terminate_a, Ok(())));
-            assert!(matches!(terminate_b, Ok(())));
-            bring_up_outcome
-        };
-        // Chain A comes up present; chain B stays absent.
-        let run_a = ACTOR_A.run(
-            crate::fixture::park(),
-            QuietSerial,
-            &SESSION,
-            &BMM101_HASHBOARD,
-            BringUpDriver::new(&[EXPECTED]),
-            NoWork,
-            stats_handle.chain(HashboardIndex(0)),
-        );
-        let run_b = ACTOR_B.run(
-            crate::fixture::park(),
-            QuietSerial,
-            &SESSION,
-            &BMM101_HASHBOARD,
-            BringUpDriver::new(&[0]),
-            NoWork,
-            stats_handle.chain(HashboardIndex(1)),
-        );
-
-        let (bring_up_outcome, primary_run, secondary_run) =
-            block_on_with(psu, join3(bring_up, run_a, run_b));
-        assert!(matches!(primary_run, Ok(())));
-        assert!(matches!(secondary_run, Ok(())));
-        assert!(matches!(bring_up_outcome, Some(MinerState::StartWork(_))));
         assert_eq!(
-            stats_handle.chain(HashboardIndex(0)).presence(),
+            fixture.stats.presence(),
             ChainPresence::Present { chips: EXPECTED }
         );
-        assert_eq!(
-            stats_handle.chain(HashboardIndex(1)).presence(),
-            ChainPresence::Absent
+        assert!(
+            chain.reset.log.is_empty(),
+            "a present chain is left as bring-up found it, with no reset pulse"
         );
-    });
+    }
+}
+
+rusty_fork_test! {
+    #[test]
+    fn a_chain_answering_zero_chips_is_retried_to_the_budget_then_absent_and_left_in_reset() {
+        static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
+        static SESSION: AsicSession<1> = AsicSession::new();
+        static STATS: [ChainStats; 1] = [ChainStats::new()];
+        static ACTIVE: AtomicU8 = AtomicU8::new(1);
+
+        const EXPECTED: u8 = 4;
+        let fixture = ChainFixture {
+            actor: &ACTOR,
+            session: &SESSION,
+            stats: ChainStatsHandle::new(&STATS, &ACTIVE).chain(HashboardIndex(0)),
+        };
+        let driver = BringUpDriver::new(&[0]);
+
+        let chain = run_bring_up_chain(&fixture, driver, EXPECTED);
+
+        assert_eq!(fixture.stats.presence(), ChainPresence::Absent);
+        assert_eq!(
+            chain.reset.log.as_slice(),
+            &[
+                ResetCall::Enter,
+                ResetCall::Exit,
+                ResetCall::Enter,
+                ResetCall::Exit,
+                ResetCall::Enter
+            ],
+            "a silent chain is pulsed through reset between attempts and parked in reset"
+        );
+    }
+}
+
+rusty_fork_test! {
+    #[test]
+    fn a_wrong_non_zero_count_is_retried_up_to_the_attempt_budget_then_faulted_and_left_in_reset() {
+        static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
+        static SESSION: AsicSession<1> = AsicSession::new();
+        static STATS: [ChainStats; 1] = [ChainStats::new()];
+        static ACTIVE: AtomicU8 = AtomicU8::new(1);
+
+        const EXPECTED: u8 = 4;
+        const WRONG: u8 = 2;
+        let fixture = ChainFixture {
+            actor: &ACTOR,
+            session: &SESSION,
+            stats: ChainStatsHandle::new(&STATS, &ACTIVE).chain(HashboardIndex(0)),
+        };
+        let driver = BringUpDriver::new(&[WRONG]);
+
+        let chain = run_bring_up_chain(&fixture, driver, EXPECTED);
+
+        assert_eq!(
+            fixture.stats.presence(),
+            ChainPresence::Faulted { found: WRONG }
+        );
+        // Every attempt but the last is followed by a reset pulse, and the
+        // final Faulted verdict adds one more Enter to park the chain.
+        let expected_pulses = usize::from(ENUMERATE_ATTEMPTS - 1) * 2 + 1;
+        assert_eq!(chain.reset.log.len(), expected_pulses);
+        assert_eq!(
+            *chain
+                .reset
+                .log
+                .last()
+                .expect("bring_up always logs at least one reset call"),
+            ResetCall::Enter,
+            "the faulted chain is left in reset"
+        );
+    }
+}
+
+rusty_fork_test! {
+    #[test]
+    fn a_refused_configure_spends_the_same_budget_and_ends_faulted_with_the_expected_count() {
+        static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
+        static SESSION: AsicSession<1> = AsicSession::new();
+        static STATS: [ChainStats; 1] = [ChainStats::new()];
+        static ACTIVE: AtomicU8 = AtomicU8::new(1);
+
+        const EXPECTED: u8 = 4;
+        let fixture = ChainFixture {
+            actor: &ACTOR,
+            session: &SESSION,
+            stats: ChainStatsHandle::new(&STATS, &ACTIVE).chain(HashboardIndex(0)),
+        };
+        let driver = BringUpDriver::new(&[EXPECTED]).with_configure_err();
+
+        let chain = run_bring_up_chain(&fixture, driver, EXPECTED);
+
+        assert_eq!(
+            fixture.stats.presence(),
+            ChainPresence::Faulted { found: EXPECTED }
+        );
+        assert_eq!(
+            *chain
+                .reset
+                .log
+                .last()
+                .expect("bring_up always logs at least one reset call"),
+            ResetCall::Enter,
+            "the faulted chain is left in reset"
+        );
+    }
+}
+
+rusty_fork_test! {
+    #[test]
+    fn a_chain_whose_pvt_sweep_reads_nothing_is_faulted_rather_than_present() {
+        static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
+        static SESSION: AsicSession<1> = AsicSession::new();
+        static STATS: [ChainStats; 1] = [ChainStats::new()];
+        static ACTIVE: AtomicU8 = AtomicU8::new(1);
+
+        const EXPECTED: u8 = 4;
+        let fixture = ChainFixture {
+            actor: &ACTOR,
+            session: &SESSION,
+            stats: ChainStatsHandle::new(&STATS, &ACTIVE).chain(HashboardIndex(0)),
+        };
+        // The chain enumerates its full count and takes its configuration;
+        // only the temperature read answers nothing.
+        let driver = BringUpDriver::new(&[EXPECTED]).with_silent_sweep();
+
+        let chain = run_bring_up_chain(&fixture, driver, EXPECTED);
+
+        assert_eq!(
+            fixture.stats.presence(),
+            ChainPresence::Faulted { found: EXPECTED },
+            "a chain with no reading behind it must not reach the ramp"
+        );
+        assert_eq!(
+            *chain
+                .reset
+                .log
+                .last()
+                .expect("bring_up always logs at least one reset call"),
+            ResetCall::Enter,
+            "the faulted chain is left in reset"
+        );
+    }
+}
+
+rusty_fork_test! {
+    #[test]
+    fn between_two_attempts_the_chains_reset_is_pulsed_enter_then_exit() {
+        static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
+        static SESSION: AsicSession<1> = AsicSession::new();
+        static STATS: [ChainStats; 1] = [ChainStats::new()];
+        static ACTIVE: AtomicU8 = AtomicU8::new(1);
+
+        const EXPECTED: u8 = 4;
+        const WRONG: u8 = 2;
+        let fixture = ChainFixture {
+            actor: &ACTOR,
+            session: &SESSION,
+            stats: ChainStatsHandle::new(&STATS, &ACTIVE).chain(HashboardIndex(0)),
+        };
+        let driver = BringUpDriver::new(&[WRONG]);
+
+        let chain = run_bring_up_chain(&fixture, driver, EXPECTED);
+
+        // The retry pulse between the two attempts is Enter followed by
+        // Exit, at the head of the log.
+        assert_eq!(
+            &chain.reset.log[..2],
+            &[ResetCall::Enter, ResetCall::Exit],
+            "the retry pulse enters and then exits reset"
+        );
+    }
+}
+
+rusty_fork_test! {
+    #[test]
+    fn a_bring_up_with_no_chain_present_recovers() {
+        // See the doc comment on `run_bring_up_chain`: the two actors
+        // driven here must not overlap another test's `Serial::run`.
+        critical_section::with(|_| {
+            static ACTOR_A: Serial = Serial::new(HashboardIndex(0), 2);
+            static ACTOR_B: Serial = Serial::new(HashboardIndex(1), 2);
+            static SESSION: AsicSession<1, 2> = AsicSession::new();
+            static STATS: [ChainStats; 2] = [ChainStats::new(), ChainStats::new()];
+            static ACTIVE: AtomicU8 = AtomicU8::new(2);
+            static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
+            let (psu_driver, psu) = test_psu(TestPsu {
+                mining: mining_handle(),
+                log: &LOG,
+                disable_fails: false,
+                behavior: Cell::new(VoltageWrite::Succeed),
+            });
+            let stats_handle = ChainStatsHandle::new(&STATS, &ACTIVE);
+            let mut miner = test_miner::<crate::tuner::Tuners, 2>(
+                psu_driver,
+                    psu,
+                [&ACTOR_A, &ACTOR_B],
+                [
+                    stats_handle.chain(HashboardIndex(0)),
+                    stats_handle.chain(HashboardIndex(1)),
+                ],
+            );
+            let mut subscription = test_config().0;
+
+            let bring_up = async {
+                let bring_up_outcome = miner
+                    .advance(MinerState::BringUp(BringUp), &mut subscription)
+                    .await;
+                let terminate_a = ACTOR_A.terminate().await;
+                let terminate_b = ACTOR_B.terminate().await;
+                assert!(matches!(terminate_a, Ok(())));
+                assert!(matches!(terminate_b, Ok(())));
+                bring_up_outcome
+            };
+            let run_a = ACTOR_A.run(
+                crate::fixture::park(),
+                QuietSerial,
+                &SESSION,
+                &BMM101_HASHBOARD,
+                BringUpDriver::new(&[0]),
+                NoWork,
+                stats_handle.chain(HashboardIndex(0)),
+            );
+            let run_b = ACTOR_B.run(
+                crate::fixture::park(),
+                QuietSerial,
+                &SESSION,
+                &BMM101_HASHBOARD,
+                BringUpDriver::new(&[0]),
+                NoWork,
+                stats_handle.chain(HashboardIndex(1)),
+            );
+
+            let (bring_up_outcome, primary_run, secondary_run) =
+                block_on_with(psu, join3(bring_up, run_a, run_b));
+            assert!(matches!(primary_run, Ok(())));
+            assert!(matches!(secondary_run, Ok(())));
+            assert!(matches!(bring_up_outcome, Some(MinerState::Recover(_))));
+        });
+    }
+}
+
+rusty_fork_test! {
+    /// The outer budget: every cycle that brings no chain up cuts the rail
+    /// and tries again, until `BRING_UP_CYCLES` is spent and the machine
+    /// parks instead. A cycle that does bring a chain up starts the count
+    /// again, so an occasional empty cycle never reaches the park.
+    #[test]
+    fn empty_cycles_spend_the_outer_budget_and_a_good_cycle_starts_it_again() {
+        static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
+        static STATS: [ChainStats; 1] = [ChainStats::new()];
+        static ACTIVE: AtomicU8 = AtomicU8::new(1);
+
+        static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
+        let (psu_driver, psu) = test_psu(TestPsu {
+            mining: mining_handle(),
+            log: &LOG,
+            disable_fails: false,
+            behavior: Cell::new(VoltageWrite::Succeed),
+        });
+        let stats_handle = ChainStatsHandle::new(&STATS, &ACTIVE);
+        let mut miner = test_miner::<crate::tuner::Tuners, 1>(
+            psu_driver,
+                    psu,
+            [&ACTOR],
+            [stats_handle.chain(HashboardIndex(0))],
+        );
+
+        for cycle in 1..super::BRING_UP_CYCLES {
+            assert!(
+                !miner.empty_cycle_spends_the_budget(),
+                "cycle {cycle} of {} must still cut the rail and retry",
+                super::BRING_UP_CYCLES
+            );
+        }
+        assert!(
+            miner.empty_cycle_spends_the_budget(),
+            "the last cycle of the budget parks the machine"
+        );
+
+        miner.empty_cycles = 0;
+        assert!(
+            !miner.empty_cycle_spends_the_budget(),
+            "a cycle that brought a chain up gives the budget back"
+        );
+    }
+}
+
+rusty_fork_test! {
+    #[test]
+    fn a_bring_up_with_one_chain_present_starts_work() {
+        // See the doc comment on `run_bring_up_chain`.
+        critical_section::with(|_| {
+            static ACTOR_A: Serial = Serial::new(HashboardIndex(0), 2);
+            static ACTOR_B: Serial = Serial::new(HashboardIndex(1), 2);
+            static SESSION: AsicSession<1, 2> = AsicSession::new();
+            static STATS: [ChainStats; 2] = [ChainStats::new(), ChainStats::new()];
+            static ACTIVE: AtomicU8 = AtomicU8::new(2);
+            static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
+            const EXPECTED: u8 = BMM101_HASHBOARD.num_chips;
+            let (psu_driver, psu) = test_psu(TestPsu {
+                mining: mining_handle(),
+                log: &LOG,
+                disable_fails: false,
+                behavior: Cell::new(VoltageWrite::Succeed),
+            });
+            let stats_handle = ChainStatsHandle::new(&STATS, &ACTIVE);
+            let mut miner = test_miner::<crate::tuner::Tuners, 2>(
+                psu_driver,
+                    psu,
+                [&ACTOR_A, &ACTOR_B],
+                [
+                    stats_handle.chain(HashboardIndex(0)),
+                    stats_handle.chain(HashboardIndex(1)),
+                ],
+            );
+            let mut subscription = test_config().0;
+
+            let bring_up = async {
+                let bring_up_outcome = miner
+                    .advance(MinerState::BringUp(BringUp), &mut subscription)
+                    .await;
+                let terminate_a = ACTOR_A.terminate().await;
+                let terminate_b = ACTOR_B.terminate().await;
+                assert!(matches!(terminate_a, Ok(())));
+                assert!(matches!(terminate_b, Ok(())));
+                bring_up_outcome
+            };
+            // Chain A comes up present; chain B stays absent.
+            let run_a = ACTOR_A.run(
+                crate::fixture::park(),
+                QuietSerial,
+                &SESSION,
+                &BMM101_HASHBOARD,
+                BringUpDriver::new(&[EXPECTED]),
+                NoWork,
+                stats_handle.chain(HashboardIndex(0)),
+            );
+            let run_b = ACTOR_B.run(
+                crate::fixture::park(),
+                QuietSerial,
+                &SESSION,
+                &BMM101_HASHBOARD,
+                BringUpDriver::new(&[0]),
+                NoWork,
+                stats_handle.chain(HashboardIndex(1)),
+            );
+
+            let (bring_up_outcome, primary_run, secondary_run) =
+                block_on_with(psu, join3(bring_up, run_a, run_b));
+            assert!(matches!(primary_run, Ok(())));
+            assert!(matches!(secondary_run, Ok(())));
+            assert!(matches!(bring_up_outcome, Some(MinerState::StartWork(_))));
+            assert_eq!(
+                stats_handle.chain(HashboardIndex(0)).presence(),
+                ChainPresence::Present { chips: EXPECTED }
+            );
+            assert_eq!(
+                stats_handle.chain(HashboardIndex(1)).presence(),
+                ChainPresence::Absent
+            );
+        });
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -715,7 +740,47 @@ enum VoltageWrite {
     YieldThenSucceed,
 }
 
+/// The mining handle a board takes in `main`, with the runner that the miner
+/// of the test takes from it. The handle is reached through `Deref`.
+struct TestMining {
+    handle: crate::Handle,
+    runner: Cell<Option<crate::Runner>>,
+}
+
+impl TestMining {
+    /// A handle with the runner that goes with it.
+    fn of(handle: crate::Handle, runner: crate::Runner) -> Self {
+        Self {
+            handle,
+            runner: Cell::new(Some(runner)),
+        }
+    }
+
+    /// The runner, for the one miner that runs on this handle at a time.
+    fn runner(&self) -> crate::Runner {
+        self.runner
+            .take()
+            .expect("BUG: the runner of the test is with another miner")
+    }
+}
+
+impl core::ops::Deref for TestMining {
+    type Target = crate::Handle;
+
+    fn deref(&self) -> &crate::Handle {
+        &self.handle
+    }
+}
+
+/// The mining handle a board takes in `main`. The test that calls this runs
+/// in a process of its own.
+fn mining_handle() -> TestMining {
+    let (runner, handle) = crate::Handle::take();
+    TestMining::of(handle, runner)
+}
+
 struct TestPsu {
+    mining: TestMining,
     log: &'static HardwareLog,
     behavior: Cell<VoltageWrite>,
     disable_fails: bool,
@@ -723,6 +788,7 @@ struct TestPsu {
 
 impl Psu for TestPsu {
     type BusError = Infallible;
+
     async fn enable(&self) -> Result<(), PsuError<Infallible>> {
         self.log.lock(|log| {
             log.borrow_mut()
@@ -761,7 +827,7 @@ impl Psu for TestPsu {
             }
             VoltageWrite::Interrupt => {
                 self.behavior.set(VoltageWrite::Succeed);
-                crate::handle().stop();
+                self.mining.stop();
                 core::future::pending::<()>().await;
             }
             VoltageWrite::YieldThenSucceed => {
@@ -769,7 +835,7 @@ impl Psu for TestPsu {
             }
             VoltageWrite::StopThenSucceed => {
                 self.behavior.set(VoltageWrite::Succeed);
-                crate::handle().stop();
+                self.mining.stop();
                 embassy_futures::yield_now().await;
             }
         }
@@ -795,21 +861,36 @@ impl Psu for TestPsu {
     }
 }
 
-/// A psu over `driver`, both leaked so they are `'static` the way a
+/// A supply over a test driver with the handle and the runner that the
+/// process took, which is what a board holds for its PSU.
+struct TestSupply {
+    supply: PowerSupply<TestPsu>,
+    handle: ubos_psu::Handle,
+    runner: RefCell<ubos_psu::Runner>,
+}
+
+/// A supply over `driver`, both leaked so they are `'static` the way a
 /// board's are.
-fn test_psu(driver: TestPsu) -> (&'static TestPsu, &'static PowerSupply<TestPsu>) {
+fn test_psu(driver: TestPsu) -> (&'static TestPsu, &'static TestSupply) {
     let driver: &'static TestPsu = std::boxed::Box::leak(std::boxed::Box::new(driver));
-    let psu = std::boxed::Box::leak(std::boxed::Box::new(PowerSupply::new(driver)));
+    let (runner, handle) = ubos_psu::Handle::take();
+    let psu = std::boxed::Box::leak(std::boxed::Box::new(TestSupply {
+        supply: PowerSupply::new(driver),
+        handle,
+        runner: RefCell::new(runner),
+    }));
     (driver, psu)
 }
 
 /// `future` with the PSU task polled beside it, the way a board runs
 /// the miner beside it.
-async fn beside_psu<F: core::future::Future>(
-    psu: &'static PowerSupply<TestPsu>,
-    future: F,
-) -> F::Output {
-    match select(future, psu.run()).await {
+///
+/// The borrow of the runner lasts as long as the PSU task runs. A second
+/// task at the same time would panic on it, as a second task on one
+/// runner is not possible on a board.
+#[allow(clippy::await_holding_refcell_ref)]
+async fn beside_psu<F: core::future::Future>(psu: &'static TestSupply, future: F) -> F::Output {
+    match select(future, psu.supply.run(&mut psu.runner.borrow_mut())).await {
         Either::First(output) => output,
         Either::Second(never) => never,
     }
@@ -835,33 +916,27 @@ fn poll_settled<F: core::future::Future>(
 }
 
 /// Run `future` to completion beside the PSU task.
-fn block_on_with<F: core::future::Future>(
-    psu: &'static PowerSupply<TestPsu>,
-    future: F,
-) -> F::Output {
+fn block_on_with<F: core::future::Future>(psu: &'static TestSupply, future: F) -> F::Output {
     block_on(beside_psu(psu, future))
 }
 
 /// Have `psu` report `voltage` as already set, as a rail already running
 /// would, and leave no trace of the write in the log of `psu_driver`.
-fn seed_voltage(
-    psu_driver: &'static TestPsu,
-    psu: &'static PowerSupply<TestPsu>,
-    voltage: Voltage,
-) {
+fn seed_voltage(psu_driver: &'static TestPsu, psu: &'static TestSupply, voltage: Voltage) {
     let behavior = psu_driver.behavior.replace(VoltageWrite::Succeed);
-    block_on_with(psu, psu.handle().set_voltage(voltage)).expect("seed write");
+    block_on_with(psu, psu.handle.set_voltage(voltage)).expect("seed write");
     psu_driver.behavior.set(behavior);
     psu_driver.log.lock(|log| log.borrow_mut().clear());
 }
 
-fn test_miner<'a, T: MachineTuner<CHAINS, PlatformReadings = ()>, const CHAINS: usize>(
-    psu_handle: &'a ubos_psu::Handle,
+fn test_miner<T: MachineTuner<CHAINS, PlatformReadings = ()>, const CHAINS: usize>(
+    psu_driver: &'static TestPsu,
+    psu: &'static TestSupply,
     actors: [&'static Serial; CHAINS],
     stats: [&'static ChainStats; CHAINS],
-) -> Miner<'a, LoggingResetPin, T, CHAINS> {
+) -> Miner<LoggingResetPin, T, CHAINS> {
     Miner {
-        psu_handle,
+        psu_handle: psu.handle,
         board: &BMM101_HASHBOARD,
         chains: core::array::from_fn(|index| ChainHandle {
             serial: actors[index],
@@ -869,7 +944,7 @@ fn test_miner<'a, T: MachineTuner<CHAINS, PlatformReadings = ()>, const CHAINS: 
             reset: LoggingResetPin::new(),
         }),
         read_platform: || (),
-        mining: crate::handle(),
+        mining: psu_driver.mining.runner(),
         empty_cycles: 0,
     }
 }
@@ -887,106 +962,109 @@ fn test_config() -> (
     )
 }
 
-#[test]
-fn plans_order_shared_rail_writes_and_preserve_successful_partial_progress() {
-    critical_section::with(|_| {
-        static A: Serial = Serial::new(HashboardIndex(0), 3);
-        static ABSENT: Serial = Serial::new(HashboardIndex(1), 3);
-        static B: Serial = Serial::new(HashboardIndex(2), 3);
-        static STATS: [ChainStats; 3] = [const { ChainStats::new() }; 3];
-        static SESSION: AsicSession<1, 3> = AsicSession::new();
-        static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
-        let (_, psu) = test_psu(TestPsu {
-            log: &LOG,
-            disable_fails: false,
-            behavior: Cell::new(VoltageWrite::Succeed),
-        });
-        let mut miner = test_miner(psu.handle(), [&A, &ABSENT, &B], STATS.each_ref());
-        STATS[0].set_presence(ChainPresence::Present { chips: 4 });
-        STATS[1].set_presence(ChainPresence::Absent);
-        STATS[2].set_presence(ChainPresence::Present { chips: 4 });
-        STATS[0].set_frequency(Frequency::from_mhz(600));
-        STATS[2].set_frequency(Frequency::from_mhz(100));
-        let refused = Frequency::from_mhz(300);
-        let driver = |chain| BringUpDriver {
-            plan_log: Some((chain, &LOG)),
-            refused_frequency: Some(refused),
-            ..BringUpDriver::new(&[4])
-        };
-        let exercise = async {
-            // No actor runs for the absent connector: touching it would time out.
-            miner.start_chains().await.expect("work starts");
-            LOG.lock(|log| log.borrow_mut().clear());
-            let lower = Frequency::from_mhz(500);
-            let higher = Frequency::from_mhz(200);
-            let voltage = Voltage::from_mv(1000);
-            let plan = Plan {
-                frequencies: [Some(lower), Some(refused), Some(higher)],
-                rail: Some(voltage),
-                delay: Duration::from_millis(0),
-            };
-            miner.apply_plan(&plan).await.expect("plan succeeds");
-            LOG.lock(|log| {
-                assert_eq!(
-                    log.borrow().as_slice(),
-                    &[
-                        Write::Frequency(0, lower),
-                        Write::Voltage(voltage),
-                        Write::Frequency(2, higher),
-                    ]
-                );
+rusty_fork_test! {
+    #[test]
+    fn plans_order_shared_rail_writes_and_preserve_successful_partial_progress() {
+        critical_section::with(|_| {
+            static A: Serial = Serial::new(HashboardIndex(0), 3);
+            static ABSENT: Serial = Serial::new(HashboardIndex(1), 3);
+            static B: Serial = Serial::new(HashboardIndex(2), 3);
+            static STATS: [ChainStats; 3] = [const { ChainStats::new() }; 3];
+            static SESSION: AsicSession<1, 3> = AsicSession::new();
+            static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
+            let (psu_driver, psu) = test_psu(TestPsu {
+                mining: mining_handle(),
+                log: &LOG,
+                disable_fails: false,
+                behavior: Cell::new(VoltageWrite::Succeed),
             });
-            let readings = miner.readings();
-            assert!(readings.chains[1].is_none());
-            assert_eq!(readings.chains[0].expect("present chain").frequency, lower);
-            assert_eq!(readings.chains[2].expect("present chain").frequency, higher);
-            assert_eq!(readings.voltage, voltage);
-            LOG.lock(|log| log.borrow_mut().clear());
-            miner.apply_plan(&plan).await.expect("plan succeeds");
-            LOG.lock(|log| assert!(log.borrow().is_empty()));
+            let mut miner = test_miner(psu_driver, psu, [&A, &ABSENT, &B], STATS.each_ref());
+            STATS[0].set_presence(ChainPresence::Present { chips: 4 });
+            STATS[1].set_presence(ChainPresence::Absent);
+            STATS[2].set_presence(ChainPresence::Present { chips: 4 });
+            STATS[0].set_frequency(Frequency::from_mhz(600));
+            STATS[2].set_frequency(Frequency::from_mhz(100));
+            let refused = Frequency::from_mhz(300);
+            let driver = |chain| BringUpDriver {
+                plan_log: Some((chain, &LOG)),
+                refused_frequency: Some(refused),
+                ..BringUpDriver::new(&[4])
+            };
+            let exercise = async {
+                // No actor runs for the absent connector: touching it would time out.
+                miner.start_chains().await.expect("work starts");
+                LOG.lock(|log| log.borrow_mut().clear());
+                let lower = Frequency::from_mhz(500);
+                let higher = Frequency::from_mhz(200);
+                let voltage = Voltage::from_mv(1000);
+                let plan = Plan {
+                    frequencies: [Some(lower), Some(refused), Some(higher)],
+                    rail: Some(voltage),
+                    delay: Duration::from_millis(0),
+                };
+                miner.apply_plan(&plan).await.expect("plan succeeds");
+                LOG.lock(|log| {
+                    assert_eq!(
+                        log.borrow().as_slice(),
+                        &[
+                            Write::Frequency(0, lower),
+                            Write::Voltage(voltage),
+                            Write::Frequency(2, higher),
+                        ]
+                    );
+                });
+                let readings = miner.readings();
+                assert!(readings.chains[1].is_none());
+                assert_eq!(readings.chains[0].expect("present chain").frequency, lower);
+                assert_eq!(readings.chains[2].expect("present chain").frequency, higher);
+                assert_eq!(readings.voltage, voltage);
+                LOG.lock(|log| log.borrow_mut().clear());
+                miner.apply_plan(&plan).await.expect("plan succeeds");
+                LOG.lock(|log| assert!(log.borrow().is_empty()));
 
-            check_voltage_only_plans(&mut miner, &LOG, &plan).await;
+                check_voltage_only_plans(&mut miner, &LOG, &plan).await;
 
-            check_partial_plan_failures(&mut miner, &LOG, refused, voltage, higher).await;
-            check_plan_bounds(&mut miner, &LOG).await;
-            A.terminate().await.expect("actor terminates");
-            B.terminate().await.expect("actor terminates");
-        };
-        let run_a = A.run(
-            crate::fixture::park(),
-            QuietSerial,
-            &SESSION,
-            &BMM101_HASHBOARD,
-            driver(0),
-            NoWork,
-            &STATS[0],
-        );
-        let run_b = B.run(
-            crate::fixture::park(),
-            QuietSerial,
-            &SESSION,
-            &BMM101_HASHBOARD,
-            driver(2),
-            NoWork,
-            &STATS[2],
-        );
-        let outcome = block_on_with(
-            psu,
-            select(
-                join3(exercise, run_a, run_b),
-                Timer::after(Duration::from_millis(500)),
-            ),
-        );
-        let Either::First(((), a, b)) = outcome else {
-            panic!("plan execution timed out")
-        };
-        a.expect("actor A succeeds");
-        b.expect("actor B succeeds");
-    });
+                check_partial_plan_failures(&mut miner, &LOG, refused, voltage, higher).await;
+                check_plan_bounds(&mut miner, &LOG).await;
+                A.terminate().await.expect("actor terminates");
+                B.terminate().await.expect("actor terminates");
+            };
+            let run_a = A.run(
+                crate::fixture::park(),
+                QuietSerial,
+                &SESSION,
+                &BMM101_HASHBOARD,
+                driver(0),
+                NoWork,
+                &STATS[0],
+            );
+            let run_b = B.run(
+                crate::fixture::park(),
+                QuietSerial,
+                &SESSION,
+                &BMM101_HASHBOARD,
+                driver(2),
+                NoWork,
+                &STATS[2],
+            );
+            let outcome = block_on_with(
+                psu,
+                select(
+                    join3(exercise, run_a, run_b),
+                    Timer::after(Duration::from_millis(500)),
+                ),
+            );
+            let Either::First(((), a, b)) = outcome else {
+                panic!("plan execution timed out")
+            };
+            a.expect("actor A succeeds");
+            b.expect("actor B succeeds");
+        });
+    }
 }
 
 async fn check_voltage_only_plans(
-    miner: &mut Miner<'_, LoggingResetPin, crate::tuner::Tuners, 3>,
+    miner: &mut Miner<LoggingResetPin, crate::tuner::Tuners, 3>,
     log: &HardwareLog,
     plan: &Plan<3>,
 ) {
@@ -1011,7 +1089,7 @@ async fn check_voltage_only_plans(
 }
 
 async fn check_partial_plan_failures(
-    miner: &mut Miner<'_, LoggingResetPin, crate::tuner::Tuners, 3>,
+    miner: &mut Miner<LoggingResetPin, crate::tuner::Tuners, 3>,
     log: &HardwareLog,
     refused: Frequency,
     voltage: Voltage,
@@ -1049,7 +1127,7 @@ async fn check_partial_plan_failures(
 }
 
 async fn check_plan_bounds(
-    miner: &mut Miner<'_, LoggingResetPin, crate::tuner::Tuners, 3>,
+    miner: &mut Miner<LoggingResetPin, crate::tuner::Tuners, 3>,
     log: &HardwareLog,
 ) {
     let range = miner.board.chip.frequency_range;

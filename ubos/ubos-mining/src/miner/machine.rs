@@ -35,7 +35,7 @@ use super::states::{
     BringUp, Choose, Enable, ExitReset, Halted, NoTuner, Pause, Recover, Reset, StartWork, Step,
     WaitForPool,
 };
-use crate::control::{Message, MiningState};
+use crate::control::MiningState;
 use crate::reset::ResetPin;
 use crate::tuner::MachineTuner;
 
@@ -44,7 +44,7 @@ use crate::tuner::MachineTuner;
 /// still on the bus its own `COMMAND_GRACE` before it starts the cut.
 pub(super) const INTERRUPT_TIMEOUT: Duration = Duration::from_millis(100);
 
-impl<R, T, const CHAINS: usize> Miner<'_, R, T, CHAINS>
+impl<R, T, const CHAINS: usize> Miner<R, T, CHAINS>
 where
     R: ResetPin,
     T: MachineTuner<CHAINS>,
@@ -60,8 +60,8 @@ where
     /// The cut before the first state parks the rail and every chain, so
     /// each board begins bring-up from a known-off supply, whatever the
     /// previous boot cycle left it in.
-    pub async fn run(&mut self) {
-        let mut subscription = ubos_config::handle().subscribe();
+    pub async fn run(&mut self, config: ubos_config::Handle) {
+        let mut subscription = config.subscribe();
         // This task is spawned before the configuration task, and the
         // first state reads the tuning. Without the wait it would read
         // `Config::default()`, the operating point of another board.
@@ -125,18 +125,19 @@ where
     ) -> Option<MinerState<T>> {
         let reads_halt = state.reads_halt();
         let grants_grace = state.grants_grace();
-        let mining = self.mining;
+        let stop = self.mining.stopped();
+        let halt = reads_halt.then(|| self.mining.halted());
         let mut context = Context {
             miner: self,
             config,
         };
         let mut work = pin!(state.run(&mut context));
-        let mut stop = pin!(mining.stopped());
+        let mut stop = pin!(stop);
         // A resume that arrives before a halt is dropped, because a
         // machine that is not halted has nothing to resume.
         let mut halt = pin!(async {
-            if reads_halt {
-                while !matches!(mining.next_message().await, Message::Halt) {}
+            if let Some(halt) = halt {
+                halt.await;
             } else {
                 core::future::pending::<()>().await;
             }
@@ -184,12 +185,12 @@ where
 /// subscription the state reads the tuning through. The subscription is
 /// a borrow, so a test drives the machine from a configuration of its
 /// own.
-pub(super) struct Context<'m, 'a, R, T, const CHAINS: usize>
+pub(super) struct Context<'m, R, T, const CHAINS: usize>
 where
     R: ResetPin,
     T: MachineTuner<CHAINS>,
 {
-    pub(super) miner: &'m mut Miner<'a, R, T, CHAINS>,
+    pub(super) miner: &'m mut Miner<R, T, CHAINS>,
     pub(super) config: &'m mut ConfigSubscription,
 }
 

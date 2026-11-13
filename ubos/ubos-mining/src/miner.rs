@@ -53,7 +53,7 @@ use ubos_psu::Handle as PsuHandle;
 use ubos_tuner::{ChainReadings, Plan, Readings};
 
 use crate::chain::{ChainControl, ChainHandle};
-use crate::control::{Handle, MiningState};
+use crate::control::{MiningState, Runner};
 use crate::reset::ResetPin;
 use crate::serial::Serial;
 use crate::tuner::MachineTuner;
@@ -76,12 +76,11 @@ const BRING_UP_CYCLES: u8 = 3;
 ///
 /// The command channel is bounded, so a deployment that never reads it
 /// blocks every later sender, which is the manager task.
-pub async fn run_idle() -> ! {
-    let handle = crate::handle();
-    handle.publish(MiningState::Stopped);
+pub async fn run_idle(runner: Runner) -> ! {
+    runner.publish(MiningState::Stopped);
     info!("mining: idle loop active (no chip)");
     loop {
-        handle.next_message().await;
+        runner.next_message().await;
     }
 }
 
@@ -89,15 +88,13 @@ pub async fn run_idle() -> ! {
 ///
 /// Holds the PSU handle and owns every chain of the machine. Firmware
 /// constructs this with [`Miner::new`] and calls [`Miner::run`] to
-/// run the state machine. The `'a` lifetime covers the PSU handle,
-/// which today is always `'static` at the firmware call site. `T` is the
-/// machine's tuner set.
-pub struct Miner<'a, R, T, const CHAINS: usize>
+/// run the state machine. `T` is the machine's tuner set.
+pub struct Miner<R, T, const CHAINS: usize>
 where
     R: ResetPin,
     T: MachineTuner<CHAINS>,
 {
-    psu_handle: &'a PsuHandle,
+    psu_handle: PsuHandle,
     board: &'static HashboardDescriptor,
     chains: [ChainHandle<R>; CHAINS],
     /// Readings only this board's platform has. Read once per step and
@@ -105,14 +102,14 @@ where
     read_platform: fn() -> T::PlatformReadings,
     /// The mining handle the API reads; the miner publishes its lifecycle
     /// status and reads halt and resume through it.
-    mining: Handle,
+    mining: Runner,
     /// Bring-up cycles that found no chain since the last one that did.
     /// Counts toward `BRING_UP_CYCLES`, and is cleared by every cycle
     /// that brings a chain up and by every resume.
     empty_cycles: u8,
 }
 
-impl<'a, R, T, const CHAINS: usize> Miner<'a, R, T, CHAINS>
+impl<R, T, const CHAINS: usize> Miner<R, T, CHAINS>
 where
     R: ResetPin,
     T: MachineTuner<CHAINS>,
@@ -120,17 +117,15 @@ where
     /// Construct a `Miner` from the PSU handle, the board descriptor
     /// whose chip facts drive the tuner, one serial actor with its reset
     /// pin per chain of the machine, in chain order, and the function that
-    /// reads what the platform reports beyond the common readings.
+    /// reads what the platform reports beyond the common readings. The miner
+    /// publishes its lifecycle status and takes halt and resume through
+    /// `mining`.
     ///
     /// A `Serial` declares its own index and its own view of the
     /// machine's chain count, and both are checked against its position
     /// in `chains`. The reset pin travels in the same pair as its actor,
     /// so a board names the two together and there is no second array
     /// whose order could drift from the first.
-    ///
-    /// The PSU handle is borrowed for lifetime `'a`; on all current
-    /// firmware targets `'a` is `'static` because the PSU lives in a
-    /// static.
     ///
     /// # Panics
     ///
@@ -143,10 +138,11 @@ where
     /// which the per-chain accounting table has no slot for, fails to
     /// compile.
     pub fn new(
-        psu_handle: &'a PsuHandle,
+        psu_handle: PsuHandle,
         board: &'static HashboardDescriptor,
         chains: [(&'static Serial, R); CHAINS],
         read_platform: fn() -> T::PlatformReadings,
+        mining: Runner,
     ) -> Self {
         const {
             assert!(
@@ -182,7 +178,7 @@ where
             board,
             chains,
             read_platform,
-            mining: crate::handle(),
+            mining,
             empty_cycles: 0,
         }
     }
@@ -349,16 +345,18 @@ macro_rules! miner_task {
     ($reset:ty, $board:expr, $chains:expr, $tuner:ty, $platform:expr) => {
         #[embassy_executor::task]
         pub async fn miner_task(
-            psu_handle: &'static ubos_psu::Handle,
+            psu_handle: ubos_psu::Handle,
             chains: [(&'static ubos_mining::serial::Serial, $reset); $chains],
+            mining: ubos_mining::Runner,
+            config: ubos_config::Handle,
         ) -> ! {
             /// Park interval after the state machine returns.
             const PARK_INTERVAL: embassy_time::Duration = embassy_time::Duration::from_secs(60);
 
             let mut miner = ubos_mining::Miner::<_, $tuner, { $chains }>::new(
-                psu_handle, $board, chains, $platform,
+                psu_handle, $board, chains, $platform, mining,
             );
-            miner.run().await;
+            miner.run(config).await;
             defmt::info!("ubos-mining miner exited");
             loop {
                 embassy_time::Timer::after(PARK_INTERVAL).await;

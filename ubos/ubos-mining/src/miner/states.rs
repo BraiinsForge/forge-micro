@@ -33,7 +33,6 @@ use super::BRING_UP_CYCLES;
 use super::machine::Context;
 use super::pool::{POOL_POLL_PERIOD, PoolWatch};
 use crate::chain::ChainHandle;
-use crate::control::Message;
 use crate::reset::ResetPin;
 use crate::tuner::MachineTuner;
 
@@ -57,7 +56,7 @@ pub(super) struct Choose;
 
 successors! { pub(super) enum ChooseNext { Missing(NoTuner), Found(Reset) } }
 
-impl<R, T, const CHAINS: usize> State<Context<'_, '_, R, T, CHAINS>> for Choose
+impl<R, T, const CHAINS: usize> State<Context<'_, R, T, CHAINS>> for Choose
 where
     R: ResetPin,
     T: MachineTuner<CHAINS>,
@@ -67,7 +66,7 @@ where
     /// Check the tuner before any chain is powered. A configuration that
     /// selects a tuner this machine does not have leads to [`NoTuner`],
     /// with the rail left off.
-    async fn run(self, context: &mut Context<'_, '_, R, T, CHAINS>) -> ChooseNext {
+    async fn run(self, context: &mut Context<'_, R, T, CHAINS>) -> ChooseNext {
         let tuning = context.config.get().await.miner.tuning;
         if T::select(&tuning, context.miner.board).is_none() {
             return ChooseNext::Missing(NoTuner::missing(&tuning));
@@ -81,14 +80,14 @@ pub(super) struct Reset;
 
 successors! { pub(super) enum ResetNext { Held(WaitForPool) } }
 
-impl<R, T, const CHAINS: usize> State<Context<'_, '_, R, T, CHAINS>> for Reset
+impl<R, T, const CHAINS: usize> State<Context<'_, R, T, CHAINS>> for Reset
 where
     R: ResetPin,
     T: MachineTuner<CHAINS>,
 {
     type Next = ResetNext;
 
-    async fn run(self, context: &mut Context<'_, '_, R, T, CHAINS>) -> ResetNext {
+    async fn run(self, context: &mut Context<'_, R, T, CHAINS>) -> ResetNext {
         info!("mining: entering reset");
         crate::events::miner_reset();
         for chain in &mut context.miner.chains {
@@ -103,7 +102,7 @@ pub(super) struct WaitForPool;
 
 successors! { pub(super) enum WaitForPoolNext { Job(Enable) } }
 
-impl<R, T, const CHAINS: usize> State<Context<'_, '_, R, T, CHAINS>> for WaitForPool
+impl<R, T, const CHAINS: usize> State<Context<'_, R, T, CHAINS>> for WaitForPool
 where
     R: ResetPin,
     T: MachineTuner<CHAINS>,
@@ -112,7 +111,7 @@ where
 
     /// Hold the chains in reset with the rail off until the scheduler would
     /// dispatch work, asking every [`POOL_POLL_PERIOD`].
-    async fn run(self, context: &mut Context<'_, '_, R, T, CHAINS>) -> WaitForPoolNext {
+    async fn run(self, context: &mut Context<'_, R, T, CHAINS>) -> WaitForPoolNext {
         info!("mining: waiting for a pool to hold a job");
         while !context.miner.pool_serial().work_available().await {
             Timer::after(POOL_POLL_PERIOD).await;
@@ -127,7 +126,7 @@ pub(super) struct Enable;
 
 successors! { pub(super) enum EnableNext { Enabled(ExitReset) } }
 
-impl<R, T, const CHAINS: usize> State<Context<'_, '_, R, T, CHAINS>> for Enable
+impl<R, T, const CHAINS: usize> State<Context<'_, R, T, CHAINS>> for Enable
 where
     R: ResetPin,
     T: MachineTuner<CHAINS>,
@@ -138,7 +137,7 @@ where
     /// rail and let it settle for [`RESET_HOLD`]. A failure is
     /// logged and bring-up goes on, because enumeration finds a rail that
     /// did not come up.
-    async fn run(self, context: &mut Context<'_, '_, R, T, CHAINS>) -> EnableNext {
+    async fn run(self, context: &mut Context<'_, R, T, CHAINS>) -> EnableNext {
         Timer::after(RESET_HOLD).await;
         info!("mining: enabling PSU");
         crate::events::psu_enabled();
@@ -155,7 +154,7 @@ pub(super) struct ExitReset;
 
 successors! { pub(super) enum ExitResetNext { Released(BringUp) } }
 
-impl<R, T, const CHAINS: usize> State<Context<'_, '_, R, T, CHAINS>> for ExitReset
+impl<R, T, const CHAINS: usize> State<Context<'_, R, T, CHAINS>> for ExitReset
 where
     R: ResetPin,
     T: MachineTuner<CHAINS>,
@@ -164,7 +163,7 @@ where
 
     /// Release every chain from reset and let it settle for
     /// [`RESET_HOLD`].
-    async fn run(self, context: &mut Context<'_, '_, R, T, CHAINS>) -> ExitResetNext {
+    async fn run(self, context: &mut Context<'_, R, T, CHAINS>) -> ExitResetNext {
         info!("mining: exiting reset");
         for chain in &mut context.miner.chains {
             chain.reset.exit_reset().await;
@@ -179,7 +178,7 @@ pub(super) struct BringUp;
 
 successors! { pub(super) enum BringUpNext { Present(StartWork), Retry(Recover), Park(Halted) } }
 
-impl<R, T, const CHAINS: usize> State<Context<'_, '_, R, T, CHAINS>> for BringUp
+impl<R, T, const CHAINS: usize> State<Context<'_, R, T, CHAINS>> for BringUp
 where
     R: ResetPin,
     T: MachineTuner<CHAINS>,
@@ -205,7 +204,7 @@ where
     /// refused safe-boot configuration. Either way the chain is parked in
     /// reset and left out of the ramp, and the other chains carry on:
     /// only a bring-up where no chain comes up present cuts the rail.
-    async fn run(self, context: &mut Context<'_, '_, R, T, CHAINS>) -> BringUpNext {
+    async fn run(self, context: &mut Context<'_, R, T, CHAINS>) -> BringUpNext {
         let miner = &mut *context.miner;
         let expected = miner.board.num_chips;
         join_array(
@@ -243,7 +242,7 @@ successors! {
     pub(super) enum StartWorkNext<T> { Missing(NoTuner), Failed(Recover), Started(Step<T>) }
 }
 
-impl<R, T, const CHAINS: usize> State<Context<'_, '_, R, T, CHAINS>> for StartWork
+impl<R, T, const CHAINS: usize> State<Context<'_, R, T, CHAINS>> for StartWork
 where
     R: ResetPin,
     T: MachineTuner<CHAINS>,
@@ -258,7 +257,7 @@ where
     /// one that runs, without another power cycle. A tuning that changed
     /// to one this machine does not have leads to [`NoTuner`], which cuts
     /// the rail.
-    async fn run(self, context: &mut Context<'_, '_, R, T, CHAINS>) -> StartWorkNext<T> {
+    async fn run(self, context: &mut Context<'_, R, T, CHAINS>) -> StartWorkNext<T> {
         let tuning = context.config.get().await.miner.tuning;
         let miner = &mut *context.miner;
         let Some(tuner) = T::select(&tuning, miner.board) else {
@@ -302,7 +301,7 @@ successors! {
     pub(super) enum StepNext<T> { Superseded(Choose), Faulted(Recover), Applied(Pause<T>) }
 }
 
-impl<R, T, const CHAINS: usize> State<Context<'_, '_, R, T, CHAINS>> for Step<T>
+impl<R, T, const CHAINS: usize> State<Context<'_, R, T, CHAINS>> for Step<T>
 where
     R: ResetPin,
     T: MachineTuner<CHAINS>,
@@ -315,7 +314,7 @@ where
     /// before the step. A plan that writes to the hardware clears
     /// `failures`; a plan that fails adds one, and the
     /// [`PLAN_FAILURE_BUDGET`]th failure in a row leads to [`Recover`].
-    async fn run(self, context: &mut Context<'_, '_, R, T, CHAINS>) -> StepNext<T> {
+    async fn run(self, context: &mut Context<'_, R, T, CHAINS>) -> StepNext<T> {
         let mut run = self.run;
         let snapshot = context.config.get().await;
         if !run.selected.serves(&snapshot.miner.tuning) {
@@ -362,7 +361,7 @@ successors! {
     pub(super) enum PauseNext<T> { Elapsed(Step<T>), Superseded(Choose), PoolLost(Choose) }
 }
 
-impl<R, T, const CHAINS: usize> State<Context<'_, '_, R, T, CHAINS>> for Pause<T>
+impl<R, T, const CHAINS: usize> State<Context<'_, R, T, CHAINS>> for Pause<T>
 where
     R: ResetPin,
     T: MachineTuner<CHAINS>,
@@ -376,7 +375,7 @@ where
     /// reaches the tuner at the next step. A scheduler with nothing to dispatch for
     /// [`POOL_LOSS_GRACE`] also leads to [`Choose`], which waits for a
     /// pool again with the rail off.
-    async fn run(self, context: &mut Context<'_, '_, R, T, CHAINS>) -> PauseNext<T> {
+    async fn run(self, context: &mut Context<'_, R, T, CHAINS>) -> PauseNext<T> {
         let Self { mut run, until } = self;
         match select3(
             Timer::at(until),
@@ -401,7 +400,7 @@ pub(super) struct Recover;
 
 successors! { pub(super) enum RecoverNext { Retry(Choose) } }
 
-impl<R, T, const CHAINS: usize> State<Context<'_, '_, R, T, CHAINS>> for Recover
+impl<R, T, const CHAINS: usize> State<Context<'_, R, T, CHAINS>> for Recover
 where
     R: ResetPin,
     T: MachineTuner<CHAINS>,
@@ -410,7 +409,7 @@ where
 
     /// Hold the rail off for [`RETRY_DELAY`] after a failed
     /// bring-up or a faulted tuner, then start over.
-    async fn run(self, _context: &mut Context<'_, '_, R, T, CHAINS>) -> RecoverNext {
+    async fn run(self, _context: &mut Context<'_, R, T, CHAINS>) -> RecoverNext {
         Timer::after(RETRY_DELAY).await;
         RecoverNext::Retry(Choose)
     }
@@ -436,7 +435,7 @@ impl NoTuner {
 
 successors! { pub(super) enum NoTunerNext { Configured(Choose) } }
 
-impl<R, T, const CHAINS: usize> State<Context<'_, '_, R, T, CHAINS>> for NoTuner
+impl<R, T, const CHAINS: usize> State<Context<'_, R, T, CHAINS>> for NoTuner
 where
     R: ResetPin,
     T: MachineTuner<CHAINS>,
@@ -445,7 +444,7 @@ where
 
     /// Hold the rail off until a configuration selects another tuning
     /// variant, which [`Choose`] checks again.
-    async fn run(self, context: &mut Context<'_, '_, R, T, CHAINS>) -> NoTunerNext {
+    async fn run(self, context: &mut Context<'_, R, T, CHAINS>) -> NoTunerNext {
         self.selected.superseded(context.config).await;
         NoTunerNext::Configured(Choose)
     }
@@ -456,7 +455,7 @@ pub(super) struct Halted;
 
 successors! { pub(super) enum HaltedNext { Resume(Choose) } }
 
-impl<R, T, const CHAINS: usize> State<Context<'_, '_, R, T, CHAINS>> for Halted
+impl<R, T, const CHAINS: usize> State<Context<'_, R, T, CHAINS>> for Halted
 where
     R: ResetPin,
     T: MachineTuner<CHAINS>,
@@ -467,9 +466,9 @@ where
     ///
     /// A resumed machine has been asked for the whole budget of empty
     /// bring-up cycles again, so the count starts from zero.
-    async fn run(self, context: &mut Context<'_, '_, R, T, CHAINS>) -> HaltedNext {
+    async fn run(self, context: &mut Context<'_, R, T, CHAINS>) -> HaltedNext {
         info!("mining: rail down; awaiting resume");
-        while !matches!(context.miner.mining.next_message().await, Message::Resume) {}
+        context.miner.mining.resumed().await;
         info!("mining: resumed; restarting bring-up");
         context.miner.empty_cycles = 0;
         HaltedNext::Resume(Choose)

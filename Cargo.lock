@@ -4509,6 +4509,7 @@ dependencies = [
  "libm",
  "mining-protocol",
  "portable-atomic",
+ "rusty-fork",
  "serial-baudrate",
  "stratum-client",
  "transitions",
