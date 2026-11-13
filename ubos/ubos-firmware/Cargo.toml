@@ -21,6 +21,7 @@ defmt = [
     "stratum-v2/defmt",
     "ubos-api/defmt",
     "ubos-config/defmt",
+    "ubos-cooling/defmt",
     "ubos-events/defmt",
     "ubos-http/defmt",
     "ubos-manager/defmt",
@@ -55,6 +56,7 @@ stratum-v2     = { workspace = true }
 # unification via this crate's edges.
 ubos-api       = { workspace = true, default-features = false }
 ubos-config    = { workspace = true, default-features = false }
+ubos-cooling   = { workspace = true, default-features = false }
 ubos-events    = { workspace = true, default-features = false }
 ubos-http      = { workspace = true, default-features = false }
 ubos-manager   = { workspace = true, default-features = false }

@@ -33,11 +33,13 @@
 //! unit tests. Anything worth testing stays in the subsystem crates below.
 
 pub mod events;
+pub mod handles;
 pub mod net;
 pub mod serve;
 pub mod stratum;
 pub mod tasks;
 
+pub use handles::{Handles, Runners};
 pub use stratum::{MAX_POOLS, StratumShared, init_stratum, run_stratum_session};
 /// Re-exported so a board names the protocol its sessions carry, or
 /// `NoExtension`, without a direct `stratum-client` dependency.

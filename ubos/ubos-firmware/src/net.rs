@@ -43,12 +43,13 @@ const HOSTNAME_CAP: usize = 32;
 /// future enlargement of the base into a build failure rather than a
 /// boot-time panic.
 pub async fn bring_up<const BASE_LEN: usize>(
+    config: ubos_config::Handle,
     hostname_base: &'static str,
     mac_suffix: u8,
 ) -> (embassy_net::Config, &'static str) {
     static MDNS_HOSTNAME: StaticCell<heapless::String<HOSTNAME_CAP>> = StaticCell::new();
 
-    let initial = ubos_config::handle().changed().await;
+    let initial = config.changed().await;
     let net_config = match &initial.network.mode {
         ubos_config::NetworkMode::Static {
             address,

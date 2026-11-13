@@ -37,7 +37,7 @@
 /// spawner.spawn(unwrap!(metrics_ingest_task()));
 ///
 /// // Once the stack has an address:
-/// serve_all(spawner, stack, thermal, manager_handle, psu_handle).await;
+/// serve_all(spawner, stack, handles).await;
 /// ```
 ///
 /// The expansion is one `async fn serve_all`, which seeds each
@@ -92,9 +92,7 @@ macro_rules! serve_all {
         async fn serve_all(
             spawner: embassy_executor::Spawner,
             stack: embassy_net::Stack<'static>,
-            thermal: ubos_thermal::Handle,
-            manager: ubos_manager::Handle,
-            psu_handle: &'static ubos_psu::Handle,
+            handles: $crate::Handles,
         ) {
             // Bound to names of their own so what reaches the task
             // attribute is an identifier. The pool sizes are const
@@ -123,8 +121,8 @@ macro_rules! serve_all {
             // prefix reaches the API and every other path reaches the
             // dashboard; the two route tables do not overlap, because the
             // dashboard owns `/`, `/login`, `/logout` and `/logo.svg`.
-            ubos_api::seed_api_credentials();
-            ubos_webui::seed_webui_credentials();
+            ubos_api::seed_api_credentials(handles.config);
+            ubos_webui::seed_webui_credentials(handles.config);
             static HTTP_SERVICE: static_cell::StaticCell<HttpService> =
                 static_cell::StaticCell::new();
             let http_service: &'static HttpService = HTTP_SERVICE.init($crate::PrefixRouter {
@@ -134,12 +132,17 @@ macro_rules! serve_all {
                     env!("BUILD_ID"),
                     $mining_info,
                     $bounds,
-                    thermal,
-                    manager,
-                    psu_handle,
+                    handles.thermal,
+                    handles.manager,
+                    handles.psu,
+                    handles.cooling,
+                    handles.mining,
+                    handles.net,
+                    handles.config,
+                    handles.stratum,
                     stack,
                 ),
-                fallback: ubos_webui::DashboardService,
+                fallback: ubos_webui::DashboardService::new(handles.net),
             });
             $crate::serve_http_pool!(
                 spawner,
@@ -149,15 +152,18 @@ macro_rules! serve_all {
                 HTTP_POOL,
                 $crate::http_consts::Http
             );
-            spawner.spawn(::defmt::unwrap!(sync_credentials_task()));
+            spawner.spawn(::defmt::unwrap!(sync_credentials_task(handles.config)));
 
             // Prometheus metrics on :8081.
-            static METRICS_SERVICE: MetricsService = MetricsService::new(&METRICS_STATICS);
+            static METRICS_SERVICE: static_cell::StaticCell<MetricsService> =
+                static_cell::StaticCell::new();
+            let metrics_service: &'static MetricsService =
+                METRICS_SERVICE.init(MetricsService::new(&METRICS_STATICS, handles.net));
             $crate::serve_http_pool!(
                 spawner,
                 stack,
                 metrics_worker_task,
-                &METRICS_SERVICE,
+                metrics_service,
                 METRICS_POOL,
                 ubos_metrics::consts::Metrics
             );

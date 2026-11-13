@@ -4383,6 +4383,7 @@ dependencies = [
  "stratum-v2",
  "ubos-api",
  "ubos-config",
+ "ubos-cooling",
  "ubos-events",
  "ubos-http",
  "ubos-logging",

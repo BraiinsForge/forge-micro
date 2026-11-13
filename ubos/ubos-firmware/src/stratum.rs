@@ -212,6 +212,7 @@ pub async fn run_stratum_session<const N: usize>(
     slot: usize,
     session: &'static AsicSession<N>,
     shared: StratumShared,
+    config: ubos_config::Handle,
     extension: &mut dyn SessionExtension,
 ) -> ! {
     // This session's socket buffers. Locals held across `.await` live
@@ -230,8 +231,7 @@ pub async fn run_stratum_session<const N: usize>(
     // Lives across reconnects so assignment ids stay unique per slot.
     let mut state = StratumState::new(slot);
 
-    let config_handle = ubos_config::handle();
-    let mut config_generation = config_handle.subscribe_generation();
+    let mut config_generation = config.subscribe_generation();
     // Set once the slot has had a pool, so a slot whose pool is removed
     // keeps its counter series current instead of leaving a stale sample.
     let mut had_pool = false;
@@ -248,7 +248,7 @@ pub async fn run_stratum_session<const N: usize>(
         // removed entry would otherwise stay "Alive" forever.
         handle.set_alive(false);
 
-        let Some(entry) = config_handle.pool_slot(slot) else {
+        let Some(entry) = config.pool_slot(slot) else {
             // An empty primary slot means no mining at all — worth a
             // warning. Higher slots are backup entries; absent ones
             // are the normal single-pool configuration.
