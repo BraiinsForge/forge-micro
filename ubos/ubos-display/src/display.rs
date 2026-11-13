@@ -28,7 +28,6 @@ use embedded_graphics::text::Text;
 use profont::PROFONT_12_POINT;
 
 use ubos_metrics::hashrate::HashrateDisplay;
-use ubos_net::net::handle as net_handle;
 use ubos_net::ntp;
 
 /// Render IP, UTC time, fan PWM and RPM where a fan is present, and
@@ -40,8 +39,9 @@ use ubos_net::ntp;
 /// underlying atomic is still at its zero sentinel (`no ip`, `no sync`).
 /// Hashrate has no sentinel — zero is rendered as `0 H/s`.
 ///
-/// Line 3 shows fan PWM and RPM when the board has a fan; boards
-/// without a fan leave line 3 blank.
+/// Lines 1 and 2 read what `net` holds. Line 3 shows the fan PWM and RPM
+/// that `cooling` holds when the board has a fan; boards without a fan
+/// leave line 3 blank.
 ///
 /// The 16-pixel line pitch fits four baselines in the SH1106's
 /// 64-pixel height; any larger pitch clips the last line.
@@ -49,13 +49,17 @@ use ubos_net::ntp;
 /// # Errors
 ///
 /// Returns the display's draw error if any drawing operation fails.
-pub fn render<D: DrawTarget<Color = BinaryColor>>(display: &mut D) -> Result<(), D::Error> {
+pub fn render<D: DrawTarget<Color = BinaryColor>>(
+    display: &mut D,
+    cooling: ubos_cooling::Handle,
+    net: ubos_net::net::Handle,
+) -> Result<(), D::Error> {
     display.clear(BinaryColor::Off)?;
 
     let style = MonoTextStyle::new(&PROFONT_12_POINT, BinaryColor::On);
 
     // Line 1: IP address from DHCP, or "no ip" if DHCP has not assigned yet.
-    if let Some(ipv4) = net_handle().current().and_then(|state| state.ipv4) {
+    if let Some(ipv4) = net.current().and_then(|state| state.ipv4) {
         let octets = ipv4.octets();
         let mut ip_buffer = [0u8; 16];
         if let Ok(text) = format_no_std::show(
@@ -69,18 +73,16 @@ pub fn render<D: DrawTarget<Color = BinaryColor>>(display: &mut D) -> Result<(),
     }
 
     // Line 2: UTC time from NTP, or "no sync" if NTP has not completed.
-    let ntp_offset = net_handle().ntp_epoch_offset();
-    if ntp_offset == 0 {
-        Text::new("no sync", Point::new(0, 29), style).draw(display)?;
-    } else {
-        let unix_secs = ubos_net::wall_clock_secs();
+    if let Some(unix_secs) = net.unix_secs() {
         let time = ntp::format_utc_time(unix_secs);
         Text::new(time.as_str(), Point::new(0, 29), style).draw(display)?;
+    } else {
+        Text::new("no sync", Point::new(0, 29), style).draw(display)?;
     }
 
     // Line 3: fan PWM and RPM, published by the cooling task. `current()`
     // is `None` on boards without a fan, so line 3 stays blank there.
-    if let Some(fan) = ubos_cooling::handle().current() {
+    if let Some(fan) = cooling.current() {
         let mut fan_buffer = [0u8; 24];
         if let Ok(text) = format_no_std::show(
             &mut fan_buffer,
@@ -112,8 +114,10 @@ macro_rules! blocking_display_task {
         async fn display_task(
             mut display: $display,
             #[allow(clippy::used_underscore_binding)] _reset_pin: $reset,
+            cooling: ubos_cooling::Handle,
+            net: ubos_net::net::Handle,
         ) -> ! {
-            display.run_blocking().await
+            display.run_blocking(cooling, net).await
         }
     };
 }
@@ -131,8 +135,10 @@ macro_rules! display_task {
         async fn display_task(
             mut display: $display,
             #[allow(clippy::used_underscore_binding)] _reset_pin: $reset,
+            cooling: ubos_cooling::Handle,
+            net: ubos_net::net::Handle,
         ) -> ! {
-            display.run().await
+            display.run(cooling, net).await
         }
     };
 }

@@ -167,10 +167,14 @@ impl<SPI: embedded_hal::spi::SpiDevice, DC: OutputPin> Sh1106<SPI, DC> {
     /// executor for one full-frame transfer, about two milliseconds at the
     /// usual clock, once per second. Every result is dropped because a
     /// transient SPI fault must not stop the display for good.
-    pub async fn run_blocking(&mut self) -> ! {
+    pub async fn run_blocking(
+        &mut self,
+        cooling: ubos_cooling::Handle,
+        net: ubos_net::net::Handle,
+    ) -> ! {
         let _ = self.init();
         loop {
-            let _ = crate::display::render(self);
+            let _ = crate::display::render(self, cooling, net);
             let _ = self.flush();
             embassy_time::Timer::after(RENDER_INTERVAL).await;
         }
@@ -184,9 +188,9 @@ impl<SPI: embedded_hal_async::spi::SpiDevice, DC: OutputPin> Sh1106<SPI, DC> {
     /// Renders the screen into this panel's framebuffer through
     /// [`crate::display::render`], then flushes it over async SPI.
     /// Never returns, so a board spawns it as its own task.
-    pub async fn run(&mut self) -> ! {
+    pub async fn run(&mut self, cooling: ubos_cooling::Handle, net: ubos_net::net::Handle) -> ! {
         loop {
-            let _ = crate::display::render(self);
+            let _ = crate::display::render(self, cooling, net);
             let _ = self.flush_async().await;
             embassy_time::Timer::after(RENDER_INTERVAL).await;
         }
