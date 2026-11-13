@@ -66,7 +66,7 @@ pub fn create_session(token: String<32>) {
                 .min_by_key(|(_, meta)| meta.created_uptime_secs)
                 .map(|(key, _)| key.clone());
             if let Some(key) = oldest_key {
-                map.remove(&key);
+                map.swap_remove(&key);
             }
         }
         map.insert(
@@ -130,6 +130,6 @@ pub fn invalidate_session(token: &str) {
             .nth(index)
             .map(|(key, _)| key.clone())
             .expect("BUG: matched_index is within map bounds set during scan");
-        map.remove(&key);
+        map.swap_remove(&key);
     });
 }
