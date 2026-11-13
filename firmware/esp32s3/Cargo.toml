@@ -45,6 +45,8 @@ embassy-embedded-hal   = { version = "0.6.0", default-features = false, features
 embassy-sync           = { workspace = true, features = ["defmt"] }
 critical-section       = { version = "1" }
 esp-hal                = { version = "1.1.1", features = ["defmt", "esp32s3", "unstable"] }
+# On 0.3 for its stack-overflow detection and for multi-core
+# task-switch interrupt nesting that holds under load.
 esp-rtos               = { version = "0.3.0", features = ["embassy", "esp32s3", "defmt"] }
 esp-backtrace          = { version = "0.19.0", features = ["defmt", "esp32s3", "panic-handler"] }
 rand_core              = { workspace = true }
