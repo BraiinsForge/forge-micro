@@ -385,7 +385,8 @@ const fn is_key_shaped(key: &str) -> bool {
 ///
 /// Read with `try_get`, from core 0 only: the sessions and the API run
 /// there, and `run` sets it before the first config publish that each
-/// of them waits for.
+/// of them waits for. The board's one cell is private to the crate and
+/// reached through [`crate::Handle::take`].
 pub(crate) static FEE_SLOT: OnceLock<FeeSlot> = OnceLock::new();
 
 /// Records the fee slot [`crate::run`] was handed.

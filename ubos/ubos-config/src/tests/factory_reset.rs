@@ -23,10 +23,9 @@
 //! `Message::FactoryReset` arm calls — so a regression in the reset
 //! (a broken `Config::default()` selection or a dropped `persist`) is
 //! caught by real code rather than a reimplementation of the steps. The
-//! helper also publishes on `STATE_WATCH`, but that watch is a shared
-//! global static and every reset publishes the same default, so the
-//! tests do not assert on it: a check could pass spuriously from a
-//! sibling test under parallel execution.
+//! helper also publishes on the state watch of the handle it is given.
+//! Each of those tests takes the handle in a process of its own, so the
+//! publish it reads back is its own and no sibling test can supply it.
 //!
 //! `FileStorage`'s async methods have no suspend points, so
 //! `embassy_futures::block_on` resolves each future on the first poll.
@@ -41,115 +40,135 @@ use embassy_futures::block_on;
 use crate::TemperatureDescriptor;
 use ubos_core::units::{Efficiency, Frequency, Power, Temperature, Voltage};
 
+use rusty_fork::rusty_fork_test;
+
 use crate::{
-    Config, DefaultTuning, FrequencyVoltageTarget, LOAD_BUFFER_SIZE, MinerConfig, MiningBounds,
-    MiningInfo, PowerTarget, TunerInfo, Tuning, decode_blob, factory_reset,
+    Config, DefaultTuning, FrequencyVoltageTarget, Handle, LOAD_BUFFER_SIZE, MinerConfig,
+    MiningBounds, MiningInfo, PowerTarget, TunerInfo, Tuning, decode_blob, factory_reset,
     file_storage::FileStorage, load_initial, storage::Storage,
 };
 
-/// Drive `factory_reset` against empty storage, then reload and decode.
-/// Asserts both the returned config and the reloaded blob equal
-/// `Config::default()`, confirming the reset writes the correct defaults.
-#[test]
-fn factory_reset_persists_and_reloads_default() {
-    let dir = std::env::temp_dir().join(format!(
-        "ubos_config_factory_reset_{:x}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |duration| duration.as_nanos()),
-    ));
+rusty_fork_test! {
+    /// Drive `factory_reset` against empty storage, then reload and decode.
+    /// Asserts both the returned config and the reloaded blob equal
+    /// `Config::default()`, confirming the reset writes the correct defaults.
+    #[test]
+    fn factory_reset_persists_and_reloads_default() {
+        let dir = std::env::temp_dir().join(format!(
+            "ubos_config_factory_reset_{:x}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |duration| duration.as_nanos()),
+        ));
 
-    let mut storage = FileStorage::new(&dir);
+        let mut storage = FileStorage::new(&dir);
 
-    let reset = block_on(factory_reset(
-        &mut storage,
-        &ubos_asic::BMM101_HASHBOARD,
-        DefaultTuning::Fixed,
-    ));
-    assert_eq!(
-        reset,
-        Config::default(),
-        "factory_reset must return Config::default()"
-    );
+        let (runner, handle) = Handle::take();
+        let reset = block_on(factory_reset(
+            &runner,
+            &mut storage,
+            &ubos_asic::BMM101_HASHBOARD,
+            DefaultTuning::Fixed,
+        ));
+        assert_eq!(
+            reset,
+            Config::default(),
+            "factory_reset must return Config::default()"
+        );
+        assert_eq!(
+            handle.current(),
+            Config::default(),
+            "factory_reset must publish through the handle it is given"
+        );
 
-    // Reload the persisted blob and verify it decodes back to the defaults.
-    let mut load_buffer = [0u8; LOAD_BUFFER_SIZE];
-    let blob = block_on(storage.load(crate::storage::CONFIG_KEY, &mut load_buffer))
-        .expect("BUG: FileStorage::load returned Err in test")
-        .expect("BUG: no blob found after factory-reset store in test");
+        // Reload the persisted blob and verify it decodes back to the defaults.
+        let mut load_buffer = [0u8; LOAD_BUFFER_SIZE];
+        let blob = block_on(storage.load(crate::storage::CONFIG_KEY, &mut load_buffer))
+            .expect("BUG: FileStorage::load returned Err in test")
+            .expect("BUG: no blob found after factory-reset store in test");
 
-    let reloaded: Config = decode_blob::<std::io::Error>(blob)
-        .expect("BUG: decode after factory-reset store failed in test");
+        let reloaded: Config = decode_blob::<std::io::Error>(blob)
+            .expect("BUG: decode after factory-reset store failed in test");
 
-    assert_eq!(
-        reloaded,
-        Config::default(),
-        "config reloaded after factory reset must equal Config::default()"
-    );
+        assert_eq!(
+            reloaded,
+            Config::default(),
+            "config reloaded after factory reset must equal Config::default()"
+        );
 
-    let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&dir);
+    }
 }
 
-/// Verify that `factory_reset` overwrites a previously stored non-default
-/// config. Stores a modified config first, then runs the reset, then
-/// reloads and asserts the result is the factory default — not the
-/// earlier value.
-#[test]
-fn factory_reset_overwrites_existing_config() {
-    let dir = std::env::temp_dir().join(format!(
-        "ubos_config_factory_reset_overwrite_{:x}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |duration| duration.as_nanos()),
-    ));
+rusty_fork_test! {
+    /// Verify that `factory_reset` overwrites a previously stored non-default
+    /// config. Stores a modified config first, then runs the reset, then
+    /// reloads and asserts the result is the factory default — not the
+    /// earlier value.
+    #[test]
+    fn factory_reset_overwrites_existing_config() {
+        let dir = std::env::temp_dir().join(format!(
+            "ubos_config_factory_reset_overwrite_{:x}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |duration| duration.as_nanos()),
+        ));
 
-    let mut storage = FileStorage::new(&dir);
+        let mut storage = FileStorage::new(&dir);
 
-    // Store a modified config (non-default dangerous temperature) to simulate
-    // pre-existing state. 85.0 differs from the default of 83.0.
-    let mut modified = Config::default();
-    modified.thermal.dangerous = TemperatureDescriptor {
-        chip: None,
-        hashboard: Some(Temperature::from_celsius(85)),
-    };
-    let mut modified_buf = [0u8; LOAD_BUFFER_SIZE];
-    let modified_len =
-        crate::encode_blob(&modified, &mut modified_buf).expect("BUG: encode_blob failed in test");
-    block_on(storage.store(crate::storage::CONFIG_KEY, &modified_buf[..modified_len]))
-        .expect("BUG: FileStorage::store failed in test");
+        // Store a modified config (non-default dangerous temperature) to simulate
+        // pre-existing state. 85.0 differs from the default of 83.0.
+        let mut modified = Config::default();
+        modified.thermal.dangerous = TemperatureDescriptor {
+            chip: None,
+            hashboard: Some(Temperature::from_celsius(85)),
+        };
+        let mut modified_buf = [0u8; LOAD_BUFFER_SIZE];
+        let modified_len =
+            crate::encode_blob(&modified, &mut modified_buf).expect("BUG: encode_blob failed in test");
+        block_on(storage.store(crate::storage::CONFIG_KEY, &modified_buf[..modified_len]))
+            .expect("BUG: FileStorage::store failed in test");
 
-    // Apply factory reset over the stored non-default config.
-    let reset = block_on(factory_reset(
-        &mut storage,
-        &ubos_asic::BMM101_HASHBOARD,
-        DefaultTuning::Fixed,
-    ));
-    assert_eq!(
-        reset,
-        Config::default(),
-        "factory_reset must return Config::default()"
-    );
+        // Apply factory reset over the stored non-default config.
+        let (runner, handle) = Handle::take();
+        let reset = block_on(factory_reset(
+            &runner,
+            &mut storage,
+            &ubos_asic::BMM101_HASHBOARD,
+            DefaultTuning::Fixed,
+        ));
+        assert_eq!(
+            reset,
+            Config::default(),
+            "factory_reset must return Config::default()"
+        );
+        assert_eq!(
+            handle.current(),
+            Config::default(),
+            "factory_reset must publish through the handle it is given"
+        );
 
-    // Reload and assert the stored value is now the default.
-    let mut load_buffer = [0u8; LOAD_BUFFER_SIZE];
-    let blob = block_on(storage.load(crate::storage::CONFIG_KEY, &mut load_buffer))
-        .expect("BUG: FileStorage::load returned Err in test")
-        .expect("BUG: no blob found after factory-reset overwrite in test");
+        // Reload and assert the stored value is now the default.
+        let mut load_buffer = [0u8; LOAD_BUFFER_SIZE];
+        let blob = block_on(storage.load(crate::storage::CONFIG_KEY, &mut load_buffer))
+            .expect("BUG: FileStorage::load returned Err in test")
+            .expect("BUG: no blob found after factory-reset overwrite in test");
 
-    let reloaded: Config = decode_blob::<std::io::Error>(blob)
-        .expect("BUG: decode after factory-reset overwrite failed in test");
+        let reloaded: Config = decode_blob::<std::io::Error>(blob)
+            .expect("BUG: decode after factory-reset overwrite failed in test");
 
-    assert_eq!(
-        reloaded,
-        Config::default(),
-        "config after factory reset must equal Config::default() even when prior config existed"
-    );
-    assert_ne!(
-        reloaded.thermal, modified.thermal,
-        "factory reset must clear the previously stored thermal config"
-    );
+        assert_eq!(
+            reloaded,
+            Config::default(),
+            "config after factory reset must equal Config::default() even when prior config existed"
+        );
+        assert_ne!(
+            reloaded.thermal, modified.thermal,
+            "factory reset must clear the previously stored thermal config"
+        );
 
-    let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&dir);
+    }
 }
 
 static BMM101_INFO: MiningInfo = crate::mining_info(

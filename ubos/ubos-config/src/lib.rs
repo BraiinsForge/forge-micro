@@ -26,15 +26,18 @@
 //! Firmware spawns [`run`], which publishes one config at boot: the
 //! stored one, or on a first boot [`Config::default`], with each field
 //! of the board's [`Seed`] written over it whose source changed since
-//! the store last took it. It then drains
-//! [`COMMAND_CHANNEL`] forever. On each
-//! [`Message::Update`] it persists and publishes the new value on
-//! [`STATE_WATCH`].
+//! the store last took it. It then drains the command channel forever.
+//! On each [`Message::Update`] it persists the new value and publishes
+//! it to every [`Handle`].
 
 #![cfg_attr(not(feature = "std"), no_std)]
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::missing_panics_doc)]
 #![allow(clippy::module_name_repetitions)]
+
+// The host test binary links std for the `rusty-fork` macro.
+#[cfg(test)]
+extern crate std;
 
 mod message;
 mod versions;
@@ -125,7 +128,6 @@ pub use versions::live::Config;
 use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
-use embassy_sync::once_lock::OnceLock;
 use embassy_sync::signal::Signal;
 use embassy_sync::watch::{Receiver, Watch};
 use embassy_time::{Duration, Instant, Timer, with_timeout};
@@ -182,10 +184,10 @@ type CSMutex = CriticalSectionRawMutex;
 /// writer is [`run`]. `current()` reads this, so an `/api/config`
 /// update built from `current()` never carries a pending preview into
 /// flash.
-pub type ConfigWatch = Watch<CSMutex, Config, WATCH_CAPACITY>;
+type ConfigWatch = Watch<CSMutex, Config, WATCH_CAPACITY>;
 
 /// The committed config that the board's one config task publishes.
-pub(crate) static STATE_WATCH: ConfigWatch = Watch::new();
+static STATE_WATCH: ConfigWatch = Watch::new();
 
 /// Subscriber capacity for the effective-network watch. `ubos-net` is
 /// the sole subscriber; one spare slot covers a future consumer.
@@ -195,21 +197,21 @@ const NETWORK_WATCH_CAPACITY: usize = 2;
 /// the value the live stack should hold, which is the unconfirmed
 /// preview while a confirm window is armed and the committed network
 /// otherwise. `ubos-net` subscribes and applies each change to the
-/// stack. Distinct from [`STATE_WATCH`] precisely so the preview reaches
+/// stack. Distinct from the config watch precisely so the preview reaches
 /// the stack without poisoning the persisted config. Published only on a
 /// network transition, never at boot — the boot stack config comes from
 /// firmware reading [`Config`] before the stack exists.
-pub type NetworkWatch = Watch<CSMutex, NetworkConfig, NETWORK_WATCH_CAPACITY>;
+type NetworkWatch = Watch<CSMutex, NetworkConfig, NETWORK_WATCH_CAPACITY>;
 
 /// The effective network that the board's one config task publishes.
-pub(crate) static NETWORK_WATCH: NetworkWatch = Watch::new();
+static NETWORK_WATCH: NetworkWatch = Watch::new();
 
 /// Module-internal command channel. Single consumer is [`run`];
 /// producers send via [`Handle::send`].
-pub type ConfigCommandChannel = Channel<CSMutex, Message, COMMAND_CHANNEL_DEPTH>;
+type ConfigCommandChannel = Channel<CSMutex, Message, COMMAND_CHANNEL_DEPTH>;
 
 /// The commands that the board's one config task drains.
-pub(crate) static COMMAND_CHANNEL: ConfigCommandChannel = Channel::new();
+static COMMAND_CHANNEL: ConfigCommandChannel = Channel::new();
 
 /// Receiver capacity for the update-generation watch: one per session
 /// slot ([`pool::POOL_SLOTS`]), one for the pool-weights watcher, plus
@@ -223,10 +225,10 @@ const GENERATION_WATCH_CAPACITY: usize = pool::POOL_SLOTS + 2;
 /// waiting for the next session error. A `Watch` rather than a
 /// `Signal` because a `Signal` registers a single waker: with one
 /// session task per pool slot, all of them must observe every update.
-pub type GenerationWatch = Watch<CSMutex, u32, GENERATION_WATCH_CAPACITY>;
+type GenerationWatch = Watch<CSMutex, u32, GENERATION_WATCH_CAPACITY>;
 
 /// The update generation that the board's one config task bumps.
-pub(crate) static GENERATION_WATCH: GenerationWatch = Watch::new();
+static GENERATION_WATCH: GenerationWatch = Watch::new();
 
 /// How long [`Handle::downgrade`] waits for the config task to store the
 /// record of the staged image. A config task that does not answer must
@@ -239,48 +241,36 @@ const DOWNGRADE_TIMEOUT: Duration = Duration::from_secs(5);
 /// upload at a time.
 static DOWNGRADE_DONE: Signal<CSMutex, ()> = Signal::new();
 
-/// The cell that holds the fee slot a board hands to [`run`]. Named so
-/// a host test can declare one of its own for a [`Handle`].
-pub type FeeSlotCell = OnceLock<FeeSlot>;
-
 /// How long an unconfirmed network preview stays applied before it
 /// reverts to the committed config. A wrong static address strands the
 /// board, so the change holds only until the operator proves
 /// reachability by confirming from the new address.
 const CONFIRM_WINDOW: Duration = Duration::from_secs(120);
 
-/// Uptime-seconds deadline of the pending network preview, or 0 when
-/// none is pending. Written by [`run`], read synchronously by the API
-/// HTTP handlers, which cannot await the config task.
-static PENDING_DEADLINE_SECS: AtomicU64 = AtomicU64::new(0);
-
-/// Whether the pending preview selects static addressing. Only
-/// meaningful while a preview is armed; lets the network status report
-/// the previewed mode so it agrees with the live address during the
-/// window.
-static PENDING_IS_STATIC: AtomicBool = AtomicBool::new(false);
-
-/// Seconds left in the network confirm window, or 0 when nothing is
-/// pending.
-#[must_use]
-pub fn pending_seconds_remaining() -> u64 {
-    let deadline = PENDING_DEADLINE_SECS.load(Ordering::Relaxed);
-    if deadline == 0 {
-        return 0;
-    }
-    deadline.saturating_sub(Instant::now().as_secs())
+/// The status of the pending network preview. Written by [`run`] and read
+/// synchronously through a [`Handle`] by the API HTTP handlers, which cannot
+/// await the config task.
+struct PendingStatus {
+    /// Uptime-seconds deadline of the preview, or 0 when none is pending.
+    deadline_secs: AtomicU64,
+    /// Whether the preview selects static addressing. Only meaningful while
+    /// a preview is armed; lets the network status report the previewed mode
+    /// so it agrees with the live address during the window.
+    is_static: AtomicBool,
 }
 
-/// Mode of the pending network preview, or `None` when nothing is
-/// pending. `Some(true)` while a static preview awaits confirmation,
-/// `Some(false)` for a DHCP preview.
-#[must_use]
-pub fn pending_mode_is_static() -> Option<bool> {
-    if pending_seconds_remaining() == 0 {
-        return None;
+impl PendingStatus {
+    /// A status with nothing pending.
+    const fn new() -> Self {
+        Self {
+            deadline_secs: AtomicU64::new(0),
+            is_static: AtomicBool::new(false),
+        }
     }
-    Some(PENDING_IS_STATIC.load(Ordering::Relaxed))
 }
+
+/// The pending status that the board's one config task writes.
+static PENDING_STATUS: PendingStatus = PendingStatus::new();
 
 /// Per-task subscription returned by [`Handle::subscribe`].
 pub type ConfigSubscription = Receiver<'static, CSMutex, Config, WATCH_CAPACITY>;
@@ -293,56 +283,46 @@ pub type NetworkSubscription = Receiver<'static, CSMutex, NetworkConfig, NETWORK
 /// [`Handle::subscribe_generation`].
 pub type GenerationSubscription = Receiver<'static, CSMutex, u32, GENERATION_WATCH_CAPACITY>;
 
-/// Obtain a handle to the config module. `Copy`; callers freely pass
-/// it to multiple tasks.
-#[must_use]
-pub fn handle() -> Handle {
-    Handle::new(
-        &STATE_WATCH,
-        &NETWORK_WATCH,
-        &COMMAND_CHANNEL,
-        &GENERATION_WATCH,
-        &fee::FEE_SLOT,
-    )
-}
+/// Records that the firmware took the config handle.
+static TAKEN: ubos_core::take_once::TakeOnce = ubos_core::take_once::TakeOnce::new("config");
 
 /// Consumer-side handle for the config subsystem.
 ///
-/// `Copy` because it holds only `'static` references. Every consumer
-/// task takes its own value.
-///
-/// Every method reads one of these fields, so a handle answers for the
-/// channels it was built over and for nothing else.
+/// The handle holds no data: it is the proof that the firmware took it, and
+/// its methods are the only way to the private statics of this module. A
+/// firmware takes it once with [`Handle::take`] and passes a copy to each
+/// task that reads the configuration, so that the arguments of a task show
+/// what it talks to.
 #[derive(Clone, Copy)]
-pub struct Handle {
-    state: &'static ConfigWatch,
-    network: &'static NetworkWatch,
-    commands: &'static ConfigCommandChannel,
-    generation: &'static GenerationWatch,
-    fee: &'static FeeSlotCell,
+pub struct Handle(());
+
+/// The right to run the task that stores and publishes the configuration.
+///
+/// It is not `Copy`, so a firmware that gives it to one task cannot give
+/// it to a second.
+pub struct Runner(());
+
+#[allow(clippy::unused_self)]
+impl Runner {
+    /// Publish the committed configuration, which only the config task writes.
+    pub(crate) fn publish(&self, config: Config) {
+        STATE_WATCH.sender().send(config);
+    }
+
+    /// The next command, which only the config task drains.
+    pub(crate) async fn next_message(&self) -> Message {
+        COMMAND_CHANNEL.receive().await
+    }
 }
 
 impl Handle {
-    /// A handle over these channels. Firmware calls [`handle`] instead,
-    /// which answers for the set the board runs on. A host test that
-    /// drives a config consumer builds a handle over channels it
-    /// declared itself, and then no other test can observe what it
-    /// publishes.
+    /// The firmware's one config handle, and the runner of the task that
+    /// stores and publishes the configuration. A second call panics.
     #[must_use]
-    pub const fn new(
-        state: &'static ConfigWatch,
-        network: &'static NetworkWatch,
-        commands: &'static ConfigCommandChannel,
-        generation: &'static GenerationWatch,
-        fee: &'static FeeSlotCell,
-    ) -> Self {
-        Self {
-            state,
-            network,
-            commands,
-            generation,
-            fee,
-        }
+    #[track_caller]
+    pub fn take() -> (Runner, Self) {
+        TAKEN.take();
+        (Runner(()), Self(()))
     }
 
     /// Returns the most recently published config, falling back to
@@ -351,7 +331,7 @@ impl Handle {
     pub fn current(&self) -> Config {
         // Fall back to Default before the first publish; the window is
         // tiny but must not return garbage.
-        self.state.try_get().unwrap_or_default()
+        STATE_WATCH.try_get().unwrap_or_default()
     }
 
     /// The entry a session slot runs: the operator's entry below the
@@ -363,7 +343,7 @@ impl Handle {
     #[must_use]
     pub fn pool_slot(&self, slot: usize) -> Option<PoolEntry> {
         let current = self.current();
-        if let Some(fee) = self.fee.try_get()
+        if let Some(fee) = fee::FEE_SLOT.try_get()
             && fee.slot == slot
         {
             let operator = &current.pool[..fee.slot.min(current.pool.len())];
@@ -378,7 +358,7 @@ impl Handle {
     pub fn view(&self) -> ConfigUpdate {
         let current = self.current();
         let mut view = ConfigUpdate::from_config(&current);
-        if let Some(fee) = self.fee.try_get() {
+        if let Some(fee) = fee::FEE_SLOT.try_get() {
             let operator = &current.pool[..fee.slot.min(current.pool.len())];
             view.fee = Some(fee.pool.entry(operator));
             view.fee_permille = Some(fee.pool.permille);
@@ -394,7 +374,7 @@ impl Handle {
     /// Panics if the underlying `Watch` has no free receiver slots.
     #[must_use]
     pub fn subscribe(&self) -> ConfigSubscription {
-        self.state
+        STATE_WATCH
             .receiver()
             .expect("BUG: Handle receiver slots exhausted; raise WATCH_CAPACITY")
     }
@@ -415,15 +395,15 @@ impl Handle {
     /// Panics if the underlying `Watch` has no free receiver slots.
     #[must_use]
     pub fn subscribe_network(&self) -> NetworkSubscription {
-        self.network
+        NETWORK_WATCH
             .receiver()
             .expect("BUG: NETWORK_WATCH receiver slots exhausted; raise NETWORK_WATCH_CAPACITY")
     }
 
     /// Submit a config update. The task running in [`run`] persists the
-    /// new value then publishes it on `STATE_WATCH`.
+    /// new value then publishes it on the state watch of its handle.
     pub async fn send(&self, message: Message) {
-        self.commands.send(message).await;
+        COMMAND_CHANNEL.send(message).await;
     }
 
     /// Submit a command without awaiting queue space. Returns `false`
@@ -431,7 +411,7 @@ impl Handle {
     /// handler, can surface a busy response instead of blocking.
     #[must_use]
     pub fn try_send(&self, message: Message) -> bool {
-        self.commands.try_send(message).is_ok()
+        COMMAND_CHANNEL.try_send(message).is_ok()
     }
 
     /// Downgrade the config for the image that an OTA staged, and wait
@@ -453,6 +433,28 @@ impl Handle {
             .is_ok()
     }
 
+    /// Seconds left in the network confirm window, or 0 when nothing is
+    /// pending.
+    #[must_use]
+    pub fn pending_seconds_remaining(&self) -> u64 {
+        let deadline = PENDING_STATUS.deadline_secs.load(Ordering::Relaxed);
+        if deadline == 0 {
+            return 0;
+        }
+        deadline.saturating_sub(Instant::now().as_secs())
+    }
+
+    /// Mode of the pending network preview, or `None` when nothing is
+    /// pending. `Some(true)` while a static preview awaits confirmation,
+    /// `Some(false)` for a DHCP preview.
+    #[must_use]
+    pub fn pending_mode_is_static(&self) -> Option<bool> {
+        if self.pending_seconds_remaining() == 0 {
+            return None;
+        }
+        Some(PENDING_STATUS.is_static.load(Ordering::Relaxed))
+    }
+
     /// Per-task subscription to the update-generation watch. The
     /// generation is bumped after each successful config update has
     /// been persisted and published. Consumers that need to react
@@ -465,7 +467,7 @@ impl Handle {
     /// Panics if the underlying `Watch` has no free receiver slots.
     #[must_use]
     pub fn subscribe_generation(&self) -> GenerationSubscription {
-        self.generation.receiver().expect(
+        GENERATION_WATCH.receiver().expect(
             "BUG: GENERATION_WATCH receiver slots exhausted; raise GENERATION_WATCH_CAPACITY",
         )
     }
@@ -875,7 +877,11 @@ impl Config {
 /// A [`Message::Downgrade`] stores the record that the image an OTA
 /// staged reads, answers [`Handle::downgrade`], and drops every command
 /// after it until the handler reboots the board into that image.
+///
+/// The task reaches the committed configuration and the commands only
+/// through `runner`.
 pub async fn run<S: Storage>(
+    runner: &mut Runner,
     mut storage: S,
     board: &'static HashboardDescriptor,
     info: &'static MiningInfo,
@@ -888,7 +894,7 @@ pub async fn run<S: Storage>(
         fee::install(fee);
     }
     let mut committed = load_initial(&mut storage, board, info, seed).await;
-    STATE_WATCH.sender().send(committed.clone());
+    runner.publish(committed.clone());
     let mut preview: Option<(NetworkConfig, Instant)> = None;
     info!("config: started");
 
@@ -896,7 +902,7 @@ pub async fn run<S: Storage>(
         // While a preview is armed, race the next command against the
         // revert deadline; otherwise just await the next command.
         let message = if let Some(&(_, deadline)) = preview.as_ref() {
-            match select(COMMAND_CHANNEL.receive(), Timer::at(deadline)).await {
+            match select(runner.next_message(), Timer::at(deadline)).await {
                 Either::First(message) => message,
                 Either::Second(()) => {
                     preview = None;
@@ -908,14 +914,14 @@ pub async fn run<S: Storage>(
                 }
             }
         } else {
-            COMMAND_CHANNEL.receive().await
+            runner.next_message().await
         };
 
         match message {
             Message::Update(new) => {
                 // `new` was built from `current()`, which is the committed
                 // config, so it never carries the pending preview into flash.
-                apply_update(&new, &mut storage).await;
+                apply_update(runner, &new, &mut storage).await;
                 committed = new;
             }
             Message::ApplyNetwork { network, confirm } => {
@@ -929,7 +935,7 @@ pub async fn run<S: Storage>(
                     preview = None;
                     clear_pending_status();
                     committed.network = network;
-                    set_network(&committed, &mut storage).await;
+                    set_network(runner, &committed, &mut storage).await;
                     NETWORK_WATCH.sender().send(committed.network.clone());
                     crate::events::network_applied();
                 }
@@ -939,8 +945,8 @@ pub async fn run<S: Storage>(
                     clear_pending_status();
                     committed.network = network;
                     // The stack already holds the preview; net dedups, so no
-                    // NETWORK_WATCH publish is needed, only the persisted record.
-                    set_network(&committed, &mut storage).await;
+                    // network publish is needed, only the persisted record.
+                    set_network(runner, &committed, &mut storage).await;
                     info!("config: network change confirmed");
                     crate::events::network_applied();
                 } else {
@@ -960,14 +966,14 @@ pub async fn run<S: Storage>(
             Message::FactoryReset => {
                 preview = None;
                 clear_pending_status();
-                committed = factory_reset(&mut storage, board, info.default_tuning).await;
+                committed = factory_reset(runner, &mut storage, board, info.default_tuning).await;
                 NETWORK_WATCH.sender().send(committed.network.clone());
                 ubos_core::reboot::request_reboot();
             }
             Message::Downgrade(staged) => {
                 store_downgraded(&committed, staged, &mut storage).await;
                 DOWNGRADE_DONE.signal(());
-                drop_until_reboot().await;
+                drop_until_reboot(runner).await;
             }
         }
     }
@@ -1010,9 +1016,9 @@ async fn store_downgraded<S: Storage>(config: &Config, staged: StagedConfig, sto
 
 /// Drop every command until the OTA handler reboots into the staged
 /// image, so no write replaces the record that the image reads.
-async fn drop_until_reboot() -> ! {
+async fn drop_until_reboot(runner: &Runner) -> ! {
     loop {
-        let _ = COMMAND_CHANNEL.receive().await;
+        let _ = runner.next_message().await;
         warn!("config: an update is installing, the change is not saved");
     }
 }
@@ -1028,8 +1034,12 @@ async fn drop_until_reboot() -> ! {
 macro_rules! config_task {
     ($storage:ty, $board:expr, $info:expr, $fee:expr) => {
         #[embassy_executor::task]
-        async fn config_task(storage: $storage, seed: Option<ubos_config::Seed>) -> ! {
-            ubos_config::run(storage, $board, $info, seed.as_ref(), $fee).await
+        async fn config_task(
+            mut runner: ubos_config::Runner,
+            storage: $storage,
+            seed: Option<ubos_config::Seed>,
+        ) -> ! {
+            ubos_config::run(&mut runner, storage, $board, $info, seed.as_ref(), $fee).await
         }
     };
 }
@@ -1038,19 +1048,21 @@ macro_rules! config_task {
 fn arm_pending_status(network: &NetworkConfig, deadline: Instant) {
     // Publish the mode before the deadline. A reader that observes a nonzero
     // deadline then always sees the matching mode, never the prior preview's.
-    PENDING_IS_STATIC.store(
+    PENDING_STATUS.is_static.store(
         matches!(network.mode, NetworkMode::Static { .. }),
         Ordering::Relaxed,
     );
     // Round the deadline up so the reported seconds stay positive until
     // the full-precision timer actually fires.
-    PENDING_DEADLINE_SECS.store(deadline.as_millis().div_ceil(1000), Ordering::Relaxed);
+    PENDING_STATUS
+        .deadline_secs
+        .store(deadline.as_millis().div_ceil(1000), Ordering::Relaxed);
 }
 
 /// Clear the pending-window status counters once no preview is armed.
 fn clear_pending_status() {
-    PENDING_DEADLINE_SECS.store(0, Ordering::Relaxed);
-    PENDING_IS_STATIC.store(false, Ordering::Relaxed);
+    PENDING_STATUS.deadline_secs.store(0, Ordering::Relaxed);
+    PENDING_STATUS.is_static.store(false, Ordering::Relaxed);
 }
 
 /// Load the persisted [`Config`], or on a first boot the defaults, with
@@ -1344,9 +1356,9 @@ fn log_decode_error<E>(error: &LoadError<E>) {
 /// the update generation so stratum sessions reconnect. A store
 /// failure is logged but does not abort the publish: an in-memory
 /// update with no flash record is preferable to a stale config.
-async fn apply_update<S: Storage>(new: &Config, storage: &mut S) {
+async fn apply_update<S: Storage>(runner: &Runner, new: &Config, storage: &mut S) {
     persist(new, storage).await;
-    STATE_WATCH.sender().send(new.clone());
+    runner.publish(new.clone());
     // Single writer: only the `run` task calls this, so read-then-send
     // cannot race another bump.
     let generation = GENERATION_WATCH.try_get().map_or(1, |g| g.wrapping_add(1));
@@ -1371,9 +1383,9 @@ async fn apply_update<S: Storage>(new: &Config, storage: &mut S) {
 /// reconnects on its own when its socket drops, so all this needs to do
 /// is persist the confirmed record and refresh [`STATE_WATCH`] so
 /// `GET /api/config` reflects it.
-async fn set_network<S: Storage>(config: &Config, storage: &mut S) {
+async fn set_network<S: Storage>(runner: &Runner, config: &Config, storage: &mut S) {
     persist(config, storage).await;
-    STATE_WATCH.sender().send(config.clone());
+    runner.publish(config.clone());
     info!("config: applied network update");
 }
 
@@ -1385,13 +1397,14 @@ async fn set_network<S: Storage>(config: &Config, storage: &mut S) {
 /// in-memory values provably identical and lets tests drive the real
 /// reset path.
 async fn factory_reset<S: Storage>(
+    runner: &Runner,
     storage: &mut S,
     board: &'static HashboardDescriptor,
     default_tuning: DefaultTuning,
 ) -> Config {
     let config = Config::for_board(board, default_tuning);
     persist(&config, storage).await;
-    STATE_WATCH.sender().send(config.clone());
+    runner.publish(config.clone());
     info!("config: factory reset to defaults");
     crate::events::factory_reset();
     config

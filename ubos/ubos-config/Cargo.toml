@@ -51,6 +51,8 @@ embassy-futures        = { workspace = true }
 # `STATE_WATCH`, so the host test binary needs a linkable critical-section
 # implementation. The std impl is host-only and never reaches firmware.
 critical-section       = { version = "1.2", features = ["std"] }
+# A test that takes the handle runs in a process of its own.
+rusty-fork             = { workspace = true }
 # Exercises the exact wire codec `ubos-api` uses for `POST /api/config`
 # so the pool-weight round-trip test covers the real serialization path.
 serde-json-core        = { workspace = true }

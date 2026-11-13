@@ -35,7 +35,7 @@ use crate::{Config, NetworkConfig, StagedConfig};
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Message {
     /// Replace the live config with a new value. Persists the new
-    /// value, publishes it on `STATE_WATCH`, and signals stratum to
+    /// value, publishes it on the state watch, and signals stratum to
     /// reconnect.
     Update(Config),
     /// Apply a network change. With `confirm`, publish the change as a
@@ -58,7 +58,7 @@ pub enum Message {
     /// committed config. A no-op when nothing is pending.
     RevertNetwork,
     /// Wipe the persisted config back to [`Config::default`] and publish
-    /// the defaults on `STATE_WATCH`. The API layer requests a reboot
+    /// the defaults on the state watch. The API layer requests a reboot
     /// immediately after sending this message; the board never returns to
     /// normal operation with the fresh defaults.
     FactoryReset,
