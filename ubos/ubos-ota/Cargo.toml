@@ -55,6 +55,6 @@ cortex-m = { version = "0.7", features = ["inline-asm"], optional = true }
 
 # ESP backend only (feature `esp`). No chip feature declared here; the consumer
 # or flake check supplies esp-hal/esp32s3 etc. on the CLI.
-esp-hal = { version = "1.1.1", default-features = false, optional = true }
-esp-storage = { version = "0.9.0", default-features = false, optional = true }
-esp-bootloader-esp-idf = { version = "0.5.0", default-features = false, optional = true }
+esp-hal = { version = "1.2.2", default-features = false, optional = true }
+esp-storage = { version = "0.10.0", default-features = false, features = ["embedded-storage"], optional = true }
+esp-bootloader-esp-idf = { version = "0.6.0", default-features = false, features = ["embedded-storage"], optional = true }

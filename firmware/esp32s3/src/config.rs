@@ -29,8 +29,9 @@ pub use ubos_machine::MINIMINER_ESP32S3 as MACHINE;
 pub const CHAINS: usize = MACHINE.chains;
 
 use esp_hal::peripherals::{
-    CPU_CTRL, FLASH, GPIO1, GPIO2, GPIO5, GPIO7, GPIO10, GPIO11, GPIO15, GPIO39, GPIO40, GPIO41,
-    GPIO42, GPIO43, GPIO44, I2C0, LEDC, PCNT, SENS, SPI2, SW_INTERRUPT, TIMG0, TIMG1, UART0,
+    CPU_CTRL, FLASH, FROM_CPU_INTR0, FROM_CPU_INTR1, GPIO1, GPIO2, GPIO5, GPIO7, GPIO10, GPIO11,
+    GPIO15, GPIO39, GPIO40, GPIO41, GPIO42, GPIO43, GPIO44, I2C0, LEDC, PCNT, SENS, SPI2, TIMG0,
+    TIMG1, UART0,
 };
 #[cfg(feature = "display")]
 use esp_hal::peripherals::{GPIO6, GPIO12, GPIO13, GPIO16, GPIO17, SPI3};
@@ -93,7 +94,10 @@ pub struct Board<'d> {
     pub phy_reset: GPIO40<'d>,
     pub dma: esp_hal::peripherals::DMA_CH0<'d>,
     pub sens: SENS<'d>,
-    pub sw_interrupt: SW_INTERRUPT<'d>,
+    /// Software interrupt the scheduler switches tasks with on core 0.
+    pub scheduler_interrupt0: FROM_CPU_INTR0<'d>,
+    /// The same for core 1.
+    pub scheduler_interrupt1: FROM_CPU_INTR1<'d>,
     pub cpu_ctrl: CPU_CTRL<'d>,
     /// UART0 peripheral for the BM1362 chip serial link.
     pub uart0: UART0<'d>,
@@ -188,7 +192,8 @@ impl Board<'static> {
             phy_reset: peripherals.GPIO40,
             dma: peripherals.DMA_CH0,
             sens: peripherals.SENS,
-            sw_interrupt: peripherals.SW_INTERRUPT,
+            scheduler_interrupt0: peripherals.FROM_CPU_INTR0,
+            scheduler_interrupt1: peripherals.FROM_CPU_INTR1,
             cpu_ctrl: peripherals.CPU_CTRL,
             uart0: peripherals.UART0,
             uart_tx: peripherals.GPIO43,

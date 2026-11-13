@@ -25,5 +25,5 @@ tca9554 = { workspace = true, features = ["defmt"] }
 
 # The crate is ESP32-S3-only, so the chip feature is pinned here rather
 # than selected by the board.
-esp-hal = { version = "1.1.1", features = ["defmt", "esp32s3", "unstable"] }
-esp-rtos = { version = "0.3.0", features = ["embassy", "esp32s3", "defmt"] }
+esp-hal = { version = "1.2.2", features = ["defmt", "esp32s3", "unstable"] }
+esp-rtos = { version = "0.4.0", features = ["embassy", "esp32s3", "defmt"] }

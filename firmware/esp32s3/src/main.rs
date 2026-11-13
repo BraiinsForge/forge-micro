@@ -37,16 +37,14 @@ use embassy_net_wiznet::{Device, Runner, State};
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Delay, Duration, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
-use esp_hal::dma::{DmaRxBuf, DmaTxBuf};
-use esp_hal::dma_buffers;
 use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
 use esp_hal::i2c::master::{Config as I2cConfig, I2c};
-use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::rng::Rng;
 use esp_hal::spi::Mode;
 use esp_hal::spi::master::{Config as SpiConfig, Spi};
 use esp_hal::system::Stack;
 use esp_hal::timer::timg::TimerGroup;
+use esp_hal::{dma_rx_buffer, dma_tx_buffer};
 use static_cell::StaticCell;
 use ubos_config::{FlashStorage, SyncFlash};
 #[cfg(feature = "display")]
@@ -74,11 +72,7 @@ esp_bootloader_esp_idf::esp_app_desc!();
 type EthernetRunner = Runner<
     'static,
     W5100S,
-    ExclusiveDevice<
-        esp_hal::spi::master::SpiDmaBus<'static, esp_hal::Async>,
-        Output<'static>,
-        Delay,
-    >,
+    ExclusiveDevice<esp_hal::spi::master::SpiDma<'static, esp_hal::Async>, Output<'static>, Delay>,
     Input<'static>,
     Output<'static>,
 >;
@@ -147,7 +141,7 @@ ubos_cooling::cooling_task!(ubos_esp32::fan::BoardFan, ubos_esp32::fan::BoardTac
 #[cfg(feature = "display")]
 type OledDisplay = Sh1106<
     ExclusiveDevice<
-        esp_hal::spi::master::SpiDmaBus<'static, esp_hal::Async>,
+        esp_hal::spi::master::SpiDma<'static, esp_hal::Async>,
         Output<'static>,
         embedded_hal_bus::spi::NoDelay,
     >,
@@ -254,14 +248,13 @@ async fn boot(spawner: Spawner) {
     ubos_firmware::events::install(unsafe { &mut (*core::ptr::addr_of_mut!(EVENT_LOG_BACKING)).0 });
 
     let timg0 = TimerGroup::new(hw.timg0);
-    let software_interrupts = SoftwareInterruptControl::new(hw.sw_interrupt);
-    esp_rtos::start(timg0.timer0, software_interrupts.software_interrupt0);
+    esp_rtos::start(timg0.timer0, hw.scheduler_interrupt0);
 
     static APP_EXECUTOR: StaticCell<esp_rtos::embassy::Executor> = StaticCell::new();
     static APP_CORE_STACK: StaticCell<Stack<8192>> = StaticCell::new();
     ubos_esp32::spawn_miner_core1!(
         cpu_ctrl = hw.cpu_ctrl,
-        sw_interrupt = software_interrupts.software_interrupt1,
+        sw_interrupt = hw.scheduler_interrupt1,
         stack = APP_CORE_STACK,
         uart = (hw.uart0, hw.uart_tx, hw.uart_rx),
         run = |miner_serial| {
@@ -309,13 +302,10 @@ async fn boot(spawner: Spawner) {
 
     // The W5100S rides the carrier's LCD header, so the PHY interrupt is on
     // the LCD_DC pad and the PHY reset on the LCD_RST pad.
-    let (rx_buffer, rx_descriptors, tx_buffer, tx_descriptors) = dma_buffers!(4096);
-    // `dma_buffers!` sizes and aligns both, so these fail only on a
-    // programming error.
-    let dma_rx_buf =
-        DmaRxBuf::new(rx_descriptors, rx_buffer).expect("BUG: DMA RX buffer creation failed");
-    let dma_tx_buf =
-        DmaTxBuf::new(tx_descriptors, tx_buffer).expect("BUG: DMA TX buffer creation failed");
+    // The macros size and align the descriptors and the buffer, so these
+    // fail only on a programming error.
+    let dma_rx_buf = dma_rx_buffer!(4096).expect("BUG: DMA RX buffer creation failed");
+    let dma_tx_buf = dma_tx_buffer!(4096).expect("BUG: DMA TX buffer creation failed");
 
     let spi = Spi::new(
         hw.spi,
@@ -413,13 +403,10 @@ async fn boot(spawner: Spawner) {
             Timer::after(Duration::from_millis(10)).await;
             pin
         };
-        let (disp_rx_buf, disp_rx_desc, disp_tx_buf, disp_tx_desc) = dma_buffers!(2048);
-        // `dma_buffers!` sizes and aligns both, so these fail only on a
-        // programming error.
-        let disp_dma_rx =
-            DmaRxBuf::new(disp_rx_desc, disp_rx_buf).expect("BUG: display DMA RX buffer failed");
-        let disp_dma_tx =
-            DmaTxBuf::new(disp_tx_desc, disp_tx_buf).expect("BUG: display DMA TX buffer failed");
+        // The macros size and align the descriptors and the buffer, so these
+        // fail only on a programming error.
+        let disp_dma_rx = dma_rx_buffer!(2048).expect("BUG: display DMA RX buffer failed");
+        let disp_dma_tx = dma_tx_buffer!(2048).expect("BUG: display DMA TX buffer failed");
         let display_spi = Spi::new(
             hw.display_spi,
             SpiConfig::default()

@@ -32,7 +32,7 @@
 /// ```ignore
 /// ubos_esp32::spawn_miner_core1!(
 ///     cpu_ctrl = hw.cpu_ctrl,
-///     sw_interrupt = software_interrupts.software_interrupt1,
+///     sw_interrupt = hw.scheduler_interrupt1,
 ///     stack = APP_CORE_STACK,
 ///     uart = (hw.uart0, hw.uart_tx, hw.uart_rx),
 ///     run = |miner_serial| {

@@ -45,8 +45,8 @@ use core::cell::RefCell;
 use defmt::{info, warn};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embedded_storage::Storage;
 use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
-use embedded_storage::{ReadStorage, Storage};
 use esp_bootloader_esp_idf::ota::OtaImageState;
 use esp_bootloader_esp_idf::ota_updater::OtaUpdater;
 use esp_bootloader_esp_idf::partitions::{
@@ -67,10 +67,11 @@ pub type EspFlashMutex =
 
 /// `Copy` handle to the shared `esp-storage` flash driver.
 ///
-/// Implements the synchronous `embedded-storage` traits by locking the mutex
-/// for the span of each operation: the OTA writer needs
-/// [`embedded_storage::Storage`] (via [`OtaUpdater`]) and the config store
-/// needs [`embedded_storage::nor_flash::NorFlash`] (via `ubos_config::SyncFlash`).
+/// Implements [`embedded_storage::nor_flash::NorFlash`] for the config store,
+/// which reaches it through `ubos_config::SyncFlash`, by locking the mutex for
+/// the span of each operation. The OTA writer takes the driver itself through
+/// [`EspSharedFlash::with_driver`], because [`OtaUpdater`] accepts no other
+/// type.
 #[derive(Clone, Copy)]
 pub struct EspSharedFlash {
     mutex: &'static EspFlashMutex,
@@ -82,33 +83,20 @@ impl EspSharedFlash {
     pub const fn new(mutex: &'static EspFlashMutex) -> Self {
         Self { mutex }
     }
+
+    /// Runs `operation` on the flash driver with the mutex held.
+    ///
+    /// One OTA step reads the partition table and then writes, and the
+    /// updater borrows the driver for both, so the lock spans the whole step.
+    fn with_driver<R>(self, operation: impl FnOnce(&mut Inner) -> R) -> R {
+        self.mutex.lock(|cell| operation(&mut cell.borrow_mut()))
+    }
 }
 
 // `esp_storage::FlashStorage` implements both the `Storage` and `NorFlash`
 // trait families, so every delegating call is fully qualified to avoid the
 // ambiguity between the same-named methods.
 type Inner = esp_storage::FlashStorage<'static>;
-
-impl ReadStorage for EspSharedFlash {
-    type Error = esp_storage::FlashStorageError;
-
-    fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
-        self.mutex
-            .lock(|cell| ReadStorage::read(&mut *cell.borrow_mut(), offset, bytes))
-    }
-
-    fn capacity(&self) -> usize {
-        self.mutex
-            .lock(|cell| ReadStorage::capacity(&*cell.borrow()))
-    }
-}
-
-impl Storage for EspSharedFlash {
-    fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
-        self.mutex
-            .lock(|cell| Storage::write(&mut *cell.borrow_mut(), offset, bytes))
-    }
-}
 
 impl ErrorType for EspSharedFlash {
     type Error = esp_storage::FlashStorageError;
@@ -189,15 +177,10 @@ impl EspBackend {
     /// rather than failing construction.
     #[must_use]
     pub fn new(flash: EspSharedFlash) -> Self {
-        let mut probe = flash;
         let mut buffer = [0u8; PARTITION_TABLE_MAX_LEN];
-        let running_slot = match OtaUpdater::new(&mut probe, &mut buffer) {
-            Ok(mut updater) => match updater.selected_partition() {
-                Ok(slot) => slot_label(slot),
-                Err(_) => "unknown",
-            },
-            Err(_) => "unknown",
-        };
+        let running_slot = flash
+            .with_driver(|driver| OtaUpdater::new(driver, &mut buffer)?.selected_partition())
+            .map_or("unknown", slot_label);
         Self {
             flash,
             running_slot,
@@ -215,9 +198,10 @@ impl crate::OtaBackend for EspBackend {
     /// scheme always writes the new image into the inactive slot, so a re-flash
     /// before confirming is a valid recovery path rather than an error.
     fn prepare(&mut self) -> Result<(), ApiError> {
-        let mut flash = self.flash;
-        OtaUpdater::new(&mut flash, &mut self.buffer).map_err(map_error)?;
-        Ok(())
+        let buffer = &mut self.buffer;
+        self.flash
+            .with_driver(|driver| OtaUpdater::new(driver, buffer).map(drop))
+            .map_err(map_error)
     }
 
     /// Writes the chunk into the inactive OTA slot at `offset` (relative to
@@ -229,13 +213,19 @@ impl crate::OtaBackend for EspBackend {
     /// and the slot is not selected until [`activate`](Self::activate), so
     /// every chunk targets the same slot.
     fn write(&mut self, offset: usize, data: &[u8]) -> Result<(), ApiError> {
-        let mut flash = self.flash;
-        let mut updater = OtaUpdater::new(&mut flash, &mut self.buffer).map_err(map_error)?;
-        let (mut region, _slot) = updater.next_partition().map_err(map_error)?;
-        // FlashRegion implements both Storage and NorFlash; use the Storage
-        // write, which read-modify-erase-writes each sector.
-        #[allow(clippy::cast_possible_truncation)]
-        Storage::write(&mut region, offset as u32, data).map_err(map_error)
+        // The region borrows the driver through the updater, so one lock
+        // spans the partition lookup and the write.
+        let buffer = &mut self.buffer;
+        self.flash
+            .with_driver(|driver| {
+                let mut updater = OtaUpdater::new(driver, buffer)?;
+                let (mut region, _slot) = updater.next_partition()?;
+                // FlashRegion implements both Storage and NorFlash; use the
+                // Storage write, which read-modify-erase-writes each sector.
+                #[allow(clippy::cast_possible_truncation)]
+                Storage::write(&mut region, offset as u32, data)
+            })
+            .map_err(map_error)
     }
 
     /// Flips `otadata` to the freshly written slot and marks it
@@ -249,11 +239,17 @@ impl crate::OtaBackend for EspBackend {
     /// fallback still boots a valid image, but rollback arming for this update
     /// is lost.
     fn activate(&mut self) -> Result<(), ApiError> {
-        let mut flash = self.flash;
-        let mut updater = OtaUpdater::new(&mut flash, &mut self.buffer).map_err(map_error)?;
-        updater.activate_next_partition().map_err(map_error)?;
-        updater
-            .set_current_ota_state(OtaImageState::New)
+        // Each otadata write erases a sector with interrupts masked, so
+        // the two writes take the lock one at a time and interrupts run
+        // between them.
+        let buffer = &mut self.buffer;
+        self.flash
+            .with_driver(|driver| OtaUpdater::new(driver, buffer)?.activate_next_partition())
+            .map_err(map_error)?;
+        self.flash
+            .with_driver(|driver| {
+                OtaUpdater::new(driver, buffer)?.set_current_ota_state(OtaImageState::New)
+            })
             .map_err(map_error)
     }
 
@@ -298,31 +294,30 @@ impl crate::OtaBackend for EspBackend {
 /// confirmed image) is left untouched. Best-effort: a read failure is logged,
 /// not propagated.
 pub fn confirm_running(flash: EspSharedFlash) {
-    let mut probe = flash;
     let mut buffer = [0u8; PARTITION_TABLE_MAX_LEN];
-    let mut updater = match OtaUpdater::new(&mut probe, &mut buffer) {
-        Ok(updater) => updater,
-        Err(error) => {
-            warn!(
-                "OTA boot: updater init failed: {:?}",
-                defmt::Debug2Format(&error)
-            );
-            return;
+    // The log lines wait until the lock is released, because the lock masks
+    // interrupts and a log write is slow.
+    let outcome = flash.with_driver(|driver| {
+        let mut updater =
+            OtaUpdater::new(driver, &mut buffer).map_err(|error| ("updater init", error))?;
+        let state = updater
+            .current_ota_state()
+            .map_err(|error| ("get state", error))?;
+        if matches!(state, OtaImageState::New | OtaImageState::PendingVerify) {
+            updater
+                .set_current_ota_state(OtaImageState::Valid)
+                .map_err(|error| ("confirm", error))?;
         }
-    };
-    match updater.current_ota_state() {
+        Ok::<_, (&str, PtError)>(state)
+    });
+    match outcome {
         Ok(OtaImageState::New | OtaImageState::PendingVerify) => {
-            info!("OTA boot: image pending verify, confirming");
-            if let Err(error) = updater.set_current_ota_state(OtaImageState::Valid) {
-                warn!(
-                    "OTA boot: confirm failed: {:?}",
-                    defmt::Debug2Format(&error)
-                );
-            }
+            info!("OTA boot: image was pending verify, confirmed");
         }
         Ok(state) => info!("OTA boot: image state {:?}", defmt::Debug2Format(&state)),
-        Err(error) => warn!(
-            "OTA boot: get state failed: {:?}",
+        Err((step, error)) => warn!(
+            "OTA boot: {} failed: {:?}",
+            step,
             defmt::Debug2Format(&error)
         ),
     }
