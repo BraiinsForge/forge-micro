@@ -230,12 +230,14 @@ async fn stratum_client_task(
     slot: usize,
     session: &'static ubos_firmware::AsicSession<POOL_SLOTS>,
     shared: ubos_firmware::StratumShared,
+    config: ubos_config::Handle,
 ) -> ! {
     ubos_firmware::run_stratum_session(
         stack,
         slot,
         session,
         shared,
+        config,
         &mut ubos_firmware::NoExtension,
     )
     .await
@@ -276,6 +278,10 @@ async fn boot(spawner: Spawner) {
 
     let peripherals = esp_hal::init(esp_hal::Config::default());
     let hw = config::Board::take(peripherals);
+
+    // Every handle is taken here, once, and each task gets the ones it
+    // writes through and reads. The listeners take them together.
+    let (runners, handles) = ubos_firmware::Handles::take();
 
     // Safety: called once at boot before any task runs. EVENT_LOG_BACKING lives
     // in RTC fast RAM (persistent), so a warm reset preserves its contents.
@@ -380,7 +386,7 @@ async fn boot(spawner: Spawner) {
     // Fold the ESP32-S3 factory eFuse MAC into a stable per-unit MAC.
     // The WIZnet chip has no factory address; derive_mac keeps the fleet
     // MAC scheme consistent across all board families.
-    let mac_addr = ubos_net::mac::publish_mac(
+    let mac_addr = runners.net.publish_mac(
         config::MACHINE.control_board.mac_family,
         esp_hal::efuse::base_mac_address().as_bytes(),
     );
@@ -406,14 +412,11 @@ async fn boot(spawner: Spawner) {
     };
     spawner.spawn(unwrap!(ethernet_task(runner)));
 
-    let manager_handle = ubos_manager::handle();
-    let mining_handle = ubos_mining::handle();
-
     let config_storage = FlashStorage::new(
         SyncFlash(ubos_ota::EspSharedFlash::new(shared_flash)),
         config::Flash::CONFIG_RANGE,
     );
-    spawner.spawn(unwrap!(config_task(config_storage, None)));
+    spawner.spawn(unwrap!(config_task(runners.config, config_storage, None)));
 
     static OTA_TARGET: StaticCell<ubos_ota::EspOtaTarget> = StaticCell::new();
     let ota_target = OTA_TARGET.init(ubos_ota::OtaEngine::new(
@@ -426,10 +429,13 @@ async fn boot(spawner: Spawner) {
     let mut rng = Rng::new();
     let seed = u64::from(rng.random()) << 32 | u64::from(rng.random());
 
-    let (net_config, mdns_hostname) = ubos_firmware::net::bring_up::<
-        { config::Board::MDNS_HOSTNAME_BASE.len() },
-    >(config::Board::MDNS_HOSTNAME_BASE, mac_addr[5])
-    .await;
+    let (net_config, mdns_hostname) =
+        ubos_firmware::net::bring_up::<{ config::Board::MDNS_HOSTNAME_BASE.len() }>(
+            handles.config,
+            config::Board::MDNS_HOSTNAME_BASE,
+            mac_addr[5],
+        )
+        .await;
 
     let (stack, runner) = embassy_net::new(
         device,
@@ -449,12 +455,12 @@ async fn boot(spawner: Spawner) {
     let stratum_shared =
         ubos_firmware::init_stratum(sv2_seed, config::CHIP.chip_descriptor().rolls_ntime);
 
-    spawner.spawn(unwrap!(ntp_sync_task(stack)));
+    spawner.spawn(unwrap!(ntp_sync_task(stack, runners.net)));
 
     spawner.spawn(unwrap!(mdns_task(stack, mdns_hostname)));
 
     spawner.spawn(unwrap!(cpu_load_task()));
-    spawner.spawn(unwrap!(pool_weights_task()));
+    spawner.spawn(unwrap!(pool_weights_task(handles.config)));
     // No LED blink task: board wiring does not include an accessible LED.
     let tsens = esp32s3_tsens::Tsens::new(hw.sens, esp32s3_tsens::Range::Standard).await;
 
@@ -499,17 +505,20 @@ async fn boot(spawner: Spawner) {
     };
 
     #[cfg(feature = "display")]
-    spawner.spawn(unwrap!(display_task(display, reset)));
+    spawner.spawn(unwrap!(display_task(
+        display,
+        reset,
+        handles.cooling,
+        handles.net
+    )));
 
-    let thermal = ubos_thermal::handle();
-
-    spawner.spawn(unwrap!(miner_metrics_task(mining_handle)));
+    spawner.spawn(unwrap!(miner_metrics_task(handles.mining)));
 
     // BMM101 hashboard PSU, LM75A temperature sensors and the carrier
     // TCA9554 I/O expander all share I2C0 (GPIO15 SDA, GPIO7 SCL). All
     // mining tasks run on Core 0 so the I2C bus mutex can stay
     // `NoopRawMutex`: every consumer is on the same executor.
-    let psu_handle = {
+    {
         static I2C0_BUS: StaticCell<i2c::Bus> = StaticCell::new();
         // Valid I2C0 peripheral with GPIO15/7 routed via the GPIO matrix; cannot fail.
         let i2c = I2c::new(hw.i2c, I2cConfig::default())
@@ -533,16 +542,17 @@ async fn boot(spawner: Spawner) {
         }
 
         let psu = psu::init(bus);
-        spawner.spawn(unwrap!(psu::psu_task(psu)));
-        let psu_handle = psu.handle();
+        spawner.spawn(unwrap!(psu::psu_task(psu, runners.psu)));
 
         // Hashboard reset: active-low, driven through the carrier TCA9554
         // expander on EXIO5. Asserted (held low) here until the miner
         // task sequences the release during bring-up.
         let reset = ubos_esp32::expander::ExpanderResetPin::new(bus, mining::RESET_BIT).await;
         spawner.spawn(unwrap!(mining::miner_task(
-            psu_handle,
-            ubos_mining::serial::Serial::wire(&mining::CHAINS, [reset])
+            handles.psu,
+            ubos_mining::serial::Serial::wire(&mining::CHAINS, [reset]),
+            runners.mining,
+            handles.config
         )));
 
         // Temperature and fan monitor via shared I2C0 bus.
@@ -557,11 +567,18 @@ async fn boot(spawner: Spawner) {
             hashboard_temp,
             ubos_thermal::NoAmbient,
             McuTempSensor(tsens),
-            manager_handle
+            runners.thermal,
+            handles.manager,
+            handles.config
         )));
-        spawner.spawn(unwrap!(manager_task(mining_handle)));
-        spawner.spawn(unwrap!(cooling_task(board_fan, board_tach, thermal)));
-        psu_handle
+        spawner.spawn(unwrap!(manager_task(runners.manager, handles.mining)));
+        spawner.spawn(unwrap!(cooling_task(
+            board_fan,
+            board_tach,
+            runners.cooling,
+            handles.thermal,
+            handles.config
+        )));
     };
 
     // Hashboard plug-detect input on GPIO5, pulled up. `boot` returns once the
@@ -571,7 +588,7 @@ async fn boot(spawner: Spawner) {
     let _hb_plug = Input::new(hw.hb_plug, InputConfig::default().with_pull(Pull::Up));
 
     info!("waiting for dhcp");
-    let dhcp_config = net::wait_for_config(stack).await;
+    let dhcp_config = net::wait_for_config(stack, runners.net).await;
     info!("ip address: {:?}", dhcp_config.address.address());
 
     for slot in 0..POOL_SLOTS {
@@ -579,16 +596,21 @@ async fn boot(spawner: Spawner) {
             stack,
             slot,
             &ASIC_SESSION,
-            stratum_shared
+            stratum_shared,
+            handles.config
         )));
     }
 
-    spawner.spawn(unwrap!(network_control_task(stack)));
+    spawner.spawn(unwrap!(network_control_task(
+        stack,
+        runners.net,
+        handles.config
+    )));
 
     // Register the OTA target now that the network is up, then spawn the
     // session watchdog that aborts a stalled upload and resumes mining.
     ubos_api::register_ota_target(ota_target).await;
-    spawner.spawn(unwrap!(ota_watchdog_task()));
+    spawner.spawn(unwrap!(ota_watchdog_task(handles.manager)));
 
-    serve_all(spawner, stack, thermal, manager_handle, psu_handle).await;
+    serve_all(spawner, stack, handles).await;
 }

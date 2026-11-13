@@ -229,12 +229,14 @@ async fn stratum_client_task(
     slot: usize,
     session: &'static ubos_firmware::AsicSession<POOL_SLOTS>,
     shared: ubos_firmware::StratumShared,
+    config: ubos_config::Handle,
 ) -> ! {
     ubos_firmware::run_stratum_session(
         stack,
         slot,
         session,
         shared,
+        config,
         &mut ubos_firmware::NoExtension,
     )
     .await
@@ -252,6 +254,10 @@ fn main() -> ! {
 async fn boot(spawner: Spawner) {
     let peripherals = embassy_rp::init(embassy_rp::config::Config::default());
     let hw = config::Board::take(peripherals);
+
+    // Every handle is taken here, once, and each task gets the ones it
+    // writes through and reads. The listeners take them together.
+    let (runners, handles) = ubos_firmware::Handles::take();
 
     // Safety: called once at boot before any task runs. EVENT_LOG_BACKING lives
     // in .uninit, so the startup code does not zero it and a warm reset
@@ -337,16 +343,10 @@ async fn boot(spawner: Spawner) {
     // configuration for the firmware's lifetime and nothing else claims it.
     core::mem::forget(Input::new(hw.hb_plug, Pull::Up));
 
-    let thermal = ubos_thermal::handle();
-
-    let manager_handle = ubos_manager::handle();
-
-    let mining_handle = ubos_mining::handle();
-
     // BMM101 hashboard PSU on I2C1: shared bus, PSU heartbeat, power
     // stats, and the miner bring-up task all run on core 0 so the I2C
     // bus mutex can stay NoopRawMutex.
-    let psu_handle = {
+    {
         static I2C1_BUS: StaticCell<i2c::Bus> = StaticCell::new();
         let i2c = I2c::new_async(hw.i2c, hw.scl, hw.sda, Irqs, I2cConfig::default());
         let bus: &'static i2c::Bus = I2C1_BUS.init(Mutex::new(i2c));
@@ -365,12 +365,13 @@ async fn boot(spawner: Spawner) {
         }
 
         let psu = psu::init(bus);
-        spawner.spawn(unwrap!(psu::psu_task(psu)));
-        let psu_handle = psu.handle();
+        spawner.spawn(unwrap!(psu::psu_task(psu, runners.psu)));
         let reset = mining::BoardResetPin::new(Output::new(hw.hb_rst, Level::Low));
         spawner.spawn(unwrap!(mining::miner_task(
-            psu_handle,
-            ubos_mining::serial::Serial::wire(&mining::CHAINS, [reset])
+            handles.psu,
+            ubos_mining::serial::Serial::wire(&mining::CHAINS, [reset]),
+            runners.mining,
+            handles.config
         )));
 
         // Temperature and fan monitor via shared I2C bus.
@@ -389,18 +390,25 @@ async fn boot(spawner: Spawner) {
             hashboard_temp,
             ubos_thermal::NoAmbient,
             ubos_thermal::NoMcu,
-            manager_handle
+            runners.thermal,
+            handles.manager,
+            handles.config
         )));
-        spawner.spawn(unwrap!(manager_task(mining_handle)));
-        spawner.spawn(unwrap!(cooling_task(board_fan, board_tach, thermal)));
-        psu_handle
+        spawner.spawn(unwrap!(manager_task(runners.manager, handles.mining)));
+        spawner.spawn(unwrap!(cooling_task(
+            board_fan,
+            board_tach,
+            runners.cooling,
+            handles.thermal,
+            handles.config
+        )));
     };
 
     let config_storage = FlashStorage::new(
         SyncFlash(ubos_ota::SharedBlockingFlash::new(shared_flash, &PARK)),
         config::Flash::CONFIG_RANGE,
     );
-    spawner.spawn(unwrap!(config_task(config_storage, None)));
+    spawner.spawn(unwrap!(config_task(runners.config, config_storage, None)));
 
     let mut spi_config = SpiConfig::default();
     spi_config.frequency = config::Spi::FREQUENCY;
@@ -411,7 +419,7 @@ async fn boot(spawner: Spawner) {
     let phy_int = Input::new(hw.phy_int, Pull::Up);
     let phy_reset = Output::new(hw.phy_reset, Level::High);
 
-    let mac_addr = ubos_net::mac::publish_mac(
+    let mac_addr = runners.net.publish_mac(
         config::MACHINE.control_board.mac_family,
         &ubos_rp::boot::chip_id(),
     );
@@ -429,10 +437,13 @@ async fn boot(spawner: Spawner) {
 
     let seeds = ubos_rp::boot::seeds_from_trng(hw.trng, Irqs).await;
 
-    let (net_config, mdns_hostname) = ubos_firmware::net::bring_up::<
-        { config::Board::MDNS_HOSTNAME_BASE.len() },
-    >(config::Board::MDNS_HOSTNAME_BASE, mac_addr[5])
-    .await;
+    let (net_config, mdns_hostname) =
+        ubos_firmware::net::bring_up::<{ config::Board::MDNS_HOSTNAME_BASE.len() }>(
+            handles.config,
+            config::Board::MDNS_HOSTNAME_BASE,
+            mac_addr[5],
+        )
+        .await;
 
     // Socket-set capacity for the embassy-net stack. Seventeen sockets
     // are held continuously: DHCPv4, DNS, the stratum client, the mDNS
@@ -460,13 +471,13 @@ async fn boot(spawner: Spawner) {
     let stratum_shared =
         ubos_firmware::init_stratum(seeds.sv2, config::CHIP.chip_descriptor().rolls_ntime);
 
-    spawner.spawn(unwrap!(ntp_sync_task(stack)));
+    spawner.spawn(unwrap!(ntp_sync_task(stack, runners.net)));
 
     spawner.spawn(unwrap!(mdns_task(stack, mdns_hostname)));
 
     spawner.spawn(unwrap!(cpu_load_task()));
-    spawner.spawn(unwrap!(miner_metrics_task(mining_handle)));
-    spawner.spawn(unwrap!(pool_weights_task()));
+    spawner.spawn(unwrap!(miner_metrics_task(handles.mining)));
+    spawner.spawn(unwrap!(pool_weights_task(handles.config)));
 
     // SH1106 OLED on SPI1: reset pulse, then async TX-only SPI with DMA.
     // The reset pin is moved into display_task so it stays driven high for the display's lifetime.
@@ -499,10 +510,15 @@ async fn boot(spawner: Spawner) {
     };
 
     #[cfg(feature = "display")]
-    spawner.spawn(unwrap!(display_task(display, reset)));
+    spawner.spawn(unwrap!(display_task(
+        display,
+        reset,
+        handles.cooling,
+        handles.net
+    )));
 
     info!("waiting for dhcp");
-    let config = net::wait_for_config(stack).await;
+    let config = net::wait_for_config(stack, runners.net).await;
     info!("ip address: {:?}", config.address.address());
 
     // Core 1 hosts serial_task (ubos-mining backend); see spawn_core1 above.
@@ -511,7 +527,8 @@ async fn boot(spawner: Spawner) {
             stack,
             slot,
             &ASIC_SESSION,
-            stratum_shared
+            stratum_shared,
+            handles.config
         )));
     }
 
@@ -522,8 +539,12 @@ async fn boot(spawner: Spawner) {
 
     // Reclaim abandoned chunk-ack OTA sessions so a client that vanishes
     // mid-upload does not strand the board with mining stopped.
-    spawner.spawn(unwrap!(ota_watchdog_task()));
-    spawner.spawn(unwrap!(network_control_task(stack)));
+    spawner.spawn(unwrap!(ota_watchdog_task(handles.manager)));
+    spawner.spawn(unwrap!(network_control_task(
+        stack,
+        runners.net,
+        handles.config
+    )));
 
-    serve_all(spawner, stack, thermal, manager_handle, psu_handle).await;
+    serve_all(spawner, stack, handles).await;
 }
