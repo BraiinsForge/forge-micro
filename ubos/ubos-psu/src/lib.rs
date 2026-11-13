@@ -413,6 +413,10 @@ impl<P: Psu> PowerSupply<P> {
             match select(self.handle.commands.receive(), ticker.next()).await {
                 Either::First(command) => self.answer(command).await,
                 Either::Second(()) => {
+                    // The next poll is due one interval from this one, so
+                    // a poll held past several intervals is followed by
+                    // one and not by one for each interval it missed.
+                    ticker.reset();
                     while poll.live && self.poll(&mut poll).await.is_none() {
                         let command = self.handle.commands.receive().await;
                         self.answer(command).await;
