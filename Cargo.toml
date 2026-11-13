@@ -108,7 +108,7 @@ zerocopy          = { version = "0.8", default-features = false, features = ["de
 schemars          = { version = "1.2", default-features = false, features = ["derive"] }
 serde             = { version = "1", default-features = false, features = ["derive"] }
 serde_json        = "1"
-serde-json-core   = "0.6"
+serde-json-core   = "0.7"
 rusty-fork        = "0.3"
 postcard               = { version = "1.2", default-features = false, features = ["heapless"] }
 postcard-schema        = { version = "0.2", default-features = false, features = ["derive", "heapless-v0_9"] }
