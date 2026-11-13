@@ -31,7 +31,7 @@ struct TestRng;
 
 impl Rng for TestRng {
     fn fill_bytes(&mut self, dest: &mut [u8]) {
-        use rand::RngCore;
+        use rand::Rng as _;
         rand::rng().fill_bytes(dest);
     }
 }

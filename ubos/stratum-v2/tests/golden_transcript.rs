@@ -48,7 +48,7 @@ use ii_sv2::security::{
 };
 use ii_sv2::types::{Bytes0_32, Str0_255, Uint256};
 use mining_protocol::{Error, MiningClient, SessionRejection};
-use rand::{RngCore, SeedableRng};
+use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use stratum_v2::{StratumV2Client, Sv2Config};
 use tokio::io::AsyncReadExt as _;

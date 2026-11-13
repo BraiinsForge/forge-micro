@@ -46,8 +46,8 @@ use embassy_futures::select::{Either3, select, select3};
 use embassy_net::{Runner, Stack, StackResources};
 use embassy_time::{Duration, Timer};
 use log::{info, warn};
-use rand::rngs::OsRng;
-use rand_core::RngCore;
+use rand::TryRng;
+use rand::rngs::SysRng;
 use static_cell::{ConstStaticCell, StaticCell};
 use stratum_client::{AsicSession, NoExtension};
 use stratum_client::{
@@ -129,11 +129,13 @@ static PARK: ubos_mining::Park = ubos_mining::Park::new();
 static SECP_CTX: StaticCell<ii_sv2::security::CryptoCtx<ii_sv2::security::secp256k1::All>> =
     StaticCell::new();
 
-struct HostSv2Rng(OsRng);
+struct HostSv2Rng(SysRng);
 
 impl ii_sv2::security::Rng for HostSv2Rng {
     fn fill_bytes(&mut self, dest: &mut [u8]) {
-        self.0.fill_bytes(dest);
+        self.0
+            .try_fill_bytes(dest)
+            .expect("BUG: the OS random source failed");
     }
 }
 
@@ -380,7 +382,7 @@ async fn stratum_client_task(stack: Stack<'static>, config_handle: ubos_config::
                     let sv2 = stratum_v2::Sv2Config::new(entry.user.as_str(), *pool_pubkey)
                         .expect("BUG: PoolEntry.user matches Sv2Config buffer size");
                     let mut client =
-                        stratum_v2::StratumV2Client::new(&sv2, secp_ctx, HostSv2Rng(OsRng));
+                        stratum_v2::StratumV2Client::new(&sv2, secp_ctx, HostSv2Rng(SysRng));
                     run_stratum_session(
                         &mut connector,
                         &mut client,
@@ -504,7 +506,8 @@ fn main() {
         );
         // Seeded before the HTTP server task can handle any request.
         let mut csprng_seed = [0u8; 32];
-        OsRng.fill_bytes(&mut csprng_seed);
+        SysRng
+            .try_fill_bytes(&mut csprng_seed).expect("BUG: the OS random source failed");
         ubos_auth::csprng::seed_csprng(csprng_seed);
 
         // The web UI and the REST API on :80 — seed both credential

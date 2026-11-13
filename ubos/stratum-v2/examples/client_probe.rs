@@ -50,8 +50,8 @@ use ii_sv2::security::{CryptoCtx, PublicKey, Rng as Sv2Rng, secp256k1};
 use mining_protocol::{
     JobId, MiningClient, MiningClientVisitor, MiningJob, SessionUpdate, Share, SubmitResult,
 };
-use rand::RngCore;
-use rand::rngs::OsRng;
+use rand::TryRng;
+use rand::rngs::SysRng;
 use stratum_v2::{StratumV2Client, Sv2Config};
 use tokio::net::TcpStream;
 
@@ -70,7 +70,9 @@ struct ProbeRng;
 
 impl Sv2Rng for ProbeRng {
     fn fill_bytes(&mut self, dest: &mut [u8]) {
-        OsRng.fill_bytes(dest);
+        SysRng
+            .try_fill_bytes(dest)
+            .expect("BUG: the OS random source failed");
     }
 }
 

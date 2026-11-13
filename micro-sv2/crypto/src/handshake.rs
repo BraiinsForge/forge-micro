@@ -350,7 +350,7 @@ mod tests {
         CryptoCtx, Rng,
         keys::{PublicSecp256k1Key, Secp256k1KeyPair},
     };
-    use rand::{Rng as _, RngCore};
+    use rand::{Rng as _, RngExt as _};
     use sha2::{Digest, Sha256};
 
     struct MyRng;

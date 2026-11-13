@@ -50,7 +50,6 @@ esp-hal                = { version = "1.2.2", features = ["defmt", "esp32s3", "u
 # task-switch interrupt nesting that holds under load.
 esp-rtos               = { version = "0.4.0", features = ["embassy", "esp32s3", "defmt"] }
 esp-backtrace          = { version = "0.20.0", features = ["defmt", "esp32s3", "panic-handler"] }
-rand_core              = { workspace = true }
 defmt-rtt              = "1.3.1"
 # default-features = false drops the `validation` feature. It is on by
 # default and, through feature unification, would re-enable the partition-table
@@ -65,8 +64,7 @@ esp-storage            = { version = "0.10.0", default-features = false, feature
 [build-dependencies]
 ubos-build = { workspace = true }
 
-# critical-section is pulled in by esp-storage and esp-hal feature unification;
-# rand_core is required by secp256k1 / ii-sv2 but not directly imported.
-# Both are real transitive requirements that machete flags as unused.
+# critical-section is pulled in by esp-storage and esp-hal feature unification,
+# a real transitive requirement that machete flags as unused.
 [package.metadata.cargo-machete]
-ignored = ["critical-section", "rand_core"]
+ignored = ["critical-section"]

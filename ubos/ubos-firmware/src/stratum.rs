@@ -32,7 +32,7 @@ use crate::AsicSession;
 use embassy_futures::select::{Either3, select, select3};
 use embassy_time::Timer;
 use rand_chacha::ChaCha20Rng;
-use rand_chacha::rand_core::{RngCore, SeedableRng};
+use rand_chacha::rand_core::{Rng, SeedableRng};
 use static_cell::{ConstStaticCell, StaticCell};
 use stratum_client::{
     NtimeRoll, PoolConnector, RECONNECT_DELAY, SESSION_REJECTED_DELAY, SOCKET_TIMEOUT,
@@ -67,7 +67,7 @@ struct Sv2BoardRng<'a>(&'a mut ChaCha20Rng);
 
 impl ii_sv2::security::Rng for Sv2BoardRng<'_> {
     fn fill_bytes(&mut self, dest: &mut [u8]) {
-        RngCore::fill_bytes(self.0, dest);
+        Rng::fill_bytes(self.0, dest);
     }
 }
 

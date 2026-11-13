@@ -22,8 +22,8 @@ embedded-io-adapters = { version = "0.7", features = ["tokio-1"] }
 # the lib itself stays no_std + no-alloc, and firmware consumers
 # inherit the workspace default of `default-features = false`.
 ii-sv2               = { workspace = true, features = ["alloc"] }
-rand                 = "0.8"
-rand_chacha          = "0.3"
+rand                 = "0.10"
+rand_chacha          = "0.10"
 tokio                = { version = "1", features = ["rt", "macros", "io-util", "net"] }
 
 [features]

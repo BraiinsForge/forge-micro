@@ -40,7 +40,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Instant, Timer};
 use heapless::Vec;
-use rand_core_v010::TryRng;
+use rand_core::TryRng;
 use static_cell::{ConstStaticCell, StaticCell};
 use ubos_logging::{Debug2Format, info, warn};
 

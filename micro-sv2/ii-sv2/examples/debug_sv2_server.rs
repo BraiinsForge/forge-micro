@@ -45,7 +45,7 @@ use ii_sv2::security::{
     secp256k1,
 };
 use ii_sv2::types::{Bytes0_32, Str0_255, Uint256};
-use rand::RngCore;
+use rand::Rng as _;
 use tokio::net::{TcpListener, TcpStream};
 use tracing::{Instrument, error, info, info_span};
 

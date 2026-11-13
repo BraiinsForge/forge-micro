@@ -50,7 +50,7 @@ use ii_sv2::types::{Bytes0_32, Str0_255, Uint256};
 use mining_protocol::{
     DriveEvent, Error, ExtensionFrame, JobId, MiningClient, SessionRejection, Share,
 };
-use rand::RngCore;
+use rand::TryRng;
 use stratum_v2::{MAX_EXTENSION_PAYLOAD_BYTES, StratumV2Client, Sv2Config};
 use tokio::io::AsyncReadExt as _;
 
@@ -70,7 +70,9 @@ struct OsRng;
 
 impl Sv2Rng for OsRng {
     fn fill_bytes(&mut self, dest: &mut [u8]) {
-        rand::rngs::OsRng.fill_bytes(dest);
+        rand::rngs::SysRng
+            .try_fill_bytes(dest)
+            .expect("BUG: the OS random source failed");
     }
 }
 

@@ -25,7 +25,7 @@ use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use heapless::String;
 use rand_chacha::ChaCha20Rng;
-use rand_chacha::rand_core::{RngCore, SeedableRng};
+use rand_chacha::rand_core::{Rng, SeedableRng};
 
 /// `None` until [`seed_csprng`] runs.
 static CSPRNG: Mutex<CriticalSectionRawMutex, RefCell<Option<ChaCha20Rng>>> =

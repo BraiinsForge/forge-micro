@@ -199,7 +199,7 @@ mod tests {
     struct MyRng;
     impl Rng for MyRng {
         fn fill_bytes(&mut self, dest: &mut [u8]) {
-            use rand::RngCore;
+            use rand::Rng as _;
             rand::rng().fill_bytes(dest);
         }
     }
