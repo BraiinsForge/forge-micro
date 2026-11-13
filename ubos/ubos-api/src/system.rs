@@ -86,6 +86,7 @@ use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
 use ubos_thermal::Handle as ThermalHandle;
 
 use crate::ota::{OtaError, ota_session};
+use crate::rest::RestApiService;
 use crate::schema::events::{EventDefJson, EventRecordJson};
 use crate::schema::{
     API_VARIANT, GenericResponse, SystemInfo, SystemNetwork, SystemScoreboardEntry,
@@ -164,20 +165,34 @@ pub(crate) const OTA_MAX_IMAGE_BYTES: u64 = 952 * 1024;
 /// firmware image. Any image smaller than this cannot be valid firmware.
 const OTA_MIN_IMAGE_BYTES: u64 = 512;
 
+/// Upper bound on how long an upload waits for the miner to confirm that it
+/// stopped. The manager halts mining within one scheduler round-trip, so
+/// five seconds stops a wedged miner from hanging the request.
+const MINING_STOP_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Assert the OTA pause and wait for the miner to stop, which an upload does
+/// before it touches flash. Returns `false` if the miner does not stop in
+/// [`MINING_STOP_TIMEOUT`]. The OTA flash driver separately parks the serial
+/// workers.
+async fn quiesce_mining(manager: ManagerHandle, mining: ubos_mining::Handle) -> bool {
+    manager.send(ManagerMessage::OtaBegin).await;
+    mining.wait_stopped(MINING_STOP_TIMEOUT).await
+}
+
 /// Downgrade the config for the image that `ota` staged, and wait until
 /// the config task has stored the record that the image reads.
 ///
 /// Called after `finish` accepted the image and before the reboot, so
 /// the image boots on a record it reads. A target that cannot tell what
 /// the image reads downgrades nothing.
-async fn downgrade_config(ota: &dyn crate::ota::OtaTarget) {
+async fn downgrade_config(ota: &dyn crate::ota::OtaTarget, config: ubos_config::Handle) {
     let Some(staged) = ota.staged_config() else {
         info!(
             "OTA: the config that the image reads is not known, rebooting without the config downgrade"
         );
         return;
     };
-    if !ubos_config::handle().downgrade(staged).await {
+    if !config.downgrade(staged).await {
         warn!("OTA: the config task did not answer, rebooting without the config downgrade");
     }
 }
@@ -196,9 +211,9 @@ fn max_image_bytes() -> u64 {
 /// Build the dotted-quad IPv4 string from the shared net state.
 ///
 /// Returns an empty string when DHCP has not yet assigned an address.
-pub(crate) fn build_ip_string() -> String<16> {
+pub(crate) fn build_ip_string(net: ubos_net::net::Handle) -> String<16> {
     let mut result = String::new();
-    if let Some(octets) = ubos_net::net::handle()
+    if let Some(octets) = net
         .current()
         .and_then(|state| state.ipv4)
         .map(|ip| ip.octets())
@@ -219,12 +234,9 @@ pub(crate) fn build_ip_string() -> String<16> {
 /// state.
 ///
 /// Returns an empty string when the board has not yet published its MAC.
-pub(crate) fn build_mac_string() -> String<17> {
+pub(crate) fn build_mac_string(net: ubos_net::net::Handle) -> String<17> {
     let mut result = String::new();
-    if let Some(mac) = ubos_net::net::handle()
-        .current()
-        .and_then(|state| state.mac)
-    {
+    if let Some(mac) = net.current().and_then(|state| state.mac) {
         let _ = core::write!(
             result,
             "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
@@ -242,11 +254,9 @@ pub(crate) fn build_mac_string() -> String<17> {
 /// Build the `HH:MM:SS UTC` time string from the NTP epoch offset.
 ///
 /// Returns an empty string when NTP has not yet synchronized.
-pub(crate) fn build_time_string() -> String<24> {
+pub(crate) fn build_time_string(net: ubos_net::net::Handle) -> String<24> {
     let mut result = String::new();
-    let ntp_offset = ubos_net::net::handle().ntp_epoch_offset();
-    if ntp_offset != 0 {
-        let unix_secs = ubos_net::wall_clock_secs();
+    if let Some(unix_secs) = net.unix_secs() {
         let time = ubos_net::ntp::format_utc_time(unix_secs);
         let _ = result.push_str(time.as_str());
     }
@@ -328,28 +338,31 @@ where
 async fn handle_info<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
-    board_name: &'static str,
-    build: &'static str,
-    psu_handle: &'static ubos_psu::Handle,
-    mining_info: &'static ubos_config::MiningInfo,
+    service: &RestApiService,
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
+    let RestApiService {
+        board_name,
+        build,
+        mining_info,
+        ..
+    } = *service;
     let uptime_seconds = Instant::now().as_secs();
     let chain_stats = ubos_metrics::chain::handle();
     let hashrate_hps = chain_stats.machine_hashrate();
-    let fan = ubos_cooling::handle().current();
+    let fan = service.cooling.current();
     let fan_speed = fan.map_or_else(FanRpm::default, |f| f.rpm);
     let fan_pwm = fan.map_or_else(FanPwm::default, |f| f.pwm);
-    let pools_bitmap = stratum_client::pool_alive_bitmap();
-    let shares_accepted = stratum_client::shares_accepted();
-    let shares_rejected = stratum_client::shares_rejected();
+    let pools_bitmap = service.stratum.pool_alive_bitmap();
+    let shares_accepted = service.stratum.shares_accepted();
+    let shares_rejected = service.stratum.shares_rejected();
     let shares_total = chain_stats.machine_share_count();
     // Extract the configured hostname before building SystemInfo so the
     // full Config snapshot is dropped before the serialize_and_respond
     // await, keeping the response future small.
-    let configured_hostname = ubos_config::handle().current().network.hostname;
+    let configured_hostname = service.config.current().network.hostname;
     let hostname = if configured_hostname.is_empty() {
         board_name
     } else {
@@ -360,10 +373,11 @@ where
     // upload mutex, this stays readable while an upload is in progress.
     let ota_info = crate::ota::ota_info();
 
-    let mining_state = ubos_mining::handle()
+    let mining_state = service
+        .mining
         .state()
         .map(crate::schema::state::ApiMiningState::from);
-    let pause_reasons = ubos_manager::handle().pause_reasons();
+    let pause_reasons = service.manager.pause_reasons();
     let paused = !pause_reasons.is_empty();
     let pause_reason = pause_reasons
         .dominant()
@@ -374,7 +388,7 @@ where
         nominal_hashrate: crate::hw_info::nominal_hashrate(),
         bootloader_version: crate::hw_info::bootloader_version(),
         fan_controller_version: crate::hw_info::fan_controller_version(),
-        psu_model: psu_handle.model(),
+        psu_model: service.psu.model(),
         hashboard_ids: crate::hw_info::hashboard_ids(),
         chains_present: chain_stats.present_chain_count(),
     };
@@ -389,8 +403,8 @@ where
         fan_speed,
         fan_pwm,
         pools_bitmap,
-        ip: build_ip_string(),
-        time: build_time_string(),
+        ip: build_ip_string(service.net),
+        time: build_time_string(service.net),
         asic_count: mining_info.asic_count,
         asic_model: mining_info.asic_model,
         default_frequency: mining_info.default_frequency,
@@ -447,6 +461,7 @@ async fn handle_temperature<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
     thermal: ThermalHandle,
+    cooling: ubos_cooling::Handle,
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
@@ -466,9 +481,7 @@ where
         ambient: reading
             .and_then(|reading| reading.ambient)
             .map(Temperature::celsius_i32),
-        pid_source: ubos_cooling::handle()
-            .current()
-            .and_then(|fan| fan.pid_source),
+        pid_source: cooling.current().and_then(|fan| fan.pid_source),
     };
     serialize_and_respond(connection, scratch, &body).await
 }
@@ -497,16 +510,14 @@ where
 async fn handle_statistics<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
+    net: ubos_net::net::Handle,
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
-    let ntp_offset = ubos_net::net::handle().ntp_epoch_offset();
-    let current_timestamp = if ntp_offset != 0 {
-        ubos_net::wall_clock_secs().saturating_mul(1_000)
-    } else {
-        0
-    };
+    let current_timestamp = net
+        .unix_secs()
+        .map_or(0, |unix_secs| unix_secs.saturating_mul(1_000));
 
     let statistics = SystemStatistics {
         current_timestamp,
@@ -607,19 +618,20 @@ async fn handle_network_get<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
     stack: Stack<'static>,
+    config: ubos_config::Handle,
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
-    let seconds_remaining = ubos_config::pending_seconds_remaining();
+    let seconds_remaining = config.pending_seconds_remaining();
     // While a change is pending the persisted mode still reflects the old
     // config, but the live address already reflects the preview. Report the
     // previewed mode so the two agree until the operator confirms or it
     // reverts.
-    let mode = match ubos_config::pending_mode_is_static() {
+    let mode = match config.pending_mode_is_static() {
         Some(true) => "static",
         Some(false) => "dhcp",
-        None => match ubos_config::handle().current().network.mode {
+        None => match config.current().network.mode {
             ubos_config::NetworkMode::Dhcp => "dhcp",
             ubos_config::NetworkMode::Static { .. } => "static",
         },
@@ -699,6 +711,7 @@ async fn handle_network_post<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
     body: &[u8],
+    config: ubos_config::Handle,
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
@@ -740,7 +753,7 @@ where
         )
         .await;
     }
-    if !ubos_config::handle().try_send(ubos_config::Message::ApplyNetwork {
+    if !config.try_send(ubos_config::Message::ApplyNetwork {
         network,
         confirm: request.confirm_after_switch,
     }) {
@@ -775,11 +788,12 @@ where
 async fn handle_network_confirm<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
+    config: ubos_config::Handle,
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
-    if !ubos_config::handle().try_send(ubos_config::Message::ConfirmNetwork) {
+    if !config.try_send(ubos_config::Message::ConfirmNetwork) {
         return write_busy(connection).await;
     }
     write_ack_response(connection, scratch).await
@@ -791,11 +805,12 @@ where
 async fn handle_network_revert<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
+    config: ubos_config::Handle,
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
-    if !ubos_config::handle().try_send(ubos_config::Message::RevertNetwork) {
+    if !config.try_send(ubos_config::Message::RevertNetwork) {
         return write_busy(connection).await;
     }
     write_ack_response(connection, scratch).await
@@ -891,14 +906,13 @@ where
 async fn handle_factory_reset<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
+    config: ubos_config::Handle,
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
     ubos_auth::session::clear_all_sessions();
-    ubos_config::handle()
-        .send(ubos_config::Message::FactoryReset)
-        .await;
+    config.send(ubos_config::Message::FactoryReset).await;
     write_ack_response(connection, scratch).await
 }
 
@@ -988,6 +1002,8 @@ pub(crate) async fn handle_ota<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     content_length: Option<u64>,
     manager: ManagerHandle,
+    mining: ubos_mining::Handle,
+    config: ubos_config::Handle,
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
@@ -1057,7 +1073,7 @@ where
     // Mining must be quiesced before any flash access: the flash bus is
     // shared and the mining serial task runs on core 1, so an in-flight
     // UART DMA transfer can race a flash write if mining is still active.
-    if !manager.stop_mining_and_wait().await {
+    if !quiesce_mining(manager, mining).await {
         warn!("OTA: mining did not stop within timeout; aborting");
         // Mining may still stop after the timeout, so clear the pause.
         manager.send(ManagerMessage::OtaEnd).await;
@@ -1186,7 +1202,7 @@ where
         .await;
     }
 
-    downgrade_config(ota).await;
+    downgrade_config(ota, config).await;
     info!(
         "OTA upload complete ({} bytes); rebooting into new slot",
         total_bytes
@@ -1247,6 +1263,8 @@ pub(crate) async fn handle_ota_chunk<T, const N: usize>(
     ota_offset: u64,
     ota_final: bool,
     manager: ManagerHandle,
+    mining: ubos_mining::Handle,
+    config: ubos_config::Handle,
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
@@ -1327,7 +1345,7 @@ where
             ota.abort();
         }
         // Start of a new upload session: quiesce mining, then arm the slot writer.
-        if !manager.stop_mining_and_wait().await {
+        if !quiesce_mining(manager, mining).await {
             warn!("OTA chunk: mining did not stop within timeout; aborting");
             // Mining may still stop after the timeout, so clear the pause.
             manager.send(ManagerMessage::OtaEnd).await;
@@ -1496,7 +1514,7 @@ where
             .await;
         }
 
-        downgrade_config(ota).await;
+        downgrade_config(ota, config).await;
         // `ota_offset` is bounded by the target's max image size (fits in usize on all targets).
         #[allow(clippy::cast_possible_truncation)]
         let total_bytes = ota_offset as usize + chunk_size;
@@ -1968,23 +1986,13 @@ pub(crate) fn route(method: &str, path: &str) -> DispatchOutcome {
 /// Crate-private because the auth/CSRF/allow-list gates live in
 /// `RestApiService::handle`; exposing this directly would let an
 /// outside caller bypass those checks.
-// The argument count comes from threading `stack`
-// through the existing board_name/build/psu_handle/thermal/manager set. A context
-// struct would reduce the count but add indirection without simplifying
-// the callers.
-#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)]
 pub(crate) async fn dispatch<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
+    service: &RestApiService,
     method: &str,
     path: &str,
     body: &[u8],
-    board_name: &'static str,
-    build: &'static str,
-    psu_handle: &'static ubos_psu::Handle,
-    mining_info: &'static ubos_config::MiningInfo,
-    thermal: ThermalHandle,
-    manager: ManagerHandle,
-    stack: Stack<'static>,
 ) -> Result<bool, HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
@@ -2002,30 +2010,22 @@ where
             write_method_not_allowed(connection, allowed).await?;
         }
         DispatchOutcome::Handled(Route::SystemInfo) => {
-            handle_info(
-                connection,
-                scratch,
-                board_name,
-                build,
-                psu_handle,
-                mining_info,
-            )
-            .await?;
+            handle_info(connection, scratch, service).await?;
         }
         DispatchOutcome::Handled(Route::SystemAsic) => {
-            handle_asic(connection, scratch, mining_info).await?;
+            handle_asic(connection, scratch, service.mining_info).await?;
         }
         DispatchOutcome::Handled(Route::SystemThermal) => {
             handle_thermal(connection, scratch).await?;
         }
         DispatchOutcome::Handled(Route::SystemTemperature) => {
-            handle_temperature(connection, scratch, thermal).await?;
+            handle_temperature(connection, scratch, service.thermal, service.cooling).await?;
         }
         DispatchOutcome::Handled(Route::SystemCooling) => {
             handle_cooling(connection, scratch).await?;
         }
         DispatchOutcome::Handled(Route::SystemStatistics) => {
-            handle_statistics(connection, scratch).await?;
+            handle_statistics(connection, scratch, service.net).await?;
         }
         DispatchOutcome::Handled(Route::SystemScoreboard) => {
             handle_scoreboard(connection, scratch).await?;
@@ -2063,14 +2063,14 @@ where
         }
         DispatchOutcome::Handled(Route::PauseAck) => {
             crate::events::user_paused();
-            manager.send(ManagerMessage::Stop).await;
+            service.manager.send(ManagerMessage::Stop).await;
             handle_action(connection, scratch, "pause").await?;
         }
         DispatchOutcome::Handled(Route::ResumeAck) => {
-            handle_resume(connection, scratch, manager).await?;
+            handle_resume(connection, scratch, service.manager).await?;
         }
         DispatchOutcome::Handled(Route::ThermalClearAck) => {
-            handle_thermal_clear(connection, scratch, manager).await?;
+            handle_thermal_clear(connection, scratch, service.manager).await?;
         }
         DispatchOutcome::Handled(Route::RestartAck) => {
             crate::events::user_restart();
@@ -2087,19 +2087,19 @@ where
             handle_patch_system(connection, scratch, body.len()).await?;
         }
         DispatchOutcome::Handled(Route::FactoryReset) => {
-            handle_factory_reset(connection, scratch).await?;
+            handle_factory_reset(connection, scratch, service.config).await?;
         }
         DispatchOutcome::Handled(Route::NetworkGet) => {
-            handle_network_get(connection, scratch, stack).await?;
+            handle_network_get(connection, scratch, service.stack, service.config).await?;
         }
         DispatchOutcome::Handled(Route::NetworkPost) => {
-            handle_network_post(connection, scratch, body).await?;
+            handle_network_post(connection, scratch, body, service.config).await?;
         }
         DispatchOutcome::Handled(Route::NetworkConfirm) => {
-            handle_network_confirm(connection, scratch).await?;
+            handle_network_confirm(connection, scratch, service.config).await?;
         }
         DispatchOutcome::Handled(Route::NetworkRevert) => {
-            handle_network_revert(connection, scratch).await?;
+            handle_network_revert(connection, scratch, service.config).await?;
         }
     }
 

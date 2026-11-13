@@ -46,4 +46,6 @@ ubos-thermal      = { workspace = true, default-features = false }
 [dev-dependencies]
 serde_json        = { workspace = true }
 critical-section  = { version = "1.2", features = ["std"] }
+# Each test that takes handles runs in a process of its own.
+rusty-fork        = { workspace = true }
 embassy-futures   = { workspace = true }

@@ -28,6 +28,10 @@
 //! it in the service list passed to [`ubos_mdns::run_mdns`].
 #![no_std]
 
+// The host test binary links std for the `rusty-fork` macro.
+#[cfg(test)]
+extern crate std;
+
 /// The path prefix every route in this crate lives under.
 ///
 /// `ubos_firmware::serve_all!` routes it to this handler, and the mDNS

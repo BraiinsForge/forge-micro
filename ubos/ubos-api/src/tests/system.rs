@@ -30,13 +30,18 @@
 // test harness so we can allocate buffers and use Vec.
 extern crate std;
 
+use core::future::Future;
+use core::pin::pin;
+use core::task::{Context, Waker};
 use std::vec::Vec;
 
 use edge_nal::Readable;
 use edge_nal::TcpSplit;
 use embedded_io_async::{ErrorType, Read, Write};
 
+use rusty_fork::rusty_fork_test;
 use ubos_core::units::{FanPwm, FanRpm, Frequency, Voltage};
+use ubos_manager::{Message, PauseReason, PauseReasons, run_manager};
 
 use crate::ota::{OtaError, StagedConfig};
 use crate::system::{DispatchOutcome, Route, route};
@@ -316,6 +321,12 @@ fn run_chunk_handler(
     ota_offset: u64,
     ota_final: bool,
 ) -> u16 {
+    // The handler talks to the handles that a board takes in `main`. The test
+    // runs in a process of its own, so each is taken once.
+    let (_manager_runner, manager) = ubos_manager::Handle::take();
+    let (_mining_runner, mining) = ubos_mining::Handle::take();
+    let (_config_runner, config) = ubos_config::Handle::take();
+
     let request_bytes = build_chunk_request(content_length_header, body, extra_headers);
     let io = MockIo::new(request_bytes);
 
@@ -325,13 +336,14 @@ fn run_chunk_handler(
             .await
             .expect("BUG: Connection::new failed on mock HTTP request");
 
-        let manager = ubos_manager::handle();
         crate::system::handle_ota_chunk(
             &mut connection,
             handler_content_length,
             ota_offset,
             ota_final,
             manager,
+            mining,
+            config,
         )
         .await
         .expect("BUG: handle_ota_chunk returned Err on mock socket — Infallible violated");
@@ -343,54 +355,15 @@ fn run_chunk_handler(
     })
 }
 
-/// Global mutex serialising tests that share the `OTA_TARGET` static.
+/// Register `mock` as the OTA target and run `body`.
 ///
-/// `handle_ota_chunk` accesses `OTA_TARGET` via `try_lock`; tests that
-/// register a mock target must not overlap or they see each other's
-/// targets. Holding this mutex for the full setup → run → teardown
-/// sequence keeps them sequential without needing `--test-threads=1`.
-static OTA_TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-/// Restores `OTA_TARGET` to its baseline of `None` on drop.
-///
-/// A test body that panics leaves `OTA_TARGET` holding a mock meant for
-/// the failing test, which would otherwise be inherited by whichever test
-/// runs next. Tying the reset to `Drop` runs it whether `body` in
-/// `with_ota_target` returned or unwound, so the static is clean before
-/// the poison from that panic can reach another test.
-struct OtaTargetReset;
-
-impl Drop for OtaTargetReset {
-    fn drop(&mut self) {
-        embassy_futures::block_on(async {
-            *crate::ota::target_mutex().lock().await = None;
-        });
-    }
-}
-
-/// Register `mock` as the OTA target, run `body`, then unregister it.
-///
-/// Acquires `OTA_TEST_MUTEX` for the duration so concurrent OTA tests
-/// queue behind each other rather than racing on the shared static. A
-/// poisoned lock only ever means a previous test panicked while holding
-/// it, and `OtaTargetReset` already restored `OTA_TARGET` before that
-/// panic finished unwinding, so recovering the value with `into_inner`
-/// loses no signal: the assertion that actually failed already reported
-/// it before this static existed to poison anything for.
+/// Each test that registers a target runs in a process of its own, so the
+/// static starts empty and needs no reset.
 ///
 /// The mock is placed behind a `Box::leak` to satisfy the
 /// `&'static mut dyn OtaTarget` requirement of the mutex type. The
-/// leaked allocation is small and test-process-scoped, so the growth is
-/// bounded by the number of OTA tests.
+/// allocation is small and ends with the test process.
 fn with_ota_target<F: FnOnce() -> u16>(mock: MockOtaTarget, body: F) -> u16 {
-    let _guard = OTA_TEST_MUTEX
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    // Declared after `_guard` so it drops first: the reset below runs
-    // while `OTA_TEST_MUTEX` is still held, before the next test can
-    // acquire it.
-    let _reset = OtaTargetReset;
-
     // Leak the mock to obtain a `&'static mut`.
     let leaked: &'static mut dyn crate::ota::OtaTarget =
         std::boxed::Box::leak(std::boxed::Box::new(mock));
@@ -571,116 +544,128 @@ fn parse_since_overflow_is_max() {
 // OTA chunk edge-case tests
 // ---------------------------------------------------------------------------
 
-/// An oversize chunk (Content-Length > `OTA_CHUNK_SIZE` = 4096) is rejected
-/// before the OTA target mutex is acquired. The handler returns 413.
-///
-/// This check fires purely on the parsed `content_length` argument, so no
-/// `OtaTarget` is needed.
-#[test]
-fn ota_chunk_oversize_returns_413() {
-    // One byte over the 4096-byte sector limit.
-    let oversize: u64 = 4097;
-    let status = run_chunk_handler(
-        // Use a small Content-Length in the raw HTTP so Connection::new
-        // can parse the headers; the handler receives the oversize value
-        // directly as the pre-parsed argument.
-        1,
-        &[0u8],
-        &[],
-        Some(oversize),
-        0,
-        false,
-    );
-    assert_eq!(status, 413, "oversize chunk must be rejected with 413");
+rusty_fork_test! {
+    /// An oversize chunk (Content-Length > `OTA_CHUNK_SIZE` = 4096) is rejected
+    /// before the OTA target mutex is acquired. The handler returns 413.
+    ///
+    /// This check fires purely on the parsed `content_length` argument, so no
+    /// `OtaTarget` is needed.
+    #[test]
+    fn ota_chunk_oversize_returns_413() {
+        // One byte over the 4096-byte sector limit.
+        let oversize: u64 = 4097;
+        let status = run_chunk_handler(
+            // Use a small Content-Length in the raw HTTP so Connection::new
+            // can parse the headers; the handler receives the oversize value
+            // directly as the pre-parsed argument.
+            1,
+            &[0u8],
+            &[],
+            Some(oversize),
+            0,
+            false,
+        );
+        assert_eq!(status, 413, "oversize chunk must be rejected with 413");
+    }
 }
 
-/// A chunk whose offset plus its length would push the total image past
-/// `OTA_MAX_IMAGE_BYTES` (952 * 1024) is rejected with 413.
-///
-/// The guard fires on `ota_offset + chunk_bytes > OTA_MAX_IMAGE_BYTES` so
-/// any partial write that would overflow the slot is caught up front.
-#[test]
-fn ota_chunk_exceeds_image_max_returns_413() {
-    // Offset exactly at the cap, body one byte. offset + 1 > OTA_MAX.
-    let offset_at_cap: u64 = 952 * 1024;
-    let status = run_chunk_handler(1, &[0u8], &[], Some(1), offset_at_cap, false);
-    assert_eq!(
-        status, 413,
-        "chunk that would push image past slot cap must be rejected with 413"
-    );
+rusty_fork_test! {
+    /// A chunk whose offset plus its length would push the total image past
+    /// `OTA_MAX_IMAGE_BYTES` (952 * 1024) is rejected with 413.
+    ///
+    /// The guard fires on `ota_offset + chunk_bytes > OTA_MAX_IMAGE_BYTES` so
+    /// any partial write that would overflow the slot is caught up front.
+    #[test]
+    fn ota_chunk_exceeds_image_max_returns_413() {
+        // Offset exactly at the cap, body one byte. offset + 1 > OTA_MAX.
+        let offset_at_cap: u64 = 952 * 1024;
+        let status = run_chunk_handler(1, &[0u8], &[], Some(1), offset_at_cap, false);
+        assert_eq!(
+            status, 413,
+            "chunk that would push image past slot cap must be rejected with 413"
+        );
+    }
 }
 
-/// A continuation chunk whose `X-OTA-Offset` does not match the number of
-/// bytes already written returns 409 Conflict.
-///
-/// Simulated by pre-registering a mock whose `bytes_written()` reports
-/// 4096 (one sector already written), then sending a chunk with
-/// `ota_offset = 512` (neither 0 nor 4096).
-#[test]
-fn ota_chunk_offset_mismatch_returns_409() {
-    // bytes_written = 4096; incoming offset = 512 → mismatch → 409.
-    let status = with_ota_target(MockOtaTarget::with_bytes_written(4096), || {
-        run_chunk_handler(512, &[0u8; 512], &[], Some(512), 512, false)
-    });
-    assert_eq!(
-        status, 409,
-        "chunk with mismatched offset must be rejected with 409"
-    );
+rusty_fork_test! {
+    /// A continuation chunk whose `X-OTA-Offset` does not match the number of
+    /// bytes already written returns 409 Conflict.
+    ///
+    /// Simulated by pre-registering a mock whose `bytes_written()` reports
+    /// 4096 (one sector already written), then sending a chunk with
+    /// `ota_offset = 512` (neither 0 nor 4096).
+    #[test]
+    fn ota_chunk_offset_mismatch_returns_409() {
+        // bytes_written = 4096; incoming offset = 512 → mismatch → 409.
+        let status = with_ota_target(MockOtaTarget::with_bytes_written(4096), || {
+            run_chunk_handler(512, &[0u8; 512], &[], Some(512), 512, false)
+        });
+        assert_eq!(
+            status, 409,
+            "chunk with mismatched offset must be rejected with 409"
+        );
+    }
 }
 
-/// A replayed offset — the same non-zero offset sent a second time after
-/// the first write advanced `bytes_written` — is also an offset mismatch
-/// and returns 409.
-///
-/// Simulated by pre-registering a mock with `bytes_written = 1024` and
-/// sending `ota_offset = 0`. Because `ota_offset == 0` triggers the
-/// restart path (which is not an error), we use a later offset that
-/// is strictly less than `bytes_written` to hit the mismatch branch.
-#[test]
-fn ota_chunk_replayed_offset_returns_409() {
-    // bytes_written = 1024; replayed offset = 256 (0 < 256 < 1024) → 409.
-    let status = with_ota_target(MockOtaTarget::with_bytes_written(1024), || {
-        run_chunk_handler(256, &[0u8; 256], &[], Some(256), 256, false)
-    });
-    assert_eq!(
-        status, 409,
-        "replayed (already-acked) chunk must be rejected with 409"
-    );
+rusty_fork_test! {
+    /// A replayed offset — the same non-zero offset sent a second time after
+    /// the first write advanced `bytes_written` — is also an offset mismatch
+    /// and returns 409.
+    ///
+    /// Simulated by pre-registering a mock with `bytes_written = 1024` and
+    /// sending `ota_offset = 0`. Because `ota_offset == 0` triggers the
+    /// restart path (which is not an error), we use a later offset that
+    /// is strictly less than `bytes_written` to hit the mismatch branch.
+    #[test]
+    fn ota_chunk_replayed_offset_returns_409() {
+        // bytes_written = 1024; replayed offset = 256 (0 < 256 < 1024) → 409.
+        let status = with_ota_target(MockOtaTarget::with_bytes_written(1024), || {
+            run_chunk_handler(256, &[0u8; 256], &[], Some(256), 256, false)
+        });
+        assert_eq!(
+            status, 409,
+            "replayed (already-acked) chunk must be rejected with 409"
+        );
+    }
 }
 
-/// The final chunk of a session whose total byte count is below
-/// `OTA_MIN_IMAGE_BYTES` (512) is rejected with 400.
-///
-/// An offset-0 chunk with a 128-byte body and `X-OTA-Final: 1` is the
-/// shortest possible final chunk: `total = 0 + 128 = 128 < 512`.
-#[test]
-fn ota_chunk_final_image_too_small_returns_400() {
-    // 128-byte body, final flag set → total 128 < OTA_MIN_IMAGE_BYTES (512).
-    let status = with_ota_target(MockOtaTarget::succeeds(), || {
-        run_chunk_handler(128, &[0u8; 128], &[], Some(128), 0, true)
-    });
-    assert_eq!(
-        status, 400,
-        "final chunk that would produce a sub-512-byte image must be rejected with 400"
-    );
+rusty_fork_test! {
+    /// The final chunk of a session whose total byte count is below
+    /// `OTA_MIN_IMAGE_BYTES` (512) is rejected with 400.
+    ///
+    /// An offset-0 chunk with a 128-byte body and `X-OTA-Final: 1` is the
+    /// shortest possible final chunk: `total = 0 + 128 = 128 < 512`.
+    #[test]
+    fn ota_chunk_final_image_too_small_returns_400() {
+        // 128-byte body, final flag set → total 128 < OTA_MIN_IMAGE_BYTES (512).
+        let status = with_ota_target(MockOtaTarget::succeeds(), || {
+            run_chunk_handler(128, &[0u8; 128], &[], Some(128), 0, true)
+        });
+        assert_eq!(
+            status, 400,
+            "final chunk that would produce a sub-512-byte image must be rejected with 400"
+        );
+    }
 }
 
-/// A non-final chunk shorter than one erase sector is rejected with 400.
-///
-/// `write_chunk` assumes each non-final chunk covers exactly one sector, so
-/// a short body would advance the write offset off a sector boundary. The
-/// guard fires after the offset-continuity check, so the session is armed:
-/// `bytes_written = 4096` with a matching `ota_offset = 4096` reaches it.
-#[test]
-fn ota_chunk_non_final_short_returns_400() {
-    // bytes_written = 4096, offset = 4096 (matches), 512-byte non-final body.
-    let status = with_ota_target(MockOtaTarget::with_bytes_written(4096), || {
-        run_chunk_handler(512, &[0u8; 512], &[], Some(512), 4096, false)
-    });
-    assert_eq!(
-        status, 400,
-        "non-final chunk smaller than one sector must be rejected with 400"
-    );
+rusty_fork_test! {
+    /// A non-final chunk shorter than one erase sector is rejected with 400.
+    ///
+    /// `write_chunk` assumes each non-final chunk covers exactly one sector, so
+    /// a short body would advance the write offset off a sector boundary. The
+    /// guard fires after the offset-continuity check, so the session is armed:
+    /// `bytes_written = 4096` with a matching `ota_offset = 4096` reaches it.
+    #[test]
+    fn ota_chunk_non_final_short_returns_400() {
+        // bytes_written = 4096, offset = 4096 (matches), 512-byte non-final body.
+        let status = with_ota_target(MockOtaTarget::with_bytes_written(4096), || {
+            run_chunk_handler(512, &[0u8; 512], &[], Some(512), 4096, false)
+        });
+        assert_eq!(
+            status, 400,
+            "non-final chunk smaller than one sector must be rejected with 400"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -973,12 +958,38 @@ fn system_info_hw_info_serializes_unpublished_versions_as_null() {
 // Resume tests
 // ---------------------------------------------------------------------------
 
+/// Run `body` against a manager that runs as the firmware runs it, after it
+/// handled `prime`. `settle` lets the manager handle what the body sent.
+fn with_manager<R>(
+    prime: &[Message],
+    body: impl FnOnce(ubos_manager::Handle, &mut dyn FnMut()) -> R,
+) -> R {
+    let (mut runner, manager) = ubos_manager::Handle::take();
+    let (_mining_runner, mining) = ubos_mining::Handle::take();
+    let mut task = pin!(run_manager(&mut runner, mining));
+    let mut settle = || {
+        let mut cx = Context::from_waker(Waker::noop());
+        for _ in 0..SETTLE_POLLS {
+            let _ = task.as_mut().poll(&mut cx);
+        }
+    };
+    embassy_futures::block_on(async {
+        for message in prime {
+            manager.send(*message).await;
+        }
+    });
+    settle();
+    body(manager, &mut settle)
+}
+
+/// Polls that let the manager handle every message that waits for it.
+const SETTLE_POLLS: usize = 16;
+
 /// Drive `handle_resume` over a mock socket against `manager` and return
 /// the HTTP status code from the response.
 ///
-/// The caller builds `manager` over a watch and a channel it declared
-/// itself, so the mask the handler reads is the one the test published
-/// and the command it sends is the one the test can receive.
+/// The caller gets `manager` from [`with_manager`], so the mask the handler
+/// reads is the one the real manager published.
 fn run_resume_handler(manager: ubos_manager::Handle) -> u16 {
     let io = MockIo::new(b"POST /api/system/resume HTTP/1.1\r\nContent-Length: 0\r\n\r\n".to_vec());
 
@@ -1000,36 +1011,35 @@ fn run_resume_handler(manager: ubos_manager::Handle) -> u16 {
     })
 }
 
-#[test]
-fn resume_during_overheat_halt_is_refused() {
-    static WATCH: ubos_manager::PauseWatch = embassy_sync::watch::Watch::new();
-    static COMMANDS: ubos_manager::CommandChannel = embassy_sync::channel::Channel::new();
-    WATCH.sender().send(
-        ubos_manager::PauseReasons::default()
-            .assert(ubos_manager::PauseReason::DangerousTemperature),
-    );
+rusty_fork_test! {
+    #[test]
+    fn resume_during_overheat_halt_is_refused() {
+        with_manager(&[Message::DangerousTemperature], |manager, settle| {
+            let status = run_resume_handler(manager);
+            settle();
 
-    let status = run_resume_handler(ubos_manager::Handle::new(&WATCH, &COMMANDS));
+            assert_eq!(status, 409);
+            assert_eq!(
+                manager.pause_reasons(),
+                PauseReasons::default().assert(PauseReason::DangerousTemperature),
+                "a refused resume must change nothing in the manager"
+            );
+        });
+    }
 
-    assert_eq!(status, 409);
-    assert!(
-        COMMANDS.try_receive().is_err(),
-        "a refused resume must send nothing to the manager"
-    );
-}
+    #[test]
+    fn resume_without_overheat_halt_starts() {
+        with_manager(&[Message::Stop], |manager, settle| {
+            let status = run_resume_handler(manager);
+            settle();
 
-#[test]
-fn resume_without_overheat_halt_starts() {
-    static WATCH: ubos_manager::PauseWatch = embassy_sync::watch::Watch::new();
-    static COMMANDS: ubos_manager::CommandChannel = embassy_sync::channel::Channel::new();
-    WATCH
-        .sender()
-        .send(ubos_manager::PauseReasons::default().assert(ubos_manager::PauseReason::UserRequest));
-
-    let status = run_resume_handler(ubos_manager::Handle::new(&WATCH, &COMMANDS));
-
-    assert_eq!(status, 200);
-    assert_eq!(COMMANDS.try_receive(), Ok(ubos_manager::Message::Start));
+            assert_eq!(status, 200);
+            assert!(
+                manager.pause_reasons().is_empty(),
+                "an accepted resume must clear the operator's pause"
+            );
+        });
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1039,9 +1049,7 @@ fn resume_without_overheat_halt_starts() {
 /// Drive `handle_thermal_clear` over a mock socket against `manager` and
 /// return the HTTP status code from the response.
 ///
-/// Built the same way as `run_resume_handler`, and for the same reason:
-/// the mask the handler reads is the one the test published, and the
-/// commands it sends are the ones the test can receive.
+/// Built the same way as `run_resume_handler`, and for the same reason.
 fn run_thermal_clear_handler(manager: ubos_manager::Handle) -> u16 {
     let io = MockIo::new(
         b"POST /api/system/thermal/clear HTTP/1.1\r\nContent-Length: 0\r\n\r\n".to_vec(),
@@ -1065,45 +1073,39 @@ fn run_thermal_clear_handler(manager: ubos_manager::Handle) -> u16 {
     })
 }
 
-#[test]
-fn thermal_clear_acknowledges_then_starts() {
-    static WATCH: ubos_manager::PauseWatch = embassy_sync::watch::Watch::new();
-    static COMMANDS: ubos_manager::CommandChannel = embassy_sync::channel::Channel::new();
-    WATCH.sender().send(
-        ubos_manager::PauseReasons::default()
-            .assert(ubos_manager::PauseReason::DangerousTemperature),
-    );
+rusty_fork_test! {
+    #[test]
+    fn thermal_clear_acknowledges_then_starts() {
+        with_manager(&[Message::DangerousTemperature], |manager, settle| {
+            let status = run_thermal_clear_handler(manager);
+            settle();
 
-    let status = run_thermal_clear_handler(ubos_manager::Handle::new(&WATCH, &COMMANDS));
+            assert_eq!(status, 200);
+            assert!(
+                manager.pause_reasons().is_empty(),
+                "the clear must lift the halt and leave nothing paused"
+            );
+        });
+    }
 
-    assert_eq!(status, 200);
-    assert_eq!(
-        COMMANDS.try_receive(),
-        Ok(ubos_manager::Message::TemperatureAcknowledged)
-    );
-    assert_eq!(COMMANDS.try_receive(), Ok(ubos_manager::Message::Start));
-}
+    #[test]
+    fn thermal_clear_starts_whether_or_not_the_operator_paused() {
+        // The operator's own pause on top of the halt. Clearing is the same
+        // two sends either way, which is what keeps one confirm enough.
+        with_manager(
+            &[Message::DangerousTemperature, Message::Stop],
+            |manager, settle| {
+                let status = run_thermal_clear_handler(manager);
+                settle();
 
-#[test]
-fn thermal_clear_starts_whether_or_not_the_operator_paused() {
-    static WATCH: ubos_manager::PauseWatch = embassy_sync::watch::Watch::new();
-    static COMMANDS: ubos_manager::CommandChannel = embassy_sync::channel::Channel::new();
-    // The operator's own pause on top of the halt. Clearing is the same
-    // two sends either way, which is what keeps one confirm enough.
-    WATCH.sender().send(
-        ubos_manager::PauseReasons::default()
-            .assert(ubos_manager::PauseReason::DangerousTemperature)
-            .assert(ubos_manager::PauseReason::UserRequest),
-    );
-
-    let status = run_thermal_clear_handler(ubos_manager::Handle::new(&WATCH, &COMMANDS));
-
-    assert_eq!(status, 200);
-    assert_eq!(
-        COMMANDS.try_receive(),
-        Ok(ubos_manager::Message::TemperatureAcknowledged)
-    );
-    assert_eq!(COMMANDS.try_receive(), Ok(ubos_manager::Message::Start));
+                assert_eq!(status, 200);
+                assert!(
+                    manager.pause_reasons().is_empty(),
+                    "the clear must lift the halt and the operator's pause with it"
+                );
+            },
+        );
+    }
 }
 
 /// The system info schema carries the camelCase keys the device

@@ -135,7 +135,12 @@ pub struct RestApiService {
     pub(crate) bounds: &'static ubos_config::MiningBounds,
     pub(crate) thermal: ThermalHandle,
     pub(crate) manager: ManagerHandle,
-    pub(crate) psu_handle: &'static ubos_psu::Handle,
+    pub(crate) psu: ubos_psu::Handle,
+    pub(crate) cooling: ubos_cooling::Handle,
+    pub(crate) mining: ubos_mining::Handle,
+    pub(crate) net: ubos_net::net::Handle,
+    pub(crate) config: ubos_config::Handle,
+    pub(crate) stratum: stratum_client::PoolCountersHandle,
     pub(crate) stack: Stack<'static>,
 }
 
@@ -156,7 +161,12 @@ impl RestApiService {
         bounds: &'static ubos_config::MiningBounds,
         thermal: ThermalHandle,
         manager: ManagerHandle,
-        psu_handle: &'static ubos_psu::Handle,
+        psu: ubos_psu::Handle,
+        cooling: ubos_cooling::Handle,
+        mining: ubos_mining::Handle,
+        net: ubos_net::net::Handle,
+        config: ubos_config::Handle,
+        stratum: stratum_client::PoolCountersHandle,
         stack: Stack<'static>,
     ) -> Self {
         Self {
@@ -166,7 +176,12 @@ impl RestApiService {
             bounds,
             thermal,
             manager,
-            psu_handle,
+            psu,
+            cooling,
+            mining,
+            net,
+            config,
+            stratum,
             stack,
         }
     }
@@ -177,10 +192,10 @@ impl RestApiService {
     fn info(&self) -> ApiInfo {
         let chain_stats = ubos_metrics::chain::handle();
         let thermal_reading = self.thermal.current();
-        let fan = ubos_cooling::handle().current();
-        let psu_reading = self.psu_handle.current();
+        let fan = self.cooling.current();
+        let psu_reading = self.psu.current();
         let pause_reasons = self.manager.pause_reasons();
-        let mining_state = ubos_mining::handle().state();
+        let mining_state = self.mining.state();
         let ota = crate::ota::ota_info().map(|info| {
             ApiInfoOta::new(
                 info,
@@ -204,8 +219,8 @@ impl RestApiService {
                 .and_then(|reading| reading.chain_voltage)
                 .unwrap_or_default(),
             psu_fault: psu_reading.is_some_and(|r| r.sensor_fault),
-            pools: stratum_client::pool_alive_bitmap(),
-            net_confirm_seconds: ubos_config::pending_seconds_remaining(),
+            pools: self.stratum.pool_alive_bitmap(),
+            net_confirm_seconds: self.config.pending_seconds_remaining(),
             running: matches!(mining_state, Some(ubos_mining::MiningState::Running)),
             mining_state: mining_state.map(ApiMiningState::from),
             paused: !pause_reasons.is_empty(),
@@ -220,9 +235,9 @@ impl RestApiService {
                 .enumerate()
                 .map(|(chain, stats)| ApiInfoChain::new(chain, stats))
                 .collect(),
-            ip: crate::system::build_ip_string(),
-            mac: crate::system::build_mac_string(),
-            time: crate::system::build_time_string(),
+            ip: crate::system::build_ip_string(self.net),
+            mac: crate::system::build_mac_string(self.net),
+            time: crate::system::build_time_string(self.net),
             build: self.build,
             product_name: crate::hw_info::product_name(),
             nominal_hashrate: crate::hw_info::nominal_hashrate(),
@@ -250,7 +265,7 @@ impl Service for RestApiService {
         // `board_http_requests_total` reflects dashboard and API traffic.
         // The metrics port does not increment it, and a connection
         // dropped before its request is parsed is never counted.
-        ubos_net::net::handle().record_request();
+        self.net.record_request();
 
         let method = parts.method.as_str();
         let path = parts.path.as_str();
@@ -367,7 +382,14 @@ impl Service for RestApiService {
         // pre-read buffer, so it is dispatched here directly with the parsed
         // content length. Auth and CSRF have already been enforced above.
         if is_ota_upload {
-            return crate::system::handle_ota(connection, content_length, self.manager).await;
+            return crate::system::handle_ota(
+                connection,
+                content_length,
+                self.manager,
+                self.mining,
+                self.config,
+            )
+            .await;
         }
 
         // The OTA chunk upload also streams its body (one sector at a time).
@@ -407,26 +429,15 @@ impl Service for RestApiService {
                 ota_offset,
                 ota_final,
                 self.manager,
+                self.mining,
+                self.config,
             )
             .await;
         }
 
         // Route dispatch: only /api/* paths are served here.
         if path == "/api/system" || path.starts_with("/api/system/") {
-            let handled = crate::system::dispatch(
-                connection,
-                method,
-                path,
-                body,
-                self.board_name,
-                self.build,
-                self.psu_handle,
-                self.mining_info,
-                self.thermal,
-                self.manager,
-                self.stack,
-            )
-            .await?;
+            let handled = crate::system::dispatch(connection, self, method, path, body).await?;
             if !handled {
                 return write_status_only(
                     connection,
@@ -470,7 +481,7 @@ impl Service for RestApiService {
                 // await so neither lives on the rest_api future stack
                 // across write_json_response.
                 let serialize_result = {
-                    let response = ubos_config::handle().view();
+                    let response = self.config.view();
                     serde_json_core::ser::to_slice(&response, &mut body_buf)
                 };
                 let Ok(length) = serialize_result else {
@@ -504,8 +515,7 @@ impl Service for RestApiService {
                     .await;
                 };
 
-                let config_handle = ubos_config::handle();
-                let current = config_handle.current();
+                let current = self.config.current();
 
                 // An empty password in the update means the operator did
                 // not re-type the current secret; preserve the stored value
@@ -552,7 +562,7 @@ impl Service for RestApiService {
 
                 let mut new_config = current;
                 update.apply(&mut new_config);
-                config_handle
+                self.config
                     .send(ubos_config::Message::Update(new_config))
                     .await;
                 write_json_response(connection, 200, "OK", CONFIG_ACK_BODY).await
@@ -590,8 +600,7 @@ impl Service for RestApiService {
 /// Call once before spawning worker tasks so the first request
 /// authenticates against the operator's configured credentials. Warn
 /// when default credentials are still in place.
-pub fn seed_api_credentials() {
-    let config = ubos_config::handle();
+pub fn seed_api_credentials(config: ubos_config::Handle) {
     let api = config.current().api;
     ubos_auth::auth::set_credentials(&api.username, &api.password);
     ubos_auth::auth::warn_if_default_credentials();
@@ -604,8 +613,7 @@ pub fn seed_api_credentials() {
 /// Run as a dedicated embassy task alongside the REST API worker tasks.
 /// The future holds only the two credential strings across each
 /// `set_credentials` await, not the full `Config` snapshot.
-pub async fn run_sync_credentials() -> ! {
-    let config = ubos_config::handle();
+pub async fn run_sync_credentials(config: ubos_config::Handle) -> ! {
     let mut subscription = config.subscribe();
     loop {
         let credentials = {
@@ -621,8 +629,8 @@ pub async fn run_sync_credentials() -> ! {
 macro_rules! sync_credentials_task {
     () => {
         #[embassy_executor::task]
-        async fn sync_credentials_task() -> ! {
-            ubos_api::run_sync_credentials().await
+        async fn sync_credentials_task(config: ubos_config::Handle) -> ! {
+            ubos_api::run_sync_credentials(config).await
         }
     };
 }
@@ -643,7 +651,7 @@ const OTA_SESSION_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 /// the chunk count has not advanced, the watcher tries to reclaim the
 /// session: it takes the target mutex and — after re-checking under the
 /// lock to avoid a race — aborts the target and resumes mining.
-pub async fn run_ota_session_watchdog() -> ! {
+pub async fn run_ota_session_watchdog(manager: ManagerHandle) -> ! {
     let mut last_seen_chunks: u32 = 0;
     loop {
         Timer::after(OTA_SESSION_IDLE_TIMEOUT).await;
@@ -678,7 +686,7 @@ pub async fn run_ota_session_watchdog() -> ! {
             // otherwise take the mutex, stop mining, and then be resumed by
             // this stale `Start`. Holding the guard until after the send
             // serializes the new session behind the resume.
-            ubos_manager::handle().send(ManagerMessage::OtaEnd).await;
+            manager.send(ManagerMessage::OtaEnd).await;
             drop(guard);
             warn!(
                 "OTA: chunk session idle for {}s; aborting and resuming mining",
@@ -696,8 +704,8 @@ pub async fn run_ota_session_watchdog() -> ! {
 macro_rules! ota_watchdog_task {
     () => {
         #[embassy_executor::task]
-        async fn ota_watchdog_task() -> ! {
-            ubos_api::run_ota_session_watchdog().await
+        async fn ota_watchdog_task(manager: ubos_manager::Handle) -> ! {
+            ubos_api::run_ota_session_watchdog(manager).await
         }
     };
 }
