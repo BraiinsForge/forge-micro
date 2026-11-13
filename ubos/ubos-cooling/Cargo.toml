@@ -41,7 +41,15 @@ critical-section = { version = "1.2", features = ["std"] }
 # `generic-queue-8` gives it the timer queue the ticker awaits on.
 embassy-time     = { workspace = true, features = ["mock-driver", "generic-queue-8"] }
 ubos-thermal     = { workspace = true }
-ubos-config      = { workspace = true, default-features = false }
+# `FileStorage` is the store of the host, and the tests run the real config
+# task on it.
+ubos-config      = { workspace = true, default-features = false, features = ["std"] }
+# The hashboard that the config task of the tests runs on.
+ubos-asic        = { workspace = true }
+# The handle that `run_thermal` reports to in the tests.
+ubos-manager     = { workspace = true, default-features = false }
+# Each test takes its handles in a process of its own.
+rusty-fork       = { workspace = true }
 
 [package.metadata.cargo-machete]
 ignored = ["defmt"]

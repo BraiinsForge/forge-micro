@@ -24,95 +24,130 @@
 //! executor: each phase advances the mock clock or publishes a thermal
 //! reading, then polls `run_cooling` and the metrics ingest task a bounded
 //! number of times to let the resulting chain of awaits settle before the
-//! commanded PWM is asserted through [`crate::handle`].
-
-// The crate is `no_std`; the host test binary links std for the mutex that
-// serialises the tests driving `run_cooling`.
-extern crate std;
+//! commanded PWM is asserted through the fan handle.
+//!
+//! A reading comes from the real `run_thermal` over a sensor that answers
+//! once, and a config change from the real config task over a file store,
+//! so the loop is driven by what the firmware runs. Each test takes the
+//! handles as a board does and runs in a process of its own.
 
 use core::cell::Cell;
 use core::future::Future;
-use core::pin::Pin;
+use core::pin::{Pin, pin};
 use core::task::{Context, Waker};
 
+use std::format;
+
+use embassy_time::{Duration, MockDriver};
 use ubos_config::{
-    ConfigCommandChannel, ConfigWatch, FeeSlotCell, GenerationWatch, Handle as ConfigHandle,
-    NetworkWatch,
+    Config, DefaultTuning, FileStorage, Handle as ConfigHandle, Message, MiningInfo,
+    Runner as ConfigRunner,
 };
 use ubos_core::units::{FanPwm, FanRpm, Temperature};
-use ubos_thermal::{Handle as ThermalHandle, TempSample, TempStats, ThermalReading, ThermalWatch};
+use ubos_manager::Handle as ManagerHandle;
+use ubos_thermal::{
+    Handle as ThermalHandle, NoAmbient, NoMcu, Reading, Runner as ThermalRunner, TempSample,
+    TempStats, TemperatureSensor, run_thermal,
+};
 
-use crate::{FanOutput, TachReader};
+use crate::{FanOutput, Handle, Runner, TachReader};
 
-/// The upstream channels one test drives, standing in for the thermal
-/// sensor task and the config task.
-///
-/// Each test file declares its own, so nothing one publishes reaches
-/// another. A single set shared between test files is what used to make
-/// one test depend on another having reset the config it left behind.
-pub(crate) struct Upstream {
-    thermal: ThermalWatch,
-    config: ConfigWatch,
-    network: NetworkWatch,
-    commands: ConfigCommandChannel,
-    generation: GenerationWatch,
-    fee: FeeSlotCell,
+/// The handles one test takes, as a board takes them in `main`.
+pub(crate) struct Rig {
+    /// The fan handle `run_cooling` publishes through.
+    pub(crate) fan: Handle,
+    /// The thermal handle `run_cooling` reads and `run_thermal` publishes to.
+    pub(crate) thermal: ThermalHandle,
+    /// The manager handle `run_thermal` reports to. Nothing runs the manager.
+    pub(crate) manager: ManagerHandle,
+    /// The config handle that both tasks read, and the config task writes.
+    pub(crate) config: ConfigHandle,
+    /// The directory of the config store, removed when the rig drops.
+    dir: std::path::PathBuf,
 }
 
-impl Upstream {
-    pub(crate) const fn new() -> Self {
-        Self {
-            thermal: ThermalWatch::new(),
-            config: ConfigWatch::new(),
-            network: NetworkWatch::new(),
-            commands: ConfigCommandChannel::new(),
-            generation: GenerationWatch::new(),
-            fee: FeeSlotCell::new(),
-        }
-    }
+/// The runners of the tasks a test runs, which each need a mutable borrow.
+pub(crate) struct Runners {
+    /// The runner of `run_cooling`.
+    pub(crate) fan: Runner,
+    /// The runner of `run_thermal`.
+    pub(crate) thermal: ThermalRunner,
+    /// The runner of the config task.
+    pub(crate) config: ConfigRunner,
+}
 
-    /// The thermal handle `run_cooling` takes.
-    pub(crate) fn thermal(&'static self) -> ThermalHandle {
-        ThermalHandle::new(&self.thermal)
+impl Rig {
+    pub(crate) fn take() -> (Self, Runners) {
+        let dir = std::env::temp_dir().join(format!(
+            "ubos_cooling_{}_{:x}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |duration| duration.as_nanos()),
+        ));
+        let (fan_runner, fan) = Handle::take();
+        let (thermal_runner, thermal) = ThermalHandle::take();
+        let (_manager_runner, manager) = ManagerHandle::take();
+        let (config_runner, config) = ConfigHandle::take();
+        let rig = Self {
+            fan,
+            thermal,
+            manager,
+            config,
+            dir,
+        };
+        let runners = Runners {
+            fan: fan_runner,
+            thermal: thermal_runner,
+            config: config_runner,
+        };
+        (rig, runners)
     }
+}
 
-    /// The config handle `run_cooling` takes.
-    pub(crate) fn config(&'static self) -> ConfigHandle {
-        ConfigHandle::new(
-            &self.config,
-            &self.network,
-            &self.commands,
-            &self.generation,
-            &self.fee,
+impl Drop for Rig {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+/// A sensor that answers once with the reading it was given.
+struct OneReading(Cell<Option<Reading>>);
+
+impl TemperatureSensor for OneReading {
+    async fn sample(&mut self) -> Reading {
+        self.0
+            .take()
+            .expect("BUG: test drove run_thermal past its one reading")
+    }
+}
+
+/// The hashboard and bounds the config task runs on. The defaults it
+/// publishes are those of `Config::default`.
+static INFO: MiningInfo = ubos_config::mining_info(
+    &ubos_asic::BMM101_HASHBOARD,
+    &ubos_config::MINING_BOUNDS,
+    DefaultTuning::Fixed,
+);
+
+/// The real config task over a store in a directory of its own.
+pub(crate) fn run_config<'a>(
+    rig: &Rig,
+    runner: &'a mut ConfigRunner,
+) -> impl Future<Output = core::convert::Infallible> + use<'a> {
+    let dir = rig.dir.clone();
+    async move {
+        ubos_config::run(
+            runner,
+            FileStorage::new(dir),
+            &ubos_asic::BMM101_HASHBOARD,
+            &INFO,
+            None,
+            None,
         )
-    }
-
-    /// Publish a reading, as the sensor task would.
-    pub(crate) fn publish_reading(&self, reading: ThermalReading) {
-        self.thermal.sender().send(reading);
-    }
-
-    /// Publish a config, as the config task would after it persisted.
-    pub(crate) fn publish_config(&self, config: ubos_config::Config) {
-        self.config.sender().send(config);
+        .await
     }
 }
-
-/// Serialises the tests that drive `run_cooling`.
-///
-/// Each test owns its thermal and config channels through [`Upstream`],
-/// so those no longer need guarding. Three statics remain shared and
-/// cannot be owned per test: `embassy_time::MockDriver`, which is one
-/// instance per process with no second one to construct, this crate's
-/// fan watch, and the `ubos-metrics` channel that `run_ingest` drains.
-/// Two tests running concurrently would see each other's clock resets
-/// and published duties. Holding this mutex for the whole test body
-/// keeps them sequential without needing `--test-threads=1`. A caller
-/// recovers a poisoned lock with `into_inner` rather than `expect`,
-/// because a poison only means an earlier test panicked, and
-/// propagating it would replace this test's own assertion with a
-/// message about the lock.
-pub(crate) static LOOP_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Series slots in the map the ingest task fills. The tests read no
 /// exposition, so any power of two serves.
@@ -121,10 +156,8 @@ const MAX_METRICS: usize = 64;
 /// Bytes of the exposition buffer, which no test renders into.
 const METRICS_RESPONSE_BYTES: usize = 4096;
 
-/// The metrics map and exposition buffer `run_ingest` writes into.
-///
-/// One store serves every test, because [`LOOP_MUTEX`] already keeps the
-/// tests sequential and the channel feeding it is shared the same way.
+/// The metrics map and exposition buffer `run_ingest` writes into. Each
+/// test has a process of its own, so it has a store of its own.
 pub(crate) static METRICS_STATICS: ubos_metrics::metrics::MetricsStatics<
     MAX_METRICS,
     METRICS_RESPONSE_BYTES,
@@ -133,7 +166,56 @@ pub(crate) static METRICS_STATICS: ubos_metrics::metrics::MetricsStatics<
 /// Polls per phase. Wider than `run_thermal`'s, because a phase here
 /// advances the clock by one `stale_timeout` and the loop then works off
 /// every catch-up control tick in that window before it parks.
-const POLL_BUDGET: usize = 64;
+pub(crate) const POLL_BUDGET: usize = 64;
+
+/// Polls `future` far enough for the awaits one phase triggers to settle.
+pub(crate) fn settle<F: Future>(future: &mut Pin<&mut F>) {
+    let mut cx = Context::from_waker(Waker::noop());
+    for _ in 0..POLL_BUDGET {
+        let _ = future.as_mut().poll(&mut cx);
+    }
+}
+
+/// Publish `reading` as the sensor task does: a `run_thermal` that starts
+/// now, sees one sample interval pass on the mock clock and samples once.
+///
+/// The task is new for each reading, so the ticks of a long silence before
+/// it are not owed to it. `rest` polls the tasks that react, and the clock
+/// has moved by one sample interval when it runs.
+pub(crate) fn publish_reading(
+    rig: &Rig,
+    runner: &mut ThermalRunner,
+    driver: &MockDriver,
+    reading: Reading,
+    mut rest: impl FnMut(),
+) {
+    let interval = u64::from(rig.config.current().thermal.sample_interval_ms);
+    let mut thermal = pin!(run_thermal(
+        OneReading(Cell::new(Some(reading))),
+        NoAmbient,
+        NoMcu,
+        runner,
+        rig.manager,
+        rig.config
+    ));
+    settle(&mut thermal);
+    driver.advance(Duration::from_millis(interval));
+    let mut cx = Context::from_waker(Waker::noop());
+    for _ in 0..POLL_BUDGET {
+        let _ = thermal.as_mut().poll(&mut cx);
+        rest();
+    }
+}
+
+/// Send `config` to the config task, as the API does, and let the tasks
+/// react. `rest` polls the config task and the tasks that read it.
+pub(crate) fn publish_config(rig: &Rig, config: Config, mut rest: impl FnMut()) {
+    {
+        let mut send = pin!(rig.config.send(Message::Update(config)));
+        let _ = send.as_mut().poll(&mut Context::from_waker(Waker::noop()));
+    }
+    rest();
+}
 
 /// Fan that latches the first duty commanded to it.
 ///
@@ -164,42 +246,34 @@ impl TachReader<1> for FakeTach {
     }
 }
 
-pub(crate) fn moderate_reading(no_reading: bool) -> ThermalReading {
-    // Well below the default 67°C target: the PID drives the PWM toward
-    // its floor rather than toward FULL, so a reading that carries a
-    // measurement at this temperature unambiguously demonstrates the fan
-    // leaving FULL.
+/// A reading well below the default 67°C target, so the PID drives the PWM
+/// toward its floor and not toward FULL. With `no_reading` it is the answer
+/// of a board that has nothing to measure.
+pub(crate) fn moderate_reading(no_reading: bool) -> Reading {
+    if no_reading {
+        return Reading::Idle;
+    }
     let temp = Temperature::from_millicelsius(50_000);
-    let temps = TempSample {
+    Reading::Measured(TempSample {
         chip: None,
         hashboard: Some(TempStats {
             max: temp,
             mean: temp,
         }),
-    };
-    ThermalReading {
-        chain_voltage: None,
-        temps: (!no_reading).then_some(temps),
-        ambient: None,
-        timestamp_ms: 0,
-    }
+    })
 }
 
-/// Polls `cooling` and `ingest` up to [`POLL_BUDGET`] times, enough for
-/// the awaits triggered by the last clock advance or published reading
-/// to settle. Both futures never complete — `run_cooling` is `-> !`,
-/// `run_ingest` is `-> !` and the channel never empties on its own — so
-/// the return value carries no information; only the side effects on
-/// `crate::STATE_WATCH` matter.
-/// Takes the pinned futures by reborrow so the caller's `pin!` bindings
-/// stay usable across the repeated calls one per test phase.
-pub(crate) fn drive<Cooling: Future, Ingest: Future>(
-    mut cooling: Pin<&mut Cooling>,
-    mut ingest: Pin<&mut Ingest>,
-) {
-    let mut cx = Context::from_waker(Waker::noop());
-    for _ in 0..POLL_BUDGET {
-        let _ = cooling.as_mut().poll(&mut cx);
-        let _ = ingest.as_mut().poll(&mut cx);
-    }
+/// Polls the tasks of a test up to [`POLL_BUDGET`] times, enough for the
+/// awaits triggered by the last clock advance or published reading to
+/// settle. None of the futures completes, because each task is `-> !`, so
+/// only their side effects on the handles matter. Each argument is a
+/// pinned future that the caller keeps for the next phase.
+macro_rules! drive {
+    ($($future:expr),+ $(,)?) => {{
+        let mut cx = core::task::Context::from_waker(core::task::Waker::noop());
+        for _ in 0..$crate::tests_harness::POLL_BUDGET {
+            $( let _ = $future.as_mut().poll(&mut cx); )+
+        }
+    }};
 }
+pub(crate) use drive;

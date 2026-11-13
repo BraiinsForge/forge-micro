@@ -4279,9 +4279,12 @@ dependencies = [
  "embedded-hal-async",
  "heapless 0.9.2",
  "libm",
+ "rusty-fork",
+ "ubos-asic",
  "ubos-config",
  "ubos-core",
  "ubos-logging",
+ "ubos-manager",
  "ubos-metrics",
  "ubos-thermal",
 ]

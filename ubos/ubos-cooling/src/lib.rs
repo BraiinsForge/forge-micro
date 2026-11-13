@@ -36,6 +36,11 @@
 #![allow(clippy::missing_panics_doc)]
 #![allow(clippy::module_name_repetitions)]
 
+// The host test binary links std for the config store, which writes files,
+// and for the `rusty-fork` macro.
+#[cfg(test)]
+extern crate std;
+
 pub mod emc2302_1;
 mod pid;
 
@@ -175,34 +180,53 @@ pub struct FanState {
     pub pid_source: Option<Source>,
 }
 
-/// Module-internal fan-telemetry watch. Single writer is [`run_cooling`];
-/// readers obtain a snapshot through [`Handle::current`].
-static STATE_WATCH: Watch<CSMutex, FanState, WATCH_CAPACITY> = Watch::new();
+/// State watch carrying the published [`FanState`]. Single writer is
+/// [`run_cooling`]; readers obtain a snapshot through [`Handle::current`].
+type FanWatch = Watch<CSMutex, FanState, WATCH_CAPACITY>;
 
-/// Obtain a handle to the fan telemetry. `Copy`; callers freely pass it
-/// to multiple tasks.
-#[must_use]
-pub fn handle() -> Handle {
-    Handle {
-        state: &STATE_WATCH,
-    }
-}
+/// The fan telemetry the firmware's one cooling task publishes.
+static STATE_WATCH: FanWatch = Watch::new();
+
+/// Records that the firmware took the fan telemetry handle.
+static TAKEN: ubos_core::take_once::TakeOnce = ubos_core::take_once::TakeOnce::new("cooling");
 
 /// Consumer-side handle for fan telemetry.
 ///
-/// `Copy` because it holds only a `'static` reference. Every consumer
-/// task takes its own value.
+/// The handle holds no data: its methods are the only way to the private
+/// statics of this module. A firmware takes it once and passes a copy to
+/// each task that uses it.
 #[derive(Clone, Copy)]
-pub struct Handle {
-    state: &'static Watch<CSMutex, FanState, WATCH_CAPACITY>,
+pub struct Handle(());
+
+/// The right to run the task that drives the fans.
+///
+/// It is not `Copy`, so a firmware that gives it to one task cannot give
+/// it to a second.
+pub struct Runner(());
+
+#[allow(clippy::unused_self)]
+impl Runner {
+    /// Publish the fan state, which only the fan task writes.
+    pub(crate) fn publish(&self, state: FanState) {
+        STATE_WATCH.sender().send(state);
+    }
 }
 
 impl Handle {
+    /// The firmware's one fan telemetry handle, and the runner of the task that
+    /// drives the fans. A second call panics.
+    #[must_use]
+    #[track_caller]
+    pub fn take() -> (Runner, Self) {
+        TAKEN.take();
+        (Runner(()), Self(()))
+    }
+
     /// Most recently published fan telemetry, or `None` before the first
     /// control tick and on boards without a cooling task.
     #[must_use]
     pub fn current(&self) -> Option<FanState> {
-        self.state.try_get()
+        STATE_WATCH.try_get()
     }
 }
 
@@ -542,6 +566,7 @@ impl Cooling {
 /// thermal-driven wake republishes fresh PWM with the last sampled RPM rather
 /// than re-reading the counter over a short, uneven window.
 async fn publish_state<const N: usize>(
+    runner: &Runner,
     pwm: FanPwm,
     pid: Option<PidInput>,
     rpms: &[FanRpm; N],
@@ -552,7 +577,7 @@ async fn publish_state<const N: usize>(
         .copied()
         .max_by_key(|reading| reading.rpm())
         .unwrap_or(FanRpm::from_rpm(0));
-    STATE_WATCH.sender().send(FanState {
+    runner.publish(FanState {
         pwm,
         rpm: fastest,
         pid_source: pid.map(|input| input.source),
@@ -645,12 +670,12 @@ async fn publish_pid(pid: Option<PidInput>) {
 ///
 /// Cooling tuning is read from `config` and refreshed between samples: a
 /// target-only change adjusts the setpoint in place, a PID-gains or mode
-/// change rebuilds the controller. Board firmware passes
-/// [`ubos_config::handle`], which [`cooling_task`] supplies for it. This
-/// task is the sole writer of the fan watch.
+/// change rebuilds the controller. This task is the sole writer of the fan
+/// watch, through `runner`.
 pub async fn run_cooling<F, T, const N: usize>(
     mut fan: F,
     mut tach: T,
+    runner: &mut Runner,
     thermal_handle: ThermalHandle,
     config_handle: ConfigHandle,
 ) -> !
@@ -670,7 +695,7 @@ where
     // Sample the tach once up front so boot telemetry is not a blank line; the
     // control tick refreshes it every CONTROL_INTERVAL thereafter.
     let mut last_rpms = tach.read_rpms().await;
-    publish_state(cooling.pwm, None, &last_rpms, &tach_labels).await;
+    publish_state(runner, cooling.pwm, None, &last_rpms, &tach_labels).await;
     log_cooling("cooling: started", &cooling.config);
 
     let mut subscription = thermal_handle.subscribe();
@@ -708,7 +733,14 @@ where
         if let Either::Second(()) = event {
             last_rpms = tach.read_rpms().await;
         }
-        publish_state(step.pwm, cooling.pid_input(), &last_rpms, &tach_labels).await;
+        publish_state(
+            runner,
+            step.pwm,
+            cooling.pid_input(),
+            &last_rpms,
+            &tach_labels,
+        )
+        .await;
     }
 }
 
@@ -718,8 +750,14 @@ where
 macro_rules! cooling_task {
     ($fan:ty, $tach:ty) => {
         #[embassy_executor::task]
-        async fn cooling_task(fan: $fan, tach: $tach, thermal_handle: ubos_thermal::Handle) -> ! {
-            ubos_cooling::run_cooling(fan, tach, thermal_handle, ubos_config::handle()).await
+        async fn cooling_task(
+            fan: $fan,
+            tach: $tach,
+            mut runner: ubos_cooling::Runner,
+            thermal_handle: ubos_thermal::Handle,
+            config_handle: ubos_config::Handle,
+        ) -> ! {
+            ubos_cooling::run_cooling(fan, tach, &mut runner, thermal_handle, config_handle).await
         }
     };
 }

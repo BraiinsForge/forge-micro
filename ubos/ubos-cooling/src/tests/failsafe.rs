@@ -24,129 +24,117 @@
 //! shared harness in `tests/harness.rs`.
 //!
 //! All phases share one `run_cooling` instance and the process-global
-//! statics it reads and writes — the mock clock, the fan watch, and the
-//! metrics channel — so the test runs as a single function with sequential
-//! phases rather than as independent `#[test]` cases.
+//! statics it reads and writes: the mock clock, the handles, and the
+//! metrics channel. The test runs as a single function with sequential
+//! phases, and in a process of its own.
 //!
 //! The "log once" behavior on the stall and recovery transitions is the
 //! `Note` that `Cooling` attaches to a `Hold::Stalled` transition, and
 //! is not asserted here: this test runs under `--no-default-features`,
 //! with defmt off and no log sink to count emissions against.
 
-// The crate is `#![no_std]`; explicitly opt back into std for the poisoned
-// `LOOP_MUTEX` recovery below.
-extern crate std;
-
 use core::cell::Cell;
 use core::pin::pin;
 
 use embassy_time::MockDriver;
+use rusty_fork::rusty_fork_test;
 use ubos_core::units::FanPwm;
 
 use super::tests_harness::{
-    FakeTach, LOOP_MUTEX, METRICS_STATICS, RecordingFan, Upstream, drive, moderate_reading,
+    FakeTach, METRICS_STATICS, RecordingFan, Rig, drive, moderate_reading, publish_reading,
 };
-use super::{CONTROL_INTERVAL, handle, run_cooling, stale_timeout};
+use super::{CONTROL_INTERVAL, run_cooling, stale_timeout};
 
-#[test]
-fn staleness_failsafe_forces_and_releases_full_fan() {
-    static UPSTREAM: Upstream = Upstream::new();
-    // A poisoned lock only means an earlier test panicked while holding
-    // it. This test's config channel is its own and nothing publishes on
-    // it, so the defaults it reads are the defaults `current` falls back
-    // to rather than a value another test left behind. The mock clock and
-    // the thermal reading are reseeded below before use, so the poison
-    // carries no stale state for this test to inherit and `into_inner`
-    // just keeps testing.
-    let _guard = LOOP_MUTEX
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let driver = MockDriver::get();
-    driver.reset();
+rusty_fork_test! {
+    #[test]
+    fn staleness_failsafe_forces_and_releases_full_fan() {
+        let (rig, mut runners) = Rig::take();
+        let driver = MockDriver::get();
+        driver.reset();
 
-    let default_config = ubos_config::Config::default();
-    let stale = stale_timeout(default_config.thermal.sample_interval_ms);
-    let floor_pwm = FanPwm::from_percent(default_config.cooling.pid.min_fan_pwm);
+        let default_config = ubos_config::Config::default();
+        let stale = stale_timeout(default_config.thermal.sample_interval_ms);
+        let floor_pwm = FanPwm::from_percent(default_config.cooling.pid.min_fan_pwm);
 
-    // The thermal watch retains whatever reading ran last in this process and
-    // a fresh subscriber sees it as changed, so seed a known clean one rather
-    // than assert against whichever reading another test left behind.
-    UPSTREAM.publish_reading(moderate_reading(false));
+        // The thermal watch holds the last reading and a fresh subscriber
+        // sees it as changed, so seed a known clean one before the task
+        // starts.
+        publish_reading(&rig, &mut runners.thermal, driver, moderate_reading(false), || {});
 
-    let boot_command = Cell::new(None);
-    let mut cooling = pin!(run_cooling(
-        RecordingFan(&boot_command),
-        FakeTach,
-        UPSTREAM.thermal(),
-        UPSTREAM.config()
-    ));
-    let mut ingest = pin!(ubos_metrics::metrics::run_ingest(&METRICS_STATICS));
+        let boot_command = Cell::new(None);
+        let mut cooling = pin!(run_cooling(
+            RecordingFan(&boot_command),
+            FakeTach,
+            &mut runners.fan,
+            rig.thermal,
+            rig.config
+        ));
+        let mut ingest = pin!(ubos_metrics::metrics::run_ingest(&METRICS_STATICS));
 
-    drive(cooling.as_mut(), ingest.as_mut());
-    // Behavior 0: the fan comes up on the PID floor before any reading is
-    // acted on, so a board in auto mode never runs the fan below the floor
-    // while the PID has nothing to act on. Asserted on the first command
-    // rather than on the watch: the seeded reading settles the PID on the
-    // same floor, so the published value cannot tell the two apart, while
-    // the boot publish precedes the thermal subscription and the fixed arm
-    // would show here as the default 50% duty.
-    assert_eq!(
-        boot_command.get(),
-        Some(floor_pwm),
-        "auto mode must start the fan on the PID floor, not the fixed duty"
-    );
+        drive!(cooling, ingest);
+        // Behavior 0: the fan comes up on the PID floor before any reading is
+        // acted on, so a board in auto mode never runs the fan below the floor
+        // while the PID has nothing to act on. Asserted on the first command
+        // rather than on the watch: the seeded reading settles the PID on the
+        // same floor, so the published value cannot tell the two apart, while
+        // the boot publish precedes the thermal subscription and the fixed arm
+        // would show here as the default 50% duty.
+        assert_eq!(
+            boot_command.get(),
+            Some(floor_pwm),
+            "auto mode must start the fan on the PID floor, not the fixed duty"
+        );
 
-    let settled_state = handle().current().expect("run_cooling publishes");
-    assert_eq!(
-        settled_state.pwm, floor_pwm,
-        "the seeded reading is well below target, so PID control settles the \
-         fan on the min_fan_pwm floor"
-    );
+        let settled_state = rig.fan.current().expect("run_cooling publishes");
+        assert_eq!(
+            settled_state.pwm, floor_pwm,
+            "the seeded reading is well below target, so PID control settles the \
+             fan on the min_fan_pwm floor"
+        );
 
-    // Behavior 1: thermal silence past `stale_timeout`, with only control
-    // ticks arriving, forces the fan to full.
-    driver.advance(stale);
-    drive(cooling.as_mut(), ingest.as_mut());
-    let stalled_state = handle().current().expect("published");
-    assert_eq!(
-        stalled_state.pwm,
-        FanPwm::FULL,
-        "thermal silence past stale_timeout must force the fan to full"
-    );
+        // Behavior 1: thermal silence past `stale_timeout`, with only control
+        // ticks arriving, forces the fan to full.
+        driver.advance(stale);
+        drive!(cooling, ingest);
+        let stalled_state = rig.fan.current().expect("published");
+        assert_eq!(
+            stalled_state.pwm,
+            FanPwm::FULL,
+            "thermal silence past stale_timeout must force the fan to full"
+        );
 
-    // Behavior 2: a fresh reading ends the stall hold
-    // and hands the PWM back to the PID.
-    UPSTREAM.publish_reading(moderate_reading(false));
-    drive(cooling.as_mut(), ingest.as_mut());
-    let recovered_state = handle().current().expect("published");
-    assert_eq!(
-        recovered_state.pwm, floor_pwm,
-        "a fresh reading well below target must clear the staleness latch and \
-         resume PID control, which drives the PWM down to the min_fan_pwm floor"
-    );
+        // Behavior 2: a fresh reading ends the stall hold
+        // and hands the PWM back to the PID.
+        publish_reading(&rig, &mut runners.thermal, driver, moderate_reading(false), || drive!(cooling, ingest));
+        let recovered_state = rig.fan.current().expect("published");
+        assert_eq!(
+            recovered_state.pwm, floor_pwm,
+            "a fresh reading well below target must clear the staleness latch and \
+             resume PID control, which drives the PWM down to the min_fan_pwm floor"
+        );
 
-    // Behavior 3: silence one control tick short of the window must not
-    // force full. This pins the `silence >= stale` boundary from below, so
-    // the failsafe cannot fire one tick early.
-    let short_silence = stale - CONTROL_INTERVAL;
-    driver.advance(short_silence);
-    drive(cooling.as_mut(), ingest.as_mut());
-    let short_silence_state = handle().current().expect("published");
-    assert_eq!(
-        short_silence_state.pwm, floor_pwm,
-        "silence one tick short of stale_timeout must not force the fan to full; \
-         PID control still holds the PWM at the min_fan_pwm floor"
-    );
+        // Behavior 3: silence one control tick short of the window must not
+        // force full. This pins the `silence >= stale` boundary from below, so
+        // the failsafe cannot fire one tick early.
+        let short_silence = stale - CONTROL_INTERVAL;
+        driver.advance(short_silence);
+        drive!(cooling, ingest);
+        let short_silence_state = rig.fan.current().expect("published");
+        assert_eq!(
+            short_silence_state.pwm, floor_pwm,
+            "silence one tick short of stale_timeout must not force the fan to full; \
+             PID control still holds the PWM at the min_fan_pwm floor"
+        );
 
-    // Behavior 4: a reading with no measurement forces the fan to full on its
-    // own, independent of the staleness latch, which is already clear at
-    // this point.
-    UPSTREAM.publish_reading(moderate_reading(true));
-    drive(cooling.as_mut(), ingest.as_mut());
-    let fault_state = handle().current().expect("published");
-    assert_eq!(
-        fault_state.pwm,
-        FanPwm::FULL,
-        "a reading with no measurement must force the fan to full"
-    );
+        // Behavior 4: a reading with no measurement forces the fan to full on its
+        // own, independent of the staleness latch, which is already clear at
+        // this point.
+        publish_reading(&rig, &mut runners.thermal, driver, moderate_reading(true), || drive!(cooling, ingest));
+        let fault_state = rig.fan.current().expect("published");
+        assert_eq!(
+            fault_state.pwm,
+            FanPwm::FULL,
+            "a reading with no measurement must force the fan to full"
+        );
+    }
 }
