@@ -44,15 +44,13 @@ impl<I: I2c> Device for BmmDevice<I> {
     type Config = BmmPsuDescriptor;
     type BusError = I::Error;
 
-    /// Initialization sequence for the BMM power stage: SLG46826G
-    /// heartbeat, both INA230 monitors, then the `TPS6287x` converter.
+    /// Initialization sequence for the BMM power stage: both INA230
+    /// monitors, the `TPS6287x` converter, then the first `SLG46826G`
+    /// heartbeat.
     async fn init(
         i2c: &mut I,
         config: &mut BmmPsuDescriptor,
     ) -> Result<Option<ModelString>, Error<I::Error>> {
-        heartbeat::init(i2c, config.heartbeat_address)
-            .await
-            .map_err(Error::Bus)?;
         ina230::init(
             i2c,
             config.ina_input_address,

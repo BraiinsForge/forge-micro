@@ -725,7 +725,7 @@ pub const POWER_STATS_INTERVAL: embassy_time::Duration = embassy_time::Duration:
 /// stuck one, so the command behind it starts on time.
 pub const COMMAND_GRACE: embassy_time::Duration = embassy_time::Duration::from_millis(100);
 
-/// How long one heartbeat may run. A healthy pulse is two bus
+/// How long one heartbeat may run. A healthy pulse is three bus
 /// writes and a short hold, and ends well inside it, so only a pulse
 /// stuck on the bus is dropped, and the commands behind it go on.
 pub const HEARTBEAT_TIMEOUT: embassy_time::Duration = embassy_time::Duration::from_secs(1);

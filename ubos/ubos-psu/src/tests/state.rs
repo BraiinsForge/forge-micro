@@ -61,9 +61,10 @@ fn acquire_runs_init_once_and_caches_the_success() {
 #[test]
 fn acquire_caches_the_failure_kind() {
     let config = BmmPsuDescriptor::DEFAULT;
-    // First transaction errors out: NACK on the heartbeat write.
+    // First transaction errors out: NACK on the input monitor's config
+    // write.
     let expectations = [
-        Transaction::write(config.heartbeat_address, vec![0x7a, 0x00]).with_error(
+        Transaction::write(config.ina_input_address, vec![0x00, 0x41, 0x27]).with_error(
             embedded_hal_async::i2c::ErrorKind::NoAcknowledge(
                 embedded_hal_async::i2c::NoAcknowledgeSource::Address,
             ),

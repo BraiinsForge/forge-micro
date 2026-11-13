@@ -352,7 +352,6 @@ pub(crate) mod test_support {
         buffer_out_cal.extend_from_slice(&cal_out.to_be_bytes());
 
         vec![
-            Transaction::write(config.heartbeat_address, vec![0x7a, 0x00]),
             Transaction::write(config.ina_input_address, buffer_in_config),
             Transaction::write(config.ina_input_address, buffer_in_cal),
             Transaction::write(config.ina_output_address, buffer_out_config),
@@ -371,6 +370,7 @@ pub(crate) mod test_support {
                     .to_vec(),
             ),
             Transaction::write(config.dcdc_address, tps6287x::encode_vset(dac).to_vec()),
+            Transaction::write(config.heartbeat_address, vec![0x7a, 0x00]),
             Transaction::write(config.heartbeat_address, vec![0x7a, 0x01]),
             Transaction::write(config.heartbeat_address, vec![0x7a, 0x00]),
         ]

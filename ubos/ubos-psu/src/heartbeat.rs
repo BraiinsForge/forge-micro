@@ -23,7 +23,7 @@
 //! toggle. [`pulse`] is what stops that, so a caller that misses the
 //! interval resets the board.
 //!
-//! Both functions take the bus as `&mut I` rather than hanging off a
+//! [`pulse`] takes the bus as `&mut I` rather than hanging off a
 //! handle, for the reason `ina230.rs` gives: `I` is a generic parameter
 //! that no inherent `impl` here can name, and the caller has already
 //! locked the `State` it drives this part and the converter through.
@@ -38,27 +38,13 @@ mod tests;
 const REG_VIRTUAL_INPUT: u8 = 0x7a;
 const HEARTBEAT_HIGH_DURATION: Duration = Duration::from_millis(100);
 
-/// Drive the part's virtual input low, its resting level.
+/// Drive the part's virtual input low, pulse it high, then return it low.
 ///
-/// Run once before the first [`pulse`], so the first pulse is a
-/// rising edge whatever the input was left at by a warm reset.
-///
-/// # Errors
-///
-/// Returns the bus error when the write fails.
-pub(crate) async fn init<I, E>(i2c: &mut I, address: u8) -> Result<(), E>
-where
-    I: I2c<Error = E>,
-{
-    i2c.write(address, &[REG_VIRTUAL_INPUT, 0x00]).await
-}
-
-/// Pulse the part's virtual input high, then return it low.
-///
-/// This is what keeps the board out of reset. The high level is held for
-/// [`HEARTBEAT_HIGH_DURATION`] so the part registers an edge, and the
-/// function awaits that hold, so a caller must budget for it inside its
-/// own interval.
+/// This is what keeps the board out of reset. The opening low write makes
+/// the high write a rising edge whatever the input was left at, by a warm
+/// reset or by a pulse that was cut short. The high level is held for [`HEARTBEAT_HIGH_DURATION`] so
+/// the part registers an edge, and the function awaits that hold, so a
+/// caller must budget for it inside its own interval.
 ///
 /// The PSU task is the only caller that meets the interval, through
 /// `BmmPsu`'s `Psu::heartbeat`. Any other caller that borrows this
@@ -66,13 +52,14 @@ where
 ///
 /// # Errors
 ///
-/// Returns the bus error when either write fails. A failed heartbeat
-/// leaves the input wherever the failure left it, and the next call
-/// starts again from the low write.
+/// Returns the bus error when a write fails. A failed heartbeat leaves
+/// the input wherever the failure left it, and the next call starts
+/// again from the low write.
 pub(crate) async fn pulse<I, E>(i2c: &mut I, address: u8) -> Result<(), E>
 where
     I: I2c<Error = E>,
 {
+    i2c.write(address, &[REG_VIRTUAL_INPUT, 0x00]).await?;
     i2c.write(address, &[REG_VIRTUAL_INPUT, 0x01]).await?;
     Timer::after(HEARTBEAT_HIGH_DURATION).await;
     i2c.write(address, &[REG_VIRTUAL_INPUT, 0x00]).await
