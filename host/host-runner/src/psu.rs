@@ -67,12 +67,4 @@ pub fn open() -> Option<&'static PowerSupply<HostPsu>> {
     Some(PSU.init(PowerSupply::new(driver)))
 }
 
-static ABSENT: ubos_psu::Handle = ubos_psu::Handle::absent();
-
-/// The handle every task reads when no hashboard is attached. Every
-/// read of it answers `None`.
-pub fn absent() -> &'static ubos_psu::Handle {
-    &ABSENT
-}
-
 ubos_psu::psu_task!(HostPsu);

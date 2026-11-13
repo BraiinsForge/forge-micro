@@ -215,8 +215,8 @@ async fn heartbeat_task(stack: Stack<'static>) {
 }
 
 #[embassy_executor::task]
-async fn ntp_sync_task(stack: Stack<'static>) -> ! {
-    net::run_ntp_sync(stack).await
+async fn ntp_sync_task(stack: Stack<'static>, net_publisher: ubos_net::net::Publisher) -> ! {
+    net::run_ntp_sync(stack, net_publisher).await
 }
 
 #[embassy_executor::task]
@@ -239,38 +239,45 @@ async fn mdns_task(stack: Stack<'static>) -> ! {
 
 /// Keeps the credential store in sync with config changes at runtime.
 #[embassy_executor::task]
-async fn sync_credentials_task() -> ! {
-    ubos_api::run_sync_credentials().await
+async fn sync_credentials_task(config_handle: ubos_config::Handle) -> ! {
+    ubos_api::run_sync_credentials(config_handle).await
 }
 
 #[embassy_executor::task]
-async fn network_control_task(stack: Stack<'static>) -> ! {
-    net::run_network_control(stack).await
+async fn network_control_task(
+    stack: Stack<'static>,
+    net_publisher: ubos_net::net::Publisher,
+    config_handle: ubos_config::Handle,
+) -> ! {
+    net::run_network_control(stack, net_publisher, config_handle).await
 }
 
 #[embassy_executor::task]
 async fn thermal_task(
     sensor: temperature::HashboardTemperature,
+    mut thermal_runner: ubos_thermal::Runner,
     manager_handle: ManagerHandle,
+    config_handle: ubos_config::Handle,
 ) -> ! {
     ubos_thermal::run_thermal(
         sensor,
         ubos_thermal::NoAmbient,
         ubos_thermal::NoMcu,
+        &mut thermal_runner,
         manager_handle,
-        ubos_config::handle(),
+        config_handle,
     )
     .await
 }
 
 #[embassy_executor::task]
-async fn manager_task(mining: MiningHandle) -> ! {
-    ubos_manager::run_manager(mining).await
+async fn manager_task(mut manager_runner: ubos_manager::Runner, mining: MiningHandle) -> ! {
+    ubos_manager::run_manager(&mut manager_runner, mining).await
 }
 
 #[embassy_executor::task]
-async fn config_task(storage: FileStorage) -> ! {
-    ubos_config::run(storage, BOARD, &MINING_INFO, None, None).await
+async fn config_task(mut config_runner: ubos_config::Runner, storage: FileStorage) -> ! {
+    ubos_config::run(&mut config_runner, storage, BOARD, &MINING_INFO, None, None).await
 }
 
 /// CPU-side ASIC mock; spawned when no BM1362 hashboard is wired.
@@ -288,7 +295,7 @@ async fn asic_cpu_task() -> ! {
 /// bare-metal.
 #[embassy_executor::task]
 #[allow(clippy::too_many_lines)]
-async fn stratum_client_task(stack: Stack<'static>) -> ! {
+async fn stratum_client_task(stack: Stack<'static>, config_handle: ubos_config::Handle) -> ! {
     static TCP_RX: ConstStaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> =
         ConstStaticCell::new([0; STRATUM_TCP_BUFFER_SIZE]);
     static TCP_TX: ConstStaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> =
@@ -300,18 +307,18 @@ async fn stratum_client_task(stack: Stack<'static>) -> ! {
     // is Sv1, so a runtime protocol switch needs no late allocation.
     let secp_ctx = SECP_CTX.init(ii_sv2::security::CryptoCtx::new());
 
-    let config_handle = ubos_config::handle();
     let mut config_generation = config_handle.subscribe_generation();
     // Set once the slot has had a pool, as in the firmware session loop.
     let mut had_pool = false;
+    let pool = ASIC_SESSION.pool_handle(0);
 
     loop {
         // Teardown boundary, mirroring the firmware session loop: never
         // leave a previous session's job in the work cell while no
         // session backs it, and drop the alive bit that a config-change
         // cancellation of `run_stratum_client` never cleared.
-        ASIC_SESSION.pool_handle(0).clear_work();
-        ASIC_SESSION.pool_handle(0).set_alive(false);
+        pool.clear_work();
+        pool.set_alive(false);
 
         let snapshot = config_handle.current();
         let Some(entry) = snapshot.pool.first() else {
@@ -319,7 +326,7 @@ async fn stratum_client_task(stack: Stack<'static>) -> ! {
             if had_pool {
                 select(
                     config_generation.changed(),
-                    ASIC_SESSION.pool_handle(0).push_counters_periodically(),
+                    pool.push_counters_periodically(),
                 )
                 .await;
             } else {
@@ -330,7 +337,7 @@ async fn stratum_client_task(stack: Stack<'static>) -> ! {
         had_pool = true;
 
         let one_session = async {
-            ASIC_SESSION.pool_handle(0).record_reconnect_attempt();
+            pool.record_reconnect_attempt();
             let mut connector = TcpConnector {
                 stack,
                 host: entry.host.as_str(),
@@ -352,7 +359,7 @@ async fn stratum_client_task(stack: Stack<'static>) -> ! {
                     run_stratum_session(
                         &mut connector,
                         &mut client,
-                        ASIC_SESSION.pool_handle(0),
+                        pool,
                         &mut state,
                         ntime_roll.period_secs(),
                         &mut NoExtension,
@@ -367,7 +374,7 @@ async fn stratum_client_task(stack: Stack<'static>) -> ! {
                     run_stratum_session(
                         &mut connector,
                         &mut client,
-                        ASIC_SESSION.pool_handle(0),
+                        pool,
                         &mut state,
                         ntime_roll.period_secs(),
                         &mut NoExtension,
@@ -396,7 +403,7 @@ async fn stratum_client_task(stack: Stack<'static>) -> ! {
             select3(
                 one_session,
                 config_generation.changed(),
-                ASIC_SESSION.pool_handle(0).push_counters_periodically(),
+                pool.push_counters_periodically(),
             )
             .await,
             Either3::Second(_)
@@ -412,8 +419,8 @@ async fn miner_metrics_task(mining: MiningHandle) -> ! {
 }
 
 #[embassy_executor::task]
-async fn pool_weights_task() -> ! {
-    ubos_mining::scheduler::run_pool_weights_watcher(&miner_serial::CHAINS).await
+async fn pool_weights_task(config_handle: ubos_config::Handle) -> ! {
+    ubos_mining::scheduler::run_pool_weights_watcher(&miner_serial::CHAINS, config_handle).await
 }
 
 #[allow(
@@ -424,6 +431,16 @@ async fn pool_weights_task() -> ! {
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
+    // Every handle is taken here, once, and each task gets the ones it
+    // writes through and reads.
+    let (mining_runner, mining_handle) = ubos_mining::Handle::take();
+    let (thermal_runner, thermal_handle) = ubos_thermal::Handle::take();
+    let (cooling_runner, cooling_handle) = ubos_cooling::Handle::take();
+    let (net_publisher, net_handle) = ubos_net::net::Handle::take();
+    let (manager_runner, manager_handle) = ubos_manager::Handle::take();
+    let (config_runner, config_handle) = ubos_config::Handle::take();
+    let stratum_handle = stratum_client::PoolCountersHandle::take();
+
     // SIGINT signals `ubos_mining::Handle::stop` so the BM1362 driver tears the
     // chip down cleanly (when the ubos-mining path is active), then exits
     // the process unconditionally. Without the explicit `exit`,
@@ -431,9 +448,9 @@ fn main() {
     // stratum / CPU-mock tasks indefinitely — none of them watch
     // `ubos_mining::Handle::stop`. The teardown vs. exit is racy on purpose;
     // this is a developer tool, not a production controller.
-    ctrlc::set_handler(|| {
+    ctrlc::set_handler(move || {
         info!("host-runner: SIGINT received, signalling miner stop");
-        ubos_mining::handle().stop();
+        mining_handle.stop();
         std::process::exit(130);
     })
     .expect("BUG: ctrlc handler already installed");
@@ -449,16 +466,10 @@ fn main() {
     let (stack, runner) =
         embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
 
-    let thermal = ubos_thermal::handle();
-
-    let manager_handle = ubos_manager::handle();
-
-    let mining_handle = ubos_mining::handle();
-
     // Opened before the executor runs, because the HTTP service takes
     // the PSU handle whether or not a hashboard is attached.
     let psu = psu::open();
-    let psu_handle = psu.map_or_else(psu::absent, ubos_psu::PowerSupply::handle);
+    let (psu_runner, psu_handle) = ubos_psu::Handle::take();
 
     let executor = EXECUTOR.init(Executor::new());
     executor.run(|spawner: Spawner| {
@@ -466,23 +477,29 @@ fn main() {
         // invocation mints a fresh one, so a first-time spawn cannot fail.
         spawner.spawn(net_task(runner).expect("BUG: net_task token"));
         spawner.spawn(heartbeat_task(stack).expect("BUG: heartbeat_task token"));
-        spawner.spawn(stratum_client_task(stack).expect("BUG: stratum_client_task token"));
-        spawner.spawn(ntp_sync_task(stack).expect("BUG: ntp_sync_task token"));
+        spawner.spawn(
+            stratum_client_task(stack, config_handle)
+                .expect("BUG: stratum_client_task token"),
+        );
+        spawner.spawn(ntp_sync_task(stack, net_publisher).expect("BUG: ntp_sync_task token"));
         spawner.spawn(metrics_ingest_task().expect("BUG: metrics_ingest_task token"));
         spawner.spawn(mdns_task(stack).expect("BUG: mdns_task token"));
         spawner.spawn(miner_metrics_task(mining_handle).expect("BUG: miner_metrics_task token"));
-        spawner.spawn(pool_weights_task().expect("BUG: pool_weights_task token"));
+        spawner.spawn(pool_weights_task(config_handle).expect("BUG: pool_weights_task token"));
         let config_storage = FileStorage::new(
             std::env::var_os("UBOS_CONFIG_DIR")
                 .map_or_else(|| std::path::PathBuf::from(".ubos-config"), Into::into),
         );
-        spawner.spawn(config_task(config_storage).expect("BUG: config_task token"));
+        spawner.spawn(config_task(config_runner, config_storage).expect("BUG: config_task token"));
         // Spawned unconditionally because the manager drains its
         // command channel independent of any hardware: the HTTP server
         // below issues `manager.assert/clear` for the pause/resume
         // endpoints regardless of fan or LM75A presence, so the
         // channel must always have a consumer.
-        spawner.spawn(manager_task(mining_handle).expect("BUG: manager_task token"));
+        spawner.spawn(
+            manager_task(manager_runner, mining_handle)
+                .expect("BUG: manager_task token"),
+        );
         // Seed the session CSPRNG before the HTTP server task can handle
         // any request, matching the firmware boards' boot-time ordering.
         let mut csprng_seed = [0u8; 32];
@@ -496,8 +513,8 @@ fn main() {
         // firmware's boot-time ordering. This block and the metrics one
         // below hand-expand `serve_http_pool!`, which assumes an async
         // context; keep them in sync if that macro changes.
-        ubos_api::seed_api_credentials();
-        ubos_webui::seed_webui_credentials();
+        ubos_api::seed_api_credentials(config_handle);
+        ubos_webui::seed_webui_credentials(config_handle);
         static HTTP_TCP_BUFFERS: ConstStaticCell<
             edge_nal_embassy::TcpBuffers<
                 HTTP_POOL,
@@ -523,12 +540,17 @@ fn main() {
                 env!("BUILD_ID"),
                 &MINING_INFO,
                 &BOUNDS,
-                thermal,
+                thermal_handle,
                 manager_handle,
                 psu_handle,
+                cooling_handle,
+                mining_handle,
+                net_handle,
+                config_handle,
+                stratum_handle,
                 stack,
             ),
-            fallback: ubos_webui::DashboardService,
+            fallback: ubos_webui::DashboardService::new(net_handle),
         });
         let http_buffers = ubos_http::split_work_buffer::<HTTP_POOL>(
             HTTP_WORK.take(),
@@ -546,9 +568,15 @@ fn main() {
                 .expect("BUG: http_worker_task token"),
             );
         }
-        spawner.spawn(sync_credentials_task().expect("BUG: sync_credentials_task token"));
+        spawner.spawn(
+            sync_credentials_task(config_handle)
+                .expect("BUG: sync_credentials_task token"),
+        );
 
-        spawner.spawn(network_control_task(stack).expect("BUG: network_control_task token"));
+        spawner.spawn(
+            network_control_task(stack, net_publisher, config_handle)
+                .expect("BUG: network_control_task token"),
+        );
 
         // Prometheus metrics on :8081.
         static METRICS_TCP_BUFFERS: ConstStaticCell<
@@ -564,7 +592,9 @@ fn main() {
         > = ConstStaticCell::new(
             [0; ubos_metrics::consts::Metrics::REQUEST_BUFFER_SIZE * METRICS_HTTP_POOL],
         );
-        static METRICS_SERVICE: MetricsService = MetricsService::new(&METRICS_STATICS);
+        static METRICS_SERVICE: StaticCell<MetricsService> = StaticCell::new();
+        let metrics_service: &'static MetricsService =
+            METRICS_SERVICE.init(MetricsService::new(&METRICS_STATICS, net_handle));
         let metrics_tcp: &'static edge_nal_embassy::Tcp<'static> =
             METRICS_TCP_NAL.init(edge_nal_embassy::Tcp::new(stack, METRICS_TCP_BUFFERS.take()));
         let metrics_acceptor = embassy_futures::block_on(ubos_http::bind_tcp(
@@ -580,7 +610,7 @@ fn main() {
                 metrics_worker_task(
                     metrics_acceptor,
                     buffer,
-                    &METRICS_SERVICE,
+                    metrics_service,
                     ubos_metrics::consts::Metrics::SOCKET_TIMEOUT,
                     ubos_metrics::consts::Metrics::IDLE_TIMEOUT,
                 )
@@ -592,10 +622,11 @@ fn main() {
             Some(controller) => match temperature::HashboardTemperature::open() {
                 Some(sensor) => {
                     spawner.spawn(
-                        thermal_task(sensor, manager_handle).expect("BUG: thermal_task token"),
+                        thermal_task(sensor, thermal_runner, manager_handle, config_handle)
+                            .expect("BUG: thermal_task token"),
                     );
                     spawner.spawn(
-                        fan::pid_fan_task(controller, thermal)
+                        fan::pid_fan_task(controller, cooling_runner, thermal_handle, config_handle)
                             .expect("BUG: pid_fan_task token"),
                     );
                 }
@@ -610,20 +641,26 @@ fn main() {
         }
         match psu {
             Some(psu) => {
-                spawner.spawn(psu::psu_task(psu).expect("BUG: psu_task token"));
+                spawner.spawn(psu::psu_task(psu, psu_runner).expect("BUG: psu_task token"));
                 spawner
                     .spawn(
                         miner_serial::miner_serial_task(&PARK)
                             .expect("BUG: miner_serial_task token"),
                     );
-                spawner.spawn(miner::miner_task(psu_handle).expect("BUG: miner_task token"));
+                spawner.spawn(
+                    miner::miner_task(psu_handle, mining_runner, config_handle)
+                        .expect("BUG: miner_task token"),
+                );
             }
             None => {
                 warn!(
                     "host-runner: {} unset or i2c open failed; ubos-mining not spawned, falling back to in-process CPU mining",
                     psu::I2C_BUS_ENV
                 );
-                spawner.spawn(miner::miner_idle_task().expect("BUG: miner_idle_task token"));
+                spawner.spawn(
+                    miner::miner_idle_task(mining_runner)
+                        .expect("BUG: miner_idle_task token"),
+                );
                 spawner.spawn(asic_cpu_task().expect("BUG: asic_cpu_task token"));
             }
         }

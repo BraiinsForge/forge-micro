@@ -184,6 +184,18 @@ impl TachReader<0> for NoTach {
 /// PID-driven fan loop. Spawned by main once both the fan controller
 /// and the LM75A sensor array have opened.
 #[embassy_executor::task]
-pub async fn pid_fan_task(controller: FanHwmonController, thermal_handle: ThermalHandle) -> ! {
-    ubos_cooling::run_cooling(controller, NoTach, thermal_handle, ubos_config::handle()).await
+pub async fn pid_fan_task(
+    controller: FanHwmonController,
+    mut cooling_runner: ubos_cooling::Runner,
+    thermal_handle: ThermalHandle,
+    config_handle: ubos_config::Handle,
+) -> ! {
+    ubos_cooling::run_cooling(
+        controller,
+        NoTach,
+        &mut cooling_runner,
+        thermal_handle,
+        config_handle,
+    )
+    .await
 }
