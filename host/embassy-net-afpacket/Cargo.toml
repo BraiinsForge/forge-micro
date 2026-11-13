@@ -9,7 +9,7 @@ description = "embassy-net driver that uses a Linux AF_PACKET raw socket bound t
 workspace = true
 
 [dependencies]
-async-io           = "1.6"
+async-io           = "2.6"
 embassy-net-driver = "0.2"
 libc               = "0.2"
 log                = { version = "0.4", default-features = false }

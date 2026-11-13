@@ -35,7 +35,7 @@
 
 use std::ffi::CString;
 use std::io;
-use std::os::unix::io::{AsRawFd, RawFd};
+use std::os::unix::io::{AsFd, AsRawFd, BorrowedFd, RawFd};
 
 use async_io::Async;
 
@@ -71,6 +71,14 @@ impl Fd {
 impl AsRawFd for Fd {
     fn as_raw_fd(&self) -> RawFd {
         self.0
+    }
+}
+
+impl AsFd for Fd {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        // SAFETY: the descriptor stays open until `Fd` drops, which the
+        // borrow outlives by no path.
+        unsafe { BorrowedFd::borrow_raw(self.0) }
     }
 }
 

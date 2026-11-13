@@ -36,7 +36,7 @@
 
 use std::io::{self, Read, Write};
 use std::mem;
-use std::os::unix::io::{AsRawFd, RawFd};
+use std::os::unix::io::{AsFd, AsRawFd, BorrowedFd, RawFd};
 use std::task::Context;
 
 use async_io::Async;
@@ -100,6 +100,14 @@ pub struct AfPacket {
 impl AsRawFd for AfPacket {
     fn as_raw_fd(&self) -> RawFd {
         self.fd
+    }
+}
+
+impl AsFd for AfPacket {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        // SAFETY: the socket stays open until `AfPacket` drops, which the
+        // borrow outlives by no path.
+        unsafe { BorrowedFd::borrow_raw(self.fd) }
     }
 }
 
@@ -333,7 +341,9 @@ impl Driver for AfPacketDevice {
     fn receive(&mut self, context: &mut Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         let mut buffer = vec![0; self.device.get_ref().mtu];
         loop {
-            match self.device.get_mut().read(&mut buffer) {
+            // SAFETY: the read leaves the socket in place, so the reactor
+            // keeps the descriptor it registered.
+            match unsafe { self.device.get_mut() }.read(&mut buffer) {
                 Ok(length) => {
                     buffer.truncate(length);
                     return Some((
@@ -401,7 +411,9 @@ impl embassy_net_driver::TxToken for TxToken<'_> {
         let mut buffer = vec![0; length];
         let result = callback(&mut buffer);
 
-        match self.device.get_mut().write(&buffer) {
+        // SAFETY: the write leaves the socket in place, so the reactor
+        // keeps the descriptor it registered.
+        match unsafe { self.device.get_mut() }.write(&buffer) {
             Ok(_) => {}
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                 info!("AF_PACKET transmit WouldBlock, frame dropped");

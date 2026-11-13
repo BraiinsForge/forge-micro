@@ -9,7 +9,7 @@ description = "Async serial driver for Linux character devices, exposing embedde
 workspace = true
 
 [dependencies]
-async-io          = "1.6"
+async-io          = "2.6"
 embedded-io       = { version = "0.7", features = ["std"] }
 embedded-io-async = { workspace = true }
 libc              = "0.2"
