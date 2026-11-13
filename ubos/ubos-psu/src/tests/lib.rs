@@ -57,6 +57,7 @@ struct FakePsu {
     /// output power read.
     calls: RefCell<Vec<&'static str>>,
     enable_hangs: Cell<bool>,
+    set_voltage_hangs: Cell<bool>,
     reads_hang: Cell<bool>,
     terminated: Cell<bool>,
     polls: Cell<u32>,
@@ -89,6 +90,9 @@ impl Psu for FakePsu {
     }
     async fn set_voltage(&self, _voltage: Voltage) -> Result<Voltage, Error<Infallible>> {
         self.calls.borrow_mut().push("set_voltage");
+        while self.set_voltage_hangs.get() {
+            yield_now().await;
+        }
         self.read(LANDED)
     }
     async fn read_input_power(&self) -> Result<Power, Error<Infallible>> {
@@ -193,6 +197,24 @@ fn newer_command_drops_a_running_one_that_is_stuck() {
     });
     assert!(disabled.is_ok());
     assert_eq!(*driver.calls.borrow(), ["enable", "disable"]);
+}
+
+#[test]
+fn voltage_write_dropped_as_stuck_clears_the_commanded_voltage() {
+    let (driver, psu) = fake_supply();
+    let handle = psu.handle();
+    let requested = Voltage::from_mv(1203);
+    assert!(beside(psu, handle.set_voltage(requested)).is_ok());
+    driver.set_voltage_hangs.set(true);
+    let disabled = beside(psu, async {
+        poll_until(handle.set_voltage(requested), || {
+            driver.calls.borrow().len() > 1
+        })
+        .await;
+        handle.disable().await
+    });
+    assert!(disabled.is_ok());
+    assert_eq!(handle.commanded_voltage(), None);
 }
 
 #[test]

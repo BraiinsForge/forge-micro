@@ -307,7 +307,9 @@ impl Handle {
     /// The voltage the last successful [`Handle::set_voltage`] asked for,
     /// or `None` before one. A caller compares its next request with this
     /// value, because the supply can land a request on a nearby step. The
-    /// value stays as it is while the rail is disabled.
+    /// value stays as it is while the rail is disabled, and is `None`
+    /// again once a command was dropped as stuck, so the next request is
+    /// written whatever it asks for.
     #[must_use]
     pub fn commanded_voltage(&self) -> Option<Voltage> {
         self.setpoint.try_get().map(|setpoint| setpoint.requested)
@@ -431,9 +433,13 @@ impl<P: Psu> PowerSupply<P> {
         if seq != self.handle.awaited.load(Ordering::SeqCst) {
             return;
         }
-        if let Some(reply) = self.finish(self.execute(command)).await {
-            self.handle.reply.signal((seq, reply));
-        }
+        let Some(reply) = self.finish(self.execute(command)).await else {
+            // A call dropped as stuck may have reached the supply, so the
+            // rail is no longer known to be where the last command set it.
+            self.handle.setpoint.sender().clear();
+            return;
+        };
+        self.handle.reply.signal((seq, reply));
     }
 
     /// Carry out one command on the driver and record what it changed.
