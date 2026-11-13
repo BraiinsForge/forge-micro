@@ -30,5 +30,6 @@ pub mod entropy;
 pub mod i2c;
 pub mod index;
 pub mod reboot;
+pub mod take_once;
 pub mod units;
 pub mod watchdog;

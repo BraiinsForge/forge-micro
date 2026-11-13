@@ -17,6 +17,7 @@ defmt           = { workspace = true, optional = true }
 embassy-sync    = { workspace = true }
 embassy-time    = { workspace = true }
 embedded-hal    = { workspace = true }
+portable-atomic = { workspace = true }
 postcard-schema = { workspace = true }
 schemars        = { workspace = true, optional = true }
 serde           = { workspace = true }
