@@ -67,6 +67,22 @@ in
     ];
   };
 
+  # esp-hal 1.2.2 with the pre-init literals kept in the RAM text
+  # section, without which the ESP32-S3 image does not link; see the
+  # patch preamble.
+  esp-hal = pkgs.applyPatches {
+    name = "esp-hal-1.2.2-patched";
+    src = pkgs.fetchzip {
+      name = "esp-hal-1.2.2";
+      url = "https://static.crates.io/crates/esp-hal/esp-hal-1.2.2.crate";
+      extension = "tar.gz";
+      hash = "sha256-8eMojFBqNKrvvdcCmMAZYsV+MHPImb0b9zBj3pGHuqg=";
+    };
+    patches = [
+      ../patches/esp-hal-pre-init-literals.patch
+    ];
+  };
+
   # edge-nal-embassy from the pinned edge-net rev with the local patch
   # series applied in order; each patch's preamble explains its change.
   # The series starts with the standalone-manifest rewrite because the

@@ -13,6 +13,7 @@ target/
 /patches/embassy-net-wiznet
 /patches/edge-http
 /patches/edge-nal-embassy
+/patches/esp-hal
 
 # probe-rs-runner session logs, written to the project logs/ dir
 **/logs/*.log

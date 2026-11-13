@@ -188,6 +188,11 @@ opt-level     = "s"
 [patch.crates-io]
 embassy-net-wiznet = { path = "patches/embassy-net-wiznet" }
 
+# esp-hal 1.2.2 from crates.io with one patch that keeps the pre-init
+# literals in the RAM text section; the ESP32-S3 image does not link
+# without it. The patch preamble explains the fault.
+esp-hal = { path = "patches/esp-hal" }
+
 # edge-http and edge-nal-embassy from the pinned edge-net rev with
 # their local patch series applied on top; nix materializes each tree
 # at its path the same way as embassy-net-wiznet above. Each patch

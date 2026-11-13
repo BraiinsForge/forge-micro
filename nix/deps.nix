@@ -23,6 +23,7 @@
 # reused artifacts each recompiles the full dependency graph.
 {
   src,
+  patchedCratesOverlay,
   helpers,
   bmmCraneLib,
   espCraneLib,
@@ -32,11 +33,16 @@
 }:
 let
   # A check-only bag: dependencies are `cargo check`ed, never linked.
+  # crane stubs every path crate in the source, the pinned-and-patched
+  # upstream crates among them, and a registry crate that depends on
+  # one then compiles against an empty library. The overlay puts the
+  # real patched trees back after the stubbing.
   checkBag =
     lib: extra:
     lib.buildDepsOnly (
       {
         inherit src;
+        extraDummyScript = patchedCratesOverlay;
         doCheck = false;
         cargoBuildCommand = "true";
       }

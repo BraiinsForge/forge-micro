@@ -220,7 +220,7 @@ let
   };
 in
 {
-  inherit crateGraph;
+  inherit crateGraph patchedCratesOverlay;
 
   src = pkgs.runCommand "ubos-src" { } ''
     cp -a --no-preserve=mode ${cleanedSrc} "$out"

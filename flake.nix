@@ -222,6 +222,7 @@
         };
 
         deps = import ./nix/deps.nix {
+          inherit (sources) patchedCratesOverlay;
           inherit
             src
             helpers
