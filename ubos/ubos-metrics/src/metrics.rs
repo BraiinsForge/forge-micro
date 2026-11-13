@@ -406,13 +406,18 @@ fn upsert_metric<const MAX: usize>(
 /// beside it, both owned by the board's [`MetricsStatics`].
 pub struct PrometheusMetricsService<const MAX: usize, const BODY: usize> {
     statics: &'static MetricsStatics<MAX, BODY>,
+    net: ubos_net::net::Handle,
 }
 
 impl<const MAX: usize, const BODY: usize> PrometheusMetricsService<MAX, BODY> {
-    /// Serve the exposition out of `statics`.
+    /// Serve the exposition out of `statics`, with the clock and the request
+    /// count that `net` holds.
     #[must_use]
-    pub const fn new(statics: &'static MetricsStatics<MAX, BODY>) -> Self {
-        Self { statics }
+    pub const fn new(
+        statics: &'static MetricsStatics<MAX, BODY>,
+        net: ubos_net::net::Handle,
+    ) -> Self {
+        Self { statics, net }
     }
 }
 
@@ -434,7 +439,7 @@ impl<const MAX: usize, const BODY: usize> Service for PrometheusMetricsService<M
         let is_get = parts.method.as_str() == "GET";
 
         match (is_get, parts.path.as_str()) {
-            (true, "/metrics") => serve_metrics(self.statics, connection).await,
+            (true, "/metrics") => serve_metrics(self.statics, self.net, connection).await,
             (false, "/metrics") => serve_method_not_allowed(connection).await,
             _ => serve_not_found(connection).await,
         }
@@ -444,6 +449,7 @@ impl<const MAX: usize, const BODY: usize> Service for PrometheusMetricsService<M
 /// Build the Prometheus body and send it with an accurate `Content-Length`.
 async fn serve_metrics<T, const N: usize, const MAX: usize, const BODY: usize>(
     statics: &'static MetricsStatics<MAX, BODY>,
+    net: ubos_net::net::Handle,
     connection: &mut Connection<'_, T, N>,
 ) -> Result<(), HttpError<T::Error>>
 where
@@ -454,7 +460,7 @@ where
     // so a slow scrape blocks only other scrapes, never ingestion.
     let body_len = {
         let map = statics.map.lock().await;
-        build_prometheus_body(&mut body_buffer, &map)
+        build_prometheus_body(&mut body_buffer, &map, net)
     };
 
     let content_length = format_content_length(body_len);
@@ -542,18 +548,19 @@ where
 fn build_prometheus_body<const MAX: usize, const BODY: usize>(
     buffer: &mut [u8; BODY],
     map: &heapless::index_map::FnvIndexMap<MetricKey, StoredValue, MAX>,
+    net: ubos_net::net::Handle,
 ) -> usize {
     let mut writer = BufferWriter::new(buffer);
 
     // HELP/TYPE lines are omitted throughout — they are optional in the
     // Prometheus text format and the buffer is tight.
+    let ntp_offset = net.ntp_epoch_offset();
     for (key, stored) in map {
-        render_metric(&mut writer, key.0.as_str(), stored);
+        render_metric(&mut writer, key.0.as_str(), stored, ntp_offset);
     }
 
     // Render hardcoded derived metrics.
     let uptime_secs = Instant::now().as_secs();
-    let ntp_offset = ubos_net::net::handle().ntp_epoch_offset();
     let ts_ms = if ntp_offset == 0 {
         None
     } else {
@@ -562,7 +569,7 @@ fn build_prometheus_body<const MAX: usize, const BODY: usize>(
 
     render_scalar(&mut writer, "board_uptime_seconds", uptime_secs, ts_ms);
 
-    let request_count = ubos_net::net::handle().request_count();
+    let request_count = net.request_count();
     render_scalar(
         &mut writer,
         "board_http_requests_total",
@@ -583,7 +590,9 @@ fn build_prometheus_body<const MAX: usize, const BODY: usize>(
 }
 
 /// Render one stored metric line. The key string includes name and labels.
-fn render_metric(writer: &mut BufferWriter<'_>, key: &str, stored: &StoredValue) {
+/// `ntp_offset` is the seconds from the monotonic clock to Unix time, or 0
+/// before the first sync.
+fn render_metric(writer: &mut BufferWriter<'_>, key: &str, stored: &StoredValue, ntp_offset: u64) {
     // The key encodes labels as `name{label=value,...}` or just `name`.
     let _ = write!(writer, "{key} ");
     match &stored.value {
@@ -599,7 +608,6 @@ fn render_metric(writer: &mut BufferWriter<'_>, key: &str, stored: &StoredValue)
     // offset to produce an absolute Unix-epoch timestamp. If NTP has
     // not synced yet, omit the timestamp so Prometheus stamps the
     // sample at scrape time.
-    let ntp_offset = ubos_net::net::handle().ntp_epoch_offset();
     if ntp_offset != 0 {
         let ts_ms = stored.timestamp_ms + ntp_offset * 1000;
         let _ = write!(writer, " {ts_ms}");
