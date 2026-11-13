@@ -210,11 +210,7 @@ where
         .push(("Content-Length", content_length.as_str()))
         .expect("BUG: response header vec sized for max headers");
 
-    start_response(connection, Status::METHOD_NOT_ALLOWED, &headers).await?;
-
-    embedded_io_async::Write::write_all(connection, body).await?;
-
-    Ok(())
+    ubos_http::write_response(connection, Status::METHOD_NOT_ALLOWED, &headers, body).await
 }
 
 /// Serialize `value` to `scratch`, then write a 200 JSON response, or a

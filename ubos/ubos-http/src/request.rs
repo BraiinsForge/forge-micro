@@ -98,7 +98,9 @@ where
         Some(owned)
     });
 
-    let content_length = headers.headers.content_len();
+    // `Connection::new` rejects a `Content-Length` that is not a length
+    // and the worker answers 400, so the header parses here.
+    let content_length = headers.headers.content_len()?;
 
     let ota_offset = headers.headers.get("X-OTA-Offset").and_then(|value| {
         let mut owned = String::<20>::new();

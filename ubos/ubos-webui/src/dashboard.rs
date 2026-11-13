@@ -49,7 +49,7 @@ use crate::{INDEX_HTML_GZ, LOGIN_HTML_GZ, LOGO_SVG_GZ};
 use ubos_http::consts::Http;
 use ubos_http::{
     MAX_RESPONSE_HEADERS, RequestParts, Service, Status, format_content_length, read_body,
-    start_response, write_message, write_status_only,
+    start_response, write_message, write_response, write_status_only,
 };
 
 #[cfg(test)]
@@ -185,11 +185,7 @@ where
             .expect("BUG: response header vec sized for max headers");
     }
 
-    start_response(connection, Status::OK, &headers).await?;
-
-    embedded_io_async::Write::write_all(connection, body).await?;
-
-    Ok(())
+    write_response(connection, Status::OK, &headers, body).await
 }
 
 /// Decoded form-field length cap. Larger inputs are rejected.

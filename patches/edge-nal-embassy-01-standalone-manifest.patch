@@ -6,11 +6,11 @@ workspace, so the deps become explicit versions matching the
 edge-net pin, with edge-nal kept on the same pinned rev so the
 whole edge-net family resolves to one source.
 
-diff -ruN a/Cargo.toml b/Cargo.toml
+diff --git a/Cargo.toml b/Cargo.toml
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -31,9 +31,9 @@
- dhcpv4-hostname = ["embassy-net/dhcpv4-hostname"]
+@@ -32,13 +32,13 @@
+ slaac = ["proto-ipv6", "embassy-net/slaac"]
  
  [dependencies]
 -log = { workspace = true, default-features = false, optional = true }
@@ -22,6 +22,11 @@ diff -ruN a/Cargo.toml b/Cargo.toml
 +log = { version = "0.4", default-features = false, optional = true }
 +defmt = { version = "1", default-features = false, features = ["ip_in_core"], optional = true }
 +embedded-io-async = { version = "0.7", default-features = false }
-+edge-nal = { git = "https://github.com/ivmarkov/edge-net", rev = "1f084b41944c35b233cbe17accfbc09a56d5eaf0", default-features = false }
-+embassy-net = { version = "0.9.0", default-features = false }
++edge-nal = { git = "https://github.com/ivmarkov/edge-net", rev = "6f7e384ff738aef38f3c38a38225a6ed1cfbac20", default-features = false }
++embassy-net = { version = "0.9", default-features = false }
 +embassy-futures = { version = "0.1.2", default-features = false }
+ 
+ [dev-dependencies]
+ # The socket tests construct an `embassy-net` stack, which needs a time driver
+-embassy-time = { workspace = true, features = ["std", "generic-queue-64"] }
++embassy-time = { version = "0.5", default-features = false, features = ["std", "generic-queue-64"] }

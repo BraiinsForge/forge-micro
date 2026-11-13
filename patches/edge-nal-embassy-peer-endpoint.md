@@ -16,7 +16,7 @@ connection, making the check always pass and the filter ineffective.
 ## Reproduction
 
 Upstream source: `edge-nal-embassy/src/tcp.rs`, `TcpAccept::accept()` implementation,
-commit `1f084b41944c35b233cbe17accfbc09a56d5eaf0`.
+commit `6f7e384ff738aef38f3c38a38225a6ed1cfbac20`.
 
 ```rust
 // line 108 in upstream

@@ -6,10 +6,9 @@ whole-connection cap. Expose the knob the ubos-http server sets per
 accept.
 
 diff --git a/src/tcp.rs b/src/tcp.rs
-index f94d6364..2e9bee41 100644
 --- a/src/tcp.rs
 +++ b/src/tcp.rs
-@@ -160,6 +160,18 @@ impl<'d> TcpSocket<'d> {
+@@ -163,6 +163,18 @@
          })
      }
  

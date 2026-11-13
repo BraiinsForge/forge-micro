@@ -27,13 +27,13 @@
 { pkgs }:
 let
   # The edge-net workspace at the rev the workspace deps pin; the
-  # edge-http and edge-nal-embassy overrides below are cut from its
-  # subdirs so the whole edge-net family keeps resolving to one source.
+  # edge-nal-embassy override below is cut from its subdir so the
+  # whole edge-net family keeps resolving to one source.
   edge-net = pkgs.fetchFromGitHub {
     owner = "ivmarkov";
     repo = "edge-net";
-    rev = "1f084b41944c35b233cbe17accfbc09a56d5eaf0";
-    hash = "sha256-nrwRz1vd6Au3Bne/qNsfS/ccNd+v13dupAHWAEkppnU=";
+    rev = "6f7e384ff738aef38f3c38a38225a6ed1cfbac20";
+    hash = "sha256-38mEJoN6XMAO3yVM7EQ6oxPEJd0p+oOXz8trWfTtnPQ=";
   };
 in
 {
@@ -53,17 +53,6 @@ in
     patches = [
       ../patches/embassy-net-wiznet-rx-frame-underflow.patch
       ../patches/embassy-net-wiznet-drain-rx-frames.patch
-    ];
-  };
-
-  # edge-http from the same edge-net rev, cut and patched the same way
-  # as edge-nal-embassy below.
-  edge-http = pkgs.applyPatches {
-    name = "edge-http-0.7.0-patched";
-    src = "${edge-net}/edge-http";
-    patches = [
-      ../patches/edge-http-01-standalone-manifest.patch
-      ../patches/edge-http-02-invalid-content-length.patch
     ];
   };
 
@@ -89,7 +78,7 @@ in
   # subdir only resolves workspace-inherited deps inside the edge-net
   # workspace.
   edge-nal-embassy = pkgs.applyPatches {
-    name = "edge-nal-embassy-0.8.1-patched";
+    name = "edge-nal-embassy-0.9.0-patched";
     src = "${edge-net}/edge-nal-embassy";
     patches = [
       ../patches/edge-nal-embassy-01-standalone-manifest.patch

@@ -76,10 +76,10 @@ embassy-sync      = { version = "0.8", default-features = false }
 embassy-time      = { version = "0.5.1", default-features = false }
 embassy-net       = { version = "0.9.1", default-features = false }
 embassy-net-wiznet = { version = "0.3.0", default-features = false }
-edge-http         = { git = "https://github.com/ivmarkov/edge-net", rev = "1f084b41944c35b233cbe17accfbc09a56d5eaf0", default-features = false }
-edge-mdns         = { git = "https://github.com/ivmarkov/edge-net", rev = "1f084b41944c35b233cbe17accfbc09a56d5eaf0", default-features = false }
-edge-nal          = { git = "https://github.com/ivmarkov/edge-net", rev = "1f084b41944c35b233cbe17accfbc09a56d5eaf0", default-features = false }
-edge-nal-embassy  = { git = "https://github.com/ivmarkov/edge-net", rev = "1f084b41944c35b233cbe17accfbc09a56d5eaf0", default-features = false }
+edge-http         = { git = "https://github.com/ivmarkov/edge-net", rev = "6f7e384ff738aef38f3c38a38225a6ed1cfbac20", default-features = false }
+edge-mdns         = { git = "https://github.com/ivmarkov/edge-net", rev = "6f7e384ff738aef38f3c38a38225a6ed1cfbac20", default-features = false }
+edge-nal          = { git = "https://github.com/ivmarkov/edge-net", rev = "6f7e384ff738aef38f3c38a38225a6ed1cfbac20", default-features = false }
+edge-nal-embassy  = { git = "https://github.com/ivmarkov/edge-net", rev = "6f7e384ff738aef38f3c38a38225a6ed1cfbac20", default-features = false }
 embassy-futures   = "0.1.2"
 heapless          = "0.9"
 libm              = "0.2"
@@ -193,13 +193,11 @@ embassy-net-wiznet = { path = "patches/embassy-net-wiznet" }
 # without it. The patch preamble explains the fault.
 esp-hal = { path = "patches/esp-hal" }
 
-# edge-http and edge-nal-embassy from the pinned edge-net rev with
-# their local patch series applied on top; nix materializes each tree
-# at its path the same way as embassy-net-wiznet above. Each patch
-# file's preamble explains its fix; the peer-endpoint fix has an
-# upstream PR pending.
+# edge-nal-embassy from the pinned edge-net rev with the local patch
+# series applied on top; nix materializes the tree at this path the
+# same way as embassy-net-wiznet above. Each patch file's preamble
+# explains its fix; the peer-endpoint fix has an upstream PR pending.
 [patch."https://github.com/ivmarkov/edge-net"]
-edge-http = { path = "patches/edge-http" }
 edge-nal-embassy = { path = "patches/edge-nal-embassy" }
 
 [profile.rust-analyzer]

@@ -196,7 +196,7 @@ where
     {
         Ok(Ok(connection)) => connection,
         Ok(Err(HttpError::TooManyHeaders)) => return Err(Ended::Refuse(HEADER_OVERFLOW_RESPONSE)),
-        Ok(Err(HttpError::HeadersMismatchError(_))) => {
+        Ok(Err(HttpError::HeadersMismatchError(_) | HttpError::InvalidHeaders)) => {
             return Err(Ended::Refuse(BAD_FRAMING_RESPONSE));
         }
         _ => return Err(Ended::Reset),

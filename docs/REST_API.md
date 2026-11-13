@@ -35,7 +35,7 @@ change.
 
 | Crate          | Role                                                                      |
 |----------------|---------------------------------------------------------------------------|
-| `ubos-http`    | TCP accept loop, per-connection state machine, `Service` trait, `PrefixRouter`, the port 80 listener constants; `Status`, which pairs each status code with its reason phrase, and `StatusMessage`, which pairs a status with the message of its body; generic response helpers (`read_body`, `start_response`, `write_json_response`, `write_message`, `MAX_RESPONSE_HEADERS`) |
+| `ubos-http`    | TCP accept loop, per-connection state machine, `Service` trait, `PrefixRouter`, the port 80 listener constants; `Status`, which pairs each status code with its reason phrase, and `StatusMessage`, which pairs a status with the message of its body; generic response helpers (`read_body`, `start_response`, `write_json_response`, `write_response`, `write_message`, `MAX_RESPONSE_HEADERS`) |
 | `ubos-auth`    | shared HTTP middleware: allow-list, auth, sessions, CSRF, CSPRNG          |
 | `ubos-api`     | REST handlers, `REST_API_SERVICE` mDNS entry, schema types                |
 | `ubos-webui`   | Zopfli-gzipped `index.html` / `login.html` and `logo.svg`, with `icon.png` inlined into each page; dashboard handler; `WEBUI_SERVICE` mDNS entry |

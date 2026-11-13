@@ -5,23 +5,21 @@ unsafe-op-in-unsafe-fn lint, matching the edition bump of the
 consuming workspace.
 
 diff --git a/Cargo.toml b/Cargo.toml
-index 898feb00..ed32559e 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -1,7 +1,7 @@
  [package]
  name = "edge-nal-embassy"
- version = "0.8.1"
+ version = "0.9.0"
 -edition = "2021"
 +edition = "2024"
  rust-version = "1.91"
  description = "An implementation of edge-nal based on `embassy-net`"
- repository = "https://github.com/ivmarkov/edge-net"
+ repository = "https://github.com/sysgrok/edge-net"
 diff --git a/src/lib.rs b/src/lib.rs
-index 11e55b24..e46cf142 100644
 --- a/src/lib.rs
 +++ b/src/lib.rs
-@@ -66,7 +66,7 @@ mod sealed {
+@@ -66,7 +66,7 @@
          }
  
          unsafe fn free(&self, buffer_token: NonNull<u8>) {
@@ -30,7 +28,7 @@ index 11e55b24..e46cf142 100644
          }
      }
  }
-@@ -118,7 +118,7 @@ impl<T, const N: usize> Pool<T, N> {
+@@ -124,7 +124,7 @@
      /// - `p`: A pointer to the object to free.
      unsafe fn free(&self, p: NonNull<T>) {
          let origin = self.data.as_ptr() as *mut T;

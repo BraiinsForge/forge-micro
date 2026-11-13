@@ -31,10 +31,10 @@ function returns, so the workaround exists once.
 ## Reproduction
 
 Upstream source: `edge-http/src/lib.rs`, `impl Method`, commit
-`1f084b41944c35b233cbe17accfbc09a56d5eaf0`.
+`6f7e384ff738aef38f3c38a38225a6ed1cfbac20`.
 
 ```rust
-// line 177 — private
+// line 219 — private
 fn as_str(&self) -> &'static str {
     match self {
         Self::Delete => "DELETE",
@@ -52,7 +52,7 @@ adding `pub`.
 ```diff
 --- a/edge-http/src/lib.rs
 +++ b/edge-http/src/lib.rs
-@@ -174,7 +174,7 @@
+@@ -216,7 +216,7 @@
      }
  
 -    fn as_str(&self) -> &'static str {

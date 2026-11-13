@@ -27,6 +27,7 @@
 
 use core::fmt::Write as _;
 
+use edge_http::Method;
 use edge_http::io::Error as HttpError;
 use edge_http::io::server::Connection;
 use embedded_io_async::{Read, Write};
@@ -121,9 +122,51 @@ where
     headers[cursor] = ("Content-Length", content_length.as_str());
     cursor += 1;
 
-    start_response(connection, status, &headers[..cursor]).await?;
+    write_response(connection, status, &headers[..cursor], body).await
+}
 
-    embedded_io_async::Write::write_all(connection, body).await?;
+/// Start a response with `headers` and write `body` after them; see
+/// [`write_pieces`] for a HEAD request.
+///
+/// # Errors
+///
+/// Returns an `HttpError` if the connection is not in request state or
+/// if the underlying socket write fails.
+pub async fn write_response<T, const N: usize>(
+    connection: &mut Connection<'_, T, N>,
+    status: Status,
+    headers: &[(&str, &str)],
+    body: &[u8],
+) -> Result<(), HttpError<T::Error>>
+where
+    T: Read + Write + TcpSplit,
+{
+    write_pieces(connection, status, headers, core::iter::once(body)).await
+}
+
+/// Start a response with `headers` and write the `pieces` of its body
+/// after them, or the headers alone to a HEAD request. `edge-http`
+/// frames that response with an empty body and fails a write into it.
+async fn write_pieces<'a, T, const N: usize>(
+    connection: &mut Connection<'_, T, N>,
+    status: Status,
+    headers: &[(&str, &str)],
+    pieces: impl Iterator<Item = &'a [u8]>,
+) -> Result<(), HttpError<T::Error>>
+where
+    T: Read + Write + TcpSplit,
+{
+    let is_head = connection.headers()?.method == Method::Head;
+
+    start_response(connection, status, headers).await?;
+
+    if is_head {
+        return Ok(());
+    }
+
+    for piece in pieces {
+        embedded_io_async::Write::write_all(connection, piece).await?;
+    }
 
     Ok(())
 }
@@ -157,11 +200,7 @@ where
 {
     let content_length = format_content_length(body.len());
 
-    start_response(connection, status, &json_headers(&content_length)).await?;
-
-    embedded_io_async::Write::write_all(connection, body).await?;
-
-    Ok(())
+    write_response(connection, status, &json_headers(&content_length), body).await
 }
 
 /// Write `response` as its status and the JSON body `{"message":"..."}`.
@@ -184,18 +223,13 @@ where
     let body = message_body(response.message());
     let content_length = format_content_length(body.clone().map(<[u8]>::len).sum());
 
-    start_response(
+    write_pieces(
         connection,
         response.status(),
         &json_headers(&content_length),
+        body,
     )
-    .await?;
-
-    for piece in body {
-        embedded_io_async::Write::write_all(connection, piece).await?;
-    }
-
-    Ok(())
+    .await
 }
 
 /// The headers of a JSON response whose body is `content_length` bytes.

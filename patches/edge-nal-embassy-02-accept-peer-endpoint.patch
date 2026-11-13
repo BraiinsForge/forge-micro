@@ -9,10 +9,9 @@ Some. Upstream PR pending; see
 patches/edge-nal-embassy-peer-endpoint.md.
 
 diff --git a/src/tcp.rs b/src/tcp.rs
-index 6a46b0c6..dbd08b74 100644
 --- a/src/tcp.rs
 +++ b/src/tcp.rs
-@@ -105,9 +105,12 @@ impl edge_nal::TcpAccept for TcpAccept<'_> {
+@@ -105,9 +105,12 @@
              .accept(to_emb_bind_socket(self.local).ok_or(TcpError::UnsupportedProto)?)
              .await?;
  
