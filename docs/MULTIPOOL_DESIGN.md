@@ -59,10 +59,10 @@ pub struct AsicSession<const N: usize> {
   (see the work-scheduler section). No signalling toward the
   sessions; they are policy-free and never know whether they are
   being mined.
-- Host side, per slot: `pool_handle(slot) -> PoolHandle` — a `Copy`
-  value `{ session, slot }`. `publish_work` writes **unconditionally**
-  to `work[slot]`; `take_solution` reads `solutions[slot]`. No
-  gating, no work-id stamping.
+- Host side, per slot: `pool_handle(slot) -> PoolHandle` — a
+  `Copy` value `{ session, slot }`. `publish_work`
+  writes **unconditionally** to `work[slot]`; `take_solution` reads
+  `solutions[slot]`. No gating, no work-id stamping.
 - ASIC side: `work_receiver(slot)` hands out one `DynReceiver` per
   slot; `submit_solution(slot, solution)` routes into
   `solutions[slot]`.
@@ -156,10 +156,10 @@ public API is
 
 ### `ubos-firmware`: per-slot session loop
 
-`run_stratum_session(stack, slot, session, shared, extension)` stays
-a plain `async fn` (the esp32s3 executor-version constraint is
-unchanged); `shared: StratumShared` is the `Copy` fan-out of the boot
-singletons returned by `init_stratum(seed)`, and `extension` is the
+`run_stratum_session(stack, slot, session, shared, config, extension)` stays a plain `async fn` (the esp32s3 executor-version
+constraint is unchanged); `shared: StratumShared` is the `Copy` fan-out
+of the boot singletons returned by `init_stratum(seed)`, `config` is
+the config handle the board passes at spawn, and `extension` is the
 protocol the slot carries beside the mining traffic, `NoExtension` on
 an operator slot. Per-slot loop:
 
@@ -194,8 +194,8 @@ Each board's one-line stratum task shell gains
 `session` parameters; `main` spawns it once per slot in a loop.
 `serial_task` gains the session parameter. `host-runner` keeps its
 local static (now `AsicSession<1>` or the board alias) and uses
-`pool_handle(0)`; its CPU-mock ASIC consumes `work_receiver(0)` and
-submits with slot 0.
+`pool_handle(0)`; its CPU-mock ASIC consumes
+`work_receiver(0)` and submits with slot 0.
 
 ## Work scheduler (UBOS-72)
 
@@ -317,7 +317,8 @@ loop {
 `contains_value()` peeks without cloning the `WorkAssignment`; only
 the chosen slot pays for the clone. Availability comes from the work
 cells themselves — a torn-down session has `clear()`ed its cell —
-not from `pool_alive_bitmap()`, which is API-facing state.
+not from `PoolCountersHandle::pool_alive_bitmap`, which is API-facing
+state.
 
 ### `AsicSession` sheds the `active` atomic
 
@@ -443,14 +444,18 @@ generation and forwards the mapped weights to the actor whenever
 they actually change:
 
 ```rust
-pub async fn run_pool_weights_watcher() -> ! {
-    let handle = ubos_config::handle();
-    let mut generation = handle.subscribe_generation();
+pub async fn run_pool_weights_watcher(
+    actors: &'static [Serial],
+    config: ubos_config::Handle,
+) -> ! {
+    let mut generation = config.subscribe_generation();
     let mut last_sent: Option<[u32; 8]> = None;
     loop {
-        let weights = pool_weights(&handle.current().pool);
+        let weights = pool_weights(&config.current().pool);
         if last_sent != Some(weights) {
-            SERIAL.set_pool_weights(weights).await;
+            for actor in actors {
+                actor.set_pool_weights(weights);
+            }
             last_sent = Some(weights);
         }
         generation.changed().await;

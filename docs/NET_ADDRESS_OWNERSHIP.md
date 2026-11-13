@@ -71,7 +71,8 @@ Same command, same channel, different sender.
 ## `ubos-net`: the stateless mechanic
 
 `run_network_control` is one long-lived task, spawned on every board
-beside the existing net tasks, taking `Stack<'static>`:
+beside the existing net tasks, taking `Stack<'static>`, the net
+`Publisher` it publishes through, and the config handle:
 
 1. Subscribe to `NETWORK_WATCH`. On a genuine change, wait
    `REPLY_FLUSH_DELAY` (~1 s) so the API handler's HTTP ack flushes
@@ -96,8 +97,9 @@ publishing the same address is safe.
 ## `ubos-api`: the forwarder
 
 - `apply` / `confirm` / `revert` are `config.try_send(Message::...)`.
-- `pending_seconds_remaining` and `pending_mode_is_static` live in
-  config, which owns the timer; the REST status handlers read them back.
+- `pending_seconds_remaining` and `pending_mode_is_static` are methods
+  on the config handle, because config owns the timer; the REST status
+  handlers read them back.
 - `network_apply.rs`, `run_network_apply`, and `reconcile_local_ipv4`
   are gone, and firmware no longer spawns `run_network_apply`.
 

@@ -160,8 +160,8 @@ Each chunk therefore costs one request rather than two.
 
 ### Session lifecycle
 
-1. First chunk (`X-OTA-Offset: 0`): the handler calls `manager.stop_mining_and_wait()`.
-   The manager asserts the OTA pause and waits for the miner's `Stopped` state.
+1. First chunk (`X-OTA-Offset: 0`): the handler sends `OtaBegin` to the manager and calls `mining.wait_stopped`.
+   The manager asserts the OTA pause, and the wait ends at the miner's `Stopped` state.
    A miner that never started is already stopped.
    The miner asserts chip reset and attempts to disable the PSU. It logs any PSU-disable error.
    If the wait exceeds five seconds, the handler refuses the update.

@@ -31,8 +31,8 @@ driver is exercised without a hashboard on the bench.
 | Task | Owner | Role |
 |------|-------|------|
 | `serial_task` | `mining.rs` | Drives one entry of the board's static `mining::CHAINS` array through `Serial::run(...)`. One actor per hashboard chain: command dispatch, parser, in-flight work registry, baud-rate switch, and that chain's own `ChainStats`. Pinned to Core 1 so embassy-net on Core 0 stays responsive. |
-| `miner_task` | `mining.rs` | Drives `Miner::<_, T, CHAINS>::new(psu_handle, BOARD, chains, platform).run()` against the tuner `MinerConfig::tuning` selects from the firmware's tuner set `T`. Bring-up / teardown state machine: reset assert, wait until the scheduler would dispatch work, PSU up, reset release, per-chain enumeration, per-chain safe-boot configuration, start work, apply tuner plans, PSU off. |
-| `psu_task` | `psu.rs` | Drives `ubos_psu::PowerSupply::run`. Carries out the rail commands the other tasks send through the PSU handle, records the voltage each command sets, and polls the SIC45x input/output power every `POWER_STATS_INTERVAL` (two seconds) and publishes it. |
+| `miner_task` | `mining.rs` | Drives `Miner::<_, T, CHAINS>::new(psu_handle, BOARD, chains, platform, mining).run(config)` against the tuner `MinerConfig::tuning` selects from the firmware's tuner set `T`. Bring-up / teardown state machine: reset assert, wait until the scheduler would dispatch work, PSU up, reset release, per-chain enumeration, per-chain safe-boot configuration, start work, apply tuner plans, PSU off. |
+| `psu_task` | `psu.rs` | Drives `ubos_psu::PowerSupply::run` with the PSU runner. Carries out the rail commands the other tasks send through the PSU handle, records the voltage each command sets, and polls the SIC45x input/output power every `POWER_STATS_INTERVAL` (two seconds) and publishes it. |
 
 The SIC45x rail is gated by the `SIC_EN` GPIO the `BoardPsu` owns, not by
 a PMBus register, so there is no separate PSU-heartbeat task; only
@@ -145,7 +145,7 @@ After Halt, the miner waits for Resume or `Handle::stop`.
 A Resume queued after Halt remains available to that wait.
 
 Frequency, voltage, and algorithm edits do not travel the command channel.
-`Miner::run` subscribes to `ubos_config::handle()` directly.
+`Miner::run` subscribes to the configuration handle that it receives.
 The miner reads the latest frequency and voltage target before each policy step.
 These edits do not restart mining or interrupt initialization.
 The state machine below sets when an algorithm change takes effect.
@@ -373,8 +373,9 @@ how many of them the board wired up, and `GET /api/info` carries a
 `chains` array with one entry per wired chain, so a single-chain board
 reports one entry and never a phantom chain. The dashboard's Hashboards
 card renders this array. `Serial::new(chain,
-chains)` takes this chain's index and the board's total chain count so
-sibling chains never hash identical headers.
+chains)` takes the index of this chain and the board's total chain count, so
+sibling chains never hash identical headers. The actor receives the `Park` of
+the board in `run`, and it joins that park while it runs.
 
 A flash write that needs exclusive access to the chip UARTs calls
 `request` on the board's `Park` and waits for `is_parked`, which is
