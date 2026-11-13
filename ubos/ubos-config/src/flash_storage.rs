@@ -21,7 +21,7 @@
 
 use embedded_storage_async::nor_flash::NorFlash;
 use sequential_storage::{
-    cache::NoCache,
+    cache::{Cache, Uncached},
     map::{MapConfig, MapStorage},
 };
 
@@ -41,7 +41,7 @@ pub(crate) const SCRATCH_SIZE: usize =
 /// Flash-backed config storage confined to `range`; the board names the
 /// range.
 pub struct FlashStorage<F: NorFlash> {
-    map: MapStorage<u8, F, NoCache>,
+    map: MapStorage<u8, F, Cache<Uncached, Uncached, Uncached, u8>>,
 }
 
 impl<F: NorFlash> FlashStorage<F> {
@@ -49,7 +49,7 @@ impl<F: NorFlash> FlashStorage<F> {
     /// `MapConfig::new` rejects an invalid one at compile time.
     pub fn new(flash: F, range: core::ops::Range<u32>) -> Self {
         Self {
-            map: MapStorage::new(flash, MapConfig::new(range), NoCache::new()),
+            map: MapStorage::new(flash, MapConfig::new(range), Cache::new_uncached()),
         }
     }
 }
