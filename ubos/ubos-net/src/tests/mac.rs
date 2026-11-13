@@ -18,6 +18,7 @@
 // shall be considered distinct from the grant above.
 
 use super::*;
+use rusty_fork::rusty_fork_test;
 
 #[test]
 fn places_oui_and_family() {
@@ -67,4 +68,26 @@ fn family_byte_distinguishes_boards() {
     let rp2350 = derive_mac(DUMMY_OUI, 0x02, &uid);
     assert_ne!(rp2040, rp2350);
     assert_eq!(rp2040[4..6], rp2350[4..6]);
+}
+
+rusty_fork_test! {
+    #[test]
+    fn publish_mac_derives_and_publishes_on_the_handle() {
+        let (publisher, net) = crate::net::Handle::take();
+
+        let mac = publisher.publish_mac(0x07, b"chip");
+
+        assert_eq!(mac, derive_mac(DUMMY_OUI, 0x07, b"chip"));
+        assert_eq!(net.current().and_then(|state| state.mac), Some(mac));
+    }
+
+    #[test]
+    fn a_recorded_request_is_counted() {
+        let (_publisher, net) = crate::net::Handle::take();
+        assert_eq!(net.request_count(), 0);
+
+        net.record_request();
+
+        assert_eq!(net.request_count(), 1);
+    }
 }

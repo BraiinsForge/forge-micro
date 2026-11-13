@@ -33,7 +33,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::{Receiver, Watch};
 use embassy_time::{Duration, Instant, Timer, with_timeout};
 use portable_atomic::{AtomicU32, Ordering};
-use ubos_config::{Message, NetworkConfig, NetworkMode, handle as config_handle};
+use ubos_config::{Message, NetworkConfig, NetworkMode};
 use ubos_logging::{Debug2Format, info, warn};
 
 use ubos_core::consts::Net;
@@ -179,11 +179,11 @@ pub struct NetState {
     /// one. Written at boot by [`wait_for_config`] and refreshed on live
     /// applies by [`run_network_control`].
     pub ipv4: Option<Ipv4Address>,
-    /// Board MAC, or `None` until [`Handle::set_mac`] runs at boot.
+    /// Board MAC, or `None` until [`Publisher::set_mac`] runs at boot.
     pub mac: Option<[u8; 6]>,
     /// Seconds to add to the monotonic clock to reach Unix time, or `None`
     /// until NTP first syncs. Written by [`sync_ntp`] via
-    /// [`Handle::set_ntp_offset`].
+    /// [`Publisher::set_ntp_offset`].
     pub ntp_offset: Option<u64>,
 }
 
@@ -192,39 +192,52 @@ pub struct NetState {
 /// so one slot covers any future subscriber.
 const WATCH_CAPACITY: usize = 1;
 
+/// The net-state watch a [`Handle`] reads and publishes to.
+type StateWatch = Watch<CSMutex, NetState, WATCH_CAPACITY>;
+
 /// Module-internal state watch. Writers are [`wait_for_config`],
 /// [`run_network_control`], and the boot MAC publish; readers obtain values
 /// via [`Handle`].
-static STATE_WATCH: Watch<CSMutex, NetState, WATCH_CAPACITY> = Watch::new();
+static STATE_WATCH: StateWatch = Watch::new();
 
 /// Per-task subscription returned by [`Handle::subscribe`].
 pub type NetSubscription = Receiver<'static, CSMutex, NetState, WATCH_CAPACITY>;
 
-/// Obtain a handle to the network-identity state. `Copy`; callers freely
-/// pass it to multiple tasks.
-#[must_use]
-pub fn handle() -> Handle {
-    Handle {
-        state: &STATE_WATCH,
-    }
-}
+/// Records that the firmware took the network handle.
+static TAKEN: ubos_core::take_once::TakeOnce = ubos_core::take_once::TakeOnce::new("net");
 
-/// Consumer- and producer-side handle for the network-identity state.
+/// Consumer-side handle for the network-identity state, which also counts
+/// the HTTP requests.
 ///
-/// `Copy` because it holds only a `&'static` reference. Every task takes
-/// its own value, mirroring the `handle()` accessors on the thermal and
-/// PSU watches.
+/// The handle holds no data: its methods are the only way to the private
+/// statics of this module. A firmware takes it once and passes a copy to
+/// each task that uses it.
 #[derive(Clone, Copy)]
-pub struct Handle {
-    state: &'static Watch<CSMutex, NetState, WATCH_CAPACITY>,
-}
+pub struct Handle(());
+
+/// Producer-side handle for the network-identity state.
+///
+/// It is `Copy` because the board and two tasks publish: the board its
+/// MAC, the DHCP wait and the network control the address, and the NTP
+/// sync the clock. It goes only to those, so a reader cannot publish.
+#[derive(Clone, Copy)]
+pub struct Publisher(());
 
 impl Handle {
+    /// The firmware's one network handle, and the publisher of the state it
+    /// reads. A second call panics.
+    #[must_use]
+    #[track_caller]
+    pub fn take() -> (Publisher, Self) {
+        TAKEN.take();
+        (Publisher(()), Self(()))
+    }
+
     /// Most recent published state, or `None` if neither the IP nor the MAC
     /// has been published yet.
     #[must_use]
     pub fn current(&self) -> Option<NetState> {
-        self.state.try_get()
+        STATE_WATCH.try_get()
     }
 
     /// Per-task subscription. Call once per consumer task before entering
@@ -235,11 +248,40 @@ impl Handle {
     /// Panics if the underlying `Watch` has no free receiver slots.
     #[must_use]
     pub fn subscribe(&self) -> NetSubscription {
-        self.state
+        STATE_WATCH
             .receiver()
             .expect("BUG: Handle receiver slots exhausted; raise WATCH_CAPACITY")
     }
 
+    /// Seconds to add to the monotonic clock to reach Unix time, or 0 if
+    /// NTP has not synced.
+    #[must_use]
+    pub fn ntp_epoch_offset(&self) -> u64 {
+        epoch_offset()
+    }
+
+    /// Accepted HTTP requests since boot.
+    #[must_use]
+    pub fn request_count(&self) -> u32 {
+        REQUEST_COUNT.load(Ordering::Relaxed)
+    }
+
+    /// Seconds since the Unix epoch, or `None` while NTP has not synced.
+    #[must_use]
+    pub fn unix_secs(&self) -> Option<u64> {
+        match self.ntp_epoch_offset() {
+            0 => None,
+            offset => Some(Instant::now().as_secs() + offset),
+        }
+    }
+
+    /// Record one accepted HTTP request.
+    pub fn record_request(&self) {
+        REQUEST_COUNT.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+impl Publisher {
     /// Publish the live IPv4 address, leaving the MAC field untouched.
     ///
     /// Records `ip_assigned` exactly once on a genuine address change. The
@@ -250,7 +292,7 @@ impl Handle {
     /// section inside the Watch's.
     pub fn set_ipv4(&self, ipv4: Ipv4Address) {
         let changed = Cell::new(false);
-        self.state.sender().send_if_modified(|state| {
+        STATE_WATCH.sender().send_if_modified(|state| {
             let state = state.get_or_insert_with(NetState::default);
             let modified = state.ipv4 != Some(ipv4);
             changed.set(modified);
@@ -270,7 +312,7 @@ impl Handle {
     /// Calling this once at boot lets `/api/info` report the address without
     /// threading it through the network stack.
     pub fn set_mac(&self, mac: [u8; 6]) {
-        self.state.sender().send_if_modified(|state| {
+        STATE_WATCH.sender().send_if_modified(|state| {
             let state = state.get_or_insert_with(NetState::default);
             if state.mac == Some(mac) {
                 false
@@ -281,10 +323,25 @@ impl Handle {
         });
     }
 
+    /// Derive the board MAC from a per-chip id, log it and publish it. No
+    /// control board carries a factory address, so the firmware supplies one;
+    /// `mac_family` is the descriptor's byte for this control board and
+    /// `chip_id` is whatever unique id the chip offers.
+    #[must_use]
+    pub fn publish_mac(&self, mac_family: u8, chip_id: &[u8]) -> [u8; 6] {
+        let mac = crate::mac::derive_mac(crate::mac::DUMMY_OUI, mac_family, chip_id);
+        info!(
+            "mac {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+            mac[0], mac[1], mac[2], mac[3], mac[4], mac[5],
+        );
+        self.set_mac(mac);
+        mac
+    }
+
     /// Publish the NTP epoch offset after a successful sync, leaving the
     /// IPv4 and MAC fields untouched.
     pub fn set_ntp_offset(&self, offset: u64) {
-        self.state.sender().send_if_modified(|state| {
+        STATE_WATCH.sender().send_if_modified(|state| {
             let state = state.get_or_insert_with(NetState::default);
             if state.ntp_offset == Some(offset) {
                 false
@@ -294,41 +351,49 @@ impl Handle {
             }
         });
     }
-
-    /// Seconds to add to the monotonic clock to reach Unix time, or 0 if
-    /// NTP has not synced. The zero fallback matches the sentinel the bare
-    /// atomic used before this moved behind the handle.
-    #[must_use]
-    pub fn ntp_epoch_offset(&self) -> u64 {
-        self.current()
-            .and_then(|state| state.ntp_offset)
-            .unwrap_or(0)
-    }
-
-    /// Accepted HTTP requests since boot.
-    #[must_use]
-    pub fn request_count(&self) -> u32 {
-        REQUEST_COUNT.load(Ordering::Relaxed)
-    }
-
-    /// Record one accepted HTTP request.
-    pub fn record_request(&self) {
-        REQUEST_COUNT.fetch_add(1, Ordering::Relaxed);
-    }
 }
 
-/// Wait until the network stack receives a DHCP lease.
+/// The logging clock: seconds since Unix epoch if NTP has synced, or seconds
+/// since boot otherwise.
+///
+/// Its one job is to stamp log lines and event records, from a board's
+/// `defmt::timestamp!` and the clock it gives the event ring. Both take a
+/// plain function and neither can receive a handle, and logging is reachable
+/// from everywhere as `defmt` is. It reads the state watch of this module
+/// and builds no handle. A reader that has a [`Handle`] checks
+/// [`Handle::ntp_epoch_offset`] first, so it can tell a synced clock from
+/// the uptime fallback.
+#[inline]
+#[must_use]
+pub fn wall_clock_secs() -> u64 {
+    Instant::now().as_secs() + epoch_offset()
+}
+
+/// Seconds to add to the monotonic clock to reach Unix time, or 0 if NTP has
+/// not synced.
+fn epoch_offset() -> u64 {
+    STATE_WATCH
+        .try_get()
+        .and_then(|state| state.ntp_offset)
+        .unwrap_or(0)
+}
+
+/// Wait until the network stack receives a DHCP lease and publish it on
+/// `publisher`.
 ///
 /// Polls `stack.config_v4()` at a 100 ms cadence rather than yielding
 /// inside a tight loop, so the executor is not pegged for the entire
 /// DHCP acquisition window.
-pub async fn wait_for_config(stack: Stack<'static>) -> embassy_net::StaticConfigV4 {
+pub async fn wait_for_config(
+    stack: Stack<'static>,
+    publisher: Publisher,
+) -> embassy_net::StaticConfigV4 {
     loop {
         if let Some(config) = stack.config_v4() {
             // wait_for_config is awaited on both the boot path and by
             // run_ntp_sync; set_ipv4 records ip_assigned only on a genuine
             // address change, so calling it on every poll is safe.
-            handle().set_ipv4(config.address.address());
+            publisher.set_ipv4(config.address.address());
             return config.clone();
         }
         // 100 ms is short enough to keep DHCP re-acquisition responsive but
@@ -344,7 +409,10 @@ pub async fn wait_for_config(stack: Stack<'static>) -> embassy_net::StaticConfig
 ///
 /// Returns an error string if DNS resolution, UDP communication, or NTP
 /// response parsing fails.
-pub async fn fetch_ntp_time(stack: Stack<'static>) -> Result<(), &'static str> {
+pub async fn fetch_ntp_time(
+    stack: Stack<'static>,
+    publisher: Publisher,
+) -> Result<(), &'static str> {
     let addresses = with_timeout(
         DNS_QUERY_TIMEOUT,
         stack.dns_query(Ntp::HOST, DnsQueryType::A),
@@ -386,7 +454,7 @@ pub async fn fetch_ntp_time(stack: Stack<'static>) -> Result<(), &'static str> {
     let uptime_secs = Instant::now().as_secs();
     let offset = unix_secs.saturating_sub(uptime_secs);
     info!("ntp time synced: offset {}s", offset);
-    handle().set_ntp_offset(offset);
+    publisher.set_ntp_offset(offset);
 
     Ok(())
 }
@@ -398,12 +466,12 @@ pub async fn fetch_ntp_time(stack: Stack<'static>) -> Result<(), &'static str> {
 /// not ready at boot gets its clock in a minute instead of an hour. There is
 /// no attempt limit: an unreachable pool is a condition to keep trying
 /// through, not one to give up on.
-pub async fn run_ntp_sync(stack: Stack<'static>) -> ! {
-    wait_for_config(stack).await;
+pub async fn run_ntp_sync(stack: Stack<'static>, publisher: Publisher) -> ! {
+    wait_for_config(stack, publisher).await;
     Timer::after(Ntp::INITIAL_DELAY).await;
 
     loop {
-        let interval = match fetch_ntp_time(stack).await {
+        let interval = match fetch_ntp_time(stack, publisher).await {
             Ok(()) => Ntp::SYNC_INTERVAL,
             Err(error) => {
                 warn!("ntp sync failed: {}", error);
@@ -421,8 +489,11 @@ pub async fn run_ntp_sync(stack: Stack<'static>) -> ! {
 macro_rules! ntp_sync_task {
     () => {
         #[embassy_executor::task]
-        async fn ntp_sync_task(stack: embassy_net::Stack<'static>) -> ! {
-            ubos_net::net::run_ntp_sync(stack).await
+        async fn ntp_sync_task(
+            stack: embassy_net::Stack<'static>,
+            publisher: ubos_net::net::Publisher,
+        ) -> ! {
+            ubos_net::net::run_ntp_sync(stack, publisher).await
         }
     };
 }
@@ -463,7 +534,7 @@ fn to_config_v4(network: &NetworkConfig) -> ConfigV4 {
 /// deliberate reconfiguration invalidates each session's CSRF token and
 /// lands the SPA on `/login` — the unambiguous "it took effect" signal.
 /// Between changes it polls the stack for the assigned address and
-/// publishes it via [`Handle::set_ipv4`], which records `ip_assigned` once
+/// publishes it via [`Publisher::set_ipv4`], which records `ip_assigned` once
 /// per genuine change.
 ///
 /// For a DHCP target a fresh lease is self-evident proof the change works,
@@ -471,11 +542,15 @@ fn to_config_v4(network: &NetworkConfig) -> ConfigV4 {
 /// no-ops a confirm with nothing pending, so a boot lease is harmless. A
 /// static address is never auto-confirmed here: only an operator round-trip
 /// from the new address proves reachability.
-pub async fn run_network_control(stack: Stack<'static>) -> ! {
-    let mut network = config_handle().subscribe_network();
+pub async fn run_network_control(
+    stack: Stack<'static>,
+    publisher: Publisher,
+    config: ubos_config::Handle,
+) -> ! {
+    let mut network = config.subscribe_network();
     // Seed from the committed config the firmware already applied at boot,
     // so only a genuine later transition triggers a switch.
-    let mut applied = config_handle().current().network;
+    let mut applied = config.current().network;
     let mut last_addr: Option<Ipv4Address> = None;
     let mut confirm_pending = false;
 
@@ -497,16 +572,16 @@ pub async fn run_network_control(stack: Stack<'static>) -> ! {
                 }
             }
             Either::Second(()) => {
-                if let Some(config) = stack.config_v4() {
-                    let address = config.address.address();
+                if let Some(lease) = stack.config_v4() {
+                    let address = lease.address.address();
                     if last_addr != Some(address) {
                         last_addr = Some(address);
-                        handle().set_ipv4(address);
+                        publisher.set_ipv4(address);
                     }
                     // A fresh DHCP lease confirms the pending change. Retry
                     // until the send lands: a dropped confirm would let the
                     // window expire and revert a working lease.
-                    if confirm_pending && config_handle().try_send(Message::ConfirmNetwork) {
+                    if confirm_pending && config.try_send(Message::ConfirmNetwork) {
                         confirm_pending = false;
                     }
                 }
@@ -521,8 +596,12 @@ pub async fn run_network_control(stack: Stack<'static>) -> ! {
 macro_rules! network_control_task {
     () => {
         #[embassy_executor::task]
-        async fn network_control_task(stack: embassy_net::Stack<'static>) -> ! {
-            ubos_net::net::run_network_control(stack).await
+        async fn network_control_task(
+            stack: embassy_net::Stack<'static>,
+            publisher: ubos_net::net::Publisher,
+            config: ubos_config::Handle,
+        ) -> ! {
+            ubos_net::net::run_network_control(stack, publisher, config).await
         }
     };
 }

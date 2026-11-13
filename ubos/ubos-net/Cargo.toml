@@ -24,3 +24,11 @@ ubos-events       = { workspace = true, default-features = false }
 ubos-logging      = { workspace = true }
 ubos-config       = { workspace = true, default-features = false }
 ubos-auth         = { workspace = true, default-features = false }
+
+[dev-dependencies]
+# A test publishes on a `CriticalSectionRawMutex`-backed watch, so the host
+# test binary needs a linkable critical-section implementation. The std impl
+# is host-only and never reaches firmware.
+critical-section = { version = "1.2", features = ["std"] }
+# A test that takes the handle runs in a process of its own.
+rusty-fork = { workspace = true }

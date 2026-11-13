@@ -28,10 +28,16 @@
 //! chip acts as a raw MAC and smoltcp owns the stack.
 #![no_std]
 
+// The host test binary links std for the `rusty-fork` macro.
+#[cfg(test)]
+extern crate std;
+
 pub mod config;
 pub mod mac;
 pub mod net;
 pub mod ntp;
+
+pub use net::wall_clock_secs;
 
 /// Assert at compile time that a board's `StackResources<N>` capacity
 /// covers its two HTTP pools plus the fixed net sockets
@@ -51,11 +57,4 @@ macro_rules! assert_stack_sockets {
 
 ubos_events::events! {
     ip_assigned(octet0: u8, octet1: u8, octet2: u8, octet3: u8) info = "IP assigned {}.{}.{}.{}",
-}
-
-/// Seconds since Unix epoch if NTP has synced, or seconds since boot otherwise.
-#[inline]
-#[must_use]
-pub fn wall_clock_secs() -> u64 {
-    embassy_time::Instant::now().as_secs() + net::handle().ntp_epoch_offset()
 }
