@@ -201,7 +201,7 @@ ubos_api::sync_credentials_task!();
 ubos_net::network_control_task!();
 
 ubos_firmware::serve_all!(
-    config::MACHINE,
+    config::MACHINE.control_board.http_pool_sizes,
     &config::MINING_INFO,
     &config::BOUNDS,
     config::MAX_METRICS,
@@ -531,8 +531,8 @@ async fn boot(spawner: Spawner) {
     const STACK_SOCKETS: usize = 24;
     ubos_net::assert_stack_sockets!(
         STACK_SOCKETS,
-        config::MACHINE.control_board.http_pool,
-        config::MACHINE.control_board.metrics_http_pool,
+        config::MACHINE.control_board.http_pool_sizes.http,
+        config::MACHINE.control_board.http_pool_sizes.metrics,
     );
     let (net_config, mdns_hostname) =
         ubos_firmware::net::bring_up::<{ config::Board::MDNS_HOSTNAME_BASE.len() }>(
@@ -591,5 +591,5 @@ async fn boot(spawner: Spawner) {
         handles.config
     )));
 
-    serve_all(spawner, stack, handles).await;
+    serve_all(spawner, stack, handles, config::MACHINE.control_board.name).await;
 }

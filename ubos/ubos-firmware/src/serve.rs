@@ -26,7 +26,7 @@
 ///
 /// ```ignore
 /// ubos_firmware::serve_all!(
-///     config::MACHINE,
+///     config::MACHINE.control_board.http_pool_sizes,
 ///     &config::MINING_INFO,
 ///     &config::BOUNDS,
 ///     config::MAX_METRICS,
@@ -37,7 +37,7 @@
 /// spawner.spawn(unwrap!(metrics_ingest_task()));
 ///
 /// // Once the stack has an address:
-/// serve_all(spawner, stack, handles).await;
+/// serve_all(spawner, stack, handles, board_name).await;
 /// ```
 ///
 /// The expansion is one `async fn serve_all`, which seeds each
@@ -45,8 +45,8 @@
 /// its worker pool: the web UI and the REST API together on :80, and the
 /// Prometheus metrics on :8081. The two worker-pool shells live inside
 /// that function, so a board declares no HTTP task of its own and the
-/// pool sizes stay where the rest of the board's shape is, in
-/// `$machine.control_board`.
+/// pool sizes stay with the board, which passes them as
+/// `$http_pool_sizes`.
 ///
 /// The web UI and the REST API reach one pool behind a
 /// [`ubos_http::PrefixRouter`]. This crate wires that router rather than
@@ -69,7 +69,7 @@
 #[macro_export]
 macro_rules! serve_all {
     (
-        $machine:expr,
+        $http_pool_sizes:expr,
         $mining_info:expr,
         $bounds:expr,
         $max_metrics:expr,
@@ -93,13 +93,14 @@ macro_rules! serve_all {
             spawner: embassy_executor::Spawner,
             stack: embassy_net::Stack<'static>,
             handles: $crate::Handles,
+            board_name: &'static str,
         ) {
             // Bound to names of their own so what reaches the task
             // attribute is an identifier. The pool sizes are const
             // expressions either way, and the pool footprint they size is
             // still checked at the link.
-            const HTTP_POOL: usize = $machine.control_board.http_pool;
-            const METRICS_POOL: usize = $machine.control_board.metrics_http_pool;
+            const HTTP_POOL: usize = $http_pool_sizes.http;
+            const METRICS_POOL: usize = $http_pool_sizes.metrics;
 
             /// The web UI and the REST API behind one prefix, which is
             /// what the one pool below serves.
@@ -128,7 +129,7 @@ macro_rules! serve_all {
             let http_service: &'static HttpService = HTTP_SERVICE.init($crate::PrefixRouter {
                 prefix: ubos_api::PATH_PREFIX,
                 matched: ubos_api::RestApiService::new(
-                    $machine.control_board.name,
+                    board_name,
                     env!("BUILD_ID"),
                     $mining_info,
                     $bounds,

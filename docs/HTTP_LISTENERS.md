@@ -49,8 +49,8 @@ reaches no crate above `ubos-logging`, so both functions take these
 values as plain arguments rather than depending on `ubos-http`'s
 `RequestParts` type.
 
-The depth is a per-board constant (`http_pool` and `metrics_http_pool` in
-`ControlBoardDescriptor`) that sizes the `TcpBuffers`, the parse buffer,
+The depth is a per-board constant (`http` and `metrics` of the
+`HttpPoolSizes` in `ControlBoardDescriptor`) that sizes the `TcpBuffers`, the parse buffer,
 and the worker task pool. Because each worker is its own task with its own static
 future, the whole per-listener footprint is fixed and linker-checked; it
 does not depend on how deeply any single future is polled. An earlier
@@ -92,8 +92,8 @@ The sizes are the same on every board, and the buffers sit in main SRAM.
 
 Shipped pool depths are per board:
 
-| Board | `http_pool` | `metrics_http_pool` |
-|-------|-------------|---------------------|
+| Board | `http` | `metrics` |
+|-------|--------|-----------|
 | bmm-pico, rp2350, hashnode, forge-axe | 8 | 5 |
 | esp32s3 | 4 | 3 |
 | rp2040 | 2 | 1 |
@@ -244,7 +244,7 @@ corruption into an immediate, labelled fault:
 ## Further headroom
 
 - **Raise a pool where the board links it.** With the footprint
-  linker-checked, raising `http_pool` is safe to try: it either links
+  linker-checked, raising `http` is safe to try: it either links
   (and fits) or fails the build. Validate with a release build and the load
   test.
 - **Shrink the REST handler future.** It is what makes a merged slot

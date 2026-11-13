@@ -347,7 +347,8 @@ pub fn split_work_buffer<const N: usize>(
 /// Expands to an `#[embassy_executor::task(pool_size = POOL_CONST)]`
 /// async function named `task_name` that calls `serve_worker` with the
 /// given service type. `POOL_CONST` may be any `const` expression,
-/// including a path such as `config::MACHINE.control_board.http_pool`.
+/// including a path such as
+/// `config::MACHINE.control_board.http_pool_sizes.http`.
 ///
 /// # Example
 ///

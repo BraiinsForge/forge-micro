@@ -118,7 +118,7 @@ mod tests;
 /// than silently eating the headroom.
 ///
 /// Per-connection stack cost is `SCRATCH_SIZE` bytes; this multiplies by
-/// `ControlBoardDescriptor::http_pool` for concurrent connections. If you
+/// `HttpPoolSizes::http` for concurrent connections. If you
 /// increase this constant, audit task-stack sizing for all ubos-api
 /// consumers.
 const SCRATCH_SIZE: usize = 2048;

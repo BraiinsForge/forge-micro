@@ -23,6 +23,31 @@ use ubos_eeprom::forge::ControlBoardEepromLayout;
 
 use crate::platform::{ESP32S3, PlatformDescriptor, RP2040, RP2350};
 
+/// The sizes of the two HTTP worker pools of a board. Each size is the
+/// task pool of one listener, so it is fixed at build time.
+#[derive(Clone, Copy)]
+pub struct HttpPoolSizes {
+    /// Number of concurrent connections the HTTP listener serves. One
+    /// listener answers the web UI and the REST API, and a connection
+    /// that stays open holds its slot, so this is the ceiling on
+    /// simultaneous connections rather than on clients. Count two
+    /// connections for each browser and one for each machine client.
+    ///
+    /// Two is the floor on every board. A single slot puts the OTA
+    /// recovery path behind whatever worker an open dashboard holds, and
+    /// that is the path a wedged board is recovered over. It also leaves
+    /// a board with an open page unreachable to every other client,
+    /// because the 2 s poll holds the one worker.
+    ///
+    /// A slot costs more than the buffers it names. Every slot must be
+    /// able to serve the REST API, whose handler future is far larger
+    /// than the dashboard's, so a merged slot is dearer than either of
+    /// the two per-listener slots it replaces.
+    pub http: usize,
+    /// Number of concurrent connections the metrics HTTP listener serves.
+    pub metrics: usize,
+}
+
 /// The board the firmware runs on.
 ///
 /// Carries the platform, the MAC family byte, the HTTP pool sizes, and
@@ -40,25 +65,8 @@ pub struct ControlBoardDescriptor {
     /// remaining octets so each board type self-assigns stable, distinct
     /// MACs on a shared segment.
     pub mac_family: u8,
-    /// Number of concurrent connections the HTTP listener serves. One
-    /// listener answers the web UI and the REST API, and a connection
-    /// that stays open holds its slot, so this is the ceiling on
-    /// simultaneous connections rather than on clients. Count two
-    /// connections for each browser and one for each machine client.
-    ///
-    /// Two is the floor on every board. A single slot puts the OTA
-    /// recovery path behind whatever worker an open dashboard holds, and
-    /// that is the path a wedged board is recovered over. It also leaves
-    /// a board with an open page unreachable to every other client,
-    /// because the 2 s poll holds the one worker.
-    ///
-    /// A slot costs more than the buffers it names. Every slot must be
-    /// able to serve the REST API, whose handler future is far larger
-    /// than the dashboard's, so a merged slot is dearer than either of
-    /// the two per-listener slots it replaces.
-    pub http_pool: usize,
-    /// Number of concurrent connections the metrics HTTP listener serves.
-    pub metrics_http_pool: usize,
+    /// The sizes of the HTTP worker pools.
+    pub http_pool_sizes: HttpPoolSizes,
     /// Capacity of the retained event-log ring.
     pub event_log_capacity: usize,
     /// The layout of the board-specific data at the start of the reserved
@@ -73,8 +81,10 @@ pub const CONTROL_BOARD_RP2040: ControlBoardDescriptor = ControlBoardDescriptor 
     name: "W6100-EVB-Pico",
     platform: RP2040,
     mac_family: 0x01,
-    http_pool: 2,
-    metrics_http_pool: 1,
+    http_pool_sizes: HttpPoolSizes {
+        http: 2,
+        metrics: 1,
+    },
     event_log_capacity: 32,
     eeprom_layout: None,
 };
@@ -84,8 +94,10 @@ pub const CONTROL_BOARD_RP2350: ControlBoardDescriptor = ControlBoardDescriptor 
     name: "W6100-EVB-Pico2",
     platform: RP2350,
     mac_family: 0x02,
-    http_pool: 8,
-    metrics_http_pool: 5,
+    http_pool_sizes: HttpPoolSizes {
+        http: 8,
+        metrics: 5,
+    },
     event_log_capacity: 128,
     eeprom_layout: None,
 };
@@ -98,8 +110,10 @@ pub const CONTROL_BOARD_BMM_ADAPTER: ControlBoardDescriptor = ControlBoardDescri
     name: "W5500-EVB-Pico2",
     platform: RP2350,
     mac_family: 0x03,
-    http_pool: 8,
-    metrics_http_pool: 5,
+    http_pool_sizes: HttpPoolSizes {
+        http: 8,
+        metrics: 5,
+    },
     event_log_capacity: 128,
     eeprom_layout: None,
 };
@@ -116,8 +130,10 @@ pub const CONTROL_BOARD_ESP32S3: ControlBoardDescriptor = ControlBoardDescriptor
     name: "Waveshare ESP32-S3-LCD-Driver-Board W5100S",
     platform: ESP32S3,
     mac_family: 0x05,
-    http_pool: 4,
-    metrics_http_pool: 3,
+    http_pool_sizes: HttpPoolSizes {
+        http: 4,
+        metrics: 3,
+    },
     event_log_capacity: 128,
     eeprom_layout: None,
 };
@@ -131,8 +147,10 @@ pub const CONTROL_BOARD_HASHNODE: ControlBoardDescriptor = ControlBoardDescripto
     name: "Braiins Forge Miner x4",
     platform: RP2350,
     mac_family: 0x04,
-    http_pool: 8,
-    metrics_http_pool: 5,
+    http_pool_sizes: HttpPoolSizes {
+        http: 8,
+        metrics: 5,
+    },
     event_log_capacity: 128,
     eeprom_layout: None,
 };
@@ -146,8 +164,10 @@ pub const CONTROL_BOARD_FORGE_AXE: ControlBoardDescriptor = ControlBoardDescript
     name: "Forge Axe",
     platform: RP2350,
     mac_family: 0x08,
-    http_pool: 8,
-    metrics_http_pool: 5,
+    http_pool_sizes: HttpPoolSizes {
+        http: 8,
+        metrics: 5,
+    },
     event_log_capacity: 128,
     eeprom_layout: Some(ControlBoardEepromLayout::V1),
 };

@@ -383,8 +383,8 @@ once, and a third request costs the page its wordmark.
 | `SESSION_TTL_SECS`                | 86 400     | `ubos-auth/src/session.rs`            |
 | `MAX_TOKENS` (CSRF)               | 16         | `ubos-auth/src/csrf.rs`               |
 | `CSRF_TTL_SECS`                   | 3 600      | `ubos-auth/src/csrf.rs`               |
-| `http_pool`                       | 1 to 8     | `ubos-machine/src/control_board.rs`   |
-| `metrics_http_pool`               | 1 to 5     | `ubos-machine/src/control_board.rs`   |
+| `HttpPoolSizes::http`             | 1 to 8     | `ubos-machine/src/control_board.rs`   |
+| `HttpPoolSizes::metrics`          | 1 to 5     | `ubos-machine/src/control_board.rs`   |
 | `MAX_METRICS`                     | per board  | each board's `src/config.rs`          |
 | `METRICS_RESPONSE_BYTES`          | per board  | each board's `src/config.rs`          |
 
