@@ -50,7 +50,7 @@ rec {
   # stood here before, which let any rust-overlay bump move the compiler
   # under the firmware without a line of this repo changing. A version
   # written down moves when someone decides to move it.
-  rustVersion = "1.98.1";
+  rustVersion = "1.100.0";
 
   rustToolchain = pkgs.rust-bin.stable.${rustVersion}.default.override {
     extensions = [

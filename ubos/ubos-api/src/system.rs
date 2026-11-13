@@ -1106,16 +1106,15 @@ where
         // the ack reaches the client; see `handle_ota`.
         let _ = write_json_response(connection, Status::OK, b"{\"ok\":true}").await;
         ota.reboot_into_new()
-    } else {
-        #[allow(clippy::cast_possible_truncation)]
-        let next_offset = ota_offset as usize + chunk_size;
-        let mut ack_buf = [0u8; 40];
-        let mut writer = ubos_http::BufferWriter::new(&mut ack_buf);
-        // Plain integer args, so `write!` cannot fail.
-        let _ = core::write!(writer, "{{\"ok\":true,\"next\":{next_offset}}}");
-        let ack_len = writer.len();
-        write_json_response(connection, Status::OK, &ack_buf[..ack_len]).await
     }
+    #[allow(clippy::cast_possible_truncation)]
+    let next_offset = ota_offset as usize + chunk_size;
+    let mut ack_buf = [0u8; 40];
+    let mut writer = ubos_http::BufferWriter::new(&mut ack_buf);
+    // Plain integer args, so `write!` cannot fail.
+    let _ = core::write!(writer, "{{\"ok\":true,\"next\":{next_offset}}}");
+    let ack_len = writer.len();
+    write_json_response(connection, Status::OK, &ack_buf[..ack_len]).await
 }
 
 /// Begin a JSON response with no `Content-Length`, which edge-http sends

@@ -107,7 +107,7 @@ pub fn partition_version_mask(
         chain.slot() < chains.max(1),
         "BUG: chain index outside chains"
     );
-    let index_bits = usize::BITS - chains.saturating_sub(1).leading_zeros();
+    let index_bits = chains.saturating_sub(1).bit_width();
     if index_bits > granted.count_ones() {
         return VersionPartition {
             fixed_bits: 0,

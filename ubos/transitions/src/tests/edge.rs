@@ -27,7 +27,7 @@ fn the_edges_are_the_declared_ones() {
     for (edge, (trigger, to)) in edges.iter().zip(declared) {
         assert_eq!((edge.trigger, edge.to), (trigger, to));
     }
-    assert!(<Nowhere as crate::Edges>::EDGES.is_empty());
+    assert_eq!(<Nowhere as crate::Edges>::EDGES.len(), 0);
 }
 
 #[test]

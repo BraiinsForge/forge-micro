@@ -273,9 +273,9 @@ async fn run_success_exchange() -> (Vec<u8>, Vec<u8>) {
             (result, recording.client_to_pool, recording.pool_to_client)
         },
         async {
-            let mut pool_duplex = &mut pool_stream;
+            let pool_duplex = &mut pool_stream;
             let session: EstablishedSession = {
-                let mut wrapped = FromTokio::new(&mut pool_duplex);
+                let mut wrapped = FromTokio::new(&mut *pool_duplex);
                 accept(&mut wrapped, SeededRng::new(POOL_SEED), crypto_ctx(), &cert)
                     .await
                     .expect("BUG: fake-pool accept failed")
@@ -368,9 +368,9 @@ async fn run_reject_exchange() -> (Vec<u8>, Vec<u8>) {
             (result, recording.client_to_pool, recording.pool_to_client)
         },
         async {
-            let mut pool_duplex = &mut pool_stream;
+            let pool_duplex = &mut pool_stream;
             let session: EstablishedSession = {
-                let mut wrapped = FromTokio::new(&mut pool_duplex);
+                let mut wrapped = FromTokio::new(&mut *pool_duplex);
                 accept(&mut wrapped, SeededRng::new(POOL_SEED), crypto_ctx(), &cert)
                     .await
                     .expect("BUG: fake-pool accept failed")

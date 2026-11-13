@@ -418,7 +418,7 @@ async fn accepted_submit_carries_the_pool_difficulty_as_work() {
     let visitor =
         answer_submit(|id| std::format!(r#"{{"id":{id},"result":true,"error":null}}"#)).await;
     assert_eq!(visitor.accepted_work, [1024]);
-    assert!(visitor.rejected_work.is_empty());
+    assert_eq!(visitor.rejected_work, [] as [u64; 0]);
 }
 
 #[tokio::test]
@@ -428,7 +428,7 @@ async fn rejected_submit_carries_the_pool_difficulty_as_work() {
     })
     .await;
     assert_eq!(visitor.rejected_work, [1024]);
-    assert!(visitor.accepted_work.is_empty());
+    assert_eq!(visitor.accepted_work, [] as [u64; 0]);
 }
 
 #[tokio::test]

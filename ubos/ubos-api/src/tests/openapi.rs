@@ -647,7 +647,7 @@ fn every_route_variant_is_in_the_table() {
 fn descriptions_address_the_client() {
     let mut found = Vec::new();
     descriptions(&document(), "", &mut found);
-    assert!(!found.is_empty());
+    assert_ne!(found.len(), 0);
     let leaks: Vec<&(String, String)> = found
         .iter()
         .filter(|(_, text)| {

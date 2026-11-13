@@ -60,11 +60,11 @@ rec {
     srcs = [
       (pkgs.fetchurl {
         url = "https://github.com/esp-rs/rust-build/releases/download/v${espToolchainVersion}/rust-${espToolchainVersion}-x86_64-unknown-linux-gnu.tar.xz";
-        hash = "sha256-u38+zDa3QdyfVlVGKST+k6hiDXw0nFn5moZIkoztmpo=";
+        hash = "sha256-Wp+tPi+ELdcnGeR+ONWNdt+44mB0xkEIPgLX9mo0Cgw=";
       })
       (pkgs.fetchurl {
         url = "https://github.com/esp-rs/rust-build/releases/download/v${espToolchainVersion}/rust-src-${espToolchainVersion}.tar.xz";
-        hash = "sha256-wZ5aQKYl32SEVKlyovsvMDFE1CcEraeHzco6D1nKDMw=";
+        hash = "sha256-vsSi59kUwjc5H53aH1MJddkv2m+xWzx8zDBTyxFvnU4=";
       })
     ];
 

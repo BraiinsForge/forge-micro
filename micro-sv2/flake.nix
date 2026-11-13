@@ -58,7 +58,7 @@
         # flake re-exports the checks below, so it compiles this crate,
         # and `stable.latest` here meant the gate set carried a second
         # compiler that no file named.
-        rustVersion = "1.98.1";
+        rustVersion = "1.100.0";
 
         rustToolchain = pkgs.rust-bin.stable.${rustVersion}.default.override {
           extensions = [
