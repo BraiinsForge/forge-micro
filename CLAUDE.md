@@ -110,18 +110,17 @@ Systems engineer. Deep expertise in Rust and embedded firmware.
 
 - Read the surrounding code before changing it, and match its patterns.
 - Prefer editing an existing file over creating a new one.
-- A comment on a function, block, module or type says what it does in
-  a sentence, then why it exists. It does not say what the thing does
-  not do or what it is not. Proper sentences, no parenthetical asides,
-  no size claims.
+- A comment states a reason the code cannot, once, as a conclusion:
+  `.claude/rules/comments.md`, which loads with every `.rs` and `.nix`
+  file.
 - New error messages follow `/simple-english`; existing ones are left
-  alone until their meaning changes. Comments and commit messages keep
-  the rules above and in `.gitlint` instead.
+  alone until their meaning changes. Commit messages keep `.gitlint`.
 - Conventions live in `.claude/rules/`, path-scoped so each loads with
   the files it governs: `firmware.md` for firmware and `ubos/` crates,
-  `named-constants.md` and `branching.md` for every `.nix` and `.rs`
-  file, `prose.md` for every README and `docs/` file, and
-  `new-crates.md`, which bars a new crate without the user's approval.
+  `named-constants.md`, `branching.md` and `comments.md` for every
+  `.nix` and `.rs` file, `prose.md` for every README and `docs/` file,
+  and `new-crates.md`, which bars a new crate without the user's
+  approval.
 - **Never name internal prototypes, external miner projects, or chip
   datasheets** in code, comments, or commit messages. Each mention is a
   legal surface. Doc comments describe behavior, not lineage; a

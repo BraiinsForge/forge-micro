@@ -30,7 +30,7 @@ It governs nothing else. Three kinds of text keep their own rules:
 | Text | Governed by |
 |------|-------------|
 | Commit messages | `.gitlint` and the `/commit` skill |
-| Code, nix, and script comments | the comment rules in `CLAUDE.md` |
+| Rust and nix comments | `.claude/rules/comments.md` |
 | `CLAUDE.md` and other agent instructions | nothing here |
 
 Existing prose is not rewritten to match. Rewrite a paragraph when you
