@@ -60,8 +60,9 @@ where
 /// function awaits that hold, so a caller must budget for it inside its
 /// own interval.
 ///
-/// `bmm::run_watchdog` is the only caller that meets the interval. Any
-/// other caller that borrows this pattern owns the same obligation.
+/// The PSU task is the only caller that meets the interval, through
+/// `BmmPsu`'s `Psu::heartbeat`. Any other caller that borrows this
+/// pattern owns the same obligation.
 ///
 /// # Errors
 ///

@@ -58,6 +58,9 @@ struct FakePsu {
     calls: RefCell<Vec<&'static str>>,
     enable_hangs: Cell<bool>,
     set_voltage_hangs: Cell<bool>,
+    heartbeat_interval: Cell<Option<embassy_time::Duration>>,
+    heartbeats: Cell<u32>,
+    heartbeat_hangs: Cell<bool>,
     reads_hang: Cell<bool>,
     terminated: Cell<bool>,
     polls: Cell<u32>,
@@ -116,8 +119,22 @@ impl Psu for FakePsu {
         self.model_asks.set(self.model_asks.get() + 1);
         None
     }
+    async fn heartbeat_interval(&self) -> Option<embassy_time::Duration> {
+        self.heartbeat_interval.get()
+    }
+    async fn heartbeat(&self) -> Result<(), Error<Infallible>> {
+        self.heartbeats.set(self.heartbeats.get() + 1);
+        while self.heartbeat_hangs.get() {
+            yield_now().await;
+        }
+        self.read(())
+    }
     async fn terminate(&self) {}
 }
+
+/// The interval the fake supply's heartbeat is sent at, short so a test
+/// sees several heartbeats.
+const HEARTBEAT_INTERVAL: embassy_time::Duration = embassy_time::Duration::from_millis(5);
 
 /// A supply over a fresh fake driver, both leaked so they are `'static`
 /// the way a board's are.
@@ -218,6 +235,59 @@ fn voltage_write_dropped_as_stuck_clears_the_commanded_voltage() {
 }
 
 #[test]
+fn heartbeat_is_sent_on_its_own_interval_beside_the_commands() {
+    let (driver, psu) = fake_supply();
+    let handle = psu.handle();
+    driver.heartbeat_interval.set(Some(HEARTBEAT_INTERVAL));
+    let disabled = beside(psu, async {
+        poll_until(pending::<()>(), || driver.heartbeats.get() > 1).await;
+        handle.disable().await
+    });
+    assert!(disabled.is_ok());
+    assert_eq!(*driver.calls.borrow(), ["disable"]);
+}
+
+#[test]
+fn terminated_driver_gets_no_more_heartbeats() {
+    let (driver, psu) = fake_supply();
+    driver.heartbeat_interval.set(Some(HEARTBEAT_INTERVAL));
+    driver.terminated.set(true);
+    beside(psu, async {
+        poll_until(pending::<()>(), || driver.heartbeats.get() > 0).await;
+        embassy_time::Timer::after(HEARTBEAT_INTERVAL * 4).await;
+    });
+    assert_eq!(driver.heartbeats.get(), 1);
+}
+
+#[test]
+fn heartbeat_held_past_its_interval_is_followed_by_one_pulse() {
+    let (driver, psu) = fake_supply();
+    driver.heartbeat_interval.set(Some(HEARTBEAT_INTERVAL));
+    driver.heartbeat_hangs.set(true);
+    beside(psu, async {
+        poll_until(pending::<()>(), || driver.heartbeats.get() > 0).await;
+        embassy_time::Timer::after(HEARTBEAT_INTERVAL * 8).await;
+        driver.heartbeat_hangs.set(false);
+        embassy_time::Timer::after(HEARTBEAT_INTERVAL / 2).await;
+    });
+    assert_eq!(driver.heartbeats.get(), 2);
+}
+
+#[test]
+fn command_is_answered_behind_a_heartbeat_that_is_stuck() {
+    let (driver, psu) = fake_supply();
+    let handle = psu.handle();
+    driver.heartbeat_interval.set(Some(HEARTBEAT_INTERVAL));
+    driver.heartbeat_hangs.set(true);
+    let disabled = beside(psu, async {
+        poll_until(pending::<()>(), || driver.heartbeats.get() > 0).await;
+        handle.disable().await
+    });
+    assert!(disabled.is_ok());
+    assert_eq!(*driver.calls.borrow(), ["disable"]);
+}
+
+#[test]
 fn command_drops_a_poll_read_that_is_stuck() {
     let (driver, psu) = fake_supply();
     let handle = psu.handle();
@@ -257,6 +327,25 @@ fn poll_stops_for_a_queued_command_and_runs_again() {
     assert!(disabled.is_ok());
     assert_eq!(*driver.calls.borrow(), ["disable", "read_output_power"]);
     assert_eq!(driver.polls.get(), 2);
+}
+
+#[test]
+fn heartbeat_is_sent_between_the_commands_that_stop_a_poll() {
+    let (driver, psu) = fake_supply();
+    let handle = psu.handle();
+    driver.heartbeat_interval.set(Some(HEARTBEAT_INTERVAL));
+    driver.reads_hang.set(true);
+    let (before, after) = beside(psu, async {
+        poll_until(pending::<()>(), || driver.polls.get() > 0).await;
+        let before = driver.heartbeats.get();
+        // Every command stops the poll, which then runs again and hangs.
+        for _ in 0..3 {
+            assert!(handle.disable().await.is_ok());
+        }
+        (before, driver.heartbeats.get())
+    });
+    assert!(after > before);
+    assert!(driver.polls.get() > 1);
 }
 
 #[test]

@@ -17,13 +17,13 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! `BmmPsu` handle, watchdog future, and `Psu` trait impl.
+//! `BmmPsu` handle and `Psu` trait impl.
 
 use core::marker::PhantomData;
 
-use embassy_time::Ticker;
+use embassy_time::Duration;
 use embedded_hal_async::i2c::I2c;
-use ubos_logging::{info, warn};
+use ubos_logging::info;
 
 use ubos_core::units::{Power, Voltage};
 
@@ -89,42 +89,9 @@ pub struct BmmPsu<I: I2c + 'static> {
 }
 
 impl<I: I2c + 'static> BmmPsu<I> {
-    /// Construct a handle. Spawn [`Self::run_watchdog`] separately on
-    /// another handle over the same [`BmmShared`] to drive the SLG46826G
-    /// heartbeat.
+    /// Construct a handle.
     pub fn new(shared: &'static BmmShared<I>) -> Self {
         Self { shared }
-    }
-
-    /// Heartbeat driver: takes the lock once per
-    /// `config.heartbeat_interval` and sends a heartbeat to the
-    /// `SLG46826G` if init has succeeded. Returns once [`Psu::terminate`]
-    /// has run.
-    ///
-    /// A heartbeat keeps a running device alive, so it takes the lock
-    /// through [`Shared::initialized`] and never brings the device up
-    /// itself.
-    pub async fn run_watchdog(&self) {
-        let interval = self
-            .shared
-            .with_config(|config| config.heartbeat_interval)
-            .await;
-        let mut ticker = Ticker::every(interval);
-        loop {
-            ticker.next().await;
-            if self.shared.is_terminated() {
-                return;
-            }
-            let Some(mut psu) = self.shared.initialized().await else {
-                continue;
-            };
-            let (i2c, config) = psu.split();
-            let address = config.heartbeat_address;
-            info!("sending the heartbeat");
-            if let Err(_error) = heartbeat::pulse(i2c, address).await {
-                warn!("psu heartbeat failed");
-            }
-        }
     }
 }
 
@@ -183,6 +150,33 @@ impl<I: I2c + 'static> Psu for BmmPsu<I> {
         tps6287x::read_status(i2c, config).await
     }
 
+    async fn heartbeat_interval(&self) -> Option<Duration> {
+        Some(
+            self.shared
+                .with_config(|config| config.heartbeat_interval)
+                .await,
+        )
+    }
+
+    /// Send a heartbeat to the `SLG46826G` if init has succeeded.
+    ///
+    /// A heartbeat keeps a running device alive, so it takes the lock
+    /// through [`Shared::initialized`] and never brings the device up
+    /// itself.
+    async fn heartbeat(&self) -> Result<(), Error<I::Error>> {
+        if self.shared.is_terminated() {
+            return Err(Error::Terminated);
+        }
+        let Some(mut psu) = self.shared.initialized().await else {
+            return Ok(());
+        };
+        let (i2c, config) = psu.split();
+        info!("sending the heartbeat");
+        heartbeat::pulse(i2c, config.heartbeat_address)
+            .await
+            .map_err(Error::Bus)
+    }
+
     async fn terminate(&self) {
         if let Some(mut psu) = self.shared.terminate().await {
             let (i2c, config) = psu.split();
@@ -193,11 +187,10 @@ impl<I: I2c + 'static> Psu for BmmPsu<I> {
 
 /// The whole of a board's `psu` module where the power stage is a
 /// [`BmmPsu`] on a shared I2C bus: the `'static` storage, the
-/// constructor, and the two long-running tasks.
+/// constructor, and the PSU task.
 ///
-/// `init` answers the driver, which only the watchdog task takes, and
-/// the [`PowerSupply`](crate::PowerSupply) over it, whose handle every
-/// other task takes.
+/// `init` answers the [`PowerSupply`](crate::PowerSupply) over the
+/// driver, whose handle every other task takes.
 ///
 /// Takes the board's bus mutex type, the `I2cDevice` handle carved from
 /// it, and the machine descriptor's PSU entry. The board keeps those two
@@ -222,18 +215,11 @@ macro_rules! bmm_psu {
         /// Construct the `BmmPsu` over an `I2cDevice` carved from `bus`,
         /// and the `PowerSupply` over it.
         #[must_use]
-        pub fn init(
-            bus: &'static $bus,
-        ) -> (&'static BoardPsu, &'static ubos_psu::PowerSupply<BoardPsu>) {
+        pub fn init(bus: &'static $bus) -> &'static ubos_psu::PowerSupply<BoardPsu> {
             let device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
             let shared: &'static _ = SHARED.init(ubos_psu::BmmShared::new(device, $descriptor));
             let driver: &'static BoardPsu = DRIVER.init(ubos_psu::BmmPsu::new(shared));
-            (driver, PSU.init(ubos_psu::PowerSupply::new(driver)))
-        }
-
-        #[embassy_executor::task]
-        pub async fn watchdog_task(driver: &'static BoardPsu) {
-            driver.run_watchdog().await;
+            PSU.init(ubos_psu::PowerSupply::new(driver))
         }
 
         ubos_psu::psu_task!(BoardPsu);

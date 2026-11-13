@@ -45,11 +45,10 @@ static DRIVER: StaticCell<HostPsu> = StaticCell::new();
 static PSU: StaticCell<PowerSupply<HostPsu>> = StaticCell::new();
 
 /// Open the I2C bus from `UBOS_I2C_BUS`, stand up the PSU state, and
-/// return the driver the watchdog task takes and the `PowerSupply` over
-/// it.
+/// return the `PowerSupply` over the driver.
 /// Returns `None` if the env var is unset/empty or the bus cannot be
 /// opened.
-pub fn open() -> Option<(&'static HostPsu, &'static PowerSupply<HostPsu>)> {
+pub fn open() -> Option<&'static PowerSupply<HostPsu>> {
     let env_path = std::env::var(I2C_BUS_ENV);
     let path = env_path.as_deref().unwrap_or("/dev/i2c-0");
     if path.is_empty() {
@@ -65,7 +64,7 @@ pub fn open() -> Option<(&'static HostPsu, &'static PowerSupply<HostPsu>)> {
     info!("psu: opened {path}");
     let shared: &'static _ = SHARED.init(BmmShared::new(i2c, BmmPsuDescriptor::DEFAULT));
     let driver: &'static HostPsu = DRIVER.init(BmmPsu::new(shared));
-    Some((driver, PSU.init(PowerSupply::new(driver))))
+    Some(PSU.init(PowerSupply::new(driver)))
 }
 
 static ABSENT: ubos_psu::Handle = ubos_psu::Handle::absent();
@@ -74,11 +73,6 @@ static ABSENT: ubos_psu::Handle = ubos_psu::Handle::absent();
 /// read of it answers `None`.
 pub fn absent() -> &'static ubos_psu::Handle {
     &ABSENT
-}
-
-#[embassy_executor::task]
-pub async fn watchdog_task(driver: &'static HostPsu) {
-    driver.run_watchdog().await;
 }
 
 ubos_psu::psu_task!(HostPsu);

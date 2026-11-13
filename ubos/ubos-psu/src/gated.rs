@@ -181,6 +181,14 @@ where
         self.inner.model().await
     }
 
+    async fn heartbeat_interval(&self) -> Option<Duration> {
+        self.inner.heartbeat_interval().await
+    }
+
+    async fn heartbeat(&self) -> Result<(), Error<D::BusError>> {
+        self.inner.heartbeat().await
+    }
+
     async fn terminate(&self) {
         if self.inner_gate == InnerGate::DriveOperation {
             let _ = self.inner.disable().await;

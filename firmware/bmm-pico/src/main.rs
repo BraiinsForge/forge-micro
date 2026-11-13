@@ -354,8 +354,7 @@ async fn main(spawner: Spawner) {
             ubos_api::publish_hashboard_id(serial);
         }
 
-        let (psu_driver, psu) = psu::init(bus);
-        spawner.spawn(unwrap!(psu::watchdog_task(psu_driver)));
+        let psu = psu::init(bus);
         spawner.spawn(unwrap!(psu::psu_task(psu)));
         let psu_handle = psu.handle();
         let reset = mining::BoardResetPin::new(Output::new(hw.hb_rst, Level::Low));

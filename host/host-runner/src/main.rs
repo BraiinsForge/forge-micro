@@ -458,7 +458,7 @@ fn main() {
     // Opened before the executor runs, because the HTTP service takes
     // the PSU handle whether or not a hashboard is attached.
     let psu = psu::open();
-    let psu_handle = psu.map_or_else(psu::absent, |(_, psu)| psu.handle());
+    let psu_handle = psu.map_or_else(psu::absent, ubos_psu::PowerSupply::handle);
 
     let executor = EXECUTOR.init(Executor::new());
     executor.run(|spawner: Spawner| {
@@ -609,8 +609,7 @@ fn main() {
             }
         }
         match psu {
-            Some((psu_driver, psu)) => {
-                spawner.spawn(psu::watchdog_task(psu_driver).expect("BUG: psu watchdog token"));
+            Some(psu) => {
                 spawner.spawn(psu::psu_task(psu).expect("BUG: psu_task token"));
                 spawner
                     .spawn(

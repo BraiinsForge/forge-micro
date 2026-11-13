@@ -104,7 +104,7 @@ pub use gated::{GatedPsu, InnerGate};
 pub use state::{Device, RawMutex, Ready, Shared, State};
 
 use core::pin::pin;
-use embassy_futures::select::{Either, select};
+use embassy_futures::select::{Either, Either3, select, select3};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
@@ -389,37 +389,82 @@ impl<P: Psu> PowerSupply<P> {
     }
 
     /// Run the PSU forever: carry out each command from the [`Handle`]
-    /// and record its outcome, and every [`POWER_STATS_INTERVAL`] read
-    /// the power, the voltage and the status and publish them. Boards
-    /// spawn it through [`psu_task`].
+    /// and record its outcome, every [`POWER_STATS_INTERVAL`] read the
+    /// power, the voltage and the status and publish them, and send the
+    /// supply its heartbeat every [`Psu::heartbeat_interval`]. Boards spawn
+    /// it through [`psu_task`].
     ///
     /// A driver call the task started runs on while no command waits
     /// behind it. A poll stops between its calls for a queued command,
-    /// and runs again once that command is answered. A call still
+    /// and runs again once that command is answered and a heartbeat that
+    /// came due is sent. A call still
     /// running [`COMMAND_GRACE`] after a command queued behind it is
     /// dropped, whether it is stuck on the bus or inside a long step such
     /// as a device init, so a rail cut waits that long at most before it
     /// starts. A driver built on [`state::Shared`] runs a dropped init
-    /// again on its next call.
+    /// again on its next call. A heartbeat is the exception: it has
+    /// [`HEARTBEAT_TIMEOUT`] to end whatever queues behind it, because a
+    /// pulse cut short is a missed one, so a rail cut waits that long at
+    /// most behind a pulse stuck on the bus.
     pub async fn run(&self) -> ! {
         let mut ticker = embassy_time::Ticker::every(POWER_STATS_INTERVAL);
+        let mut heartbeat = self
+            .driver
+            .heartbeat_interval()
+            .await
+            .map(embassy_time::Ticker::every);
         let mut poll = Poll {
             last_known: None,
             fault_active: false,
             live: true,
             model_settled: false,
         };
+        // Set while a poll that stopped for a command has still to run.
+        let mut poll_due = false;
         loop {
-            match select(self.handle.commands.receive(), ticker.next()).await {
-                Either::First(command) => self.answer(command).await,
-                Either::Second(()) => {
+            let beat = async {
+                match heartbeat.as_mut() {
+                    Some(heartbeat) => {
+                        heartbeat.next().await;
+                        // As for the poll, one pulse follows a held one.
+                        heartbeat.reset();
+                    }
+                    None => core::future::pending().await,
+                }
+            };
+            let poll_tick = async {
+                if !poll_due {
+                    ticker.next().await;
+                }
+            };
+            // The select takes the first ready arm in this order, so a
+            // poll that is due again runs behind the queued command and
+            // behind a due heartbeat, and a run of commands that keeps
+            // stopping the poll leaves the heartbeat on time.
+            match select3(self.handle.commands.receive(), beat, poll_tick).await {
+                Either3::First(command) => self.answer(command).await,
+                Either3::Third(()) => {
                     // The next poll is due one interval from this one, so
                     // a poll held past several intervals is followed by
                     // one and not by one for each interval it missed.
                     ticker.reset();
-                    while poll.live && self.poll(&mut poll).await.is_none() {
-                        let command = self.handle.commands.receive().await;
-                        self.answer(command).await;
+                    poll_due = poll.live && self.poll(&mut poll).await.is_none();
+                }
+                Either3::Second(()) => {
+                    let pulse = self.driver.heartbeat();
+                    match embassy_time::with_timeout(HEARTBEAT_TIMEOUT, pulse).await {
+                        Ok(Ok(())) => {}
+                        // A terminated supply takes no more heartbeats.
+                        Ok(Err(Error::Terminated)) => heartbeat = None,
+                        Ok(Err(error)) => {
+                            ubos_logging::warn!(
+                                "psu heartbeat failed: {:?}",
+                                ubos_logging::Debug2Format(&error),
+                            );
+                        }
+                        Err(embassy_time::TimeoutError) => {
+                            ubos_logging::warn!("psu heartbeat timed out");
+                        }
                     }
                 }
             }
@@ -680,6 +725,11 @@ pub const POWER_STATS_INTERVAL: embassy_time::Duration = embassy_time::Duration:
 /// stuck one, so the command behind it starts on time.
 pub const COMMAND_GRACE: embassy_time::Duration = embassy_time::Duration::from_millis(100);
 
+/// How long one heartbeat may run. A healthy pulse is two bus
+/// writes and a short hold, and ends well inside it, so only a pulse
+/// stuck on the bus is dropped, and the commands behind it go on.
+pub const HEARTBEAT_TIMEOUT: embassy_time::Duration = embassy_time::Duration::from_secs(1);
+
 /// Publish a measured output-rail voltage, optionally tagged with a `source`
 /// label so a board that reads the rail from more than one sensor (e.g. the
 /// SIC's `READ_VOUT` and a separate INA230) keeps them as distinct series
@@ -739,6 +789,18 @@ pub trait Psu {
     /// and for a supply that reports none.
     async fn model(&self) -> Option<ModelString> {
         None
+    }
+    /// How often [`Psu::heartbeat`] is due, or `None` for a supply with
+    /// no heartbeat, which is the default. [`PowerSupply::run`]
+    /// asks once, before its first driver call.
+    async fn heartbeat_interval(&self) -> Option<embassy_time::Duration> {
+        None
+    }
+    /// Send the supply its heartbeat. [`PowerSupply::run`] is the only
+    /// caller, every [`Psu::heartbeat_interval`], so the PSU task stays
+    /// the one task that reaches the driver.
+    async fn heartbeat(&self) -> Result<(), Error<Self::BusError>> {
+        Ok(())
     }
     async fn terminate(&self);
 }
