@@ -95,8 +95,11 @@ Code: `ubos/ubos-psu/src/supply.rs`,
 `board_psu_output_voltage_set_mv` is the voltage the supply landed the last
 commanded hashboard rail on, which is the request rounded to the supply's
 step.
-`board_psu_output_voltage_measured_mv` is a physical reading of that rail;
-a zero value on a board without a voltage sensor means unavailable.
+`output_voltage_measured_mv` is a physical reading of that rail. Its
+`source` label is `psu` for the supply's own readback and `feedback` for a
+separate monitor on the rail, and a board that has both exports one series
+for each. A zero value on a board without a voltage sensor means
+unavailable.
 `hashboard_chain_voltage_microvolts` is different:
 it sums the on-die core voltages reported by the chips. It remains a
 separate metric because it is not a PSU rail measurement.

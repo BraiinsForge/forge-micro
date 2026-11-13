@@ -28,7 +28,7 @@ use ubos_core::units::{Power, Voltage};
 
 use crate::state::{Device, Shared};
 use crate::tps53647::{self, Tps53647Config};
-use crate::{Error, ModelString, Psu};
+use crate::{Error, ModelString, Psu, VoltageSource};
 
 #[cfg(test)]
 #[path = "tests/forge_axe.rs"]
@@ -126,8 +126,8 @@ impl<I: I2c + 'static> Psu for ForgeAxePsu<I> {
         tps53647::read_vout(i2c, &config.tps).await
     }
 
-    fn voltage_source(&self) -> Option<&'static str> {
-        Some("tps53647")
+    fn voltage_source(&self) -> VoltageSource {
+        VoltageSource::Psu
     }
 
     async fn read_status(&self) -> Result<crate::StatusFlags, Error<I::Error>> {

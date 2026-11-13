@@ -92,6 +92,9 @@ impl Psu for FakePsu {
     async fn read_output_voltage(&self) -> Result<Voltage, Error<Infallible>> {
         self.read(Voltage::from_mv(0))
     }
+    fn voltage_source(&self) -> VoltageSource {
+        VoltageSource::Psu
+    }
     async fn read_status(&self) -> Result<StatusFlags, Error<Infallible>> {
         self.read(StatusFlags::default())
     }

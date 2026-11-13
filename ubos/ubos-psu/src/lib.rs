@@ -69,7 +69,7 @@ pub use config::BmmPsuDescriptor;
 pub use error::{CommandError, Error};
 pub use forge_axe::{ForgeAxeDevice, ForgeAxePsu, ForgeAxePsuDescriptor, ForgeAxeShared};
 pub use gated::{GatedPsu, InnerGate};
-pub use psu::{MODEL_LEN, ModelString, Psu};
+pub use psu::{MODEL_LEN, ModelString, Psu, VoltageSource};
 pub use state::{Device, RawMutex, Ready, Shared, State};
 pub use status::StatusFlags;
 pub use supply::{

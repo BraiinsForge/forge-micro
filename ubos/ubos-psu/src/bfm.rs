@@ -28,7 +28,7 @@ use embedded_hal_async::i2c::I2c;
 use ubos_core::units::{Current, Power, Voltage};
 
 use crate::state::{Device, Shared};
-use crate::{Error, ModelString, Psu, ina230, sic45x};
+use crate::{Error, ModelString, Psu, VoltageSource, ina230, sic45x};
 
 #[cfg(test)]
 #[path = "tests/bfm.rs"]
@@ -197,16 +197,8 @@ impl<I: I2c + 'static> Psu for BfmPsu<I> {
         )
     }
 
-    fn voltage_source(&self) -> Option<&'static str> {
-        // Names the installed part, the SIC450, not the sic45x driver
-        // family. This is a deployed Prometheus label value; dashboards
-        // and alerts key on source="sic450", so it must not be
-        // genericized to "sic45x".
-        Some("sic450")
-    }
-
-    fn secondary_voltage_source(&self) -> Option<&'static str> {
-        Some("ina230")
+    fn voltage_source(&self) -> VoltageSource {
+        VoltageSource::Psu
     }
 
     async fn read_status(&self) -> Result<crate::StatusFlags, Error<I::Error>> {

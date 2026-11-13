@@ -34,7 +34,7 @@ use portable_atomic::{AtomicU32, Ordering};
 use ubos_core::units::{Power, Voltage};
 use ubos_metrics::metrics::{Metric, Value};
 
-use crate::{CommandError, Error, ModelString, Psu};
+use crate::{CommandError, Error, ModelString, Psu, VoltageSource};
 
 #[cfg(test)]
 #[path = "tests/supply.rs"]
@@ -527,7 +527,7 @@ impl<P: Psu> PowerSupply<P> {
         if let Some(secondary) = secondary_result {
             match secondary {
                 Ok(voltage) => {
-                    publish_measured_voltage(voltage, self.driver.secondary_voltage_source());
+                    publish_measured_voltage(voltage, VoltageSource::Feedback);
                 }
                 Err(error) => {
                     ubos_logging::error!(
@@ -643,23 +643,22 @@ pub const COMMAND_GRACE: embassy_time::Duration = embassy_time::Duration::from_m
 /// stuck on the bus is dropped, and the commands behind it go on.
 pub const HEARTBEAT_TIMEOUT: embassy_time::Duration = embassy_time::Duration::from_secs(1);
 
-/// Publish a measured output-rail voltage, optionally tagged with a `source`
-/// label so a board that reads the rail from more than one sensor (e.g. the
-/// SIC's `READ_VOUT` and a separate INA230) keeps them as distinct series
-/// under one metric name.
-fn publish_measured_voltage(voltage: Voltage, source: Option<&'static str>) {
-    use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value};
-    let value = Value::Uint(u64::from(voltage.mv()));
-    let Some(source) = source else {
-        Metric::with_no_labels("board_psu_output_voltage_measured_mv", value).try_push();
-        return;
-    };
+/// Gauge carrying a measured output-rail voltage, one series for each
+/// [`VoltageSource`] the board reads.
+const MEASURED_VOLTAGE_METRIC: &str = "output_voltage_measured_mv";
+
+/// Publish a measured output-rail voltage tagged with its `source`, so a
+/// board that reads the rail from the supply and from a separate monitor
+/// keeps them as distinct series under one metric name.
+fn publish_measured_voltage(voltage: Voltage, source: VoltageSource) {
+    use ubos_metrics::metrics::{Label, LabelValue, Labels};
     let mut labels = Labels::new();
     let _ = labels.push(Label {
         name: "source",
-        value: LabelValue::Static(source),
+        value: LabelValue::Static(source.label()),
     });
-    Metric::with_labels("board_psu_output_voltage_measured_mv", labels, value).try_push();
+    let value = Value::Uint(u64::from(voltage.mv()));
+    Metric::with_labels(MEASURED_VOLTAGE_METRIC, labels, value).try_push();
 }
 
 /// Task shell around [`PowerSupply::run`]. Takes the board's driver

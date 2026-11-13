@@ -31,7 +31,10 @@ use ubos_logging::info;
 use ubos_core::units::{Power, Voltage};
 
 use crate::state::{Device, RawMutex, Shared};
-use crate::{BmmPsuDescriptor, Error, ModelString, Psu, StatusFlags, heartbeat, ina230, tps6287x};
+use crate::{
+    BmmPsuDescriptor, Error, ModelString, Psu, StatusFlags, VoltageSource, heartbeat, ina230,
+    tps6287x,
+};
 
 #[cfg(test)]
 #[path = "tests/bmm.rs"]
@@ -175,6 +178,10 @@ impl<I: I2c + 'static> Psu for BmmPsu<I> {
         ina230::read_bus_voltage(i2c, config.ina_output_address)
             .await
             .map_err(Error::Bus)
+    }
+
+    fn voltage_source(&self) -> VoltageSource {
+        VoltageSource::Feedback
     }
 
     /// Read the converter's fault flags, with undervoltage cleared while

@@ -48,7 +48,7 @@ use embassy_time::{Duration, Timer};
 use portable_atomic::{AtomicU8, Ordering};
 use ubos_config::TunerInfo;
 use ubos_core::units::{Power, Voltage};
-use ubos_psu::{Error as PsuError, PowerSupply, Psu, StatusFlags};
+use ubos_psu::{Error as PsuError, PowerSupply, Psu, StatusFlags, VoltageSource};
 use ubos_tuner::{Plan, Readings};
 
 use embassy_futures::block_on;
@@ -783,6 +783,9 @@ impl Psu for TestPsu {
     }
     async fn read_output_voltage(&self) -> Result<Voltage, PsuError<Infallible>> {
         Ok(Voltage::from_mv(0))
+    }
+    fn voltage_source(&self) -> VoltageSource {
+        VoltageSource::Psu
     }
     async fn read_status(&self) -> Result<StatusFlags, PsuError<Infallible>> {
         Ok(StatusFlags::default())

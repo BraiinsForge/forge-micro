@@ -30,6 +30,28 @@ pub const MODEL_LEN: usize = 40;
 /// The PSU model string a driver identifies during its one-shot init.
 pub type ModelString = heapless::String<MODEL_LEN>;
 
+/// Where a measured output-rail voltage comes from. It is the `source`
+/// label of the measured-voltage gauge, so every board names its
+/// readings the same way and a dashboard needs no list of parts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VoltageSource {
+    /// The supply's own readback of its output.
+    Psu,
+    /// A separate monitor on the rail.
+    Feedback,
+}
+
+impl VoltageSource {
+    /// The label value the gauge carries.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Psu => "psu",
+            Self::Feedback => "feedback",
+        }
+    }
+}
+
 /// Async PSU control surface, with one implementation per hardware
 /// platform.
 pub trait Psu {
@@ -51,21 +73,15 @@ pub trait Psu {
     /// register is implementation-defined (e.g. `SIC READ_VOUT` for
     /// `BfmPsu`).
     async fn read_output_voltage(&self) -> Result<Voltage, Error<Self::BusError>>;
-    /// Optional second sensor measuring the same output rail, for
-    /// cross-checking [`read_output_voltage`]. `None` (the default) means the
-    /// board exposes only one source.
+    /// Optional separate monitor on the same output rail, for
+    /// cross-checking [`read_output_voltage`]. `None`, the default, means the
+    /// board exposes only one source. The reading is published as
+    /// [`VoltageSource::Feedback`].
     async fn read_secondary_voltage(&self) -> Option<Result<Voltage, Error<Self::BusError>>> {
         None
     }
-    /// Source label for [`read_output_voltage`], or `None` to publish the
-    /// measured-voltage gauge without a `source` label.
-    fn voltage_source(&self) -> Option<&'static str> {
-        None
-    }
-    /// Source label for [`read_secondary_voltage`].
-    fn secondary_voltage_source(&self) -> Option<&'static str> {
-        None
-    }
+    /// Where [`read_output_voltage`] reads the rail from.
+    fn voltage_source(&self) -> VoltageSource;
     /// Read the PSU STATUS register and decode the four fault flags.
     async fn read_status(&self) -> Result<StatusFlags, Error<Self::BusError>>;
     /// The model string the driver identified, or `None` before it has

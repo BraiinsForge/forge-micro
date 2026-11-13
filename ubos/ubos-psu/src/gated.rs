@@ -32,7 +32,7 @@ use embassy_time::{Duration, Timer};
 use embedded_hal::digital::{InputPin, OutputPin};
 use ubos_core::units::{Power, Voltage};
 
-use crate::{Error, ModelString, Psu, StatusFlags};
+use crate::{Error, ModelString, Psu, StatusFlags, VoltageSource};
 
 /// One GPIO line reached through `&self`. `Psu` methods take `&self`, but
 /// the pin traits take `&mut self`, so the pin sits in a `RefCell`. The
@@ -165,12 +165,8 @@ where
         self.inner.read_secondary_voltage().await
     }
 
-    fn voltage_source(&self) -> Option<&'static str> {
+    fn voltage_source(&self) -> VoltageSource {
         self.inner.voltage_source()
-    }
-
-    fn secondary_voltage_source(&self) -> Option<&'static str> {
-        self.inner.secondary_voltage_source()
     }
 
     async fn read_status(&self) -> Result<StatusFlags, Error<D::BusError>> {

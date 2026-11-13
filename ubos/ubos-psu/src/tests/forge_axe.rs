@@ -129,9 +129,8 @@ fn terminate_disables_an_initialized_rail_once() {
 }
 
 #[test]
-fn voltage_source_names_the_part() {
+fn voltage_source_is_the_supply_and_there_is_no_second_one() {
     let (psu, _bus) = make_handle(Mock::new(&[]));
-    assert_eq!(psu.voltage_source(), Some("tps53647"));
-    assert_eq!(psu.secondary_voltage_source(), None);
+    assert_eq!(psu.voltage_source(), crate::VoltageSource::Psu);
     assert!(run(psu.read_secondary_voltage()).is_none());
 }
