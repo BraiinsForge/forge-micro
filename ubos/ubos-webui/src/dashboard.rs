@@ -311,10 +311,20 @@ fn percent_decode(input: &str) -> Option<heapless::String<FORM_FIELD_MAX_LEN>> {
 /// Serves the web-UI shell (HTML, login, logout, logo).
 /// Methods are enforced: wrong-method requests on known paths return
 /// 405. Every request that reaches this handler increments the request
-/// counter via `ubos_net::net::handle().record_request` regardless of
+/// counter via `ubos_net::net::Handle::record_request` regardless of
 /// response status, so the metric reflects handled-request volume rather
 /// than success rate.
-pub struct DashboardService;
+pub struct DashboardService {
+    net: ubos_net::net::Handle,
+}
+
+impl DashboardService {
+    /// Serve the web UI and count each request on `net`.
+    #[must_use]
+    pub const fn new(net: ubos_net::net::Handle) -> Self {
+        Self { net }
+    }
+}
 
 impl Service for DashboardService {
     // The line count comes from the flat match dispatch table, not
@@ -335,7 +345,7 @@ impl Service for DashboardService {
         // `board_http_requests_total` reflects dashboard and API traffic.
         // The metrics port does not increment it, and a connection
         // dropped before its request is parsed is never counted.
-        ubos_net::net::handle().record_request();
+        self.net.record_request();
 
         let method = parts.method.as_str();
         let path = parts.path.as_str();
@@ -616,8 +626,7 @@ impl Service for DashboardService {
 /// authenticates against the operator's configured credentials. The REST
 /// API listener owns the config watch that keeps the shared credential
 /// store in sync on later changes.
-pub fn seed_webui_credentials() {
-    let config = ubos_config::handle();
+pub fn seed_webui_credentials(config: ubos_config::Handle) {
     let api = config.current().api;
     ubos_auth::auth::set_credentials(&api.username, &api.password);
     ubos_auth::auth::warn_if_default_credentials();
