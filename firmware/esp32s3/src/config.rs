@@ -17,9 +17,7 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Peripheral extraction for the Waveshare ESP32-S3-LCD-Driver-Board. SPI
-//! frequency is pinned below the W5100S datasheet limit because higher
-//! rates corrupt frames on this wiring.
+//! Peripheral extraction for the Waveshare ESP32-S3-LCD-Driver-Board.
 //!
 //! Wiring/pinout: `../../../docs/SETUP.md`
 
@@ -40,8 +38,8 @@ use esp_hal::time::Rate;
 
 pub struct Spi;
 impl Spi {
-    /// W5100S datasheet allows up to 33.3 MHz, but on this board 25 MHz and above
-    /// produces corrupted RX frame lengths. 20 MHz is the highest stable speed.
+    /// The highest stable rate on this wiring: 25 MHz and above corrupt the
+    /// received frame lengths.
     pub const FREQUENCY: Rate = Rate::from_mhz(20);
 }
 
