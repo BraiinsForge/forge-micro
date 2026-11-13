@@ -105,7 +105,7 @@ fn measured(reading: Reading) -> TempSample {
 use crate::metrics::{AMBIENT_METRIC_NAME, MCU_METRIC_NAME};
 use crate::threshold::{Action, evaluate};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::watch::{Receiver, Watch};
+use embassy_sync::watch::{Receiver, Sender, Watch};
 use embassy_time::{Duration, Instant, Ticker};
 use ubos_config::Handle as ConfigHandle;
 use ubos_config::ThermalConfig;
@@ -299,45 +299,54 @@ const WATCH_CAPACITY: usize = 4;
 
 /// State watch carrying the published [`ThermalReading`]. Single writer
 /// is [`run_thermal`]; readers obtained via [`Handle::subscribe`].
-pub type ThermalWatch = Watch<CSMutex, ThermalReading, WATCH_CAPACITY>;
+type ThermalWatch = Watch<CSMutex, ThermalReading, WATCH_CAPACITY>;
 
 /// The readings the firmware's one sensor task publishes.
-pub(crate) static STATE_WATCH: ThermalWatch = Watch::new();
+static STATE_WATCH: ThermalWatch = Watch::new();
 
 /// Per-task subscription returned by [`Handle::subscribe`].
 pub type ThermalSubscription = Receiver<'static, CSMutex, ThermalReading, WATCH_CAPACITY>;
 
-/// Obtain a handle to the thermal module. `Copy`; callers freely pass
-/// it to multiple tasks.
-#[must_use]
-pub fn handle() -> Handle {
-    Handle::new(&STATE_WATCH)
-}
+/// Records that the firmware took the thermal handle.
+static TAKEN: ubos_core::take_once::TakeOnce = ubos_core::take_once::TakeOnce::new("thermal");
 
 /// Consumer-side handle for the thermal subsystem.
 ///
-/// `Copy` because it holds only a `&'static` reference. Every consumer
-/// task takes its own value.
+/// The handle holds no data: its methods are the only way to the private
+/// statics of this module. A firmware takes it once and passes a copy to
+/// each task that uses it.
 #[derive(Clone, Copy)]
-pub struct Handle {
-    state: &'static ThermalWatch,
+pub struct Handle(());
+
+/// The right to run the task that reads the sensors.
+///
+/// It is not `Copy`, so a firmware that gives it to one task cannot give
+/// it to a second.
+pub struct Runner(());
+
+#[allow(clippy::unused_self)]
+impl Runner {
+    /// The sender of the thermal reading, which only the sensor task writes.
+    pub(crate) fn publisher(&self) -> Sender<'static, CSMutex, ThermalReading, WATCH_CAPACITY> {
+        STATE_WATCH.sender()
+    }
 }
 
 impl Handle {
-    /// A handle over `state`. Firmware calls [`handle`] instead, which
-    /// answers for the watch the board runs on. A host test that drives
-    /// a thermal consumer builds a handle over a watch it declared
-    /// itself, and then no other test can observe what it publishes.
+    /// The firmware's one thermal handle, and the runner of the task that
+    /// reads the sensors. A second call panics.
     #[must_use]
-    pub const fn new(state: &'static ThermalWatch) -> Self {
-        Self { state }
+    #[track_caller]
+    pub fn take() -> (Runner, Self) {
+        TAKEN.take();
+        (Runner(()), Self(()))
     }
 
     /// Most recent published reading, or `None` if the sensor task has
     /// not yet completed its first poll.
     #[must_use]
     pub fn current(&self) -> Option<ThermalReading> {
-        self.state.try_get()
+        STATE_WATCH.try_get()
     }
 
     /// Per-task subscription. Call once per consumer task before
@@ -348,7 +357,7 @@ impl Handle {
     /// Panics if the underlying `Watch` has no free receiver slots.
     #[must_use]
     pub fn subscribe(&self) -> ThermalSubscription {
-        self.state
+        STATE_WATCH
             .receiver()
             .expect("BUG: Handle receiver slots exhausted; raise WATCH_CAPACITY")
     }
@@ -432,7 +441,7 @@ enum Note {
 
 impl Note {
     /// Tell the manager, and log the edge.
-    async fn report(self, manager_handle: &ManagerHandle) {
+    async fn report(self, manager_handle: ManagerHandle) {
         let message = match self {
             Self::Unreadable(ticks) => {
                 crate::events::sensor_fault(ticks);
@@ -571,7 +580,10 @@ async fn read_ambient<A: AmbientSensor>(ambient: &mut A) -> Option<Temperature> 
 /// temperature sensor driver and `ambient` its ambient temperature
 /// sensor, [`NoAmbient`] where it has none. `mcu` is the thermometer on
 /// the MCU die, [`NoMcu`] where the MCU has none, and the loop pushes its
-/// reading to the metrics on each tick. `manager_handle` takes the two
+/// reading to the metrics on each tick. `_runner` is the right to run
+/// this loop, which is the one that publishes the readings. It is borrowed
+/// mutably, so one runner runs one loop at a time, and `main` gives it to
+/// one task. `manager_handle` takes the two
 /// message pairs this loop sends, and is also where it reads both halts
 /// back from: the manager's mask is the only copy of that state, so an
 /// operator who clears a thermal halt cannot leave this loop believing
@@ -582,16 +594,16 @@ async fn read_ambient<A: AmbientSensor>(ambient: &mut A) -> Option<Temperature> 
 ///
 /// The manager is the sole caller of `MiningHandle::halt`/`resume`.
 /// Thermal tuning is read from `config` and refreshed whenever that
-/// config publishes a new value. Board firmware passes
-/// [`ubos_config::handle`], which [`thermal_task`] supplies for it.
+/// config publishes a new value.
 pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatureSensor>(
     mut sensor: S,
     mut ambient: A,
     mut mcu: M,
+    runner: &mut Runner,
     manager_handle: ManagerHandle,
     config_handle: ConfigHandle,
 ) -> ! {
-    let publisher = STATE_WATCH.sender();
+    let publisher = runner.publisher();
     let mut config_subscription = config_handle.subscribe();
     let mut config: ThermalConfig = config_handle.current().thermal;
 
@@ -630,7 +642,7 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatu
         let reading = sensor.sample().await;
         let step = thermal.judge(reading, &config, manager_handle.pause_reasons());
         for note in [step.unreadable, step.dangerous].into_iter().flatten() {
-            note.report(&manager_handle).await;
+            note.report(manager_handle).await;
         }
         let ambient_temp = read_ambient(&mut ambient).await;
         // A tick inside the miss budget withholds its reading, for the
@@ -670,10 +682,19 @@ macro_rules! thermal_task {
             sensor: $sensor,
             ambient: $ambient,
             mcu: $mcu,
+            mut runner: ubos_thermal::Runner,
             manager_handle: ubos_manager::Handle,
+            config_handle: ubos_config::Handle,
         ) -> ! {
-            ubos_thermal::run_thermal(sensor, ambient, mcu, manager_handle, ubos_config::handle())
-                .await
+            ubos_thermal::run_thermal(
+                sensor,
+                ambient,
+                mcu,
+                &mut runner,
+                manager_handle,
+                config_handle,
+            )
+            .await
         }
     };
 }

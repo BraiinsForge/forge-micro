@@ -37,10 +37,9 @@ use core::task::{Context, Waker};
 use std::collections::VecDeque;
 
 use embassy_time::{Duration, MockDriver};
+use rusty_fork::rusty_fork_test;
 use ubos_core::units::Temperature;
-use ubos_manager::{
-    CommandChannel, Handle as ManagerHandle, Message, PauseReason, PauseReasons, PauseWatch,
-};
+use ubos_manager::{Handle as ManagerHandle, Message, PauseReason, PauseSubscription, run_manager};
 
 use super::{
     NoAmbient, NoMcu, Reading, SENSOR_FAULT_TICKS, TempSample, TempStats, TemperatureSensor, clock,
@@ -87,50 +86,6 @@ fn hot_reading() -> Reading {
     })
 }
 
-/// Drain every `Message` queued so far on the manager's command channel
-/// and apply each to `mask`, then publish it, as `run_manager` would.
-/// The publish is what the loop's `holds` read-back sees on the next
-/// tick, so a test that drained without publishing would leave the loop
-/// judging every later tick against a mask its own messages never
-/// reached.
-pub(crate) fn drain_messages(
-    manager: &ManagerChannels,
-    mask: &mut PauseReasons,
-) -> std::vec::Vec<Message> {
-    let mut messages = std::vec::Vec::new();
-    while let Ok(message) = manager.commands.try_receive() {
-        *mask = mask.apply(message);
-        messages.push(message);
-    }
-    manager.state.sender().send(*mask);
-    messages
-}
-
-/// The manager channels one test drives, standing in for `run_manager`.
-///
-/// Each test declares its own, so no test sees another's queued messages
-/// or published mask. A single set shared by a helper that more than one
-/// test calls would put them back on one channel pair.
-pub(crate) struct ManagerChannels {
-    pub(crate) state: PauseWatch,
-    pub(crate) commands: CommandChannel,
-}
-
-impl ManagerChannels {
-    pub(crate) const fn new() -> Self {
-        Self {
-            state: PauseWatch::new(),
-            commands: CommandChannel::new(),
-        }
-    }
-
-    /// The handle `run_thermal` takes, reading and writing these
-    /// channels rather than the ones the firmware runs on.
-    pub(crate) fn handle(&'static self) -> ManagerHandle {
-        ManagerHandle::new(&self.state, &self.commands)
-    }
-}
-
 /// Polls per phase. One tick's chain of awaits is a handful of polls, so
 /// this covers it with room to spare. Polling a task that has already
 /// parked returns `Pending` and changes nothing, so a fixed count needs
@@ -157,198 +112,233 @@ fn prime<F: Future>(thermal: &mut Pin<&mut F>) {
     settle(thermal);
 }
 
-/// Advance the mock clock by one sample interval and poll `thermal`
-/// until the awaits one tick triggers — the sensor sample, the manager
-/// send, the watch publish — have settled.
-fn tick<F: Future>(driver: &MockDriver, thermal: &mut Pin<&mut F>) {
+/// Advance the mock clock by one sample interval, poll `thermal` until the
+/// awaits one tick triggers have settled, and then poll `manager` so that it
+/// handles what the tick sent.
+fn tick<F: Future, M: Future>(
+    driver: &MockDriver,
+    thermal: &mut Pin<&mut F>,
+    manager: &mut Pin<&mut M>,
+) {
     let interval = u64::from(ubos_config::Config::default().thermal.sample_interval_ms);
     driver.advance(Duration::from_millis(interval));
     settle(thermal);
+    settle(manager);
 }
 
-#[test]
-fn unreadable_halts_exactly_once_at_the_budget() {
-    static MANAGER: ManagerChannels = ManagerChannels::new();
-    let _clock = clock();
-    let driver = MockDriver::get();
-    driver.reset();
-    let mut mask = PauseReasons::default();
-    let manager = MANAGER.handle();
-    drain_messages(&MANAGER, &mut mask);
+/// Whether the manager published a mask since the last call, and which.
+///
+/// The manager publishes once for every message it handles, so a tick that
+/// sent nothing leaves this `None`.
+fn published(subscription: &mut PauseSubscription) -> Option<ubos_manager::PauseReasons> {
+    subscription.try_changed()
+}
 
-    // Two ticks past the budget, to prove the halt is not sent again on
-    // tick `SENSOR_FAULT_TICKS + 1`.
-    let ticks = SENSOR_FAULT_TICKS + 2;
-    let sensor = ScriptedSensor::new((0..ticks).map(|_| Reading::Unreadable));
+// Each test takes the handles that a board takes in `main`, so it runs in
+// a process of its own.
+rusty_fork_test! {
+    #[test]
+    fn unreadable_halts_exactly_once_at_the_budget() {
+        let _clock = clock();
+        let driver = MockDriver::get();
+        driver.reset();
+        let (mut manager_runner, manager) = ManagerHandle::take();
+        let (_mining_runner, mining) = ubos_mining::Handle::take();
+        let (mut thermal_runner, _thermal_handle) = crate::Handle::take();
+        let (_config_runner, config) = ubos_config::Handle::take();
+        let mut mask = manager.subscribe();
+        let mut manager_task = pin!(run_manager(&mut manager_runner, mining));
 
-    let mut thermal = pin!(run_thermal(
-        sensor,
-        NoAmbient,
-        NoMcu,
-        manager,
-        ubos_config::handle()
-    ));
-    prime(&mut thermal);
+        // Two ticks past the budget, to prove the halt is not sent again on
+        // tick `SENSOR_FAULT_TICKS + 1`.
+        let ticks = SENSOR_FAULT_TICKS + 2;
+        let sensor = ScriptedSensor::new((0..ticks).map(|_| Reading::Unreadable));
 
-    for tick_number in 1..=ticks {
-        tick(driver, &mut thermal);
-        let sent = drain_messages(&MANAGER, &mut mask);
-        if tick_number == SENSOR_FAULT_TICKS {
-            assert_eq!(
-                sent,
-                std::vec![Message::TemperatureUnreadable],
-                "the halt must fire on the exact tick the tolerance budget runs out"
-            );
-        } else {
-            assert!(
-                sent.is_empty(),
-                "no message is owed before or after the budget tick, tick {tick_number} sent {}",
-                sent.len()
-            );
+        let mut thermal = pin!(run_thermal(
+            sensor,
+            NoAmbient,
+            NoMcu,
+            &mut thermal_runner,
+            manager,
+            config
+        ));
+        prime(&mut thermal);
+        prime(&mut manager_task);
+
+        for tick_number in 1..=ticks {
+            tick(driver, &mut thermal, &mut manager_task);
+            let sent = published(&mut mask);
+            if tick_number == SENSOR_FAULT_TICKS {
+                assert!(
+                    sent.is_some_and(|mask| mask.contains(PauseReason::TemperatureUnreadable)),
+                    "the halt must fire on the exact tick the tolerance budget runs out"
+                );
+            } else {
+                assert!(
+                    sent.is_none(),
+                    "no message is owed before or after the budget tick, tick {tick_number} sent one"
+                );
+            }
         }
     }
-}
 
-#[test]
-fn idle_after_a_halt_releases_it_and_a_following_run_spends_the_full_budget_again() {
-    static MANAGER: ManagerChannels = ManagerChannels::new();
-    let _clock = clock();
-    let driver = MockDriver::get();
-    driver.reset();
-    let mut mask = PauseReasons::default();
-    let manager = MANAGER.handle();
-    drain_messages(&MANAGER, &mut mask);
+    #[test]
+    fn idle_after_a_halt_releases_it_and_a_following_run_spends_the_full_budget_again() {
+        let _clock = clock();
+        let driver = MockDriver::get();
+        driver.reset();
+        let (mut manager_runner, manager) = ManagerHandle::take();
+        let (_mining_runner, mining) = ubos_mining::Handle::take();
+        let (mut thermal_runner, _thermal_handle) = crate::Handle::take();
+        let (_config_runner, config) = ubos_config::Handle::take();
+        let mut mask = manager.subscribe();
+        let mut manager_task = pin!(run_manager(&mut manager_runner, mining));
 
-    let mut script = std::vec::Vec::new();
-    // First run: spend the whole tolerance budget on Unreadable, which
-    // halts on the last one.
-    for _ in 0..SENSOR_FAULT_TICKS {
-        script.push(Reading::Unreadable);
-    }
-    // The release: a board with nothing powered owes no reading, which
-    // must retract the halt even though no measurement ever arrived.
-    script.push(Reading::Idle);
-    // Second run: Unreadable again. If the tolerance count had not reset
-    // on the release, this would halt again on the first tick instead of
-    // needing the full budget.
-    for _ in 0..SENSOR_FAULT_TICKS {
-        script.push(Reading::Unreadable);
-    }
+        let mut script = std::vec::Vec::new();
+        // First run: spend the whole tolerance budget on Unreadable, which
+        // halts on the last one.
+        for _ in 0..SENSOR_FAULT_TICKS {
+            script.push(Reading::Unreadable);
+        }
+        // The release: a board with nothing powered owes no reading, which
+        // must retract the halt even though no measurement ever arrived.
+        script.push(Reading::Idle);
+        // Second run: Unreadable again. If the tolerance count had not reset
+        // on the release, this would halt again on the first tick instead of
+        // needing the full budget.
+        for _ in 0..SENSOR_FAULT_TICKS {
+            script.push(Reading::Unreadable);
+        }
 
-    let sensor = ScriptedSensor::new(script);
+        let sensor = ScriptedSensor::new(script);
 
-    let mut thermal = pin!(run_thermal(
-        sensor,
-        NoAmbient,
-        NoMcu,
-        manager,
-        ubos_config::handle()
-    ));
-    prime(&mut thermal);
+        let mut thermal = pin!(run_thermal(
+            sensor,
+            NoAmbient,
+            NoMcu,
+            &mut thermal_runner,
+            manager,
+            config
+        ));
+        prime(&mut thermal);
+        prime(&mut manager_task);
 
-    // Drive the first run's budget.
-    for _ in 0..SENSOR_FAULT_TICKS {
-        tick(driver, &mut thermal);
-    }
-    assert_eq!(
-        drain_messages(&MANAGER, &mut mask),
-        std::vec![Message::TemperatureUnreadable],
-        "the first run must halt exactly once, at the end of its budget"
-    );
-
-    // The idle tick: releases the halt.
-    tick(driver, &mut thermal);
-    assert_eq!(
-        drain_messages(&MANAGER, &mut mask),
-        std::vec![Message::TemperatureReadable],
-        "an Idle reading after a halt must release it"
-    );
-
-    // The second run must not halt again before the budget is spent a
-    // second time.
-    for tick_number in 1..SENSOR_FAULT_TICKS {
-        tick(driver, &mut thermal);
+        // Drive the first run's budget.
+        for _ in 0..SENSOR_FAULT_TICKS {
+            tick(driver, &mut thermal, &mut manager_task);
+        }
         assert!(
-            drain_messages(&MANAGER, &mut mask).is_empty(),
-            "tick {tick_number} of the second run must not halt before its own budget runs out"
+            published(&mut mask).is_some_and(|mask| mask.contains(PauseReason::TemperatureUnreadable)),
+            "the first run must halt at the end of its budget"
+        );
+        assert!(
+            published(&mut mask).is_none(),
+            "the first run must halt exactly once"
+        );
+
+        // The idle tick: releases the halt.
+        tick(driver, &mut thermal, &mut manager_task);
+        assert!(
+            published(&mut mask).is_some_and(ubos_manager::PauseReasons::is_empty),
+            "an Idle reading after a halt must release it"
+        );
+
+        // The second run must not halt again before the budget is spent a
+        // second time.
+        for tick_number in 1..SENSOR_FAULT_TICKS {
+            tick(driver, &mut thermal, &mut manager_task);
+            assert!(
+                published(&mut mask).is_none(),
+                "tick {tick_number} of the second run must not halt before its own budget runs out"
+            );
+        }
+        // The last tick of the second budget must halt again, proving the
+        // count reset rather than carrying over remaining tolerance from
+        // before the release.
+        tick(driver, &mut thermal, &mut manager_task);
+        assert!(
+            published(&mut mask).is_some_and(|mask| mask.contains(PauseReason::TemperatureUnreadable)),
+            "a run after the release must spend the full budget again before halting"
         );
     }
-    // The last tick of the second budget must halt again, proving the
-    // count reset rather than carrying over remaining tolerance from
-    // before the release.
-    tick(driver, &mut thermal);
-    assert_eq!(
-        drain_messages(&MANAGER, &mut mask),
-        std::vec![Message::TemperatureUnreadable],
-        "a run after the release must spend the full budget again before halting"
-    );
-}
 
-#[test]
-fn dangerous_temperature_re_arms_after_an_acknowledged_halt_clears_the_mask() {
-    static MANAGER: ManagerChannels = ManagerChannels::new();
-    let _clock = clock();
-    let driver = MockDriver::get();
-    driver.reset();
-    let mut mask = PauseReasons::default();
-    let manager = MANAGER.handle();
-    drain_messages(&MANAGER, &mut mask);
+    #[test]
+    fn dangerous_temperature_re_arms_after_an_acknowledged_halt_clears_the_mask() {
+        let _clock = clock();
+        let driver = MockDriver::get();
+        driver.reset();
+        let (mut manager_runner, manager) = ManagerHandle::take();
+        let (_mining_runner, mining) = ubos_mining::Handle::take();
+        let (mut thermal_runner, thermal_handle) = crate::Handle::take();
+        let (_config_runner, config) = ubos_config::Handle::take();
+        let mut mask = manager.subscribe();
+        let mut manager_task = pin!(run_manager(&mut manager_runner, mining));
 
-    // Every tick is over the threshold. What changes between them is the
-    // mask, which is the only thing this loop may read the halt state
-    // from.
-    let sensor = ScriptedSensor::new([hot_reading(), hot_reading(), hot_reading()]);
+        // Three over-threshold samples: trip, stand, and re-arm.
+        let sensor = ScriptedSensor::new([hot_reading(), hot_reading(), hot_reading()]);
 
-    let mut thermal = pin!(run_thermal(
-        sensor,
-        NoAmbient,
-        NoMcu,
-        manager,
-        ubos_config::handle()
-    ));
-    prime(&mut thermal);
+        let mut thermal = pin!(run_thermal(
+            sensor,
+            NoAmbient,
+            NoMcu,
+            &mut thermal_runner,
+            manager,
+            config
+        ));
+        prime(&mut thermal);
+        prime(&mut manager_task);
 
-    // Tick 1: an over-threshold sample with the mask clear must trip the
-    // halt.
-    tick(driver, &mut thermal);
-    assert_eq!(
-        drain_messages(&MANAGER, &mut mask),
-        std::vec![Message::DangerousTemperature],
-        "a first over-threshold sample must trip the halt"
-    );
+        // Tick 1: an over-threshold sample with the mask clear must trip the
+        // halt.
+        tick(driver, &mut thermal, &mut manager_task);
+        assert!(
+            published(&mut mask).is_some_and(|mask| mask.contains(PauseReason::DangerousTemperature)),
+            "a first over-threshold sample must trip the halt"
+        );
+        assert!(
+            thermal_handle.current().is_some(),
+            "the loop must publish through the handle it was given"
+        );
 
-    // Tick 2: the halt stands in the mask the drain published, so a
-    // sample still above the threshold and far above `cooldown_temp`
-    // evaluates to `Ok` and asks for nothing. This is the half that
-    // proves the loop reads the mask at all: with no halt state anywhere,
-    // this tick would trip a second time.
-    tick(driver, &mut thermal);
-    assert!(
-        drain_messages(&MANAGER, &mut mask).is_empty(),
-        "a sample taken while the halt stands must not ask for it twice"
-    );
+        // Tick 2: the halt stands in the mask the manager published, so a
+        // sample still above the threshold and far above `cooldown_temp`
+        // evaluates to `Ok` and asks for nothing. This is the half that
+        // proves the loop reads the mask at all: with no halt state anywhere,
+        // this tick would trip a second time.
+        tick(driver, &mut thermal, &mut manager_task);
+        assert!(
+            published(&mut mask).is_none(),
+            "a sample taken while the halt stands must not ask for it twice"
+        );
 
-    // The operator acknowledges, which is the only way out of this halt
-    // on a board whose chips are its thermometer, see `docs/MINING.md`
-    // under "Two ways out of an overheat halt". The API sends it to the
-    // manager, which clears the bit and publishes; here the drain stands
-    // in for both.
-    mask = mask.apply(Message::TemperatureAcknowledged);
-    MANAGER.state.sender().send(mask);
-    assert!(
-        !mask.contains(PauseReason::DangerousTemperature),
-        "the acknowledgement must clear the halt"
-    );
+        // The operator acknowledges, which is the only way out of this halt
+        // on a board whose chips are its thermometer, see `docs/MINING.md`
+        // under "Two ways out of an overheat halt". The API sends it to the
+        // manager, which clears the bit and publishes.
+        {
+            // One poll, because the send completes on it and a finished
+            // future must not be polled again.
+            let mut acknowledge = pin!(manager.send(Message::TemperatureAcknowledged));
+            let _ = acknowledge
+                .as_mut()
+                .poll(&mut Context::from_waker(Waker::noop()));
+        }
+        settle(&mut manager_task);
+        assert!(
+            !manager.holds(PauseReason::DangerousTemperature),
+            "the acknowledgement must clear the halt"
+        );
+        let _ = published(&mut mask);
 
-    // Tick 3: the same over-threshold sample must trip the halt again.
-    // This is the half that proves the read is fresh. A flag of its own set
-    // on tick 1 and never told about the acknowledgement would still
-    // read as held, and `evaluate` would answer `Ok` at any temperature
-    // for the rest of the loop's life.
-    tick(driver, &mut thermal);
-    assert_eq!(
-        drain_messages(&MANAGER, &mut mask),
-        std::vec![Message::DangerousTemperature],
-        "the trip must re-arm once the manager's mask reports the halt cleared"
-    );
+        // Tick 3: the same over-threshold sample must trip the halt again.
+        // This is the half that proves the read is fresh. A flag of its own set
+        // on tick 1 and never told about the acknowledgement would still
+        // read as held, and `evaluate` would answer `Ok` at any temperature
+        // for the rest of the loop's life.
+        tick(driver, &mut thermal, &mut manager_task);
+        assert!(
+            published(&mut mask).is_some_and(|mask| mask.contains(PauseReason::DangerousTemperature)),
+            "the trip must re-arm once the manager's mask reports the halt cleared"
+        );
+    }
 }
