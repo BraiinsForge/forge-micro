@@ -19,19 +19,19 @@
 
 //! Critical-path manager task.
 //!
-//! `run_manager` drains [`COMMAND_CHANNEL`] fed by `Handle::send`,
+//! `run_manager` drains `COMMAND_CHANNEL` fed by `Handle::send`,
 //! interprets each [`Message`] into a `PauseReason` bit
 //! transition on the live [`PauseReasons`] mask, publishes the updated
-//! mask on [`STATE_WATCH`], and drives `MiningHandle::halt`/`resume` on
+//! mask on `STATE_WATCH`, and drives `MiningHandle::halt`/`resume` on
 //! the empty/non-empty edge. A `Start` that finds nothing paused is
 //! forwarded as a resume too, for a miner that parked itself.
 
 use ubos_logging::info;
 use ubos_mining::Handle as MiningHandle;
 
+use crate::Runner;
 use crate::message::Message;
 use crate::pause::{PauseReason, PauseReasons, effect};
-use crate::{COMMAND_CHANNEL, STATE_WATCH};
 
 /// Log a `DangerousTemperature` bit transition.
 ///
@@ -80,10 +80,10 @@ fn halt_reason(message: Message) -> Option<PauseReason> {
 
 /// Run the manager loop forever.
 ///
-/// Drains [`COMMAND_CHANNEL`] fed by `Handle::send`, interprets
+/// Drains `COMMAND_CHANNEL` fed by `Handle::send`, interprets
 /// each [`Message`] into a `PauseReason` bit transition on the
 /// live [`PauseReasons`] mask, publishes the updated mask on
-/// [`STATE_WATCH`], and calls `mining.halt()`/`resume()` on the
+/// `STATE_WATCH`, and calls `mining.halt()`/`resume()` on the
 /// empty/non-empty edge. Manager is the sole caller of
 /// `MiningHandle::halt`/`resume`; senders construct domain messages
 /// and never name a `PauseReason`.
@@ -93,14 +93,16 @@ fn halt_reason(message: Message) -> Option<PauseReason> {
 /// after a bring-up found no chain. Nothing was paused, so no reason
 /// clears, and without this the park could only be left through a
 /// pause and a resume. A miner that is not parked ignores the resume.
-pub async fn run_manager(mining: MiningHandle) -> ! {
-    let publisher = STATE_WATCH.sender();
+///
+/// The manager reaches the mask and the commands only through `runner`.
+pub async fn run_manager(runner: &mut Runner, mining: MiningHandle) -> ! {
+    let publisher = runner.publisher();
     let mut reasons = PauseReasons::default();
 
     info!("manager: started");
 
     loop {
-        let message = COMMAND_CHANNEL.receive().await;
+        let message = runner.next_message().await;
         let was_empty = reasons.is_empty();
         let was_danger = reasons.contains(PauseReason::DangerousTemperature);
         let triggering_reason = halt_reason(message);
@@ -143,8 +145,8 @@ pub async fn run_manager(mining: MiningHandle) -> ! {
 macro_rules! manager_task {
     () => {
         #[embassy_executor::task]
-        async fn manager_task(mining: ubos_mining::Handle) -> ! {
-            ubos_manager::run_manager(mining).await
+        async fn manager_task(mut runner: ubos_manager::Runner, mining: ubos_mining::Handle) -> ! {
+            ubos_manager::run_manager(&mut runner, mining).await
         }
     };
 }
