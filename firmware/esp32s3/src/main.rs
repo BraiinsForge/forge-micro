@@ -345,14 +345,9 @@ async fn boot(spawner: Spawner) {
     // consumes the SPI, both pins and the init-once `State`, so it cannot
     // be retried in place. A panic in its stead would make the next boot
     // report a watchdog stall for a fault outside the firmware.
-    let Ok((device, runner)) = embassy_net_wiznet::new(
-        mac_addr,
-        state,
-        ExclusiveDevice::new(spi, chip_select, Delay),
-        phy_int,
-        phy_reset,
-    )
-    .await
+    let Ok(ethernet_spi) = ExclusiveDevice::new(spi, chip_select, Delay);
+    let Ok((device, runner)) =
+        embassy_net_wiznet::new(mac_addr, state, ethernet_spi, phy_int, phy_reset).await
     else {
         error!("WIZnet init failed; resetting to retry");
         Timer::after(WIZNET_RETRY_DELAY).await;
@@ -440,7 +435,7 @@ async fn boot(spawner: Spawner) {
         .into_async();
         let display_cs = Output::new(hw.display_cs, Level::High, OutputConfig::default());
         let display_dc = Output::new(hw.display_dc, Level::Low, OutputConfig::default());
-        let spi_device = ExclusiveDevice::new_no_delay(display_spi, display_cs);
+        let Ok(spi_device) = ExclusiveDevice::new_no_delay(display_spi, display_cs);
         let mut display = Sh1106::new(spi_device, display_dc, Rotation::Normal);
         // Display is reset and SPI is valid; init cannot fail.
         display.init_async().await.expect("BUG: SH1106 init failed");

@@ -362,14 +362,9 @@ async fn boot(spawner: Spawner) {
     );
     static STATE: StaticCell<State<8, 8>> = StaticCell::new();
     let state = STATE.init(State::<8, 8>::new());
-    let (device, runner) = ubos_rp::boot::wiznet_or_reset(
-        mac_addr,
-        state,
-        ExclusiveDevice::new(spi, chip_select, Delay),
-        phy_int,
-        phy_reset,
-    )
-    .await;
+    let Ok(ethernet_spi) = ExclusiveDevice::new(spi, chip_select, Delay);
+    let (device, runner) =
+        ubos_rp::boot::wiznet_or_reset(mac_addr, state, ethernet_spi, phy_int, phy_reset).await;
     spawner.spawn(unwrap!(ethernet_task(runner)));
 
     let seeds = ubos_rp::boot::seeds_from_trng(hw.trng, Irqs).await;
@@ -434,7 +429,7 @@ async fn boot(spawner: Spawner) {
         );
         let display_cs = Output::new(hw.display_cs, Level::High);
         let display_dc = Output::new(hw.display_dc, Level::Low);
-        let spi_device = ExclusiveDevice::new_no_delay(display_spi, display_cs);
+        let Ok(spi_device) = ExclusiveDevice::new_no_delay(display_spi, display_cs);
         let mut display = Sh1106::new(spi_device, display_dc, Rotation::Normal);
         // Display is reset and SPI is valid; init cannot fail.
         display.init().expect("BUG: SH1106 init failed");
