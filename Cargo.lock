@@ -3851,6 +3851,8 @@ dependencies = [
  "heapless 0.9.2",
  "mining-protocol",
  "portable-atomic",
+ "rusty-fork",
+ "ubos-core",
  "ubos-events",
  "ubos-logging",
  "ubos-metrics",

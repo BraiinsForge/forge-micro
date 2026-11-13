@@ -145,7 +145,7 @@ pub struct PoolHandle<'a, const N: usize, const CHAINS: usize> {
 
 impl<const N: usize, const CHAINS: usize> PoolHandle<'_, N, CHAINS> {
     /// Slot index this handle publishes to and drains, doubling as
-    /// the pool index into [`crate::metrics::POOL_METRICS`].
+    /// the pool index into the table of [`crate::PoolCountersHandle`].
     #[must_use]
     pub fn slot(&self) -> usize {
         self.slot

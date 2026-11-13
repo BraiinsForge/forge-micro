@@ -29,6 +29,10 @@
 
 #![no_std]
 
+// The host test binary links std for the `rusty-fork` macro.
+#[cfg(test)]
+extern crate std;
+
 use embassy_time::Duration;
 
 pub mod asic_session;
@@ -109,8 +113,8 @@ pub use asic_session::{AsicSession, PoolHandle, SOLUTION_QUEUE_DEPTH};
 pub use connector::{PoolConnector, SessionError, run_stratum_session};
 pub use extension::{NoExtension, SessionExtension};
 pub use job_ring::{JOB_RING_DEPTH, JobRing, JobSlot, JobSlotError};
-pub use run::{NTIME_ROLL_MAX_SECS, pool_alive_bitmap, run_stratum_client};
+pub use metrics::PoolCountersHandle;
+pub use run::{NTIME_ROLL_MAX_SECS, run_stratum_client};
 pub use state::StratumState;
-pub use state::{shares_accepted, shares_rejected};
 pub use work::{MAX_EXTRANONCE_2, OutstandingWork, Solution, WorkAssignment};
 pub use work_ring::{WORK_RING_DEPTH, WorkRing};

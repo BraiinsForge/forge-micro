@@ -20,6 +20,7 @@ embedded-io-async = { workspace = true }
 heapless        = { workspace = true }
 mining-protocol = { workspace = true }
 portable-atomic = { workspace = true }
+ubos-core       = { workspace = true }
 ubos-events     = { workspace = true, default-features = false }
 ubos-logging    = { workspace = true }
 ubos-metrics    = { workspace = true, default-features = false }
@@ -30,6 +31,8 @@ ubos-metrics    = { workspace = true, default-features = false }
 # linkable critical-section implementation. The std impl is host-only and
 # never reaches firmware.
 critical-section = { version = "1.2", features = ["std"] }
+# A test that takes the handle runs in a process of its own.
+rusty-fork = { workspace = true }
 # The test binary links the counter pushes, which stamp each metric
 # with `embassy_time::Instant::now()`. The std time driver is
 # host-only and never reaches firmware.

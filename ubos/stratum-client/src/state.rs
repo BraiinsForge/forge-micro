@@ -25,10 +25,9 @@
 //! lands directly here. The same struct is also the work
 //! generator's source of truth for the latest job.
 //!
-//! The share counters below are free functions over private statics
-//! rather than fields of `StratumState`, and that is what keeps them
-//! across a reconnect. A reconnect builds a fresh `StratumState`, so a
-//! field would reset the lifetime totals every time a pool dropped.
+//! The share counters live in the private table in `metrics`, because a
+//! reconnect builds a fresh `StratumState` and the lifetime totals must
+//! survive it.
 
 use heapless::Vec;
 use ubos_logging::trace;
@@ -40,27 +39,6 @@ use mining_protocol::{MiningClientVisitor, MiningJob, SessionUpdate, SubmitResul
 use ubos_logging::{info, warn};
 
 use crate::run::POOL_INDEX_SPACE;
-
-/// Shares the pool has accepted since boot, summed across every pool
-/// slot. The only path across the crate boundary; the per-slot
-/// counters in [`crate::metrics::POOL_METRICS`] stay crate-private.
-#[must_use]
-pub fn shares_accepted() -> u64 {
-    crate::metrics::POOL_METRICS
-        .iter()
-        .map(crate::metrics::PoolMetrics::shares_accepted)
-        .sum()
-}
-
-/// Shares the pool has rejected since boot, summed across every pool
-/// slot.
-#[must_use]
-pub fn shares_rejected() -> u64 {
-    crate::metrics::POOL_METRICS
-        .iter()
-        .map(crate::metrics::PoolMetrics::shares_rejected)
-        .sum()
-}
 
 use crate::job_ring::{JOB_RING_DEPTH, JobRing};
 use crate::work_ring::{WORK_RING_DEPTH, WorkRing};

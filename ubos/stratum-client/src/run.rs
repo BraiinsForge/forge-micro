@@ -48,7 +48,7 @@ use mining_protocol::{
 use ubos_logging::{info, warn};
 
 /// Pool-index space shared by every per-pool counter keyed by pool
-/// index: [`crate::metrics::POOL_METRICS`]. A `u8` pool index fits
+/// index: [`crate::metrics::PoolTable`]. A `u8` pool index fits
 /// this space by construction, since the reachability bitmap built
 /// from it holds one bit per index.
 pub(crate) const POOL_INDEX_SPACE: usize = 8;
@@ -61,22 +61,6 @@ use crate::work::Solution;
 #[cfg(test)]
 #[path = "tests/run.rs"]
 mod tests;
-
-/// Current per-pool reachability bitmap, one bit per pool index. Set
-/// bits render as `Alive` on the dashboard; cleared bits as `Dead`.
-/// Pool reachability is a stratum concern, so it is owned here rather
-/// than in `ubos-net`. Bits of unconfigured slots stay zero and
-/// render `Dead`.
-#[must_use]
-pub fn pool_alive_bitmap() -> u8 {
-    let mut bitmap = 0u8;
-    for (pool_index, metrics) in crate::metrics::POOL_METRICS.iter().enumerate() {
-        if metrics.snapshot().alive {
-            bitmap |= 1u8 << pool_index;
-        }
-    }
-    bitmap
-}
 
 /// Maximum `ntime` roll, in seconds, past the pool's published
 /// base. Bitcoin's consensus rule allows ~2 hours; pools enforce a
