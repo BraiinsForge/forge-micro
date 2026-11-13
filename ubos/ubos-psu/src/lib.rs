@@ -24,10 +24,10 @@
 //! `embassy-rp::i2c`).
 //!
 //! A board builds one [`PowerSupply`] over its driver and spawns
-//! [`PowerSupply::run`]. That task is the only caller of the driver's
-//! rail commands and the only writer of what it records about them;
-//! every other task reaches the PSU through the `&'static` [`Handle`]
-//! the board passes it at spawn.
+//! [`PowerSupply::run`] with the [`Runner`] that [`Handle::take`]
+//! returns. That task is the only caller of the driver's rail commands
+//! and the only writer of what it records about them; every other task
+//! reaches the PSU through a copy of the [`Handle`].
 
 #![cfg_attr(not(test), no_std)]
 // Embassy executors do not require `Send`; adding the bound to
@@ -74,5 +74,5 @@ pub use state::{Device, RawMutex, Ready, Shared, State};
 pub use status::StatusFlags;
 pub use supply::{
     COMMAND_GRACE, HEARTBEAT_TIMEOUT, Handle, POWER_STATS_INTERVAL, PowerSupply, PsuReading,
-    PsuSubscription,
+    PsuSubscription, Runner,
 };

@@ -21,7 +21,7 @@
 //!
 //! [`PowerSupply`] and [`Handle`] share this module because the task is
 //! the only consumer of the handle's commands and the only writer of the
-//! state the handle reads, so those fields stay private to the pair.
+//! state the handle reads, so that state stays private to the pair.
 
 use core::pin::pin;
 use embassy_futures::select::{Either, Either3, select, select3};
@@ -31,6 +31,7 @@ use embassy_sync::mutex::Mutex;
 use embassy_sync::signal::Signal;
 use embassy_sync::watch::{Receiver, Watch};
 use portable_atomic::{AtomicU32, Ordering};
+use ubos_core::take_once::TakeOnce;
 use ubos_core::units::{Power, Voltage};
 use ubos_metrics::metrics::{Metric, Value};
 
@@ -112,14 +113,9 @@ impl Drop for Turn<'_> {
     }
 }
 
-/// The one way into a running PSU: commands go to [`PowerSupply::run`],
-/// and every fact that task records comes back out.
-///
-/// [`PowerSupply::handle`] hands it out as a `'static` reference, so
-/// every task borrows the one instance the supply owns. The task is the
-/// only consumer of the commands and the only writer of the state the
-/// handle reads.
-pub struct Handle {
+/// The state behind the [`Handle`]: the commands and replies that pass
+/// between the callers and the PSU task, and every fact that task records.
+struct Link {
     commands: Channel<CSMutex, (u32, Command), 1>,
     /// One reply slot, tagged with the sequence number of the command it
     /// answers, see [`Handle::command`].
@@ -137,15 +133,25 @@ pub struct Handle {
     model: Watch<CSMutex, ModelString, 1>,
 }
 
-impl Handle {
-    /// The handle a board holds when it has no supply. Every read
-    /// answers `None`. A command sent to it waits forever, so such a
-    /// board spawns only the tasks that read the PSU.
-    #[must_use]
-    pub const fn absent() -> Self {
-        Self::new()
-    }
+static STATE: Link = Link::new();
 
+static TAKEN: TakeOnce = TakeOnce::new("psu");
+
+/// The one way into a running PSU: commands go to [`PowerSupply::run`],
+/// and every fact that task records comes back out.
+///
+/// A firmware takes it once with [`Handle::take`] and passes a copy to
+/// each task that reaches the PSU.
+#[derive(Clone, Copy)]
+pub struct Handle(());
+
+/// The right to run the task of the PSU.
+///
+/// [`PowerSupply::run`] borrows it, so a firmware that gives it to one
+/// task cannot give it to a second.
+pub struct Runner(());
+
+impl Link {
     const fn new() -> Self {
         Self {
             commands: Channel::new(),
@@ -156,6 +162,17 @@ impl Handle {
             setpoint: Watch::new(),
             model: Watch::new(),
         }
+    }
+}
+
+impl Handle {
+    /// The firmware's one PSU handle and the runner of its task. A second
+    /// call panics.
+    #[must_use]
+    #[track_caller]
+    pub fn take() -> (Runner, Self) {
+        TAKEN.take();
+        (Runner(()), Self(()))
     }
 
     /// Send `command` stamped with the awaited sequence number and await
@@ -169,18 +186,18 @@ impl Handle {
     /// A command still queued is skipped by the task, so the task starts
     /// only a command somebody awaits.
     async fn command(&self, command: Command) -> Result<(), CommandError> {
-        let _serial = self.caller.lock().await;
-        let seq = self.awaited.load(Ordering::SeqCst);
-        self.reply.reset();
+        let _serial = STATE.caller.lock().await;
+        let seq = STATE.awaited.load(Ordering::SeqCst);
+        STATE.reply.reset();
         // Declared after the caller lock, so the awaited number moves on
         // while the lock is still held and the next caller reads its own.
         let _turn = Turn {
-            awaited: &self.awaited,
+            awaited: &STATE.awaited,
             seq,
         };
-        self.commands.send((seq, command)).await;
+        STATE.commands.send((seq, command)).await;
         loop {
-            let (reply_seq, reply) = self.reply.wait().await;
+            let (reply_seq, reply) = STATE.reply.wait().await;
             if reply_seq == seq {
                 return reply;
             }
@@ -225,14 +242,14 @@ impl Handle {
     /// written whatever it asks for.
     #[must_use]
     pub fn commanded_voltage(&self) -> Option<Voltage> {
-        self.setpoint.try_get().map(|setpoint| setpoint.requested)
+        STATE.setpoint.try_get().map(|setpoint| setpoint.requested)
     }
 
     /// Most recent published reading, or `None` if the PSU task has not
     /// completed a first successful poll yet.
     #[must_use]
     pub fn current(&self) -> Option<PsuReading> {
-        self.reading.try_get()
+        STATE.reading.try_get()
     }
 
     /// Per-task subscription to the readings. Call once per consumer task
@@ -242,8 +259,9 @@ impl Handle {
     ///
     /// Panics if the underlying `Watch` has no free receiver slots.
     #[must_use]
-    pub fn subscribe(&'static self) -> PsuSubscription {
-        self.reading
+    pub fn subscribe(&self) -> PsuSubscription {
+        STATE
+            .reading
             .receiver()
             .expect("BUG: Handle receiver slots exhausted; raise WATCH_CAPACITY")
     }
@@ -251,12 +269,12 @@ impl Handle {
     /// Detected PSU model, or `None` before the driver identified one.
     #[must_use]
     pub fn model(&self) -> Option<ModelString> {
-        self.model.try_get()
+        STATE.model.try_get()
     }
 }
 
-/// A board's PSU: the driver and the [`Handle`] every other task reaches
-/// it through.
+/// A board's PSU: the driver that the PSU task calls for the commands of
+/// the [`Handle`].
 ///
 /// [`PowerSupply::run`] is the only caller of the driver's rail commands
 /// and the only writer of what the handle reads, so the set voltage and
@@ -264,7 +282,6 @@ impl Handle {
 /// caller.
 pub struct PowerSupply<P: 'static> {
     driver: &'static P,
-    handle: Handle,
 }
 
 /// What one poll hands the next.
@@ -289,16 +306,7 @@ impl<P: Psu> PowerSupply<P> {
     /// from [`PowerSupply::run`].
     #[must_use]
     pub const fn new(driver: &'static P) -> Self {
-        Self {
-            driver,
-            handle: Handle::new(),
-        }
-    }
-
-    /// The handle the board passes to every task that reaches the PSU.
-    #[must_use]
-    pub fn handle(&'static self) -> &'static Handle {
-        &self.handle
+        Self { driver }
     }
 
     /// Run the PSU forever: carry out each command from the [`Handle`]
@@ -319,7 +327,7 @@ impl<P: Psu> PowerSupply<P> {
     /// [`HEARTBEAT_TIMEOUT`] to end whatever queues behind it, because a
     /// pulse cut short is a missed one, so a rail cut waits that long at
     /// most behind a pulse stuck on the bus.
-    pub async fn run(&self) -> ! {
+    pub async fn run(&self, _runner: &mut Runner) -> ! {
         let mut ticker = embassy_time::Ticker::every(POWER_STATS_INTERVAL);
         let mut heartbeat = self
             .driver
@@ -354,7 +362,7 @@ impl<P: Psu> PowerSupply<P> {
             // poll that is due again runs behind the queued command and
             // behind a due heartbeat, and a run of commands that keeps
             // stopping the poll leaves the heartbeat on time.
-            match select3(self.handle.commands.receive(), beat, poll_tick).await {
+            match select3(STATE.commands.receive(), beat, poll_tick).await {
                 Either3::First(command) => self.answer(command).await,
                 Either3::Third(()) => {
                     // The next poll is due one interval from this one, so
@@ -392,16 +400,16 @@ impl<P: Psu> PowerSupply<P> {
     /// running one was dropped, so a command dropped as stuck has nobody
     /// to answer.
     async fn answer(&self, (seq, command): (u32, Command)) {
-        if seq != self.handle.awaited.load(Ordering::SeqCst) {
+        if seq != STATE.awaited.load(Ordering::SeqCst) {
             return;
         }
         let Some(reply) = self.finish(self.execute(command)).await else {
             // A call dropped as stuck may have reached the supply, so the
             // rail is no longer known to be where the last command set it.
-            self.handle.setpoint.sender().clear();
+            STATE.setpoint.sender().clear();
             return;
         };
-        self.handle.reply.signal((seq, reply));
+        STATE.reply.signal((seq, reply));
     }
 
     /// Carry out one command on the driver and record what it changed.
@@ -415,10 +423,7 @@ impl<P: Psu> PowerSupply<P> {
                     .set_voltage(requested)
                     .await
                     .map_err(Error::reduce)?;
-                self.handle
-                    .setpoint
-                    .sender()
-                    .send(Setpoint { requested, landed });
+                STATE.setpoint.sender().send(Setpoint { requested, landed });
                 Ok(())
             }
         }
@@ -427,7 +432,7 @@ impl<P: Psu> PowerSupply<P> {
     /// Run one driver call of a poll, or answer `None` and leave the call
     /// unstarted when a command is queued.
     async fn step<T>(&self, call: impl Future<Output = T>) -> Option<T> {
-        if !self.handle.commands.is_empty() {
+        if !STATE.commands.is_empty() {
             return None;
         }
         self.finish(call).await
@@ -438,7 +443,7 @@ impl<P: Psu> PowerSupply<P> {
     /// dropped at the end of it.
     async fn finish<T>(&self, call: impl Future<Output = T>) -> Option<T> {
         let mut call = pin!(call);
-        match select(call.as_mut(), self.handle.commands.ready_to_receive()).await {
+        match select(call.as_mut(), STATE.commands.ready_to_receive()).await {
             Either::First(output) => Some(output),
             Either::Second(()) => embassy_time::with_timeout(COMMAND_GRACE, call).await.ok(),
         }
@@ -474,11 +479,11 @@ impl<P: Psu> PowerSupply<P> {
             let model = self.step(self.driver.model()).await?;
             poll.model_settled = initialized || model.is_some();
             if let Some(model) = model {
-                self.handle.model.sender().send(model);
+                STATE.model.sender().send(model);
             }
         }
         let status_result = self.step(self.driver.read_status()).await?;
-        let setpoint = self.handle.setpoint.try_get();
+        let setpoint = STATE.setpoint.try_get();
         let set_voltage = setpoint.map_or(Voltage::from_mv(0), |setpoint| setpoint.landed);
         let now_ms = embassy_time::Instant::now().as_millis();
 
@@ -545,7 +550,7 @@ impl<P: Psu> PowerSupply<P> {
         match (input_result, output_result, voltage_result) {
             (Ok(input), Ok(output), Ok(voltage)) => {
                 poll.last_known = Some((input, output, voltage));
-                self.handle.reading.sender().send(PsuReading {
+                STATE.reading.sender().send(PsuReading {
                     input_power: input,
                     output_power: output,
                     output_voltage_set: set_voltage,
@@ -556,7 +561,7 @@ impl<P: Psu> PowerSupply<P> {
             }
             _ => {
                 if let Some((input, output, voltage)) = poll.last_known {
-                    self.handle.reading.sender().send(PsuReading {
+                    STATE.reading.sender().send(PsuReading {
                         input_power: input,
                         output_power: output,
                         output_voltage_set: set_voltage,
@@ -667,8 +672,11 @@ fn publish_measured_voltage(voltage: Voltage, source: VoltageSource) {
 macro_rules! psu_task {
     ($psu:ty) => {
         #[embassy_executor::task]
-        pub async fn psu_task(psu: &'static ubos_psu::PowerSupply<$psu>) -> ! {
-            psu.run().await
+        pub async fn psu_task(
+            psu: &'static ubos_psu::PowerSupply<$psu>,
+            mut runner: ubos_psu::Runner,
+        ) -> ! {
+            psu.run(&mut runner).await
         }
     };
 }
