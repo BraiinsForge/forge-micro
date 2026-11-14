@@ -55,7 +55,7 @@
     # its own locked inputs, kept independent so it still builds standalone
     # and stays borrowable; ubos gates it by composing its checks below
     # rather than re-deriving crane builds. Deliberately not `follows`ed onto
-    # our nixpkgs: it pins nixos-25.11 and builds as upstream tested.
+    # our nixpkgs: it pins its own release branch and builds as upstream tested.
     micro-sv2.url = "path:./micro-sv2";
   };
 
