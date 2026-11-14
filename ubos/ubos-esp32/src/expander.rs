@@ -33,9 +33,15 @@ use crate::i2c::{Bus, Device};
 /// The direction register's power-on value: every line an input.
 const ALL_INPUTS: u8 = 0xFF;
 
+/// Builds the expander driver for one access, because its full type has
+/// a part its crate keeps private and a field cannot name it.
+fn expander(bus: &'static Bus) -> Tca9554<Device, impl Sized> {
+    Tca9554::new(I2cDevice::new(bus), Address::standard())
+}
+
 /// One hashboard reset line on the expander.
 pub struct ExpanderResetPin {
-    expander: Tca9554<Device>,
+    bus: &'static Bus,
     pin_bit: u8,
     /// The output register as last written, so a transition can change
     /// this pin's bit and nothing else. Seeded from the device in `new`.
@@ -48,7 +54,7 @@ impl ExpanderResetPin {
     /// miner task controls release timing. A failed expander access is
     /// logged and ignored, per [`ubos_mining::reset::ResetPin`].
     pub async fn new(bus: &'static Bus, pin_bit: u8) -> Self {
-        let mut expander = Tca9554::new(I2cDevice::new(bus), Address::standard());
+        let mut expander = expander(bus);
         // Both registers are read back first so the other lines keep
         // whatever state the carrier gave them. The pin is driven low
         // before it is switched to an output: the output latch powers up
@@ -62,7 +68,7 @@ impl ExpanderResetPin {
             warn!("expander: TCA9554 reset-pin init failed");
         }
         Self {
-            expander,
+            bus,
             pin_bit,
             outputs,
         }
@@ -78,7 +84,7 @@ impl ExpanderResetPin {
         } else {
             self.outputs & !self.pin_bit
         };
-        if self.expander.write_output(outputs).await.is_err() {
+        if expander(self.bus).write_output(outputs).await.is_err() {
             warn!("expander: TCA9554 {} write failed", what);
             return;
         }
