@@ -26,6 +26,7 @@
 //! their hottest and their mean, and publishes every reading it took.
 //! Boards supply only the topology; all folding logic lives here.
 
+use embassy_time::{Duration, with_timeout};
 use embedded_hal_async::i2c::{I2c, SevenBitAddress};
 use ubos_core::index::HashboardIndex;
 use ubos_logging::{Debug2Format, error};
@@ -40,6 +41,11 @@ use crate::{Accumulator, Reading, TempSample, TemperatureSensor};
 /// TODO: Take the chain from the board once a machine carries a sensor
 /// table per hashboard.
 const CHAIN: HashboardIndex = HashboardIndex(0);
+
+/// The longest that the read of one sensor may take. A sensor that does not
+/// answer in this time is passed over, so it cannot stop the reads of the
+/// sensors behind it.
+const READ_TIMEOUT: Duration = Duration::from_millis(250);
 
 /// Multi-sensor hashboard aggregator over a board's sensor table.
 pub struct SensorArray<const N: usize, Bus> {
@@ -72,7 +78,15 @@ where
 
         for sensor in &mut self.sensors {
             let address = sensor.descriptor().address();
-            for result in sensor.read_temperatures().await {
+            let Ok(readings) = with_timeout(READ_TIMEOUT, sensor.read_temperatures()).await else {
+                error!(
+                    "temperature: {:#x} gave no answer in {} ms",
+                    address,
+                    READ_TIMEOUT.as_millis()
+                );
+                continue;
+            };
+            for result in readings {
                 let Ok(reading) = result.inspect_err(|error| log_fault(address, error)) else {
                     continue;
                 };
