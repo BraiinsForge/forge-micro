@@ -115,6 +115,7 @@ impl OtaErrorCode {
             OtaError::SlotOverflow => 2,
             OtaError::Flash => 3,
             OtaError::ShortUpload => 4,
+            OtaError::WrongHardware => 5,
         };
         Self(code)
     }
@@ -498,7 +499,8 @@ pub(crate) fn target_mutex()
 ///
 /// Variants are kept coarse-grained because the handler only needs to
 /// distinguish "the device is not set up for OTA" from "a write
-/// failed" from "the uploaded image was too short".
+/// failed" from "the uploaded image was too short" from "the image is
+/// for other hardware".
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum OtaError {
@@ -510,6 +512,10 @@ pub enum OtaError {
     Flash,
     /// `finish` was called before enough bytes were written.
     ShortUpload,
+    /// The image is for other hardware than this board. The target
+    /// refuses it before it writes anything, and the handler answers it as
+    /// a bad request, because the client sent the wrong file.
+    WrongHardware,
 }
 
 /// Board-agnostic interface for writing a firmware image to the
@@ -590,7 +596,9 @@ pub trait OtaTarget: Send {
     /// # Errors
     ///
     /// Returns [`OtaError::SlotOverflow`] if the cumulative write would
-    /// exceed the inactive slot, or [`OtaError::Flash`] on a flash error.
+    /// exceed the inactive slot, [`OtaError::WrongHardware`] if the image
+    /// is for other hardware than this board, or [`OtaError::Flash`] on a
+    /// flash error.
     fn write_chunk(&mut self, data: &[u8]) -> Result<(), OtaError>;
 
     /// Validate and commit the written image, finalising the slot header.

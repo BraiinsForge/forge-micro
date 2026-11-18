@@ -220,6 +220,14 @@ impl MockOtaTarget {
             current_bytes_written: Some(written),
         }
     }
+
+    /// Mock that starts a session and fails every `write_chunk` with `error`.
+    fn fails_writes(error: OtaError) -> Self {
+        Self {
+            write_result: Err(error),
+            ..Self::succeeds()
+        }
+    }
 }
 
 impl crate::ota::OtaTarget for MockOtaTarget {
@@ -665,6 +673,37 @@ rusty_fork_test! {
             status, 400,
             "non-final chunk smaller than one sector must be rejected with 400"
         );
+    }
+}
+
+rusty_fork_test! {
+    /// A first chunk that the target refuses as an image for other hardware
+    /// is answered with 400, and the session records that error. A client
+    /// then tells the wrong file apart from a fault of the board.
+    #[test]
+    fn ota_chunk_wrong_hardware_returns_400() {
+        let chunk = [0u8; crate::system::OTA_CHUNK_SIZE];
+        let status = with_ota_target(MockOtaTarget::fails_writes(OtaError::WrongHardware), || {
+            run_chunk_handler(chunk.len(), &chunk, &[], Some(chunk.len() as u64), 0, false)
+        });
+        assert_eq!(status, 400, "an image for other hardware must be rejected with 400");
+        assert_eq!(
+            crate::ota::ota_session().snapshot().last_error,
+            crate::ota::OtaErrorCode::from_error(OtaError::WrongHardware).value(),
+        );
+    }
+}
+
+rusty_fork_test! {
+    /// A flash error from `write_chunk` stays a 500, because it is a fault
+    /// of the board and not of the image.
+    #[test]
+    fn ota_chunk_flash_error_returns_500() {
+        let chunk = [0u8; crate::system::OTA_CHUNK_SIZE];
+        let status = with_ota_target(MockOtaTarget::fails_writes(OtaError::Flash), || {
+            run_chunk_handler(chunk.len(), &chunk, &[], Some(chunk.len() as u64), 0, false)
+        });
+        assert_eq!(status, 500, "a flash error must be answered with 500");
     }
 }
 

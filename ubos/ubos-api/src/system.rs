@@ -978,6 +978,35 @@ where
     Ok(())
 }
 
+/// Answers a failed `write_chunk`. An image for other hardware is a
+/// mistake of the client, so it gets a 400 with a message that names the
+/// cause. Every other error is a fault of the board. The match names each
+/// variant, so a new variant does not compile until its response is chosen.
+async fn write_chunk_failed<T, const N: usize>(
+    connection: &mut Connection<'_, T, N>,
+    error: OtaError,
+) -> Result<(), HttpError<T::Error>>
+where
+    T: Read + Write + TcpSplit,
+{
+    let (status, reason, body): (u16, &str, &[u8]) = match error {
+        OtaError::WrongHardware => (
+            400,
+            "Bad Request",
+            b"{\"message\":\"The image is not for this hardware.\"}",
+        ),
+        OtaError::NoPartitionTable
+        | OtaError::SlotOverflow
+        | OtaError::Flash
+        | OtaError::ShortUpload => (
+            500,
+            "Internal Server Error",
+            b"{\"message\":\"OTA write failed\"}",
+        ),
+    };
+    write_json_response(connection, status, reason, body).await
+}
+
 /// Handle `POST /api/system/OTA` — streaming firmware upload.
 ///
 /// Streams the request body directly from the TCP connection into the
@@ -996,7 +1025,8 @@ where
 /// - 409 — `begin()` returned [`OtaError::NoPartitionTable`].
 /// - 503 — mining failed to stop within the timeout.
 /// - 400 — premature EOF before `content_length` bytes were received.
-/// - 500 — `write_chunk` or `finish` error.
+/// - 400 — `write_chunk` returned [`OtaError::WrongHardware`].
+/// - 500 — any other `write_chunk` error, or a `finish` error.
 #[allow(clippy::too_many_lines)]
 pub(crate) async fn handle_ota<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
@@ -1167,13 +1197,7 @@ where
             ota_session().fail(ota, error);
             // Resume mining so the board keeps hashing after a failed update.
             manager.send(ManagerMessage::OtaEnd).await;
-            return write_json_response(
-                connection,
-                500,
-                "Internal Server Error",
-                b"{\"message\":\"OTA write failed\"}",
-            )
-            .await;
+            return write_chunk_failed(connection, error).await;
         }
         bytes_written += want;
         #[allow(clippy::cast_possible_truncation)]
@@ -1248,7 +1272,8 @@ where
 /// - 413 — chunk larger than [`OTA_CHUNK_SIZE`].
 /// - 503 — mining did not stop within the timeout (offset-0 only).
 /// - 400 — premature EOF, read error, or total image smaller than [`OTA_MIN_IMAGE_BYTES`] on final chunk.
-/// - 500 — `begin`, `write_chunk`, or `finish` error.
+/// - 400 — `write_chunk` returned [`OtaError::WrongHardware`].
+/// - 500 — `begin` error, any other `write_chunk` error, or `finish` error.
 ///
 /// Success responses:
 /// - Mid-stream: 200 `{"ok":true,"next":<offset+n>}`.
@@ -1471,13 +1496,7 @@ where
         warn!("OTA chunk write_chunk failed: {:?}", error);
         ota_session().fail(ota, error);
         manager.send(ManagerMessage::OtaEnd).await;
-        return write_json_response(
-            connection,
-            500,
-            "Internal Server Error",
-            b"{\"message\":\"OTA write failed\"}",
-        )
-        .await;
+        return write_chunk_failed(connection, error).await;
     }
 
     // `ota_offset` + `chunk_size` is the number of bytes written so far.
