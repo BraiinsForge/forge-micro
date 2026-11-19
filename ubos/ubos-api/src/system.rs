@@ -80,7 +80,7 @@ use embedded_io_async::{Read, Write};
 use heapless::String;
 use ubos_config::{Source, Statistic};
 use ubos_core::units::{FanPwm, FanRpm, Temperature};
-use ubos_http::write_json_response;
+use ubos_http::{Status, start_response, write_json_response};
 use ubos_logging::{info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
 use ubos_thermal::Handle as ThermalHandle;
@@ -291,9 +291,7 @@ where
         .push(("Content-Length", content_length.as_str()))
         .expect("BUG: response header vec sized for max headers");
 
-    connection
-        .initiate_response(405, Some("Method Not Allowed"), &headers)
-        .await?;
+    start_response(connection, Status::METHOD_NOT_ALLOWED, &headers).await?;
 
     embedded_io_async::Write::write_all(connection, body).await?;
 
@@ -314,7 +312,7 @@ where
     T: Read + Write + TcpSplit,
 {
     if let Ok(length) = serde_json_core::to_slice(value, scratch) {
-        write_json_response(connection, 200, "OK", &scratch[..length]).await
+        write_json_response(connection, Status::OK, &scratch[..length]).await
     } else {
         // BUG: serialization of a schema struct failed; the schemas are
         // plain serde derivations so this path should be unreachable.
@@ -322,8 +320,7 @@ where
         // machine clients can parse the failure case with the same decoder.
         write_json_response(
             connection,
-            500,
-            "Internal Server Error",
+            Status::INTERNAL_SERVER_ERROR,
             b"{\"message\":\"serialization error\"}",
         )
         .await
@@ -541,14 +538,13 @@ where
 {
     let entries: &[SystemScoreboardEntry] = &[];
     if let Ok(length) = serde_json_core::to_slice(entries, scratch) {
-        write_json_response(connection, 200, "OK", &scratch[..length]).await
+        write_json_response(connection, Status::OK, &scratch[..length]).await
     } else {
         // BUG: serializing an empty slice failed; this is a serde_json_core
         // invariant violation.
         write_json_response(
             connection,
-            500,
-            "Internal Server Error",
+            Status::INTERNAL_SERVER_ERROR,
             b"{\"message\":\"serialization error\"}",
         )
         .await
@@ -567,14 +563,13 @@ where
 {
     let body = GenericResponse { message };
     if let Ok(length) = serde_json_core::to_slice(&body, scratch) {
-        write_json_response(connection, 501, "Not Implemented", &scratch[..length]).await
+        write_json_response(connection, Status::NOT_IMPLEMENTED, &scratch[..length]).await
     } else {
         // BUG: serializing GenericResponse failed; the struct is a plain
         // serde derivation so this path is unreachable in practice.
         write_json_response(
             connection,
-            501,
-            "Not Implemented",
+            Status::NOT_IMPLEMENTED,
             b"{\"message\":\"serialization error\"}",
         )
         .await
@@ -594,14 +589,13 @@ where
 {
     let body = GenericResponse { message: "ack" };
     if let Ok(length) = serde_json_core::to_slice(&body, scratch) {
-        write_json_response(connection, 200, "OK", &scratch[..length]).await
+        write_json_response(connection, Status::OK, &scratch[..length]).await
     } else {
         // BUG: serializing GenericResponse { message: "ack" } failed;
         // the struct is a plain serde derivation so this path is unreachable.
         write_json_response(
             connection,
-            500,
-            "Internal Server Error",
+            Status::INTERNAL_SERVER_ERROR,
             b"{\"message\":\"serialization error\"}",
         )
         .await
@@ -676,9 +670,9 @@ where
 {
     let error = GenericResponse { message };
     let Ok(length) = serde_json_core::to_slice(&error, scratch) else {
-        return write_json_response(connection, 400, "Bad Request", fallback).await;
+        return write_json_response(connection, Status::BAD_REQUEST, fallback).await;
     };
-    write_json_response(connection, 400, "Bad Request", &scratch[..length]).await
+    write_json_response(connection, Status::BAD_REQUEST, &scratch[..length]).await
 }
 
 /// Request body for `POST /api/system/network`.
@@ -759,7 +753,7 @@ where
     }) {
         return write_busy(connection).await;
     }
-    write_json_response(connection, 200, "OK", b"{\"ok\":true}").await
+    write_json_response(connection, Status::OK, b"{\"ok\":true}").await
 }
 
 /// Write a 503 Service Unavailable when the apply queue is full.
@@ -775,8 +769,7 @@ where
 {
     write_json_response(
         connection,
-        503,
-        "Service Unavailable",
+        Status::SERVICE_UNAVAILABLE,
         b"{\"message\":\"busy, retry\"}",
     )
     .await
@@ -858,8 +851,7 @@ where
     if manager.holds(ubos_manager::PauseReason::DangerousTemperature) {
         return write_json_response(
             connection,
-            409,
-            "Conflict",
+            Status::CONFLICT,
             b"{\"message\":\"an overheat halt stands; clear it to start\"}",
         )
         .await;
@@ -989,22 +981,20 @@ async fn write_chunk_failed<T, const N: usize>(
 where
     T: Read + Write + TcpSplit,
 {
-    let (status, reason, body): (u16, &str, &[u8]) = match error {
+    let (status, body): (Status, &[u8]) = match error {
         OtaError::WrongHardware => (
-            400,
-            "Bad Request",
+            Status::BAD_REQUEST,
             b"{\"message\":\"The image is not for this hardware.\"}",
         ),
         OtaError::NoPartitionTable
         | OtaError::SlotOverflow
         | OtaError::Flash
         | OtaError::ShortUpload => (
-            500,
-            "Internal Server Error",
+            Status::INTERNAL_SERVER_ERROR,
             b"{\"message\":\"OTA write failed\"}",
         ),
     };
-    write_json_response(connection, status, reason, body).await
+    write_json_response(connection, status, body).await
 }
 
 /// Handle `POST /api/system/OTA` — streaming firmware upload.
@@ -1043,8 +1033,7 @@ where
     let Some(image_bytes) = content_length else {
         return write_json_response(
             connection,
-            411,
-            "Length Required",
+            Status::LENGTH_REQUIRED,
             b"{\"message\":\"Content-Length required for OTA upload\"}",
         )
         .await;
@@ -1053,8 +1042,7 @@ where
     if image_bytes > max_image_bytes() {
         return write_json_response(
             connection,
-            413,
-            "Payload Too Large",
+            Status::PAYLOAD_TOO_LARGE,
             b"{\"message\":\"image exceeds maximum slot size\"}",
         )
         .await;
@@ -1066,8 +1054,7 @@ where
         // reporting a stale Error until the next attempt or a reboot.
         return write_json_response(
             connection,
-            400,
-            "Bad Request",
+            Status::BAD_REQUEST,
             b"{\"message\":\"image too small\"}",
         )
         .await;
@@ -1079,8 +1066,7 @@ where
     let Ok(mut guard) = crate::ota::target_mutex().try_lock() else {
         return write_json_response(
             connection,
-            409,
-            "Conflict",
+            Status::CONFLICT,
             b"{\"message\":\"an update is already in progress\"}",
         )
         .await;
@@ -1088,8 +1074,7 @@ where
     let Some(ota) = guard.as_deref_mut() else {
         return write_json_response(
             connection,
-            501,
-            "Not Implemented",
+            Status::NOT_IMPLEMENTED,
             b"{\"message\":\"OTA not available on this board\"}",
         )
         .await;
@@ -1109,8 +1094,7 @@ where
         manager.send(ManagerMessage::OtaEnd).await;
         return write_json_response(
             connection,
-            503,
-            "Service Unavailable",
+            Status::SERVICE_UNAVAILABLE,
             b"{\"message\":\"mining did not stop in time; retry\"}",
         )
         .await;
@@ -1125,8 +1109,7 @@ where
             manager.send(ManagerMessage::OtaEnd).await;
             return write_json_response(
                 connection,
-                409,
-                "Conflict",
+                Status::CONFLICT,
                 b"{\"message\":\"device not provisioned for OTA\"}",
             )
             .await;
@@ -1138,8 +1121,7 @@ where
             manager.send(ManagerMessage::OtaEnd).await;
             return write_json_response(
                 connection,
-                500,
-                "Internal Server Error",
+                Status::INTERNAL_SERVER_ERROR,
                 b"{\"message\":\"OTA begin failed\"}",
             )
             .await;
@@ -1171,8 +1153,7 @@ where
                 manager.send(ManagerMessage::OtaEnd).await;
                 return write_json_response(
                     connection,
-                    400,
-                    "Bad Request",
+                    Status::BAD_REQUEST,
                     b"{\"message\":\"upload truncated\"}",
                 )
                 .await;
@@ -1184,8 +1165,7 @@ where
                 manager.send(ManagerMessage::OtaEnd).await;
                 return write_json_response(
                     connection,
-                    400,
-                    "Bad Request",
+                    Status::BAD_REQUEST,
                     b"{\"message\":\"read error during upload\"}",
                 )
                 .await;
@@ -1219,8 +1199,7 @@ where
         manager.send(ManagerMessage::OtaEnd).await;
         return write_json_response(
             connection,
-            500,
-            "Internal Server Error",
+            Status::INTERNAL_SERVER_ERROR,
             b"{\"message\":\"OTA finish failed\"}",
         )
         .await;
@@ -1237,7 +1216,7 @@ where
     // ack write must not skip the reboot: that would leave mining stopped and
     // the swap pending. The reboot restarts mining on the new image, so a lost
     // ack is harmless and matches the client's expected connection drop.
-    let _ = write_json_response(connection, 200, "OK", b"{\"ok\":true}").await;
+    let _ = write_json_response(connection, Status::OK, b"{\"ok\":true}").await;
 
     ota.reboot_into_new()
 }
@@ -1299,8 +1278,7 @@ where
     let Some(chunk_bytes) = content_length else {
         return write_json_response(
             connection,
-            411,
-            "Length Required",
+            Status::LENGTH_REQUIRED,
             b"{\"message\":\"Content-Length required for OTA chunk\"}",
         )
         .await;
@@ -1309,8 +1287,7 @@ where
     if chunk_bytes > OTA_CHUNK_SIZE as u64 {
         return write_json_response(
             connection,
-            413,
-            "Payload Too Large",
+            Status::PAYLOAD_TOO_LARGE,
             b"{\"message\":\"chunk exceeds maximum sector size\"}",
         )
         .await;
@@ -1319,8 +1296,7 @@ where
     if chunk_bytes == 0 {
         return write_json_response(
             connection,
-            400,
-            "Bad Request",
+            Status::BAD_REQUEST,
             b"{\"message\":\"empty chunk\"}",
         )
         .await;
@@ -1329,8 +1305,7 @@ where
     if ota_offset.saturating_add(chunk_bytes) > max_image_bytes() {
         return write_json_response(
             connection,
-            413,
-            "Payload Too Large",
+            Status::PAYLOAD_TOO_LARGE,
             b"{\"message\":\"image exceeds maximum slot size\"}",
         )
         .await;
@@ -1341,8 +1316,7 @@ where
     let Ok(mut guard) = crate::ota::target_mutex().try_lock() else {
         return write_json_response(
             connection,
-            409,
-            "Conflict",
+            Status::CONFLICT,
             b"{\"message\":\"an update is already in progress\"}",
         )
         .await;
@@ -1350,8 +1324,7 @@ where
     let Some(ota) = guard.as_deref_mut() else {
         return write_json_response(
             connection,
-            501,
-            "Not Implemented",
+            Status::NOT_IMPLEMENTED,
             b"{\"message\":\"OTA not available on this board\"}",
         )
         .await;
@@ -1376,8 +1349,7 @@ where
             manager.send(ManagerMessage::OtaEnd).await;
             return write_json_response(
                 connection,
-                503,
-                "Service Unavailable",
+                Status::SERVICE_UNAVAILABLE,
                 b"{\"message\":\"mining did not stop in time; retry\"}",
             )
             .await;
@@ -1391,8 +1363,7 @@ where
                 manager.send(ManagerMessage::OtaEnd).await;
                 return write_json_response(
                     connection,
-                    409,
-                    "Conflict",
+                    Status::CONFLICT,
                     b"{\"message\":\"device not provisioned for OTA\"}",
                 )
                 .await;
@@ -1403,8 +1374,7 @@ where
                 manager.send(ManagerMessage::OtaEnd).await;
                 return write_json_response(
                     connection,
-                    500,
-                    "Internal Server Error",
+                    Status::INTERNAL_SERVER_ERROR,
                     b"{\"message\":\"OTA begin failed\"}",
                 )
                 .await;
@@ -1425,10 +1395,7 @@ where
             );
             ota.abort();
             manager.send(ManagerMessage::OtaEnd).await;
-            return write_json_response(
-                connection,
-                409,
-                "Conflict",
+            return write_json_response(connection, Status::CONFLICT,
                 b"{\"message\":\"chunk offset does not match write position; restart from offset 0\"}",
             )
             .await;
@@ -1449,8 +1416,7 @@ where
         manager.send(ManagerMessage::OtaEnd).await;
         return write_json_response(
             connection,
-            400,
-            "Bad Request",
+            Status::BAD_REQUEST,
             b"{\"message\":\"non-final chunk must be exactly one sector\"}",
         )
         .await;
@@ -1472,8 +1438,7 @@ where
             manager.send(ManagerMessage::OtaEnd).await;
             return write_json_response(
                 connection,
-                400,
-                "Bad Request",
+                Status::BAD_REQUEST,
                 b"{\"message\":\"chunk upload truncated\"}",
             )
             .await;
@@ -1484,8 +1449,7 @@ where
             manager.send(ManagerMessage::OtaEnd).await;
             return write_json_response(
                 connection,
-                400,
-                "Bad Request",
+                Status::BAD_REQUEST,
                 b"{\"message\":\"read error during chunk upload\"}",
             )
             .await;
@@ -1513,8 +1477,7 @@ where
             manager.send(ManagerMessage::OtaEnd).await;
             return write_json_response(
                 connection,
-                400,
-                "Bad Request",
+                Status::BAD_REQUEST,
                 b"{\"message\":\"image too small\"}",
             )
             .await;
@@ -1526,8 +1489,7 @@ where
             manager.send(ManagerMessage::OtaEnd).await;
             return write_json_response(
                 connection,
-                500,
-                "Internal Server Error",
+                Status::INTERNAL_SERVER_ERROR,
                 b"{\"message\":\"OTA finish failed\"}",
             )
             .await;
@@ -1546,7 +1508,7 @@ where
         // rebooting regardless of whether the ack reaches the client; a
         // lost ack matches the expected connection drop on reset, and a
         // failed ack must not skip the reboot or leave mining stopped.
-        let _ = write_json_response(connection, 200, "OK", b"{\"ok\":true}").await;
+        let _ = write_json_response(connection, Status::OK, b"{\"ok\":true}").await;
         ota.reboot_into_new()
     } else {
         // Acknowledge the chunk and tell the client the next expected offset.
@@ -1558,7 +1520,7 @@ where
         // Safety: the format args are plain integers, so write! cannot fail.
         let _ = core::write!(writer, "{{\"ok\":true,\"next\":{next_offset}}}");
         let ack_len = writer.len();
-        write_json_response(connection, 200, "OK", &ack_buf[..ack_len]).await
+        write_json_response(connection, Status::OK, &ack_buf[..ack_len]).await
     }
 }
 
@@ -1582,9 +1544,7 @@ where
     headers
         .push(("Cache-Control", "no-store"))
         .expect("BUG: response header vec sized for max headers");
-    connection
-        .initiate_response(200, Some("OK"), &headers)
-        .await
+    start_response(connection, Status::OK, &headers).await
 }
 
 /// Parse the `since` query parameter from a path+query string.

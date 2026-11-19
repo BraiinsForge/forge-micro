@@ -40,6 +40,7 @@ use super::PrefixRouter;
 use crate::request::{RequestParts, extract_request_parts};
 use crate::response::write_status_only;
 use crate::serve::{MAX_HEADERS, Service};
+use crate::status::Status;
 
 /// Parse area handed to `Connection::new`. Large enough for the request
 /// lines below and nothing more; the listener sizes its own.
@@ -204,8 +205,7 @@ impl Service for Recorder {
         self.called.set(true);
         write_status_only(
             connection,
-            200,
-            "OK",
+            Status::OK,
             "text/plain",
             &[],
             self.name.as_bytes(),

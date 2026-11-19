@@ -57,8 +57,8 @@ use heapless::Vec;
 use crate::{INDEX_HTML_GZ, LOGIN_HTML_GZ, LOGO_SVG_GZ};
 use ubos_http::consts::Http;
 use ubos_http::{
-    MAX_RESPONSE_HEADERS, RequestParts, Service, format_content_length, read_body,
-    write_status_only,
+    MAX_RESPONSE_HEADERS, RequestParts, Service, Status, format_content_length, read_body,
+    start_response, write_status_only,
 };
 
 #[cfg(test)]
@@ -80,13 +80,12 @@ async fn write_redirect<T, const N: usize>(
 where
     T: Read + Write + TcpSplit,
 {
-    connection
-        .initiate_response(
-            302,
-            Some("Found"),
-            &[("Location", location), ("Content-Length", "0")],
-        )
-        .await
+    start_response(
+        connection,
+        Status::FOUND,
+        &[("Location", location), ("Content-Length", "0")],
+    )
+    .await
 }
 
 /// Write a 302 redirect that also clears the session cookie.
@@ -96,20 +95,19 @@ async fn write_logout_redirect<T, const N: usize>(
 where
     T: Read + Write + TcpSplit,
 {
-    connection
-        .initiate_response(
-            302,
-            Some("Found"),
-            &[
-                ("Location", "/login"),
-                (
-                    "Set-Cookie",
-                    "session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
-                ),
-                ("Content-Length", "0"),
-            ],
-        )
-        .await
+    start_response(
+        connection,
+        Status::FOUND,
+        &[
+            ("Location", "/login"),
+            (
+                "Set-Cookie",
+                "session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
+            ),
+            ("Content-Length", "0"),
+        ],
+    )
+    .await
 }
 
 /// Write a 302 redirect that sets the session cookie to `token`.
@@ -120,17 +118,16 @@ async fn write_login_success_redirect<T, const N: usize>(
 where
     T: Read + Write + TcpSplit,
 {
-    connection
-        .initiate_response(
-            302,
-            Some("Found"),
-            &[
-                ("Location", "/"),
-                ("Set-Cookie", cookie_header),
-                ("Content-Length", "0"),
-            ],
-        )
-        .await
+    start_response(
+        connection,
+        Status::FOUND,
+        &[
+            ("Location", "/"),
+            ("Set-Cookie", cookie_header),
+            ("Content-Length", "0"),
+        ],
+    )
+    .await
 }
 
 /// Write an empty `200 OK` body-less response for `HEAD /`.
@@ -165,9 +162,7 @@ where
             .push(header)
             .expect("BUG: response header vec sized for max headers");
     }
-    connection
-        .initiate_response(200, Some("OK"), &headers)
-        .await
+    start_response(connection, Status::OK, &headers).await
 }
 
 /// Write a static asset response (gzipped HTML or SVG) to `connection`.
@@ -217,9 +212,7 @@ where
             .expect("BUG: response header vec sized for max headers");
     }
 
-    connection
-        .initiate_response(200, Some("OK"), &headers)
-        .await?;
+    start_response(connection, Status::OK, &headers).await?;
 
     embedded_io_async::Write::write_all(connection, body).await?;
 
@@ -368,8 +361,7 @@ impl Service for DashboardService {
         else {
             return write_status_only(
                 connection,
-                401,
-                "Unauthorized",
+                Status::UNAUTHORIZED,
                 "application/json",
                 &[],
                 b"{\"message\":\"Client not in allowed network range\"}",
@@ -409,8 +401,7 @@ impl Service for DashboardService {
                 None => {
                     return write_status_only(
                         connection,
-                        413,
-                        "Payload Too Large",
+                        Status::PAYLOAD_TOO_LARGE,
                         "text/plain",
                         &[],
                         b"payload too large",
@@ -446,8 +437,7 @@ impl Service for DashboardService {
         if needs_csrf && ubos_auth::check_csrf(&auth_ctx, parts.csrf.as_deref()).is_err() {
             return write_status_only(
                 connection,
-                403,
-                "Forbidden",
+                Status::FORBIDDEN,
                 "application/json",
                 &[],
                 b"{\"message\":\"CSRF token invalid or missing\"}",
@@ -597,8 +587,7 @@ impl Service for DashboardService {
             (_, "/" | "/login" | "/logout" | "/logo.svg") => {
                 write_status_only(
                     connection,
-                    405,
-                    "Method Not Allowed",
+                    Status::METHOD_NOT_ALLOWED,
                     "text/plain",
                     &[],
                     b"method not allowed",
@@ -608,8 +597,7 @@ impl Service for DashboardService {
             _ => {
                 write_status_only(
                     connection,
-                    404,
-                    "Not Found",
+                    Status::NOT_FOUND,
                     "text/plain",
                     &[],
                     b"not found",

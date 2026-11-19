@@ -37,7 +37,7 @@ use ubos_logging::{info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
 use ubos_thermal::Handle as ThermalHandle;
 
-use ubos_http::{RequestParts, Service, read_body, write_json_response, write_status_only};
+use ubos_http::{RequestParts, Service, Status, read_body, write_json_response, write_status_only};
 
 use crate::schema::info::{ApiInfo, ApiInfoChain, ApiInfoOta};
 use crate::schema::state::{ApiMiningState, ApiPauseReason};
@@ -285,8 +285,7 @@ impl Service for RestApiService {
                 Err(ubos_auth::Rejection::NotAllowed) => {
                     return write_status_only(
                         connection,
-                        401,
-                        "Unauthorized",
+                        Status::UNAUTHORIZED,
                         "application/json",
                         &[],
                         b"{\"message\":\"Client not in allowed network range\"}",
@@ -296,8 +295,7 @@ impl Service for RestApiService {
                 Err(_) => {
                     return write_status_only(
                         connection,
-                        401,
-                        "Unauthorized",
+                        Status::UNAUTHORIZED,
                         "application/json",
                         &[("WWW-Authenticate", "Basic realm=\"ubos\"")],
                         b"{\"message\":\"unauthorized\"}",
@@ -330,8 +328,7 @@ impl Service for RestApiService {
                 None => {
                     return write_status_only(
                         connection,
-                        413,
-                        "Payload Too Large",
+                        Status::PAYLOAD_TOO_LARGE,
                         "text/plain",
                         &[],
                         b"payload too large",
@@ -369,8 +366,7 @@ impl Service for RestApiService {
         {
             return write_status_only(
                 connection,
-                403,
-                "Forbidden",
+                Status::FORBIDDEN,
                 "application/json",
                 &[],
                 b"{\"message\":\"CSRF token invalid or missing\"}",
@@ -413,8 +409,7 @@ impl Service for RestApiService {
                 None => {
                     return write_status_only(
                         connection,
-                        400,
-                        "Bad Request",
+                        Status::BAD_REQUEST,
                         "application/json",
                         &[],
                         b"{\"message\":\"X-OTA-Offset header missing or invalid\"}",
@@ -441,8 +436,7 @@ impl Service for RestApiService {
             if !handled {
                 return write_status_only(
                     connection,
-                    404,
-                    "Not Found",
+                    Status::NOT_FOUND,
                     "text/plain",
                     &[],
                     b"not found",
@@ -462,18 +456,16 @@ impl Service for RestApiService {
                 // Both outcomes share one await. A buffer held across two
                 // awaits is stored outside the space the handler's suspend
                 // points share, which grows every HTTP worker by its size.
-                let (status, reason, body): (u16, &str, &[u8]) =
-                    if let Ok(length) = serialize_result {
-                        (200, "OK", &body_buf[..length])
-                    } else {
-                        warn!("info: failed to serialize ApiInfo response");
-                        (
-                            500,
-                            "Internal Server Error",
-                            b"{\"message\":\"serialization error\"}",
-                        )
-                    };
-                write_json_response(connection, status, reason, body).await
+                let (status, body): (Status, &[u8]) = if let Ok(length) = serialize_result {
+                    (Status::OK, &body_buf[..length])
+                } else {
+                    warn!("info: failed to serialize ApiInfo response");
+                    (
+                        Status::INTERNAL_SERVER_ERROR,
+                        b"{\"message\":\"serialization error\"}",
+                    )
+                };
+                write_json_response(connection, status, body).await
             }
             ("GET", "/api/config") => {
                 let mut body_buf = [0u8; CONFIG_RESPONSE_BUFFER_SIZE];
@@ -488,15 +480,14 @@ impl Service for RestApiService {
                     warn!("config: failed to serialize ConfigUpdate response");
                     return write_status_only(
                         connection,
-                        500,
-                        "Internal Server Error",
+                        Status::INTERNAL_SERVER_ERROR,
                         "application/json",
                         &[],
                         b"{\"message\":\"config serialize failed\"}",
                     )
                     .await;
                 };
-                write_json_response(connection, 200, "OK", &body_buf[..length]).await
+                write_json_response(connection, Status::OK, &body_buf[..length]).await
             }
             ("POST", "/api/config") => {
                 info!("config update ({} bytes)", body.len());
@@ -506,8 +497,7 @@ impl Service for RestApiService {
                     warn!("config: rejected POST /api/config with invalid JSON");
                     return write_status_only(
                         connection,
-                        400,
-                        "Bad Request",
+                        Status::BAD_REQUEST,
                         "application/json",
                         &[],
                         b"{\"message\":\"invalid config update JSON\"}",
@@ -551,8 +541,7 @@ impl Service for RestApiService {
                     };
                     return write_status_only(
                         connection,
-                        400,
-                        "Bad Request",
+                        Status::BAD_REQUEST,
                         "application/json",
                         &[],
                         body,
@@ -565,13 +554,12 @@ impl Service for RestApiService {
                 self.config
                     .send(ubos_config::Message::Update(new_config))
                     .await;
-                write_json_response(connection, 200, "OK", CONFIG_ACK_BODY).await
+                write_json_response(connection, Status::OK, CONFIG_ACK_BODY).await
             }
             (_, "/api/info" | "/api/config") => {
                 write_status_only(
                     connection,
-                    405,
-                    "Method Not Allowed",
+                    Status::METHOD_NOT_ALLOWED,
                     "text/plain",
                     &[],
                     b"method not allowed",
@@ -581,8 +569,7 @@ impl Service for RestApiService {
             _ => {
                 write_status_only(
                     connection,
-                    404,
-                    "Not Found",
+                    Status::NOT_FOUND,
                     "text/plain",
                     &[],
                     b"not found",

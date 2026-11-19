@@ -36,7 +36,9 @@ use embedded_io_async::{Read, Write};
 use ubos_logging::warn;
 
 use crate::consts::Metrics;
-use ubos_http::{BufferWriter, RequestParts, Service, format_content_length};
+use ubos_http::{
+    BufferWriter, RequestParts, Service, Status, format_content_length, start_response,
+};
 
 #[cfg(test)]
 #[path = "tests/metrics.rs"]
@@ -465,22 +467,21 @@ where
 
     let content_length = format_content_length(body_len);
 
-    connection
-        .initiate_response(
-            200,
-            Some("OK"),
-            // The dashboard on port 80 reads this endpoint cross-origin
-            // for the state snapshot download. The wildcard is safe on an
-            // unauthenticated listener and keeps the handler free of
-            // Origin parsing; it also forbids credentialed fetches.
-            &[
-                ("Content-Type", "text/plain; version=0.0.4"),
-                ("Content-Length", content_length.as_str()),
-                ("Connection", "close"),
-                ("Access-Control-Allow-Origin", "*"),
-            ],
-        )
-        .await?;
+    start_response(
+        connection,
+        Status::OK,
+        // The dashboard on port 80 reads this endpoint cross-origin
+        // for the state snapshot download. The wildcard is safe on an
+        // unauthenticated listener and keeps the handler free of
+        // Origin parsing; it also forbids credentialed fetches.
+        &[
+            ("Content-Type", "text/plain; version=0.0.4"),
+            ("Content-Length", content_length.as_str()),
+            ("Connection", "close"),
+            ("Access-Control-Allow-Origin", "*"),
+        ],
+    )
+    .await?;
 
     embedded_io_async::Write::write_all(connection, &body_buffer[..body_len]).await?;
 
@@ -500,8 +501,7 @@ where
 {
     ubos_http::write_status_only(
         connection,
-        404,
-        "Not Found",
+        Status::NOT_FOUND,
         "text/plain",
         // `write_status_only` no longer closes on the caller's behalf, so
         // this listener writes the header itself, as its success path
@@ -524,8 +524,7 @@ where
 {
     ubos_http::write_status_only(
         connection,
-        405,
-        "Method Not Allowed",
+        Status::METHOD_NOT_ALLOWED,
         "text/plain",
         &[
             ("Allow", "GET"),

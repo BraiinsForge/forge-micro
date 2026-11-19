@@ -19,7 +19,7 @@
 
 //! Shared HTTP response helpers for edge-http connections.
 //!
-//! Both helpers write directly to an edge-http `Connection`, filling
+//! The helpers write directly to an edge-http `Connection`, filling
 //! the gap in the edge-http API: the library ships no numeric
 //! `Content-Length` header helper and no shared error-response writer.
 //! Handler crates import these to avoid duplicating the same header
@@ -33,6 +33,8 @@ use embedded_io_async::{Read, Write};
 use heapless::String;
 
 use edge_nal::TcpSplit;
+
+use crate::status::Status;
 
 #[cfg(test)]
 #[path = "tests/response.rs"]
@@ -59,9 +61,32 @@ pub const MAX_EXTRA_STATUS_HEADERS: usize = 4;
 /// (3 fixed + 1 encoding + 1 extra = 5) with three slots to spare.
 pub const MAX_RESPONSE_HEADERS: usize = 8;
 
+/// Start a response on `connection` with the status line of `status` and
+/// `headers`.
+///
+/// Every response starts here, the writers below included, so the code
+/// and the reason of a status line always come from one [`Status`].
+///
+/// # Errors
+///
+/// Returns an `HttpError` if the connection state machine rejects the
+/// response or if the underlying socket write fails.
+pub async fn start_response<T, const N: usize>(
+    connection: &mut Connection<'_, T, N>,
+    status: Status,
+    headers: &[(&str, &str)],
+) -> Result<(), HttpError<T::Error>>
+where
+    T: Read + Write + TcpSplit,
+{
+    connection
+        .initiate_response(status.code(), Some(status.reason()), headers)
+        .await
+}
+
 /// Write a complete HTTP status response to `connection`.
 ///
-/// Sends `status` and `reason` as the status line, and adds the
+/// Sends the status line of `status`, and adds the
 /// caller-provided `content_type` and a `Content-Length` derived from
 /// `body`. Any pairs in `extra_headers` are inserted before the two
 /// helper-managed headers so callers can attach response-specific fields
@@ -84,8 +109,7 @@ pub const MAX_RESPONSE_HEADERS: usize = 8;
 /// assemble headers on the stack without allocation.
 pub async fn write_status_only<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
-    status: u16,
-    reason: &str,
+    status: Status,
     content_type: &str,
     extra_headers: &[(&str, &str)],
     body: &[u8],
@@ -112,9 +136,7 @@ where
     headers[cursor] = ("Content-Length", content_length.as_str());
     cursor += 1;
 
-    connection
-        .initiate_response(status, Some(reason), &headers[..cursor])
-        .await?;
+    start_response(connection, status, &headers[..cursor]).await?;
 
     embedded_io_async::Write::write_all(connection, body).await?;
 
@@ -136,7 +158,7 @@ pub fn format_content_length(value: usize) -> String<CONTENT_LENGTH_DECIMAL_DIGI
 
 /// Write a JSON response with `body` bytes.
 ///
-/// `status` and `reason` form the status line. Every caller sends the
+/// `status` gives the status line. Every caller sends the
 /// same three headers, so there is no header parameter; a response
 /// that needs more headers builds them at its own call site.
 ///
@@ -146,8 +168,7 @@ pub fn format_content_length(value: usize) -> String<CONTENT_LENGTH_DECIMAL_DIGI
 /// response or if the underlying socket write fails.
 pub async fn write_json_response<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
-    status: u16,
-    reason: &str,
+    status: Status,
     body: &[u8],
 ) -> Result<(), HttpError<T::Error>>
 where
@@ -161,9 +182,7 @@ where
         ("Content-Length", content_length.as_str()),
     ];
 
-    connection
-        .initiate_response(status, Some(reason), &headers)
-        .await?;
+    start_response(connection, status, &headers).await?;
 
     embedded_io_async::Write::write_all(connection, body).await?;
 
