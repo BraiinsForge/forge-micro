@@ -597,7 +597,8 @@ rusty_fork_test! {
 
 rusty_fork_test! {
     /// A continuation chunk whose `X-OTA-Offset` does not match the number of
-    /// bytes already written returns 409 Conflict.
+    /// bytes already written returns 409 Conflict, and the session ends with
+    /// that error, so the idle watcher does not abort it a second time.
     ///
     /// Simulated by pre-registering a mock whose `bytes_written()` reports
     /// 4096 (one sector already written), then sending a chunk with
@@ -612,6 +613,9 @@ rusty_fork_test! {
             status, 409,
             "chunk with mismatched offset must be rejected with 409"
         );
+        let session = crate::ota::ota_session().snapshot();
+        assert_eq!(session.phase, crate::ota::OtaPhase::Error);
+        assert_eq!(session.last_error, OtaError::OffsetMismatch as u8);
     }
 }
 
@@ -657,7 +661,8 @@ rusty_fork_test! {
 }
 
 rusty_fork_test! {
-    /// A non-final chunk shorter than one erase sector is rejected with 400.
+    /// A non-final chunk shorter than one erase sector is rejected with 400,
+    /// and the session ends with that error.
     ///
     /// `write_chunk` assumes each non-final chunk covers exactly one sector, so
     /// a short body would advance the write offset off a sector boundary. The
@@ -673,6 +678,9 @@ rusty_fork_test! {
             status, 400,
             "non-final chunk smaller than one sector must be rejected with 400"
         );
+        let session = crate::ota::ota_session().snapshot();
+        assert_eq!(session.phase, crate::ota::OtaPhase::Error);
+        assert_eq!(session.last_error, OtaError::ShortChunk as u8);
     }
 }
 

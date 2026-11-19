@@ -339,7 +339,7 @@ Fields emitted by `GET /api/info`:
 | `phase` | string | Current upload phase: `"idle"`, `"uploading"`, `"error"`, or `"rebooting"` |
 | `bytesWritten` | number | Bytes written in the current or last upload session |
 | `chunks` | number | Number of chunks written in the current or last session |
-| `lastError` | number | Error code from the last failed session (0 = none; 1 = NoPartitionTable, 2 = SlotOverflow, 3 = Flash, 4 = ShortUpload, 5 = WrongHardware, 6 = Connection, 7 = InvalidImage) |
+| `lastError` | number | Error code from the last failed session (0 = none; 1 = NoPartitionTable, 2 = SlotOverflow, 3 = Flash, 4 = ShortUpload, 5 = WrongHardware, 6 = Connection, 7 = InvalidImage, 8 = OffsetMismatch, 9 = ShortChunk) |
 | `resetReason` | string | Cause of the most recent reset: `"clean"`, `"watchdogTimeout"`, `"watchdogForced"`, or `"unknown"` |
 | `resetOtaActive` | bool | Whether an OTA session breadcrumb (SCRATCH0 = `0x4F54_5541`) was present at boot |
 | `resetOtaOffset` | number | Byte offset recorded in SCRATCH1 at the time of reset (0 when no session was active) |

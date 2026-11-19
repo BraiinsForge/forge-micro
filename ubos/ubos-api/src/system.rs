@@ -1245,15 +1245,7 @@ where
                 "OTA chunk: offset mismatch: got {} expected {}",
                 ota_offset_usize, expected,
             );
-            ota.abort();
-            manager.send(ManagerMessage::OtaEnd).await;
-            return write_message(
-                connection,
-                Status::CONFLICT.with_message(
-                    "chunk offset does not match write position; restart from offset 0",
-                ),
-            )
-            .await;
+            return fail_upload(connection, ota, manager, OtaError::OffsetMismatch).await;
         }
     }
 
@@ -1261,19 +1253,13 @@ where
     // write_chunk rebuilds a fresh updater per call and assumes one chunk
     // maps to one sector; a short non-final chunk would leave write_offset
     // off a sector boundary and let the next chunk re-erase a written sector.
-    // The session is armed by this point, so abort it before rejecting.
+    // The session is armed by this point, so the rejection ends it.
     if !ota_final && chunk_size != OTA_CHUNK_SIZE {
         warn!(
             "OTA chunk: non-final chunk is {} bytes, not a full sector",
             chunk_size,
         );
-        ota.abort();
-        manager.send(ManagerMessage::OtaEnd).await;
-        return write_message(
-            connection,
-            Status::BAD_REQUEST.with_message("non-final chunk must be exactly one sector"),
-        )
-        .await;
+        return fail_upload(connection, ota, manager, OtaError::ShortChunk).await;
     }
 
     // Read the chunk body fully before calling write_chunk. The buffer is

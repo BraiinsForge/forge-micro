@@ -472,7 +472,7 @@ pub(crate) fn target_mutex()
 /// distinguish "the device is not set up for OTA" from "a write
 /// failed" from "the uploaded image was too short" from "the image is
 /// for other hardware" from "the connection failed" from "the file is not
-/// an image".
+/// an image" from "a chunk broke the order of the upload".
 ///
 /// The discriminant of each variant is its code, which `/api/info` reports
 /// as `lastError`, so a client tells the causes apart without parsing a
@@ -506,6 +506,15 @@ pub enum OtaError {
     /// declares. The client sent a bad file, so the handler answers it as
     /// a bad request.
     InvalidImage = 7,
+    /// The offset of a chunk does not match the bytes already written, as
+    /// for a chunk sent out of order or a second time. The handler ends the
+    /// session and answers it as a conflict, so the client restarts from
+    /// offset 0.
+    OffsetMismatch = 8,
+    /// A chunk before the last one is shorter than one sector. The targets
+    /// write one sector per chunk, so the handler ends the session and
+    /// answers it as a bad request.
+    ShortChunk = 9,
 }
 
 /// The status and the message that the handler answers an OTA error
@@ -532,6 +541,11 @@ impl From<OtaError> for StatusMessage {
             }
             OtaError::InvalidImage => {
                 Status::BAD_REQUEST.with_message("The file is not a valid firmware image.")
+            }
+            OtaError::OffsetMismatch => Status::CONFLICT
+                .with_message("chunk offset does not match write position; restart from offset 0"),
+            OtaError::ShortChunk => {
+                Status::BAD_REQUEST.with_message("non-final chunk must be exactly one sector")
             }
         }
     }
