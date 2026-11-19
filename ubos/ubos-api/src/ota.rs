@@ -99,37 +99,6 @@ impl OtaPhase {
     }
 }
 
-/// Error code mapping for [`OtaError`] variants.
-///
-/// Zero is reserved for "no error". Each nonzero code identifies one
-/// `OtaError` variant so HTTP clients can distinguish flash failures
-/// from slot overflows without parsing a string.
-#[derive(Clone, Copy, Debug)]
-pub struct OtaErrorCode(u8);
-
-impl OtaErrorCode {
-    /// Maps an [`OtaError`] to a nonzero `u8` code.
-    #[must_use]
-    pub fn from_error(error: OtaError) -> Self {
-        let code = match error {
-            OtaError::NoPartitionTable => 1,
-            OtaError::SlotOverflow => 2,
-            OtaError::Flash => 3,
-            OtaError::ShortUpload => 4,
-            OtaError::WrongHardware => 5,
-            OtaError::Connection => 6,
-            OtaError::InvalidImage => 7,
-        };
-        Self(code)
-    }
-
-    /// Returns the raw `u8` value.
-    #[must_use]
-    pub fn value(self) -> u8 {
-        self.0
-    }
-}
-
 /// Snapshot of the live upload session state.
 ///
 /// Returned by [`OtaSession::snapshot`] for the `/api/info` response.
@@ -229,8 +198,7 @@ impl OtaSession {
     /// and chunk count are left unchanged so diagnostics reflect progress
     /// at the time of failure.
     pub(crate) fn record_error(&self, error: OtaError) {
-        self.last_error
-            .store(OtaErrorCode::from_error(error).value(), Ordering::Relaxed);
+        self.last_error.store(error as u8, Ordering::Relaxed);
         self.phase.store(OtaPhase::Error as u8, Ordering::Relaxed);
     }
 
@@ -505,40 +473,44 @@ pub(crate) fn target_mutex()
 /// failed" from "the uploaded image was too short" from "the image is
 /// for other hardware" from "the connection failed" from "the file is not
 /// an image".
+///
+/// The discriminant of each variant is its code, which `/api/info` reports
+/// as `lastError`, so a client tells the causes apart without parsing a
+/// string. Zero stays free for no error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
 pub enum OtaError {
     /// The device has no dual-partition layout; OTA is not possible.
-    NoPartitionTable,
+    NoPartitionTable = 1,
     /// The image to be written exceeds the inactive slot capacity. The
     /// handler answers it as a payload too large, because the client sent a
     /// file that the board cannot hold.
-    SlotOverflow,
+    SlotOverflow = 2,
     /// The board could not write the image. The flash reported an error, or
     /// the target could not start or continue the write, as when core 1
     /// does not park or no session is open. The handler answers it as an
     /// internal error, because the fault is on the board.
-    Flash,
+    Flash = 3,
     /// `finish` was called before enough bytes were written.
-    ShortUpload,
+    ShortUpload = 4,
     /// The image is for other hardware than this board. The target
     /// refuses it before it writes anything, and the handler answers it as
     /// a bad request, because the client sent the wrong file.
-    WrongHardware,
+    WrongHardware = 5,
     /// Reading the upload from the connection failed. The handler records
     /// it for a socket error, so `lastError` names the cause.
-    Connection,
+    Connection = 6,
     /// The upload is not a valid image: its header is malformed, or its
     /// payload does not match the size or the checksum that the header
     /// declares. The client sent a bad file, so the handler answers it as
     /// a bad request.
-    InvalidImage,
+    InvalidImage = 7,
 }
 
 /// The status and the message that the handler answers an OTA error
-/// with. Each variant states its own here, beside its code in
-/// [`OtaErrorCode::from_error`], so a new variant does not compile until
-/// both are chosen.
+/// with. Each variant states its own here, so a new variant does not
+/// compile until its status is chosen.
 impl From<OtaError> for StatusMessage {
     fn from(error: OtaError) -> Self {
         match error {

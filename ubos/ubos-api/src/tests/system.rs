@@ -689,7 +689,7 @@ rusty_fork_test! {
         assert_eq!(status, 400, "an image for other hardware must be rejected with 400");
         assert_eq!(
             crate::ota::ota_session().snapshot().last_error,
-            crate::ota::OtaErrorCode::from_error(OtaError::WrongHardware).value(),
+            OtaError::WrongHardware as u8,
         );
     }
 }
