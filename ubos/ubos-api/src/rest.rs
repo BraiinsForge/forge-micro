@@ -24,8 +24,6 @@
 //! machine clients, session cookie for the SPA, CSRF for
 //! session-authenticated mutating requests.
 
-use core::fmt::Write as _;
-
 use edge_http::io::Error as HttpError;
 use edge_http::io::server::Connection;
 use edge_nal::TcpSplit;
@@ -37,7 +35,9 @@ use ubos_logging::{info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
 use ubos_thermal::Handle as ThermalHandle;
 
-use ubos_http::{RequestParts, Service, Status, read_body, write_json_response, write_status_only};
+use ubos_http::{
+    RequestParts, Service, Status, read_body, write_json_response, write_message, write_status_only,
+};
 
 use crate::schema::info::{ApiInfo, ApiInfoChain, ApiInfoOta};
 use crate::schema::state::{ApiMiningState, ApiPauseReason};
@@ -283,16 +283,16 @@ impl Service for RestApiService {
         let auth_ctx =
             match ubos_auth::gate_identity(peer_ip, authorization, cookie, &identity_policy) {
                 Err(ubos_auth::Rejection::NotAllowed) => {
-                    return write_status_only(
+                    return write_message(
                         connection,
-                        Status::UNAUTHORIZED,
-                        "application/json",
-                        &[],
-                        b"{\"message\":\"Client not in allowed network range\"}",
+                        Status::UNAUTHORIZED.with_message("Client not in allowed network range"),
                     )
                     .await;
                 }
                 Err(_) => {
+                    // The challenge header goes with this answer, and
+                    // `write_message` sends no header of the caller, so
+                    // the body is written out here.
                     return write_status_only(
                         connection,
                         Status::UNAUTHORIZED,
@@ -364,12 +364,9 @@ impl Service for RestApiService {
             && !is_ota_continuation
             && ubos_auth::check_csrf(&auth_ctx, parts.csrf.as_deref()).is_err()
         {
-            return write_status_only(
+            return write_message(
                 connection,
-                Status::FORBIDDEN,
-                "application/json",
-                &[],
-                b"{\"message\":\"CSRF token invalid or missing\"}",
+                Status::FORBIDDEN.with_message("CSRF token invalid or missing"),
             )
             .await;
         }
@@ -407,12 +404,9 @@ impl Service for RestApiService {
             {
                 Some(offset) => offset,
                 None => {
-                    return write_status_only(
+                    return write_message(
                         connection,
-                        Status::BAD_REQUEST,
-                        "application/json",
-                        &[],
-                        b"{\"message\":\"X-OTA-Offset header missing or invalid\"}",
+                        Status::BAD_REQUEST.with_message("X-OTA-Offset header missing or invalid"),
                     )
                     .await;
                 }
@@ -478,12 +472,9 @@ impl Service for RestApiService {
                 };
                 let Ok(length) = serialize_result else {
                     warn!("config: failed to serialize ConfigUpdate response");
-                    return write_status_only(
+                    return write_message(
                         connection,
-                        Status::INTERNAL_SERVER_ERROR,
-                        "application/json",
-                        &[],
-                        b"{\"message\":\"config serialize failed\"}",
+                        Status::INTERNAL_SERVER_ERROR.with_message("config serialize failed"),
                     )
                     .await;
                 };
@@ -495,12 +486,9 @@ impl Service for RestApiService {
                     serde_json_core::de::from_slice::<ubos_config::ConfigUpdate>(body)
                 else {
                     warn!("config: rejected POST /api/config with invalid JSON");
-                    return write_status_only(
+                    return write_message(
                         connection,
-                        Status::BAD_REQUEST,
-                        "application/json",
-                        &[],
-                        b"{\"message\":\"invalid config update JSON\"}",
+                        Status::BAD_REQUEST.with_message("invalid config update JSON"),
                     )
                     .await;
                 };
@@ -521,32 +509,8 @@ impl Service for RestApiService {
 
                 if let Err(reason) = update.validate(&current, self.bounds) {
                     warn!("config: rejected POST /api/config: {}", reason);
-                    // `reason` is always a `&'static str` literal from
-                    // `ubos_config::ConfigUpdate::validate`; none contain
-                    // `"` or `\`, so the formatter below produces valid JSON
-                    // without escaping. Keep all new reasons static.
-                    let mut error_buf = [0u8; 128];
-                    let mut writer = ubos_http::BufferWriter::new(&mut error_buf);
-                    let _ = core::write!(writer, "{{\"message\":\"{reason}\"}}");
-                    let overflowed = writer.overflowed();
-                    let error_len = writer.len();
-                    let body: &[u8] = if overflowed {
-                        warn!(
-                            "config: error reason exceeded {}B error_buf; serving generic body",
-                            error_buf.len()
-                        );
-                        b"{\"message\":\"config validation failed\"}"
-                    } else {
-                        &error_buf[..error_len]
-                    };
-                    return write_status_only(
-                        connection,
-                        Status::BAD_REQUEST,
-                        "application/json",
-                        &[],
-                        body,
-                    )
-                    .await;
+                    return write_message(connection, Status::BAD_REQUEST.with_message(reason))
+                        .await;
                 }
 
                 let mut new_config = current;

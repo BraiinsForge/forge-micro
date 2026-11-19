@@ -89,8 +89,8 @@ use crate::ota::{OtaError, OtaTarget, ota_session};
 use crate::rest::RestApiService;
 use crate::schema::events::{EventDefJson, EventRecordJson};
 use crate::schema::{
-    API_VARIANT, GenericResponse, SystemInfo, SystemNetwork, SystemScoreboardEntry,
-    SystemStatistics, SystemTemperature, system_info::HwInfo, system_statistics::LABELS,
+    API_VARIANT, SystemInfo, SystemNetwork, SystemScoreboardEntry, SystemStatistics,
+    SystemTemperature, system_info::HwInfo, system_statistics::LABELS,
 };
 
 #[cfg(test)]
@@ -318,10 +318,9 @@ where
         // plain serde derivations so this path should be unreachable.
         // Keep the body JSON to match the success-path Content-Type so
         // machine clients can parse the failure case with the same decoder.
-        write_json_response(
+        write_message(
             connection,
-            Status::INTERNAL_SERVER_ERROR,
-            b"{\"message\":\"serialization error\"}",
+            Status::INTERNAL_SERVER_ERROR.with_message("serialization error"),
         )
         .await
     }
@@ -542,38 +541,23 @@ where
     } else {
         // BUG: serializing an empty slice failed; this is a serde_json_core
         // invariant violation.
-        write_json_response(
+        write_message(
             connection,
-            Status::INTERNAL_SERVER_ERROR,
-            b"{\"message\":\"serialization error\"}",
+            Status::INTERNAL_SERVER_ERROR.with_message("serialization error"),
         )
         .await
     }
 }
 
 /// Handle a not-implemented endpoint with a 501 JSON response.
-///
 async fn handle_not_implemented<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
-    scratch: &mut [u8],
-    message: &str,
+    message: &'static str,
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
-    let body = GenericResponse { message };
-    if let Ok(length) = serde_json_core::to_slice(&body, scratch) {
-        write_json_response(connection, Status::NOT_IMPLEMENTED, &scratch[..length]).await
-    } else {
-        // BUG: serializing GenericResponse failed; the struct is a plain
-        // serde derivation so this path is unreachable in practice.
-        write_json_response(
-            connection,
-            Status::NOT_IMPLEMENTED,
-            b"{\"message\":\"serialization error\"}",
-        )
-        .await
-    }
+    write_message(connection, Status::NOT_IMPLEMENTED.with_message(message)).await
 }
 
 /// Write a 200 OK response with `{"message":"ack"}` body.
@@ -582,24 +566,11 @@ where
 /// request was received; no firmware state is changed.
 async fn write_ack_response<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
-    scratch: &mut [u8],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
-    let body = GenericResponse { message: "ack" };
-    if let Ok(length) = serde_json_core::to_slice(&body, scratch) {
-        write_json_response(connection, Status::OK, &scratch[..length]).await
-    } else {
-        // BUG: serializing GenericResponse { message: "ack" } failed;
-        // the struct is a plain serde derivation so this path is unreachable.
-        write_json_response(
-            connection,
-            Status::INTERNAL_SERVER_ERROR,
-            b"{\"message\":\"serialization error\"}",
-        )
-        .await
-    }
+    write_message(connection, Status::OK.with_message("ack")).await
 }
 
 /// Handle `GET /api/system/network`.
@@ -654,27 +625,6 @@ where
     serialize_and_respond(connection, scratch, &status).await
 }
 
-/// Write a 400 Bad Request whose JSON body is `message`.
-///
-/// Serializes a [`GenericResponse`] into `scratch`; if it does not fit,
-/// `fallback` supplies pre-encoded bytes so the client still gets a
-/// well-formed error.
-async fn write_bad_request<T, const N: usize>(
-    connection: &mut Connection<'_, T, N>,
-    scratch: &mut [u8],
-    message: &str,
-    fallback: &[u8],
-) -> Result<(), HttpError<T::Error>>
-where
-    T: Read + Write + TcpSplit,
-{
-    let error = GenericResponse { message };
-    let Ok(length) = serde_json_core::to_slice(&error, scratch) else {
-        return write_json_response(connection, Status::BAD_REQUEST, fallback).await;
-    };
-    write_json_response(connection, Status::BAD_REQUEST, &scratch[..length]).await
-}
-
 /// Request body for `POST /api/system/network`.
 ///
 /// Carries the network config fields beside `confirm_after_switch`,
@@ -703,7 +653,6 @@ pub(crate) struct NetworkPostRequest {
 /// window. Returns 400 on parse or validation error, 200 on success.
 async fn handle_network_post<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
-    scratch: &mut [u8],
     body: &[u8],
     config: ubos_config::Handle,
 ) -> Result<(), HttpError<T::Error>>
@@ -711,26 +660,14 @@ where
     T: Read + Write + TcpSplit,
 {
     let Ok((request, _)) = serde_json_core::de::from_slice::<NetworkPostRequest>(body) else {
-        return write_bad_request(
-            connection,
-            scratch,
-            "invalid JSON",
-            b"{\"message\":\"invalid JSON\"}",
-        )
-        .await;
+        return write_message(connection, Status::BAD_REQUEST.with_message("invalid JSON")).await;
     };
     let network = ubos_config::NetworkConfig {
         mode: request.mode,
         hostname: request.hostname,
     };
     if let Err(message) = network.validate() {
-        return write_bad_request(
-            connection,
-            scratch,
-            message,
-            b"{\"message\":\"validation error\"}",
-        )
-        .await;
+        return write_message(connection, Status::BAD_REQUEST.with_message(message)).await;
     }
     // A wrong or unreachable static address strands the board, and applying
     // with no confirm window persists it immediately, so a reboot cannot
@@ -739,11 +676,9 @@ where
     if matches!(network.mode, ubos_config::NetworkMode::Static { .. })
         && !request.confirm_after_switch
     {
-        return write_bad_request(
+        return write_message(
             connection,
-            scratch,
-            "static address changes require the confirm window",
-            b"{\"message\":\"static address changes require the confirm window\"}",
+            Status::BAD_REQUEST.with_message("static address changes require the confirm window"),
         )
         .await;
     }
@@ -767,10 +702,9 @@ async fn write_busy<T, const N: usize>(
 where
     T: Read + Write + TcpSplit,
 {
-    write_json_response(
+    write_message(
         connection,
-        Status::SERVICE_UNAVAILABLE,
-        b"{\"message\":\"busy, retry\"}",
+        Status::SERVICE_UNAVAILABLE.with_message("busy, retry"),
     )
     .await
 }
@@ -780,7 +714,6 @@ where
 /// Forwards [`ubos_config::Message::ConfirmNetwork`] and returns 200 ack.
 async fn handle_network_confirm<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
-    scratch: &mut [u8],
     config: ubos_config::Handle,
 ) -> Result<(), HttpError<T::Error>>
 where
@@ -789,7 +722,7 @@ where
     if !config.try_send(ubos_config::Message::ConfirmNetwork) {
         return write_busy(connection).await;
     }
-    write_ack_response(connection, scratch).await
+    write_ack_response(connection).await
 }
 
 /// Handle `POST /api/system/network/revert`.
@@ -797,7 +730,6 @@ where
 /// Forwards [`ubos_config::Message::RevertNetwork`] and returns 200 ack.
 async fn handle_network_revert<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
-    scratch: &mut [u8],
     config: ubos_config::Handle,
 ) -> Result<(), HttpError<T::Error>>
 where
@@ -806,7 +738,7 @@ where
     if !config.try_send(ubos_config::Message::RevertNetwork) {
         return write_busy(connection).await;
     }
-    write_ack_response(connection, scratch).await
+    write_ack_response(connection).await
 }
 
 /// Handle a POST action endpoint (restart, identify,
@@ -819,14 +751,13 @@ where
 /// a 409 before it reaches this ack.
 async fn handle_action<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
-    scratch: &mut [u8],
     action: &str,
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
     info!("api action: {}", action);
-    write_ack_response(connection, scratch).await
+    write_ack_response(connection).await
 }
 
 /// Handle `POST /api/system/resume`.
@@ -842,23 +773,21 @@ where
 /// mask the test publishes itself.
 pub(crate) async fn handle_resume<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
-    scratch: &mut [u8],
     manager: ManagerHandle,
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
     if manager.holds(ubos_manager::PauseReason::DangerousTemperature) {
-        return write_json_response(
+        return write_message(
             connection,
-            Status::CONFLICT,
-            b"{\"message\":\"an overheat halt stands; clear it to start\"}",
+            Status::CONFLICT.with_message("an overheat halt stands; clear it to start"),
         )
         .await;
     }
     crate::events::user_requested_start();
     manager.send(ManagerMessage::Start).await;
-    handle_action(connection, scratch, "resume").await
+    handle_action(connection, "resume").await
 }
 
 /// Handle `POST /api/system/thermal/clear`.
@@ -872,7 +801,6 @@ where
 /// only when the mask empties.
 pub(crate) async fn handle_thermal_clear<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
-    scratch: &mut [u8],
     manager: ManagerHandle,
 ) -> Result<(), HttpError<T::Error>>
 where
@@ -882,7 +810,7 @@ where
     crate::events::user_requested_start();
     manager.send(ManagerMessage::TemperatureAcknowledged).await;
     manager.send(ManagerMessage::Start).await;
-    handle_action(connection, scratch, "thermal/clear").await
+    handle_action(connection, "thermal/clear").await
 }
 
 /// Handle `POST /api/system/factory_reset`.
@@ -897,7 +825,6 @@ where
 /// the live network apply.
 async fn handle_factory_reset<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
-    scratch: &mut [u8],
     config: ubos_config::Handle,
 ) -> Result<(), HttpError<T::Error>>
 where
@@ -905,7 +832,7 @@ where
 {
     ubos_auth::session::clear_all_sessions();
     config.send(ubos_config::Message::FactoryReset).await;
-    write_ack_response(connection, scratch).await
+    write_ack_response(connection).await
 }
 
 /// Handle `PATCH /api/system`.
@@ -917,14 +844,13 @@ where
 /// JSON payload, and the stub has no operational use for the contents.
 async fn handle_patch_system<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
-    scratch: &mut [u8],
     body_len: usize,
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
     info!("api patch /api/system ({} bytes)", body_len);
-    write_ack_response(connection, scratch).await
+    write_ack_response(connection).await
 }
 
 /// Outcome of a failed [`read_chunk`] call, carrying the bytes read
@@ -1020,19 +946,17 @@ where
     // Validate input before acquiring the mutex so a request rejected on
     // bad headers never holds the upload lock.
     let Some(image_bytes) = content_length else {
-        return write_json_response(
+        return write_message(
             connection,
-            Status::LENGTH_REQUIRED,
-            b"{\"message\":\"Content-Length required for OTA upload\"}",
+            Status::LENGTH_REQUIRED.with_message("Content-Length required for OTA upload"),
         )
         .await;
     };
 
     if image_bytes > max_image_bytes() {
-        return write_json_response(
+        return write_message(
             connection,
-            Status::PAYLOAD_TOO_LARGE,
-            b"{\"message\":\"image exceeds maximum slot size\"}",
+            Status::PAYLOAD_TOO_LARGE.with_message("image exceeds maximum slot size"),
         )
         .await;
     }
@@ -1041,10 +965,9 @@ where
         // No session has started yet, so this is a client input rejection,
         // not a device error. Leaving the phase at Idle keeps /api/info from
         // reporting a stale Error until the next attempt or a reboot.
-        return write_json_response(
+        return write_message(
             connection,
-            Status::BAD_REQUEST,
-            b"{\"message\":\"image too small\"}",
+            Status::BAD_REQUEST.with_message("image too small"),
         )
         .await;
     }
@@ -1053,18 +976,16 @@ where
     // concurrent upload is rejected rather than queued behind a write that
     // ends in a reboot.
     let Ok(mut guard) = crate::ota::target_mutex().try_lock() else {
-        return write_json_response(
+        return write_message(
             connection,
-            Status::CONFLICT,
-            b"{\"message\":\"an update is already in progress\"}",
+            Status::CONFLICT.with_message("an update is already in progress"),
         )
         .await;
     };
     let Some(ota) = guard.as_deref_mut() else {
-        return write_json_response(
+        return write_message(
             connection,
-            Status::NOT_IMPLEMENTED,
-            b"{\"message\":\"OTA not available on this board\"}",
+            Status::NOT_IMPLEMENTED.with_message("OTA not available on this board"),
         )
         .await;
     };
@@ -1081,10 +1002,9 @@ where
         warn!("OTA: mining did not stop within timeout; aborting");
         // Mining may still stop after the timeout, so clear the pause.
         manager.send(ManagerMessage::OtaEnd).await;
-        return write_json_response(
+        return write_message(
             connection,
-            Status::SERVICE_UNAVAILABLE,
-            b"{\"message\":\"mining did not stop in time; retry\"}",
+            Status::SERVICE_UNAVAILABLE.with_message("mining did not stop in time; retry"),
         )
         .await;
     }
@@ -1229,37 +1149,29 @@ where
     // Validate input before acquiring the mutex so a request rejected on
     // bad headers never holds the upload lock.
     let Some(chunk_bytes) = content_length else {
-        return write_json_response(
+        return write_message(
             connection,
-            Status::LENGTH_REQUIRED,
-            b"{\"message\":\"Content-Length required for OTA chunk\"}",
+            Status::LENGTH_REQUIRED.with_message("Content-Length required for OTA chunk"),
         )
         .await;
     };
 
     if chunk_bytes > OTA_CHUNK_SIZE as u64 {
-        return write_json_response(
+        return write_message(
             connection,
-            Status::PAYLOAD_TOO_LARGE,
-            b"{\"message\":\"chunk exceeds maximum sector size\"}",
+            Status::PAYLOAD_TOO_LARGE.with_message("chunk exceeds maximum sector size"),
         )
         .await;
     }
 
     if chunk_bytes == 0 {
-        return write_json_response(
-            connection,
-            Status::BAD_REQUEST,
-            b"{\"message\":\"empty chunk\"}",
-        )
-        .await;
+        return write_message(connection, Status::BAD_REQUEST.with_message("empty chunk")).await;
     }
 
     if ota_offset.saturating_add(chunk_bytes) > max_image_bytes() {
-        return write_json_response(
+        return write_message(
             connection,
-            Status::PAYLOAD_TOO_LARGE,
-            b"{\"message\":\"image exceeds maximum slot size\"}",
+            Status::PAYLOAD_TOO_LARGE.with_message("image exceeds maximum slot size"),
         )
         .await;
     }
@@ -1267,18 +1179,16 @@ where
     // Reject concurrent uploads: a second connection finds the mutex held
     // and is refused rather than queued behind a write that ends in a reboot.
     let Ok(mut guard) = crate::ota::target_mutex().try_lock() else {
-        return write_json_response(
+        return write_message(
             connection,
-            Status::CONFLICT,
-            b"{\"message\":\"an update is already in progress\"}",
+            Status::CONFLICT.with_message("an update is already in progress"),
         )
         .await;
     };
     let Some(ota) = guard.as_deref_mut() else {
-        return write_json_response(
+        return write_message(
             connection,
-            Status::NOT_IMPLEMENTED,
-            b"{\"message\":\"OTA not available on this board\"}",
+            Status::NOT_IMPLEMENTED.with_message("OTA not available on this board"),
         )
         .await;
     };
@@ -1300,10 +1210,9 @@ where
             warn!("OTA chunk: mining did not stop within timeout; aborting");
             // Mining may still stop after the timeout, so clear the pause.
             manager.send(ManagerMessage::OtaEnd).await;
-            return write_json_response(
+            return write_message(
                 connection,
-                Status::SERVICE_UNAVAILABLE,
-                b"{\"message\":\"mining did not stop in time; retry\"}",
+                Status::SERVICE_UNAVAILABLE.with_message("mining did not stop in time; retry"),
             )
             .await;
         }
@@ -1338,8 +1247,11 @@ where
             );
             ota.abort();
             manager.send(ManagerMessage::OtaEnd).await;
-            return write_json_response(connection, Status::CONFLICT,
-                b"{\"message\":\"chunk offset does not match write position; restart from offset 0\"}",
+            return write_message(
+                connection,
+                Status::CONFLICT.with_message(
+                    "chunk offset does not match write position; restart from offset 0",
+                ),
             )
             .await;
         }
@@ -1357,10 +1269,9 @@ where
         );
         ota.abort();
         manager.send(ManagerMessage::OtaEnd).await;
-        return write_json_response(
+        return write_message(
             connection,
-            Status::BAD_REQUEST,
-            b"{\"message\":\"non-final chunk must be exactly one sector\"}",
+            Status::BAD_REQUEST.with_message("non-final chunk must be exactly one sector"),
         )
         .await;
     }
@@ -1929,69 +1840,60 @@ where
             handle_events_catalog(connection).await?;
         }
         DispatchOutcome::Handled(Route::SystemWifiScan | Route::SystemOtaWww) => {
-            handle_not_implemented(connection, scratch, "unsupported on this platform").await?;
+            handle_not_implemented(connection, "unsupported on this platform").await?;
         }
         DispatchOutcome::Handled(Route::SystemOta) => {
             // The streaming upload is intercepted in rest.rs before the body
             // is pre-read, so this arm is not reached in normal operation;
             // respond defensively rather than mishandle the unread body.
-            handle_not_implemented(
-                connection,
-                scratch,
-                "OTA upload must use the streaming path",
-            )
-            .await?;
+            handle_not_implemented(connection, "OTA upload must use the streaming path").await?;
         }
         DispatchOutcome::Handled(Route::SystemOtaChunk) => {
             // The chunk upload is intercepted in rest.rs before the body is
             // pre-read (same as SystemOta), so this arm is not reached in
             // normal operation; respond defensively.
-            handle_not_implemented(
-                connection,
-                scratch,
-                "OTA chunk upload must use the streaming path",
-            )
-            .await?;
+            handle_not_implemented(connection, "OTA chunk upload must use the streaming path")
+                .await?;
         }
         DispatchOutcome::Handled(Route::PauseAck) => {
             crate::events::user_paused();
             service.manager.send(ManagerMessage::Stop).await;
-            handle_action(connection, scratch, "pause").await?;
+            handle_action(connection, "pause").await?;
         }
         DispatchOutcome::Handled(Route::ResumeAck) => {
-            handle_resume(connection, scratch, service.manager).await?;
+            handle_resume(connection, service.manager).await?;
         }
         DispatchOutcome::Handled(Route::ThermalClearAck) => {
-            handle_thermal_clear(connection, scratch, service.manager).await?;
+            handle_thermal_clear(connection, service.manager).await?;
         }
         DispatchOutcome::Handled(Route::RestartAck) => {
             crate::events::user_restart();
-            handle_action(connection, scratch, "restart").await?;
+            handle_action(connection, "restart").await?;
             ubos_core::reboot::request_reboot();
         }
         DispatchOutcome::Handled(Route::IdentifyAck) => {
-            handle_action(connection, scratch, "identify").await?;
+            handle_action(connection, "identify").await?;
         }
         DispatchOutcome::Handled(Route::BlockFoundDismissAck) => {
-            handle_action(connection, scratch, "blockFound/dismiss").await?;
+            handle_action(connection, "blockFound/dismiss").await?;
         }
         DispatchOutcome::Handled(Route::PatchSystem) => {
-            handle_patch_system(connection, scratch, body.len()).await?;
+            handle_patch_system(connection, body.len()).await?;
         }
         DispatchOutcome::Handled(Route::FactoryReset) => {
-            handle_factory_reset(connection, scratch, service.config).await?;
+            handle_factory_reset(connection, service.config).await?;
         }
         DispatchOutcome::Handled(Route::NetworkGet) => {
             handle_network_get(connection, scratch, service.stack, service.config).await?;
         }
         DispatchOutcome::Handled(Route::NetworkPost) => {
-            handle_network_post(connection, scratch, body, service.config).await?;
+            handle_network_post(connection, body, service.config).await?;
         }
         DispatchOutcome::Handled(Route::NetworkConfirm) => {
-            handle_network_confirm(connection, scratch, service.config).await?;
+            handle_network_confirm(connection, service.config).await?;
         }
         DispatchOutcome::Handled(Route::NetworkRevert) => {
-            handle_network_revert(connection, scratch, service.config).await?;
+            handle_network_revert(connection, service.config).await?;
         }
     }
 

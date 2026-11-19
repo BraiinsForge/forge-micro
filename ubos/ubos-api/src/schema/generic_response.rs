@@ -17,16 +17,16 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Generic single-message response body used by 501 stubs and, in a
-//! later phase, by action-endpoint acknowledgements.
+//! The schema of the single-message response body that
+//! `ubos_http::write_message` writes. It gives that body its place in the
+//! API document.
 
 use serde::Serialize;
 
 /// A response body carrying a single human-readable message string.
 ///
-/// Serialized as `{"message":"…"}`. Used wherever the firmware cannot
-/// or does not perform the requested operation and needs to explain
-/// why in a machine-readable envelope.
+/// Serialized as `{"message":"…"}`: the body of an error, of an endpoint
+/// this board does not implement, and of an acknowledgement.
 #[derive(Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct GenericResponse<'response> {

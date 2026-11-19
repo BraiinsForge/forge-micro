@@ -1038,8 +1038,7 @@ fn run_resume_handler(manager: ubos_manager::Handle) -> u16 {
             .await
             .expect("BUG: Connection::new failed on mock HTTP request");
 
-        let mut scratch = [0u8; 256];
-        crate::system::handle_resume(&mut connection, &mut scratch, manager)
+        crate::system::handle_resume(&mut connection, manager)
             .await
             .expect("BUG: handle_resume returned Err on mock socket — Infallible violated");
 
@@ -1100,8 +1099,7 @@ fn run_thermal_clear_handler(manager: ubos_manager::Handle) -> u16 {
             .await
             .expect("BUG: Connection::new failed on mock HTTP request");
 
-        let mut scratch = [0u8; 256];
-        crate::system::handle_thermal_clear(&mut connection, &mut scratch, manager)
+        crate::system::handle_thermal_clear(&mut connection, manager)
             .await
             .expect("BUG: handle_thermal_clear returned Err on mock socket — Infallible violated");
 

@@ -58,7 +58,7 @@ use crate::{INDEX_HTML_GZ, LOGIN_HTML_GZ, LOGO_SVG_GZ};
 use ubos_http::consts::Http;
 use ubos_http::{
     MAX_RESPONSE_HEADERS, RequestParts, Service, Status, format_content_length, read_body,
-    start_response, write_status_only,
+    start_response, write_message, write_status_only,
 };
 
 #[cfg(test)]
@@ -359,12 +359,9 @@ impl Service for DashboardService {
         let Ok(auth_ctx) =
             ubos_auth::gate_identity(peer_ip, authorization, cookie, &identity_policy)
         else {
-            return write_status_only(
+            return write_message(
                 connection,
-                Status::UNAUTHORIZED,
-                "application/json",
-                &[],
-                b"{\"message\":\"Client not in allowed network range\"}",
+                Status::UNAUTHORIZED.with_message("Client not in allowed network range"),
             )
             .await;
         };
@@ -435,12 +432,9 @@ impl Service for DashboardService {
         // change who is being checked.
         let needs_csrf = path == "/login" && is_mutating;
         if needs_csrf && ubos_auth::check_csrf(&auth_ctx, parts.csrf.as_deref()).is_err() {
-            return write_status_only(
+            return write_message(
                 connection,
-                Status::FORBIDDEN,
-                "application/json",
-                &[],
-                b"{\"message\":\"CSRF token invalid or missing\"}",
+                Status::FORBIDDEN.with_message("CSRF token invalid or missing"),
             )
             .await;
         }

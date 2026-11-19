@@ -883,7 +883,7 @@
         "type": "object"
       },
       "GenericResponse": {
-        "description": "A response body carrying a single human-readable message string.\n\nSerialized as `{\"message\":\"…\"}`. Used wherever the firmware cannot\nor does not perform the requested operation and needs to explain\nwhy in a machine-readable envelope.",
+        "description": "A response body carrying a single human-readable message string.\n\nSerialized as `{\"message\":\"…\"}`: the body of an error, of an endpoint\nthis board does not implement, and of an acknowledgement.",
         "properties": {
           "message": {
             "description": "Short description of the outcome.",
