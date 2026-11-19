@@ -695,6 +695,20 @@ rusty_fork_test! {
 }
 
 rusty_fork_test! {
+    /// A chunk that the target refuses because the image overflows its slot
+    /// is answered with 413, because the client sent a file that the board
+    /// cannot hold.
+    #[test]
+    fn ota_chunk_slot_overflow_returns_413() {
+        let chunk = [0u8; crate::system::OTA_CHUNK_SIZE];
+        let status = with_ota_target(MockOtaTarget::fails_writes(OtaError::SlotOverflow), || {
+            run_chunk_handler(chunk.len(), &chunk, &[], Some(chunk.len() as u64), 0, false)
+        });
+        assert_eq!(status, 413, "an image too big for the slot must be rejected with 413");
+    }
+}
+
+rusty_fork_test! {
     /// A flash error from `write_chunk` stays a 500, because it is a fault
     /// of the board and not of the image.
     #[test]

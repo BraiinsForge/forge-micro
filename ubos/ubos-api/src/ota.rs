@@ -510,7 +510,9 @@ pub(crate) fn target_mutex()
 pub enum OtaError {
     /// The device has no dual-partition layout; OTA is not possible.
     NoPartitionTable,
-    /// The image to be written exceeds the inactive slot capacity.
+    /// The image to be written exceeds the inactive slot capacity. The
+    /// handler answers it as a payload too large, because the client sent a
+    /// file that the board cannot hold.
     SlotOverflow,
     /// The underlying flash driver reported an error.
     Flash,
@@ -540,8 +542,9 @@ impl From<OtaError> for StatusMessage {
             OtaError::NoPartitionTable => {
                 Status::CONFLICT.with_message("device not provisioned for OTA")
             }
-            OtaError::SlotOverflow => Status::INTERNAL_SERVER_ERROR
-                .with_message("The image does not fit in the update slot."),
+            OtaError::SlotOverflow => {
+                Status::PAYLOAD_TOO_LARGE.with_message("The image does not fit in the update slot.")
+            }
             OtaError::Flash => {
                 Status::INTERNAL_SERVER_ERROR.with_message("The flash memory reported an error.")
             }
