@@ -17,7 +17,8 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! The HTTP statuses that the firmware answers with.
+//! The HTTP statuses that the firmware answers with, alone or with a
+//! message for the client.
 
 /// An HTTP status: the code and the reason phrase of a status line.
 ///
@@ -58,5 +59,39 @@ impl Status {
     #[must_use]
     pub const fn reason(self) -> &'static str {
         self.reason
+    }
+
+    /// This status with `message`, the text the client reads in the body.
+    #[must_use]
+    pub const fn with_message(self, message: &'static str) -> StatusMessage {
+        StatusMessage {
+            status: self,
+            message,
+        }
+    }
+}
+
+/// A status and the message that explains it to the client, which
+/// [`crate::write_message`] writes as the body `{"message":"..."}`.
+///
+/// The fields are private and [`Status::with_message`] is the only
+/// constructor, so a message never travels without its status.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StatusMessage {
+    status: Status,
+    message: &'static str,
+}
+
+impl StatusMessage {
+    /// The status of the response.
+    #[must_use]
+    pub const fn status(self) -> Status {
+        self.status
+    }
+
+    /// The text of the message.
+    #[must_use]
+    pub const fn message(self) -> &'static str {
+        self.message
     }
 }

@@ -53,9 +53,10 @@ pub use embassy_time::Duration;
 pub use request::{RequestParts, extract_request_parts};
 pub use response::{
     CONTENT_LENGTH_DECIMAL_DIGITS, MAX_EXTRA_STATUS_HEADERS, MAX_RESPONSE_HEADERS,
-    format_content_length, read_body, start_response, write_json_response, write_status_only,
+    format_content_length, read_body, start_response, write_json_response, write_message,
+    write_status_only,
 };
 pub use router::PrefixRouter;
 pub use serve::{Service, bind_tcp, serve_worker, split_work_buffer};
 pub use static_cell::{ConstStaticCell, StaticCell};
-pub use status::Status;
+pub use status::{Status, StatusMessage};

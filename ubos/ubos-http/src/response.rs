@@ -34,7 +34,7 @@ use heapless::String;
 
 use edge_nal::TcpSplit;
 
-use crate::status::Status;
+use crate::status::{Status, StatusMessage};
 
 #[cfg(test)]
 #[path = "tests/response.rs"]
@@ -176,17 +176,88 @@ where
 {
     let content_length = format_content_length(body.len());
 
-    let headers = [
-        ("Content-Type", "application/json"),
-        ("Cache-Control", "no-store"),
-        ("Content-Length", content_length.as_str()),
-    ];
-
-    start_response(connection, status, &headers).await?;
+    start_response(connection, status, &json_headers(&content_length)).await?;
 
     embedded_io_async::Write::write_all(connection, body).await?;
 
     Ok(())
+}
+
+/// Write `response` as its status and the JSON body `{"message":"..."}`.
+///
+/// The body is written in pieces straight to the connection, so it needs
+/// no buffer. A `"` or a `\` in the message is escaped and a control byte
+/// is written as a space, so any text gives valid JSON.
+///
+/// # Errors
+///
+/// Returns an `HttpError` if the connection state machine rejects the
+/// response or if the underlying socket write fails.
+pub async fn write_message<T, const N: usize>(
+    connection: &mut Connection<'_, T, N>,
+    response: StatusMessage,
+) -> Result<(), HttpError<T::Error>>
+where
+    T: Read + Write + TcpSplit,
+{
+    let body = message_body(response.message());
+    let content_length = format_content_length(body.clone().map(<[u8]>::len).sum());
+
+    start_response(
+        connection,
+        response.status(),
+        &json_headers(&content_length),
+    )
+    .await?;
+
+    for piece in body {
+        embedded_io_async::Write::write_all(connection, piece).await?;
+    }
+
+    Ok(())
+}
+
+/// The headers of a JSON response whose body is `content_length` bytes.
+/// Both JSON writers send these three, so they are stated once.
+fn json_headers(content_length: &str) -> [(&str, &str); 3] {
+    [
+        ("Content-Type", "application/json"),
+        ("Cache-Control", "no-store"),
+        ("Content-Length", content_length),
+    ]
+}
+
+/// The pieces of the body `{"message":"..."}` for `message`, with each `"`
+/// and `\` escaped and each control byte written as a space.
+/// [`write_message`] sums their lengths for the `Content-Length` and then
+/// writes them, so the two always agree.
+pub(crate) fn message_body(message: &str) -> impl Iterator<Item = &[u8]> + Clone {
+    let escaped = message
+        .as_bytes()
+        .split_inclusive(|&byte| json_escape(byte).is_some())
+        .flat_map(|part| {
+            let escaped = part
+                .split_last()
+                .and_then(|(&last, text)| Some([text, json_escape(last)?]));
+            escaped.unwrap_or([part, b"".as_slice()])
+        });
+    core::iter::once(b"{\"message\":\"".as_slice())
+        .chain(escaped)
+        .chain(core::iter::once(b"\"}".as_slice()))
+}
+
+/// What stands for `byte` inside a JSON string, or `None` when the byte
+/// stands as it is. JSON allows no raw `"`, `\` or control byte there. The
+/// first two are escaped, and a control byte is written as a space, because
+/// a message is text for a person and a space keeps it readable. A byte of
+/// a multi-byte UTF-8 character is never one of them.
+fn json_escape(byte: u8) -> Option<&'static [u8]> {
+    match byte {
+        b'"' => Some(b"\\\""),
+        b'\\' => Some(b"\\\\"),
+        _ if byte.is_ascii_control() => Some(b" "),
+        _ => None,
+    }
 }
 
 /// Read up to `buffer.len()` bytes of request body via the
