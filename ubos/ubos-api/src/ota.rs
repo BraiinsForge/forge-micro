@@ -118,6 +118,7 @@ impl OtaErrorCode {
             OtaError::ShortUpload => 4,
             OtaError::WrongHardware => 5,
             OtaError::Connection => 6,
+            OtaError::InvalidImage => 7,
         };
         Self(code)
     }
@@ -502,7 +503,8 @@ pub(crate) fn target_mutex()
 /// Variants are kept coarse-grained because the handler only needs to
 /// distinguish "the device is not set up for OTA" from "a write
 /// failed" from "the uploaded image was too short" from "the image is
-/// for other hardware" from "the connection failed".
+/// for other hardware" from "the connection failed" from "the file is not
+/// an image".
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum OtaError {
@@ -521,6 +523,11 @@ pub enum OtaError {
     /// Reading the upload from the connection failed. The handler records
     /// it for a socket error, so `lastError` names the cause.
     Connection,
+    /// The upload is not a valid image: its header is malformed, or its
+    /// payload does not match the size or the checksum that the header
+    /// declares. The client sent a bad file, so the handler answers it as
+    /// a bad request.
+    InvalidImage,
 }
 
 /// The status and the message that the handler answers an OTA error
@@ -544,6 +551,9 @@ impl From<OtaError> for StatusMessage {
             }
             OtaError::Connection => {
                 Status::BAD_REQUEST.with_message("The connection failed during the upload.")
+            }
+            OtaError::InvalidImage => {
+                Status::BAD_REQUEST.with_message("The file is not a valid firmware image.")
             }
         }
     }
@@ -628,8 +638,9 @@ pub trait OtaTarget: Send {
     ///
     /// Returns [`OtaError::SlotOverflow`] if the cumulative write would
     /// exceed the inactive slot, [`OtaError::WrongHardware`] if the image
-    /// is for other hardware than this board, or [`OtaError::Flash`] on a
-    /// flash error.
+    /// is for other hardware than this board, [`OtaError::InvalidImage`] if
+    /// the upload is not a valid image, or [`OtaError::Flash`] on a flash
+    /// error.
     fn write_chunk(&mut self, data: &[u8]) -> Result<(), OtaError>;
 
     /// Validate and commit the written image, finalising the slot header.
@@ -639,8 +650,10 @@ pub trait OtaTarget: Send {
     ///
     /// # Errors
     ///
-    /// Returns [`OtaError::Flash`] on failure. Not calling `finish` after
-    /// writing is how a partial update is kept from being booted.
+    /// Returns [`OtaError::InvalidImage`] if the payload does not match the
+    /// size or the checksum that the image declares, or [`OtaError::Flash`]
+    /// on any other failure. Not calling `finish` after writing is how a
+    /// partial update is kept from being booted.
     fn finish(&mut self) -> Result<(), OtaError>;
 
     /// The config that the image [`finish`] accepted reads, or `None`
