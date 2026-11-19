@@ -514,7 +514,10 @@ pub enum OtaError {
     /// handler answers it as a payload too large, because the client sent a
     /// file that the board cannot hold.
     SlotOverflow,
-    /// The underlying flash driver reported an error.
+    /// The board could not write the image. The flash reported an error, or
+    /// the target could not start or continue the write, as when core 1
+    /// does not park or no session is open. The handler answers it as an
+    /// internal error, because the fault is on the board.
     Flash,
     /// `finish` was called before enough bytes were written.
     ShortUpload,
@@ -546,7 +549,7 @@ impl From<OtaError> for StatusMessage {
                 Status::PAYLOAD_TOO_LARGE.with_message("The image does not fit in the update slot.")
             }
             OtaError::Flash => {
-                Status::INTERNAL_SERVER_ERROR.with_message("The flash memory reported an error.")
+                Status::INTERNAL_SERVER_ERROR.with_message("The board could not write the image.")
             }
             OtaError::ShortUpload => Status::BAD_REQUEST.with_message("The upload is too short."),
             OtaError::WrongHardware => {
