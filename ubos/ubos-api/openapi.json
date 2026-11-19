@@ -2579,7 +2579,7 @@
                 }
               }
             },
-            "description": "Flash write failed"
+            "description": "Board could not write the image"
           },
           "501": {
             "content": {
@@ -2729,7 +2729,7 @@
                 }
               }
             },
-            "description": "Flash write failed"
+            "description": "Board could not write the image"
           },
           "501": {
             "content": {

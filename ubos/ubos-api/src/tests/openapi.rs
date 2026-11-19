@@ -201,7 +201,7 @@ const OTA_ERRORS: [Response; 7] = [
     ),
     error(411, "Content-Length required"),
     error(413, "Image or chunk exceeds its limit"),
-    error(500, "Flash write failed"),
+    error(500, "Board could not write the image"),
     error(501, "OTA not available on this board"),
     error(503, "Mining did not stop in time; retry"),
 ];
