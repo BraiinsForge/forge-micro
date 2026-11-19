@@ -47,6 +47,7 @@ use embassy_sync::mutex::Mutex;
 use embassy_sync::watch::Watch;
 use portable_atomic::{AtomicU8, AtomicU32, Ordering};
 use serde::Serialize;
+use ubos_http::{Status, StatusMessage};
 
 use crate::schema::system_info::OtaInfo;
 
@@ -116,6 +117,7 @@ impl OtaErrorCode {
             OtaError::Flash => 3,
             OtaError::ShortUpload => 4,
             OtaError::WrongHardware => 5,
+            OtaError::Connection => 6,
         };
         Self(code)
     }
@@ -500,7 +502,7 @@ pub(crate) fn target_mutex()
 /// Variants are kept coarse-grained because the handler only needs to
 /// distinguish "the device is not set up for OTA" from "a write
 /// failed" from "the uploaded image was too short" from "the image is
-/// for other hardware".
+/// for other hardware" from "the connection failed".
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum OtaError {
@@ -516,6 +518,35 @@ pub enum OtaError {
     /// refuses it before it writes anything, and the handler answers it as
     /// a bad request, because the client sent the wrong file.
     WrongHardware,
+    /// Reading the upload from the connection failed. The handler records
+    /// it for a socket error, so `lastError` names the cause.
+    Connection,
+}
+
+/// The status and the message that the handler answers an OTA error
+/// with. Each variant states its own here, beside its code in
+/// [`OtaErrorCode::from_error`], so a new variant does not compile until
+/// both are chosen.
+impl From<OtaError> for StatusMessage {
+    fn from(error: OtaError) -> Self {
+        match error {
+            OtaError::NoPartitionTable => {
+                Status::CONFLICT.with_message("device not provisioned for OTA")
+            }
+            OtaError::SlotOverflow => Status::INTERNAL_SERVER_ERROR
+                .with_message("The image does not fit in the update slot."),
+            OtaError::Flash => {
+                Status::INTERNAL_SERVER_ERROR.with_message("The flash memory reported an error.")
+            }
+            OtaError::ShortUpload => Status::BAD_REQUEST.with_message("The upload is too short."),
+            OtaError::WrongHardware => {
+                Status::BAD_REQUEST.with_message("The image is not for this hardware.")
+            }
+            OtaError::Connection => {
+                Status::BAD_REQUEST.with_message("The connection failed during the upload.")
+            }
+        }
+    }
 }
 
 /// Board-agnostic interface for writing a firmware image to the

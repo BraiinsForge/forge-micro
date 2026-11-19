@@ -80,12 +80,12 @@ use embedded_io_async::{Read, Write};
 use heapless::String;
 use ubos_config::{Source, Statistic};
 use ubos_core::units::{FanPwm, FanRpm, Temperature};
-use ubos_http::{Status, start_response, write_json_response};
+use ubos_http::{Status, start_response, write_json_response, write_message};
 use ubos_logging::{info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
 use ubos_thermal::Handle as ThermalHandle;
 
-use crate::ota::{OtaError, ota_session};
+use crate::ota::{OtaError, OtaTarget, ota_session};
 use crate::rest::RestApiService;
 use crate::schema::events::{EventDefJson, EventRecordJson};
 use crate::schema::{
@@ -970,31 +970,22 @@ where
     Ok(())
 }
 
-/// Answers a failed `write_chunk`. An image for other hardware is a
-/// mistake of the client, so it gets a 400 with a message that names the
-/// cause. Every other error is a fault of the board. The match names each
-/// variant, so a new variant does not compile until its response is chosen.
-async fn write_chunk_failed<T, const N: usize>(
+/// Ends an upload that failed partway with `error`. It records the error,
+/// aborts the write of the target, resumes mining so the board keeps
+/// hashing, and answers the client, which is what every failure after
+/// `begin` does.
+async fn fail_upload<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
+    ota: &mut dyn OtaTarget,
+    manager: ManagerHandle,
     error: OtaError,
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
-    let (status, body): (Status, &[u8]) = match error {
-        OtaError::WrongHardware => (
-            Status::BAD_REQUEST,
-            b"{\"message\":\"The image is not for this hardware.\"}",
-        ),
-        OtaError::NoPartitionTable
-        | OtaError::SlotOverflow
-        | OtaError::Flash
-        | OtaError::ShortUpload => (
-            Status::INTERNAL_SERVER_ERROR,
-            b"{\"message\":\"OTA write failed\"}",
-        ),
-    };
-    write_json_response(connection, status, body).await
+    ota_session().fail(ota, error);
+    manager.send(ManagerMessage::OtaEnd).await;
+    write_message(connection, error.into()).await
 }
 
 /// Handle `POST /api/system/OTA` — streaming firmware upload.
@@ -1012,11 +1003,9 @@ where
 /// - 411 — no `Content-Length` header.
 /// - 413 — image larger than the target's max image size.
 /// - 400 — image smaller than [`OTA_MIN_IMAGE_BYTES`].
-/// - 409 — `begin()` returned [`OtaError::NoPartitionTable`].
 /// - 503 — mining failed to stop within the timeout.
-/// - 400 — premature EOF before `content_length` bytes were received.
-/// - 400 — `write_chunk` returned [`OtaError::WrongHardware`].
-/// - 500 — any other `write_chunk` error, or a `finish` error.
+/// - the [`ubos_http::StatusMessage`] of the [`OtaError`] when `begin`, a read of the
+///   body, `write_chunk` or `finish` fails.
 #[allow(clippy::too_many_lines)]
 pub(crate) async fn handle_ota<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
@@ -1107,24 +1096,14 @@ where
         Err(OtaError::NoPartitionTable) => {
             // Resume mining so the board keeps hashing after a failed update.
             manager.send(ManagerMessage::OtaEnd).await;
-            return write_json_response(
-                connection,
-                Status::CONFLICT,
-                b"{\"message\":\"device not provisioned for OTA\"}",
-            )
-            .await;
+            return write_message(connection, OtaError::NoPartitionTable.into()).await;
         }
         Err(error) => {
             warn!("OTA begin failed: {:?}", error);
             ota_session().record_error(error);
             // Resume mining so the board keeps hashing after a failed update.
             manager.send(ManagerMessage::OtaEnd).await;
-            return write_json_response(
-                connection,
-                Status::INTERNAL_SERVER_ERROR,
-                b"{\"message\":\"OTA begin failed\"}",
-            )
-            .await;
+            return write_message(connection, error.into()).await;
         }
     }
 
@@ -1148,36 +1127,17 @@ where
                     bytes_written + read_so_far,
                     total_bytes,
                 );
-                ota_session().fail(ota, OtaError::ShortUpload);
-                // Resume mining so the board keeps hashing after a failed update.
-                manager.send(ManagerMessage::OtaEnd).await;
-                return write_json_response(
-                    connection,
-                    Status::BAD_REQUEST,
-                    b"{\"message\":\"upload truncated\"}",
-                )
-                .await;
+                return fail_upload(connection, ota, manager, OtaError::ShortUpload).await;
             }
             Err(ChunkReadError::Io { .. }) => {
                 warn!("OTA: read error after {} bytes", bytes_written);
-                ota_session().fail(ota, OtaError::Flash);
-                // Resume mining so the board keeps hashing after a failed update.
-                manager.send(ManagerMessage::OtaEnd).await;
-                return write_json_response(
-                    connection,
-                    Status::BAD_REQUEST,
-                    b"{\"message\":\"read error during upload\"}",
-                )
-                .await;
+                return fail_upload(connection, ota, manager, OtaError::Connection).await;
             }
         }
 
         if let Err(error) = ota.write_chunk(&chunk_buffer[..want]) {
             warn!("OTA write_chunk failed: {:?}", error);
-            ota_session().fail(ota, error);
-            // Resume mining so the board keeps hashing after a failed update.
-            manager.send(ManagerMessage::OtaEnd).await;
-            return write_chunk_failed(connection, error).await;
+            return fail_upload(connection, ota, manager, error).await;
         }
         bytes_written += want;
         #[allow(clippy::cast_possible_truncation)]
@@ -1194,15 +1154,7 @@ where
 
     if let Err(error) = ota.finish() {
         warn!("OTA finish failed: {:?}", error);
-        ota_session().fail(ota, error);
-        // Resume mining so the board keeps hashing after a failed update.
-        manager.send(ManagerMessage::OtaEnd).await;
-        return write_json_response(
-            connection,
-            Status::INTERNAL_SERVER_ERROR,
-            b"{\"message\":\"OTA finish failed\"}",
-        )
-        .await;
+        return fail_upload(connection, ota, manager, error).await;
     }
 
     downgrade_config(ota, config).await;
@@ -1250,9 +1202,10 @@ where
 /// - 411 — `Content-Length` absent.
 /// - 413 — chunk larger than [`OTA_CHUNK_SIZE`].
 /// - 503 — mining did not stop within the timeout (offset-0 only).
-/// - 400 — premature EOF, read error, or total image smaller than [`OTA_MIN_IMAGE_BYTES`] on final chunk.
-/// - 400 — `write_chunk` returned [`OtaError::WrongHardware`].
-/// - 500 — `begin` error, any other `write_chunk` error, or `finish` error.
+/// - 400 — non-final chunk shorter than one sector.
+/// - the [`ubos_http::StatusMessage`] of the [`OtaError`] when `begin`, a read of the
+///   chunk, `write_chunk` or `finish` fails, or when the final chunk ends
+///   an image smaller than [`OTA_MIN_IMAGE_BYTES`].
 ///
 /// Success responses:
 /// - Mid-stream: 200 `{"ok":true,"next":<offset+n>}`.
@@ -1361,23 +1314,13 @@ where
             }
             Err(OtaError::NoPartitionTable) => {
                 manager.send(ManagerMessage::OtaEnd).await;
-                return write_json_response(
-                    connection,
-                    Status::CONFLICT,
-                    b"{\"message\":\"device not provisioned for OTA\"}",
-                )
-                .await;
+                return write_message(connection, OtaError::NoPartitionTable.into()).await;
             }
             Err(error) => {
                 warn!("OTA chunk begin failed: {:?}", error);
                 ota_session().record_error(error);
                 manager.send(ManagerMessage::OtaEnd).await;
-                return write_json_response(
-                    connection,
-                    Status::INTERNAL_SERVER_ERROR,
-                    b"{\"message\":\"OTA begin failed\"}",
-                )
-                .await;
+                return write_message(connection, error.into()).await;
             }
         }
     } else {
@@ -1434,33 +1377,17 @@ where
                 "OTA chunk: premature EOF at {}/{} bytes",
                 read_so_far, chunk_size,
             );
-            ota_session().fail(ota, OtaError::ShortUpload);
-            manager.send(ManagerMessage::OtaEnd).await;
-            return write_json_response(
-                connection,
-                Status::BAD_REQUEST,
-                b"{\"message\":\"chunk upload truncated\"}",
-            )
-            .await;
+            return fail_upload(connection, ota, manager, OtaError::ShortUpload).await;
         }
         Err(ChunkReadError::Io { read_so_far }) => {
             warn!("OTA chunk: read error after {} bytes", read_so_far);
-            ota_session().fail(ota, OtaError::Flash);
-            manager.send(ManagerMessage::OtaEnd).await;
-            return write_json_response(
-                connection,
-                Status::BAD_REQUEST,
-                b"{\"message\":\"read error during chunk upload\"}",
-            )
-            .await;
+            return fail_upload(connection, ota, manager, OtaError::Connection).await;
         }
     }
 
     if let Err(error) = ota.write_chunk(&chunk_buffer[..chunk_size]) {
         warn!("OTA chunk write_chunk failed: {:?}", error);
-        ota_session().fail(ota, error);
-        manager.send(ManagerMessage::OtaEnd).await;
-        return write_chunk_failed(connection, error).await;
+        return fail_upload(connection, ota, manager, error).await;
     }
 
     // `ota_offset` + `chunk_size` is the number of bytes written so far.
@@ -1473,26 +1400,12 @@ where
         // Both are bounded by the target's max image size (fits in u64 on all targets).
         let total_image_bytes = ota_offset.saturating_add(chunk_size as u64);
         if total_image_bytes < OTA_MIN_IMAGE_BYTES {
-            ota_session().fail(ota, OtaError::ShortUpload);
-            manager.send(ManagerMessage::OtaEnd).await;
-            return write_json_response(
-                connection,
-                Status::BAD_REQUEST,
-                b"{\"message\":\"image too small\"}",
-            )
-            .await;
+            return fail_upload(connection, ota, manager, OtaError::ShortUpload).await;
         }
 
         if let Err(error) = ota.finish() {
             warn!("OTA chunk finish failed: {:?}", error);
-            ota_session().fail(ota, error);
-            manager.send(ManagerMessage::OtaEnd).await;
-            return write_json_response(
-                connection,
-                Status::INTERNAL_SERVER_ERROR,
-                b"{\"message\":\"OTA finish failed\"}",
-            )
-            .await;
+            return fail_upload(connection, ota, manager, error).await;
         }
 
         downgrade_config(ota, config).await;

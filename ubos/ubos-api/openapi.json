@@ -2516,7 +2516,7 @@
                 }
               }
             },
-            "description": "Image or chunk malformed"
+            "description": "Image or chunk malformed or too short, image for other hardware, or connection failed"
           },
           "401": {
             "content": {
@@ -2666,7 +2666,7 @@
                 }
               }
             },
-            "description": "Image or chunk malformed"
+            "description": "Image or chunk malformed or too short, image for other hardware, or connection failed"
           },
           "401": {
             "content": {

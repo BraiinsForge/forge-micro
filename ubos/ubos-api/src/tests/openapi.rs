@@ -191,7 +191,10 @@ const BUSY: Response = error(503, "Config task busy; retry");
 
 /// The OTA failure set both upload routes share.
 const OTA_ERRORS: [Response; 7] = [
-    error(400, "Image or chunk malformed"),
+    error(
+        400,
+        "Image or chunk malformed or too short, image for other hardware, or connection failed",
+    ),
     error(
         409,
         "An update is in progress, the device is not provisioned, or the chunk offset does not match",
