@@ -54,6 +54,9 @@ pub struct Readings<const CHAINS: usize> {
     pub voltage: Voltage,
     /// The last PSU sample, `None` before the first one.
     pub psu: Option<PsuReading>,
+    /// The configured die temperature at which mining halts. `None` when no
+    /// die temperature halts it.
+    pub dangerous_chip_temp: Option<Temperature>,
     /// One entry per chain connector, `None` where no chain was found.
     pub chains: [Option<ChainReadings>; CHAINS],
 }
@@ -120,6 +123,7 @@ pub struct Plan<const CHAINS: usize> {
 ///     now: Instant::from_millis(0),
 ///     voltage: Voltage::from_mv(1200),
 ///     psu: None,
+///     dangerous_chip_temp: None,
 ///     chains: [Some(chain), None],
 /// };
 /// let target = Frequency::from_mhz(460);

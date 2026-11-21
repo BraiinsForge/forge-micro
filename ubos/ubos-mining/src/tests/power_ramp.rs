@@ -47,6 +47,7 @@ fn safe_boot() -> Readings<1> {
         now: Instant::from_millis(0),
         voltage: BMM101_HASHBOARD.max_rail_voltage(),
         psu: None,
+        dangerous_chip_temp: None,
         chains: [Some(ChainReadings {
             chips: u16::from(BMM101_HASHBOARD.num_chips),
             frequency: BMM101_HASHBOARD.chip.frequency_range.min(),

@@ -247,7 +247,7 @@ The hashnode and the Forge Axe name `FixedTuner` alone: nobody has measured what
 The loop drives all connectors through `MachineTuner<CHAINS>`.
 Each present chain supplies its frequency, chip count, hottest temperature, and smoothed hashrate.
 Absent and faulted connectors have `None` entries in `Readings::chains`.
-The miner also supplies the PSU snapshot and the last confirmed voltage command.
+The miner also supplies the PSU snapshot, the last confirmed voltage command, and the configured dangerous die temperature.
 `Readings::voltage` comes directly from the PSU record.
 Telemetry can lag or show voltage droop.
 

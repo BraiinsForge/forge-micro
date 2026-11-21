@@ -289,7 +289,7 @@ where
         let miner = &*context.miner;
         let plan = run.tuner.step(
             &snapshot.miner.tuning,
-            &miner.readings(),
+            &miner.readings(snapshot.thermal.dangerous.chip),
             &(miner.read_platform)(),
         );
         match miner.apply_plan(&plan).await {

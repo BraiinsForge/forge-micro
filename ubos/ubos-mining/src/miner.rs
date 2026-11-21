@@ -46,7 +46,7 @@ use core::cmp::Ordering;
 
 use embassy_time::{Duration, Instant};
 use ubos_asic::HashboardDescriptor;
-use ubos_core::units::{Frequency, Voltage};
+use ubos_core::units::{Frequency, Temperature, Voltage};
 use ubos_logging::{Debug2Format, info, warn};
 use ubos_metrics::chain::ChainPresence;
 use ubos_psu::Handle as PsuHandle;
@@ -222,13 +222,15 @@ where
         Ok(())
     }
 
-    /// Collect each present chain's accounting and the PSU's confirmed setpoint.
+    /// Collect each present chain's accounting, the PSU's confirmed voltage,
+    /// and `dangerous_chip_temp`: the configured die temperature at which
+    /// mining halts.
     ///
     /// The setpoint is present by construction. `start_chains` commands
     /// the open-core rail and [`StartWork`] leads to
     /// [`Step`] only after that command succeeded, and the PSU task
     /// records the voltage a successful command set before it answers.
-    fn readings(&self) -> Readings<CHAINS> {
+    fn readings(&self, dangerous_chip_temp: Option<Temperature>) -> Readings<CHAINS> {
         Readings {
             now: Instant::now(),
             voltage: self
@@ -236,6 +238,7 @@ where
                 .commanded_voltage()
                 .expect("BUG: tuning starts only after a successful PSU voltage command"),
             psu: self.psu_handle.current(),
+            dangerous_chip_temp,
             chains: self.chains.each_ref().map(|chain| {
                 chain.is_present().then(|| ChainReadings {
                     chips: chain.stats.chips(),

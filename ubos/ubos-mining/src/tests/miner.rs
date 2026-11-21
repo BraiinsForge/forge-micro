@@ -1009,7 +1009,7 @@ rusty_fork_test! {
                         ]
                     );
                 });
-                let readings = miner.readings();
+                let readings = miner.readings(None);
                 assert!(readings.chains[1].is_none());
                 assert_eq!(readings.chains[0].expect("present chain").frequency, lower);
                 assert_eq!(readings.chains[2].expect("present chain").frequency, higher);
@@ -1100,7 +1100,7 @@ async fn check_partial_plan_failures(
     };
     assert!(miner.apply_plan(&plan).await.is_err());
     log.lock(|log| assert_eq!(log.borrow().as_slice(), &[Write::Frequency(0, refused)]));
-    assert_eq!(miner.readings().voltage, voltage);
+    assert_eq!(miner.readings(None).voltage, voltage);
     log.lock(|log| log.borrow_mut().clear());
 
     // A failed increase keeps the preceding successful rail change visible.
@@ -1109,9 +1109,11 @@ async fn check_partial_plan_failures(
         ..plan
     };
     assert!(miner.apply_plan(&plan).await.is_err());
-    assert_eq!(miner.readings().voltage, next_voltage);
+    assert_eq!(miner.readings(None).voltage, next_voltage);
     assert_eq!(
-        miner.readings().chains[2].expect("present chain").frequency,
+        miner.readings(None).chains[2]
+            .expect("present chain")
+            .frequency,
         higher
     );
     log.lock(|log| {

@@ -40,6 +40,7 @@ fn walk_steps(from: FixedTarget, target: FixedTarget) -> heapless::Vec<(u32, u32
         now: Instant::from_millis(0),
         voltage: from.voltage,
         psu: None,
+        dangerous_chip_temp: None,
         chains: [Some(ChainReadings {
             chips: u16::from(BMM101_HASHBOARD.num_chips),
             frequency: from.frequency,
@@ -221,6 +222,7 @@ fn absent_chain_produces_no_commands() {
         now: Instant::from_millis(0),
         voltage: BMM101_HASHBOARD.max_rail_voltage(),
         psu: None,
+        dangerous_chip_temp: None,
         chains: [None],
     };
     let plan = tuner.step(target, &readings, &());
@@ -242,6 +244,7 @@ fn a_new_target_restarts_a_completed_policy() {
         now: Instant::from_millis(0),
         voltage,
         psu: None,
+        dangerous_chip_temp: None,
         chains: [Some(ChainReadings {
             chips: u16::from(board.num_chips),
             frequency: safe,
@@ -283,6 +286,7 @@ fn applied_voltage_takes_precedence_over_psu_samples() {
             timestamp_ms: 0,
             sensor_fault: false,
         }),
+        dangerous_chip_temp: None,
         chains: [Some(ChainReadings {
             chips: u16::from(board.num_chips),
             frequency: target.frequency,
@@ -308,6 +312,7 @@ fn a_new_target_replaces_an_unfinished_transition() {
         now: Instant::from_millis(0),
         voltage: original.voltage,
         psu: None,
+        dangerous_chip_temp: None,
         chains: [Some(ChainReadings {
             chips: u16::from(board.num_chips),
             frequency: original.frequency,
@@ -350,6 +355,7 @@ fn unequal_chains_converge_without_exceeding_the_shared_rail_power_ceiling() {
         now: Instant::from_millis(0),
         voltage: board.max_rail_voltage(),
         psu: None,
+        dangerous_chip_temp: None,
         chains: [
             chain(Frequency::from_mhz(50)),
             None,
