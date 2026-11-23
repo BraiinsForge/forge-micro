@@ -26,10 +26,10 @@ use embassy_time::{Duration, Instant};
 use ubos_config::{Config, FanMode};
 use ubos_config::{PidTarget, Source, Statistic};
 use ubos_core::units::{FanPwm, Temperature};
-use ubos_thermal::{TempSample, TempStats};
 
 use super::tests_harness::default_config;
 use super::{Cooling, Hold, Note, PidInput, Step, stale_timeout};
+use ubos_thermal::PidTemperature;
 
 /// Well below the default target, so the PID drives the duty toward its
 /// floor rather than toward full.
@@ -38,15 +38,12 @@ const COOL: Temperature = Temperature::from_millicelsius(50_000);
 /// The moment the tests start their clock at.
 const START: Instant = Instant::from_millis(1_000);
 
-/// A sample of hashboard readings whose hottest and mean are both
-/// `temp`, the one kind the default board reads.
-fn hashboard(temp: Temperature) -> TempSample {
-    TempSample {
-        chip: None,
-        hashboard: Some(TempStats {
-            max: temp,
-            mean: temp,
-        }),
+/// What thermal publishes for the target that `cooling` follows.
+fn followed(cooling: &Cooling, temp: Option<Temperature>) -> PidTemperature {
+    PidTemperature {
+        source: cooling.config.target.source,
+        statistic: cooling.config.target.statistic,
+        temp,
     }
 }
 
@@ -79,7 +76,7 @@ fn auto_starts_at_the_floor_and_a_measurement_hands_the_fan_to_the_pid() {
 
     // A cool measurement leaves the PID at its floor, and the fan is not
     // held.
-    let step = cooling.on_reading(Some(hashboard(COOL)), START);
+    let step = cooling.on_reading(followed(&cooling, Some(COOL)), START);
     assert_eq!(step, quiet(floor(&config)));
     assert_eq!(cooling.hold, Hold::None);
 }
@@ -89,7 +86,10 @@ fn a_reading_with_no_measurement_parks_the_fan_until_one_arrives() {
     let config = default_config();
     let mut cooling = Cooling::new(&config, START);
 
-    assert_eq!(cooling.on_reading(None, START), quiet(FanPwm::FULL));
+    assert_eq!(
+        cooling.on_reading(followed(&cooling, None), START),
+        quiet(FanPwm::FULL)
+    );
     assert_eq!(cooling.hold, Hold::NoMeasurement);
 
     // The control tick in between two such readings must not hand the
@@ -98,7 +98,7 @@ fn a_reading_with_no_measurement_parks_the_fan_until_one_arrives() {
 
     // The next measurement releases the hold.
     assert_eq!(
-        cooling.on_reading(Some(hashboard(COOL)), START),
+        cooling.on_reading(followed(&cooling, Some(COOL)), START),
         quiet(floor(&config))
     );
     assert_eq!(cooling.hold, Hold::None);
@@ -117,14 +117,17 @@ fn a_measurement_after_a_hold_reaches_the_pid_unsmoothed() {
     config.cooling.pid.input_smoother_half_decay_secs = 10;
     let mut cooling = Cooling::new(&config, START);
 
-    let celsius = |c: i32| Some(hashboard(Temperature::from_millicelsius(c * 1000)));
+    let celsius = |c: i32| Some(Temperature::from_millicelsius(c * 1000));
     assert_eq!(
-        cooling.on_reading(celsius(40), START),
+        cooling.on_reading(followed(&cooling, celsius(40)), START),
         quiet(FanPwm::from_percent(40))
     );
-    assert_eq!(cooling.on_reading(None, START), quiet(FanPwm::FULL));
     assert_eq!(
-        cooling.on_reading(celsius(80), START),
+        cooling.on_reading(followed(&cooling, None), START),
+        quiet(FanPwm::FULL)
+    );
+    assert_eq!(
+        cooling.on_reading(followed(&cooling, celsius(80)), START),
         quiet(FanPwm::from_percent(80))
     );
 }
@@ -156,7 +159,7 @@ fn a_stall_forces_full_once_and_a_reading_recovers_it_once() {
     // task is alive to have sent it; the fan stays at full for it.
     let back = stalled + stale;
     assert_eq!(
-        cooling.on_reading(None, back),
+        cooling.on_reading(followed(&cooling, None), back),
         Step {
             pwm: FanPwm::FULL,
             note: Some(Note::Recovered),
@@ -182,17 +185,20 @@ fn fixed_mode_holds_the_duty_and_the_failsafes_still_apply() {
 
     // A measurement does not move the duty and the tick carries it.
     assert_eq!(
-        cooling.on_reading(Some(hashboard(COOL)), START),
+        cooling.on_reading(followed(&cooling, Some(COOL)), START),
         quiet(duty)
     );
     assert_eq!(cooling.on_tick(START), quiet(duty));
 
     // A reading with no measurement parks the fan in fixed mode too, and
     // the tick does not hand the fixed duty back.
-    assert_eq!(cooling.on_reading(None, START), quiet(FanPwm::FULL));
+    assert_eq!(
+        cooling.on_reading(followed(&cooling, None), START),
+        quiet(FanPwm::FULL)
+    );
     assert_eq!(cooling.on_tick(START), quiet(FanPwm::FULL));
     assert_eq!(
-        cooling.on_reading(Some(hashboard(COOL)), START),
+        cooling.on_reading(followed(&cooling, Some(COOL)), START),
         quiet(duty)
     );
 
@@ -223,68 +229,7 @@ fn leaving_fixed_mode_raises_the_fan_to_the_floor_on_the_next_tick() {
 }
 
 #[test]
-fn the_pid_follows_the_hashboard_max_and_never_the_die() {
-    let config = default_config();
-    let mut cooling = Cooling::new(&config, START);
-    let hot = Temperature::from_celsius(90);
-    let chip = TempStats {
-        max: hot,
-        mean: COOL,
-    };
-
-    // The hashboard maximum, even beside a hotter die.
-    cooling.on_reading(
-        Some(TempSample {
-            chip: Some(chip),
-            hashboard: Some(TempStats {
-                max: COOL,
-                mean: COOL,
-            }),
-        }),
-        START,
-    );
-    assert_eq!(
-        cooling.pid_input(),
-        Some(PidInput {
-            source: Source::Hashboard,
-            statistic: Statistic::Max,
-            temp: COOL,
-            target: config.cooling.target.temp,
-        })
-    );
-
-    // A sample without the hashboard does not hand the PID the die: it
-    // measured nothing the PID follows, so the fan runs at full.
-    assert_eq!(
-        cooling
-            .on_reading(
-                Some(TempSample {
-                    chip: Some(chip),
-                    hashboard: None,
-                }),
-                START,
-            )
-            .pwm,
-        FanPwm::FULL
-    );
-    assert_eq!(cooling.pid_input(), None);
-}
-
-#[test]
-fn the_pid_follows_nothing_under_a_hold_or_a_fixed_duty() {
-    let mut cooling = Cooling::new(&default_config(), START);
-    cooling.on_reading(Some(hashboard(COOL)), START);
-    assert!(cooling.pid_input().is_some());
-    cooling.on_reading(None, START);
-    assert_eq!(cooling.pid_input(), None);
-
-    let mut cooling = Cooling::new(&fixed(30), START);
-    cooling.on_reading(Some(hashboard(COOL)), START);
-    assert_eq!(cooling.pid_input(), None);
-}
-
-#[test]
-fn the_pid_follows_only_the_target_kind_and_without_it_runs_full() {
+fn the_pid_input_names_the_target_beside_the_temperature_it_followed() {
     let mut config = default_config();
     config.cooling.target = PidTarget {
         source: Source::Chip,
@@ -292,39 +237,42 @@ fn the_pid_follows_only_the_target_kind_and_without_it_runs_full() {
         temp: config.cooling.target.temp,
     };
     let mut cooling = Cooling::new(&config, START);
-    let warm = Temperature::from_celsius(60);
-    let hot = Temperature::from_celsius(90);
-    let both = TempSample {
-        chip: Some(TempStats {
-            max: hot,
-            mean: warm,
-        }),
-        hashboard: Some(TempStats {
-            max: COOL,
-            mean: COOL,
-        }),
-    };
-    let input = |cooling: &Cooling| {
-        cooling
-            .pid_input()
-            .map(|input| (input.source, input.statistic, input.temp))
-    };
 
-    // The chip mean, though the hottest die and the hashboard differ.
-    cooling.on_reading(Some(both), START);
-    assert_eq!(input(&cooling), Some((Source::Chip, Statistic::Mean, warm)));
-
-    // Without a chip reading the hashboard is never followed, and the fan
-    // runs at full at once, as on a reading that measured nothing.
+    cooling.on_reading(followed(&cooling, Some(COOL)), START);
     assert_eq!(
-        cooling.on_reading(Some(hashboard(hot)), START).pwm,
+        cooling.pid_input(),
+        Some(PidInput {
+            source: Source::Chip,
+            statistic: Statistic::Mean,
+            temp: COOL,
+            target: config.cooling.target.temp,
+        })
+    );
+
+    // Thermal published no temperature of the target's kind, so the PID
+    // follows nothing and the fan runs at full.
+    assert_eq!(
+        cooling.on_reading(followed(&cooling, None), START).pwm,
         FanPwm::FULL
     );
     assert_eq!(cooling.pid_input(), None);
 
-    // Once the chips read again, the PID follows them.
-    cooling.on_reading(Some(both), START);
-    assert_eq!(input(&cooling), Some((Source::Chip, Statistic::Mean, warm)));
+    // Once thermal publishes one again, the PID follows it.
+    cooling.on_reading(followed(&cooling, Some(COOL)), START);
+    assert!(cooling.pid_input().is_some());
+}
+
+#[test]
+fn the_pid_follows_nothing_under_a_hold_or_a_fixed_duty() {
+    let mut cooling = Cooling::new(&default_config(), START);
+    cooling.on_reading(followed(&cooling, Some(COOL)), START);
+    assert!(cooling.pid_input().is_some());
+    cooling.on_reading(followed(&cooling, None), START);
+    assert_eq!(cooling.pid_input(), None);
+
+    let mut cooling = Cooling::new(&fixed(30), START);
+    cooling.on_reading(followed(&cooling, Some(COOL)), START);
+    assert_eq!(cooling.pid_input(), None);
 }
 
 #[test]
@@ -339,19 +287,9 @@ fn a_new_target_kind_reaches_the_pid_unsmoothed() {
     config.cooling.pid.min_fan_pwm = 0;
     config.cooling.pid.input_smoother_half_decay_secs = 10;
     let mut cooling = Cooling::new(&config, START);
-    let celsius = |c: i32| Temperature::from_millicelsius(c * 1000);
-    let both = Some(TempSample {
-        chip: Some(TempStats {
-            max: celsius(80),
-            mean: celsius(80),
-        }),
-        hashboard: Some(TempStats {
-            max: celsius(40),
-            mean: celsius(40),
-        }),
-    });
+    let celsius = |c: i32| Some(Temperature::from_millicelsius(c * 1000));
     assert_eq!(
-        cooling.on_reading(both, START),
+        cooling.on_reading(followed(&cooling, celsius(40)), START),
         quiet(FanPwm::from_percent(40))
     );
 
@@ -360,28 +298,80 @@ fn a_new_target_kind_reaches_the_pid_unsmoothed() {
     config.cooling.target.source = Source::Chip;
     cooling.reconfigure(&config);
     assert_eq!(
-        cooling.on_reading(both, START),
+        cooling.on_reading(followed(&cooling, celsius(80)), START),
         quiet(FanPwm::from_percent(80))
     );
 }
 
 #[test]
-fn a_fixed_duty_ignores_which_kinds_a_sample_read() {
-    let mut cooling = Cooling::new(&fixed(30), START);
-    // The default target follows the hashboard, and this sample read only
-    // the chips: the PID would have nothing to follow, the duty holds.
-    let chips_only = TempSample {
-        chip: Some(TempStats {
-            max: COOL,
-            mean: COOL,
-        }),
-        hashboard: None,
-    };
+fn a_temperature_selected_for_a_replaced_target_steers_nothing() {
+    // The proportional-only PID of the test above, whose duty reads back
+    // the temperature it saw.
+    let mut config = default_config();
+    config.cooling.target.temp = Temperature::from_millicelsius(0);
+    config.cooling.pid.p_gain = -1.0;
+    config.cooling.pid.i_gain = 0.0;
+    config.cooling.pid.d_gain = 0.0;
+    config.cooling.pid.min_fan_pwm = 0;
+    config.cooling.pid.input_smoother_half_decay_secs = 10;
+    let mut cooling = Cooling::new(&config, START);
+    let celsius = |c: i32| Some(Temperature::from_millicelsius(c * 1000));
+    let hashboard = followed(&cooling, celsius(40));
     assert_eq!(
-        cooling.on_reading(Some(chips_only), START),
+        cooling.on_reading(hashboard, START),
+        quiet(FanPwm::from_percent(40))
+    );
+
+    // Thermal selected this reading before the target moved to the die,
+    // so the duty stands and the smoother stays empty for the die.
+    config.cooling.target.source = Source::Chip;
+    cooling.reconfigure(&config);
+    assert_eq!(
+        cooling.on_reading(hashboard, START),
+        quiet(FanPwm::from_percent(40))
+    );
+    assert_eq!(
+        cooling.on_reading(followed(&cooling, celsius(80)), START),
+        quiet(FanPwm::from_percent(80))
+    );
+}
+
+#[test]
+fn a_reading_for_a_replaced_target_ends_a_stall_once() {
+    let mut config = default_config();
+    let mut cooling = Cooling::new(&config, START);
+    let stale = cooling.stale;
+    let stalled = START + stale;
+    assert_eq!(cooling.on_tick(stalled).note, Some(Note::Stalled(stale)));
+    let replaced = followed(&cooling, Some(Temperature::from_celsius(40)));
+    config.cooling.target.source = Source::Chip;
+    cooling.reconfigure(&config);
+
+    // Thermal is alive to have sent it, so the stall ends, and the fan
+    // stays at full because the reading steers nothing.
+    assert_eq!(
+        cooling.on_reading(replaced, stalled),
+        Step {
+            pwm: FanPwm::FULL,
+            note: Some(Note::Recovered),
+        }
+    );
+    assert_eq!(cooling.hold, Hold::NoMeasurement);
+    assert_eq!(cooling.on_reading(replaced, stalled), quiet(FanPwm::FULL));
+}
+
+#[test]
+fn a_fixed_duty_ignores_the_temperature_and_runs_full_without_one() {
+    let mut cooling = Cooling::new(&fixed(30), START);
+    let hot = Temperature::from_celsius(90);
+    assert_eq!(
+        cooling.on_reading(followed(&cooling, Some(hot)), START),
         quiet(FanPwm::from_percent(30))
     );
 
-    // A reading that measured nothing still holds the fan at full.
-    assert_eq!(cooling.on_reading(None, START).pwm, FanPwm::FULL);
+    // No reading of the target's kind still holds the fan at full.
+    assert_eq!(
+        cooling.on_reading(followed(&cooling, None), START).pwm,
+        FanPwm::FULL
+    );
 }

@@ -84,7 +84,8 @@ use ubos_logging::{error, info};
 use ubos_metrics::catalog::{STAT_LABEL, TYPE_LABEL};
 use ubos_metrics::metric;
 use ubos_metrics::value::Flag;
-use ubos_thermal::{Handle as ThermalHandle, TempSample};
+use ubos_thermal::Handle as ThermalHandle;
+use ubos_thermal::PidTemperature;
 
 use crate::pid::TempControl;
 
@@ -289,24 +290,16 @@ fn log_cooling(prefix: &str, config: &CoolingConfig) {
 const CONTROL_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Multiplier on the thermal sample interval before the thermal subsystem
-/// is judged stalled. A live thermal task goes silent while it tolerates
-/// consecutive sensor misses on a board it still owes a reading to:
-/// `ubos-thermal` withholds a reading until its miss count reaches
-/// `SENSOR_FAULT_TICKS`, then publishes a reading with no PID
-/// temperature on that tick and every one after; an idle board is a
-/// separate case and publishes one on its first idle tick. The window must
-/// therefore exceed `SENSOR_FAULT_TICKS` intervals, or ordinary sensor
-/// hiccups that thermal itself is designed to ride out would trip this
-/// failsafe first; the assertion below pins a minimum margin above
-/// `SENSOR_FAULT_TICKS` and is the single source of truth for it.
+/// is judged stalled. A live thermal task publishes the PID temperature
+/// on every tick, with `None` when no sensor answered inside its window,
+/// so the window only has to outlast scheduling jitter and a late tick.
+/// A tick is late by as long as its sample runs, and a sensor array
+/// waits out a read timeout for each sensor that does not answer.
+///
+/// TODO: The value is the margin of the time when thermal withheld a
+/// reading for several ticks. A lower one needs the longest sample of a
+/// board measured first, because a false stall runs the fan at full.
 const STALE_INTERVAL_MULTIPLIER: u32 = 7;
-
-/// The staleness window must outlast the run of sensor misses `ubos-thermal`
-/// rides out silently, or an ordinary sensor hiccup would trip this failsafe
-/// before thermal itself reacts. Assert the design margin over
-/// `SENSOR_FAULT_TICKS` at compile time, so a change to either constant that
-/// narrows the margin fails the build rather than eroding it unnoticed.
-const _: () = assert!(STALE_INTERVAL_MULTIPLIER >= ubos_thermal::SENSOR_FAULT_TICKS + 2);
 
 /// Floor for the staleness window, so a fast thermal sample rate cannot
 /// shrink it to where ordinary scheduling jitter trips a false failsafe.
@@ -441,14 +434,19 @@ impl Cooling {
         self.stale = stale_timeout(updated.thermal.sample_interval_ms);
     }
 
-    /// A thermal reading arrived at `now`, carrying `temps` when it
-    /// measured something. A fresh reading always carries a sample and a
-    /// held one never does, see
-    /// `ThermalReading::temps`, so the one field answers both whether
-    /// this tick measured and what it measured. The PID follows only the
-    /// target's kind, so a reading without that kind measured nothing the
-    /// PID can follow. A fixed duty ignores which kinds a reading measured,
-    /// so only a reading that measured nothing holds it at full.
+    /// The temperature that the PID follows arrived from thermal at
+    /// `now`. Thermal selects it by the target, so `None` means that no
+    /// reading of the target's kind is inside the window of the thermal
+    /// filter, and the one value answers both whether thermal measured
+    /// and what it measured. A fixed duty ignores the value, and a `None`
+    /// holds it at full as it holds the PID.
+    ///
+    /// The reading names the kind and the statistic that thermal selected
+    /// it by. Thermal and this loop take a config change on their own
+    /// schedules, so a reading can answer a target that this loop has
+    /// already left. Such a reading shows that thermal runs and steers
+    /// nothing: the duty stands until the next reading, because the value
+    /// of another kind would reach the PID as its input.
     ///
     /// A run of readings with no measurement skips `control.update()`
     /// each time, so the smoother and ring buffer keep the last good
@@ -462,7 +460,7 @@ impl Cooling {
     /// that run only; a thermal silence shorter than the stale window
     /// triggers no graduated response: the control tick merely resamples
     /// the tach and republishes telemetry until the window elapses.
-    fn on_reading(&mut self, temps: Option<TempSample>, now: Instant) -> Step {
+    fn on_reading(&mut self, reading: PidTemperature, now: Instant) -> Step {
         self.last_reading = now;
         let note = (self.hold == Hold::Stalled).then_some(Note::Recovered);
         let PidTarget {
@@ -470,19 +468,27 @@ impl Cooling {
             statistic,
             temp: target,
         } = self.config.target;
-        let temp = temps
-            .and_then(|temps| temps.temp_stats(source))
-            .map(|stats| stats.temp(statistic));
-        self.pwm = match (self.config.mode, temp) {
-            (FanMode::Fixed, _) if temps.is_none() => self.hold_full(),
+        if (reading.source, reading.statistic) != (source, statistic) {
+            // The stall ends on this reading as on any other, and the
+            // fan stays at full until a reading steers it, so the
+            // recovery is reported once.
+            if self.hold == Hold::Stalled {
+                self.pwm = self.hold_full();
+            }
+            return Step {
+                pwm: self.pwm,
+                note,
+            };
+        }
+        self.pwm = match (self.config.mode, reading.temp) {
+            (_, None) => self.hold_full(),
             // Fixed ignores the reading and never advances the PID; the
             // mode transition back to auto rebuilds the controller, so no
             // state is carried across.
-            (FanMode::Fixed, _) => {
+            (FanMode::Fixed, Some(_)) => {
                 self.leave_hold();
                 fixed_pwm(&self.config)
             }
-            (FanMode::Auto, None) => self.hold_full(),
             (FanMode::Auto, Some(temp)) => {
                 self.leave_hold();
                 let pid_input = PidInput {
@@ -674,7 +680,7 @@ where
     publish_state(runner, cooling.pwm, None, &last_rpms, &tach_labels).await;
     log_cooling("cooling: started", &cooling.config);
 
-    let mut subscription = thermal_handle.subscribe();
+    let mut subscription = thermal_handle.subscribe_pid_temperature();
     let mut ticker = Ticker::every(CONTROL_INTERVAL);
     loop {
         let event = select(subscription.changed(), ticker.next()).await;
@@ -684,7 +690,7 @@ where
         }
 
         let step = match &event {
-            Either::First(reading) => cooling.on_reading(reading.temps, Instant::now()),
+            Either::First(reading) => cooling.on_reading(*reading, Instant::now()),
             Either::Second(()) => cooling.on_tick(Instant::now()),
         };
         match step.note {

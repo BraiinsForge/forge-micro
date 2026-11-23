@@ -456,15 +456,12 @@ impl Handle {
 /// declaring the bus dead. At a 1 Hz sample interval this is 5 seconds,
 /// long enough to ride out a transient I2C glitch but short enough to
 /// react if the bus has gone permanently silent (stuck SDA, dead chip,
-/// broken cable). On fault the loop halts mining and parks the fan at
-/// 100% until a reading clears it.
+/// broken cable). On fault the loop halts mining until a reading clears
+/// it. The fan follows the filtered sample, which empties when the window
+/// of the filter ends.
 ///
 /// [`Reading::Idle`] does not count against this budget and resets it. A
 /// board with nothing powered is not a board with a broken sensor.
-///
-/// Exposed `pub` so `ubos-cooling` can assert at compile time that its
-/// `STALE_INTERVAL_MULTIPLIER` stays at least `SENSOR_FAULT_TICKS + 2`.
-/// Lowering that margin fails the cooling crate's build.
 pub const SENSOR_FAULT_TICKS: u32 = 5;
 
 /// Consecutive [`Reading::Unreadable`] answers, and the halt this loop
@@ -584,8 +581,7 @@ enum Tick {
     /// measured nothing.
     Publish { temps: Option<TempSample> },
     /// Inside the miss budget: say nothing this tick. Silence that short
-    /// is a hiccup the loop rides out, and a reading for it would park
-    /// the fan at full for a glitch.
+    /// is a hiccup the loop rides out.
     Withhold,
 }
 

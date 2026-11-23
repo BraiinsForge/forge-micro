@@ -26,8 +26,8 @@
 //! number of times to let the resulting chain of awaits settle before the
 //! commanded PWM is asserted through the fan handle.
 //!
-//! A reading comes from the real `run_thermal` over a sensor that answers
-//! once, and a config change from the real config task over a file store,
+//! A reading comes from the real `run_thermal` over a sensor that submits
+//! it once, and a config change from the real config task over a file store,
 //! so the loop is driven by what the firmware runs. Each test takes the
 //! handles as a board does and runs in a process of its own.
 
@@ -43,8 +43,10 @@ use ubos_config::{
     Config, DefaultTuning, FileStorage, Handle as ConfigHandle, Message, MiningBounds, MiningInfo,
     Runner as ConfigRunner, TunerInfo,
 };
+use ubos_core::index::HashboardIndex;
 use ubos_core::units::{FanPwm, FanRpm, Temperature};
 use ubos_manager::Handle as ManagerHandle;
+use ubos_temperature::{Reading as TempReading, TempSource};
 use ubos_thermal::{
     Handle as ThermalHandle, NoAmbient, NoMcu, Reading, Runner as ThermalRunner, TempSample,
     TempStats, TemperatureSensor, run_thermal,
@@ -111,14 +113,35 @@ impl Drop for Rig {
     }
 }
 
-/// A sensor that answers once with the reading it was given.
-struct OneReading(Cell<Option<Reading>>);
+/// A sensor that answers once. It submits the reading it was given, as a
+/// source does, so the temperature that cooling reads comes through the
+/// filter of thermal. With no reading it answers as a board that has nothing to
+/// measure.
+struct OneReading {
+    reading: Option<TempReading>,
+    thermal: ThermalHandle,
+    answered: bool,
+}
 
 impl TemperatureSensor for OneReading {
     async fn sample(&mut self) -> Reading {
-        self.0
-            .take()
-            .expect("BUG: test drove run_thermal past its one reading")
+        assert!(
+            !self.answered,
+            "BUG: test drove run_thermal past its one reading"
+        );
+        self.answered = true;
+        let Some(reading) = self.reading else {
+            return Reading::Idle;
+        };
+        self.thermal.submit(reading).await;
+        let stats = TempStats {
+            max: reading.value,
+            mean: reading.value,
+        };
+        Reading::Measured(TempSample {
+            chip: None,
+            hashboard: Some(stats),
+        })
     }
 }
 
@@ -192,7 +215,7 @@ pub(crate) fn publish_reading(
     rig: &Rig,
     runner: &mut ThermalRunner,
     driver: &MockDriver,
-    reading: Reading,
+    reading: Option<TempReading>,
     mut rest: impl FnMut(),
 ) {
     let interval = u64::from(
@@ -201,7 +224,11 @@ pub(crate) fn publish_reading(
             .sample_interval_ms,
     );
     let mut thermal = pin!(run_thermal(
-        OneReading(Cell::new(Some(reading))),
+        OneReading {
+            reading,
+            thermal: rig.thermal,
+            answered: false,
+        },
         NoAmbient,
         NoMcu,
         runner,
@@ -256,21 +283,18 @@ impl TachReader<1> for FakeTach {
     }
 }
 
-/// A reading well below the default 67°C target, so the PID drives the PWM
-/// toward its floor and not toward FULL. With `no_reading` it is the answer
-/// of a board that has nothing to measure.
-pub(crate) fn moderate_reading(no_reading: bool) -> Reading {
-    if no_reading {
-        return Reading::Idle;
-    }
-    let temp = Temperature::from_millicelsius(50_000);
-    Reading::Measured(TempSample {
-        chip: None,
-        hashboard: Some(TempStats {
-            max: temp,
-            mean: temp,
-        }),
-    })
+/// The I2C address of the sensor that the readings of the tests name.
+const SENSOR: u8 = 0x48;
+
+/// A hashboard reading well below the default 67°C target, so the PID
+/// drives the PWM toward its floor and not toward FULL. With `no_reading`
+/// it is the answer of a board that has nothing to measure.
+pub(crate) fn moderate_reading(no_reading: bool) -> Option<TempReading> {
+    let reading = TempReading {
+        source: TempSource::hashboard(HashboardIndex(0), SENSOR),
+        value: Temperature::from_millicelsius(50_000),
+    };
+    (!no_reading).then_some(reading)
 }
 
 /// Polls the tasks of a test up to [`POLL_BUDGET`] times, enough for the

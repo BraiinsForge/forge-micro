@@ -220,10 +220,10 @@ kind. `statistic` is `"max"` or `"mean"` of the readings of that kind.
 `temp` is validated under both modes. It must stay below the dangerous
 temperature of its kind, and that rule is what bounds how low that
 dangerous temperature can be set. If there are readings, but none of
-the target's kind, the fan runs at full. If there are no readings, the
-fan keeps its duty until `SENSOR_FAULT_TICKS` samples in a row have
-none, and then runs at full. In both cases, the fan runs at full until
-the target's kind reads again.
+the target's kind, the fan runs at full. If the window of the thermal
+filter holds no readings, the fan also runs at full. In both cases, the
+fan runs at full until the target's kind reads again. This applies under
+both modes.
 
 Under `"fixed"` the fan holds `fixed_fan_pwm`. No PID runs, so
 `min_fan_pwm`, which bounds PID output, does not apply, and
@@ -234,8 +234,8 @@ fan again from the first thermal reading after the mode returns to
 survive the switch. A duty above the floor is held until the PID takes
 over. The cooling failsafes do not depend on the mode — a sensor fault,
 a stalled thermal task and an idle board force the fan to full under
-either. An idle board does so from its first idle tick, because it
-publishes no temperature to steer by.
+either. An idle board does so when the window of the thermal filter
+holds no readings, because it publishes no temperature to steer by.
 
 `API_VARIANT = "ubos-0.3"` (`ubos-api/src/schema/mod.rs:51`) ships on
 every versioned response. Clients dispatch on this string rather than
