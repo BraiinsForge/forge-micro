@@ -35,11 +35,11 @@
 #![no_main]
 
 use core::cell::RefCell;
-use defmt::{error, info, unwrap};
+use defmt::{error, info, unwrap, warn};
 use defmt_rtt as _;
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_executor::Spawner;
-use embassy_net::StackResources;
+use embassy_net::{EthernetAddress, StackResources};
 use embassy_net_wiznet::chip::W5500;
 use embassy_net_wiznet::{Device, Runner, State};
 use embassy_rp::flash::{Blocking as FlashBlocking, Flash};
@@ -270,10 +270,15 @@ fn main() -> ! {
     })
 }
 
-/// The machine of the boards that the EEPROMs name, or `None` when the
-/// hashboard, the PSU or the control board names no known board. Logs the
-/// records, and why a record names no known board.
-async fn read_machine(bus: &'static i2c::Bus) -> Option<MachineDescriptor<ForgeAxePsuDescriptor>> {
+/// Read the EEPROMs and return the machine descriptor composed of the
+/// boards they specify, and the MAC address of the control board when its
+/// EEPROM holds a valid one.
+async fn read_machine(
+    bus: &'static i2c::Bus,
+) -> Option<(
+    MachineDescriptor<ForgeAxePsuDescriptor>,
+    Option<EthernetAddress>,
+)> {
     let mut device = I2cDevice::new(bus);
     let mut raw = [[0; RECORD_LEN]; 4];
     let [hashboard, psu, control_board, front_panel] = &mut raw;
@@ -310,14 +315,27 @@ async fn read_machine(bus: &'static i2c::Bus) -> Option<MachineDescriptor<ForgeA
             .inspect_err(|e| error!("EEPROM: control board: {}", e))
             .ok()
     });
-    // TODO: the network takes the MAC address of the control-board data,
-    // and the LED ring shows its brand color.
-    let (control_board, _control_board_eeprom) = control_board?;
-    Some(MachineDescriptor::forge_axe(
-        control_board,
-        hashboard?,
-        psu?,
+    // TODO: the LED ring shows the brand color of the control-board data.
+    let (control_board, control_board_eeprom) = control_board?;
+    let mac = control_board_eeprom.and_then(|eeprom| parse_mac(eeprom.mac_address));
+    Some((
+        MachineDescriptor::forge_axe(control_board, hashboard?, psu?),
+        mac,
     ))
+}
+
+/// The MAC address that the control-board EEPROM holds, when the network
+/// can take it: a unicast address other than zero. Warns otherwise.
+fn parse_mac(mac_address: [u8; 6]) -> Option<EthernetAddress> {
+    let mac = EthernetAddress(mac_address);
+    if !mac.is_unicast() || mac == EthernetAddress::default() {
+        warn!(
+            "EEPROM: control board: the MAC address {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x} is zero or not unicast, so the board uses a derived MAC",
+            mac.0[0], mac.0[1], mac.0[2], mac.0[3], mac.0[4], mac.0[5],
+        );
+        return None;
+    }
+    Some(mac)
 }
 
 #[embassy_executor::task]
@@ -453,7 +471,7 @@ async fn boot(spawner: Spawner) {
     // Without a known hashboard, PSU and control board, the hardware is not
     // known, so the rail stays off and the chips stay in reset. The
     // watchdog and the LED already run, so the board does not reboot-loop.
-    let Some(machine) = read_machine(bus).await else {
+    let Some((machine, eeprom_mac)) = read_machine(bus).await else {
         // TODO: keep the network and OTA up without a known machine.
         error!("boot: the EEPROMs name no known machine, so it stays off");
         return;
@@ -572,9 +590,19 @@ async fn boot(spawner: Spawner) {
     let phy_int = Input::new(hw.phy_int, Pull::Up);
     let phy_reset = Output::new(hw.phy_reset, Level::High);
 
-    let mac_addr = runners
-        .net
-        .publish_mac(machine.control_board.mac_family, &ubos_rp::boot::chip_id());
+    let mac_addr = match eeprom_mac {
+        Some(EthernetAddress(mac)) => {
+            info!(
+                "mac {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x} from the control-board EEPROM",
+                mac[0], mac[1], mac[2], mac[3], mac[4], mac[5],
+            );
+            runners.net.set_mac(mac);
+            mac
+        }
+        None => runners
+            .net
+            .publish_mac(machine.control_board.mac_family, &ubos_rp::boot::chip_id()),
+    };
     static STATE: StaticCell<State<8, 8>> = StaticCell::new();
     let state = STATE.init(State::<8, 8>::new());
     let (device, runner) = ubos_rp::boot::wiznet_or_reset(

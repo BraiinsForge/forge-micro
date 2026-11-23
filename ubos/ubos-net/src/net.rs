@@ -307,8 +307,8 @@ impl Publisher {
 
     /// Publish the board MAC, leaving the IPv4 field untouched.
     ///
-    /// Each firmware supplies its own six octets, derived from the chip id
-    /// on the `WIZnet` boards or read from board config on the others.
+    /// Each firmware supplies its own six octets, derived from the chip id,
+    /// or read from the board EEPROM or from board config.
     /// Calling this once at boot lets `/api/info` report the address without
     /// threading it through the network stack.
     pub fn set_mac(&self, mac: [u8; 6]) {
@@ -323,10 +323,10 @@ impl Publisher {
         });
     }
 
-    /// Derive the board MAC from a per-chip id, log it and publish it. No
-    /// control board carries a factory address, so the firmware supplies one;
-    /// `mac_family` is the descriptor's byte for this control board and
-    /// `chip_id` is whatever unique id the chip offers.
+    /// Derive the board MAC from a per-chip id, log it and publish it, for
+    /// a control board that carries no address of its own; `mac_family` is
+    /// the descriptor's byte for this control board and `chip_id` is
+    /// whatever unique id the chip offers.
     #[must_use]
     pub fn publish_mac(&self, mac_family: u8, chip_id: &[u8]) -> [u8; 6] {
         let mac = crate::mac::derive_mac(crate::mac::DUMMY_OUI, mac_family, chip_id);
