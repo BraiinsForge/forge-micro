@@ -293,10 +293,11 @@ fn a_chain_present_again_after_a_halt_is_not_silent_on_the_pre_halt_answer() {
 }
 
 #[test]
-fn chain_voltage_requires_every_chip_and_sums_them() {
+fn the_voltage_of_a_chain_requires_every_chip_and_sums_them() {
     let (_clock, pvt, stats) = present_board();
     let sensor = ChainTemperature::<TEST_CHIPS, TEST_CHAINS>::new(pvt, stats, crate::Handle(()));
-    assert_eq!(sensor.chain_voltage(), None);
+    let voltage = || sensor.voltage_of(HashboardIndex(0), Instant::now());
+    assert_eq!(voltage(), None);
     for chip in ChipAddress::range(3) {
         pvt[0].record(
             chip,
@@ -306,34 +307,13 @@ fn chain_voltage_requires_every_chip_and_sums_them() {
     }
     // A chain short of one chip reads as severe rail droop, so it is
     // skipped rather than summed.
-    assert_eq!(sensor.chain_voltage(), None);
+    assert_eq!(voltage(), None);
     pvt[0].record(
         ChipAddress::One(3),
         Some(Temperature::from_celsius_f64(50.0)),
         Some(Voltage::from_mv(306)),
     );
-    assert_eq!(sensor.chain_voltage(), Some(Voltage::from_mv(1215)));
-}
-
-#[test]
-fn chain_voltage_takes_the_lowest_chain_that_reported_every_chip() {
-    let (_clock, pvt, stats) = present_board();
-    let sensor = ChainTemperature::<TEST_CHIPS, TEST_CHAINS>::new(pvt, stats, crate::Handle(()));
-    for chip in ChipAddress::range(TEST_CHIPS) {
-        pvt[0].record(
-            chip,
-            Some(Temperature::from_celsius_f64(50.0)),
-            Some(Voltage::from_mv(300)),
-        );
-        pvt[1].record(
-            chip,
-            Some(Temperature::from_celsius_f64(50.0)),
-            Some(Voltage::from_mv(310)),
-        );
-    }
-    // Both chains hang off one rail, so the lower sum is the worst-case
-    // reading: the one showing the board's droop.
-    assert_eq!(sensor.chain_voltage(), Some(Voltage::from_mv(1200)));
+    assert_eq!(voltage(), Some(Voltage::from_mv(1215)));
 }
 
 #[test]

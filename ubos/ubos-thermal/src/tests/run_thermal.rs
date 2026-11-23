@@ -329,7 +329,7 @@ rusty_fork_test! {
         driver.reset();
         let (mut manager_runner, manager) = ManagerHandle::take();
         let (_mining_runner, mining) = ubos_mining::Handle::take();
-        let (mut thermal_runner, thermal_handle) = crate::Handle::take();
+        let (mut thermal_runner, _thermal_handle) = crate::Handle::take();
         let (mut config_runner, config) = ubos_config::Handle::take();
         let store = StoreDir::new();
         let mut config_task = pin!(run_config(&store, &mut config_runner));
@@ -359,8 +359,8 @@ rusty_fork_test! {
             "a first over-threshold sample must trip the halt"
         );
         assert!(
-            thermal_handle.current().is_some(),
-            "the loop must publish through the handle it was given"
+            super::WATCHES.filtered.try_get().is_some(),
+            "the loop must publish on its first tick"
         );
 
         // Tick 2: the halt stands in the mask the manager published, so a

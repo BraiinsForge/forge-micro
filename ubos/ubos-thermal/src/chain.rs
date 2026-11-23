@@ -280,22 +280,6 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
 impl<const CHIPS: usize, const CHAINS: usize> TemperatureSensor
     for ChainTemperature<CHIPS, CHAINS>
 {
-    /// The lowest complete chip-voltage sum any present chain reports.
-    ///
-    /// The chains of one board share the rail this stands in for, so the
-    /// reading of any one of them describes it, and the lowest is the
-    /// worst-case rail reading: the board's droop shows on whichever
-    /// chain sags most, and a higher reading from another chain would
-    /// hide that. A partial sum would look like severe rail droop during
-    /// bring-up, so a chain that has not reported every chip is skipped
-    /// rather than summed.
-    fn chain_voltage(&self) -> Option<Voltage> {
-        let now = Instant::now();
-        HashboardIndex::range(CHAINS)
-            .filter_map(|chain| self.voltage_of(chain, now))
-            .min()
-    }
-
     async fn sample(&mut self) -> Reading {
         self.report().await;
         let now = Instant::now();

@@ -18,7 +18,7 @@
 // shall be considered distinct from the grant above.
 
 //! Thermal sensor task: polls the board temperature sensor and publishes
-//! `ThermalReading` via `Handle`. The manager is the sole caller of
+//! the filtered temperatures via `Handle`. The manager is the sole caller of
 //! `MiningHandle::halt`/`resume`, so this task reports facts and never
 //! halts anything itself. It sends two independent pairs:
 //! `DangerousTemperature`/`TemperatureNormal` on threshold edges, and
@@ -124,11 +124,11 @@ use core::convert::Infallible;
 use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
-use embassy_sync::watch::{Receiver, Sender, Watch};
+use embassy_sync::watch::Receiver;
 use embassy_time::{Duration, Instant, Ticker};
 use ubos_config::Handle as ConfigHandle;
 use ubos_config::{PidTarget, ThermalConfig};
-use ubos_core::units::{Temperature, Voltage};
+use ubos_core::units::Temperature;
 use ubos_logging::{error, info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage, PauseReason, PauseReasons};
 use ubos_metrics::metric;
@@ -227,12 +227,6 @@ pub trait TemperatureSensor {
     /// Take one sample. Implementations may await on the underlying
     /// hardware.
     async fn sample(&mut self) -> Reading;
-
-    /// Sum of chip core voltages when this sensor also observes the chain.
-    /// `None` means the sensor cannot provide a complete chain measurement.
-    fn chain_voltage(&self) -> Option<Voltage> {
-        None
-    }
 }
 
 /// A sensor for the ambient temperature around the board, apart from
@@ -290,42 +284,9 @@ impl McuTemperatureSensor for NoMcu {
     }
 }
 
-/// A single thermal sample from the board sensor.
-///
-/// Published by `run_thermal` on every tick that measured something, on
-/// every idle tick, and on every unreadable tick past the tolerance
-/// budget. Consumers read it through `Handle`.
-#[derive(Clone)]
-pub struct ThermalReading {
-    /// This tick's sample, or `None` on a tick that measured nothing,
-    /// which the fan holds full on rather than on a value never measured.
-    pub temps: Option<TempSample>,
-    /// The ambient temperature around the board, where the board measures
-    /// it. What it is and is not read for: [`AmbientSensor`].
-    pub ambient: Option<Temperature>,
-    /// Chip-derived voltage sum, separate from a measured PSU output rail.
-    /// It goes out only beside a measurement, so a tick that measured
-    /// nothing reports `None` here as in [`temps`](Self::temps),
-    /// and the value is never held over.
-    pub chain_voltage: Option<Voltage>,
-    /// Monotonic timestamp of this reading in milliseconds since boot.
-    pub timestamp_ms: u64,
-}
-
-/// Subscriber capacity for the thermal watch. Four receivers covers
-/// cooling, API, display, and manager without enlarging the watch
-/// further for today's consumers.
+/// Subscriber capacity of each thermal watch. Four receivers cover
+/// today's consumers without enlarging a watch further.
 const WATCH_CAPACITY: usize = 4;
-
-/// State watch carrying the published [`ThermalReading`]. Single writer
-/// is [`run_thermal`]; readers obtained via [`Handle::subscribe`].
-type ThermalWatch = Watch<CSMutex, ThermalReading, WATCH_CAPACITY>;
-
-/// The readings the firmware's one sensor task publishes.
-static STATE_WATCH: ThermalWatch = Watch::new();
-
-/// Per-task subscription returned by [`Handle::subscribe`].
-pub type ThermalSubscription = Receiver<'static, CSMutex, ThermalReading, WATCH_CAPACITY>;
 
 /// Records that the firmware took the thermal handle.
 static TAKEN: ubos_core::take_once::TakeOnce = ubos_core::take_once::TakeOnce::new("thermal");
@@ -376,14 +337,6 @@ pub struct Handle(());
 /// it to a second.
 pub struct Runner(());
 
-#[allow(clippy::unused_self)]
-impl Runner {
-    /// The sender of the thermal reading, which only the sensor task writes.
-    pub(crate) fn publisher(&self) -> Sender<'static, CSMutex, ThermalReading, WATCH_CAPACITY> {
-        STATE_WATCH.sender()
-    }
-}
-
 impl Handle {
     /// The firmware's one thermal handle, and the runner of the task that
     /// reads the sensors. A second call panics.
@@ -392,13 +345,6 @@ impl Handle {
     pub fn take() -> (Runner, Self) {
         TAKEN.take();
         (Runner(()), Self(()))
-    }
-
-    /// Most recent published reading, or `None` if the sensor task has
-    /// not yet completed its first poll.
-    #[must_use]
-    pub fn current(&self) -> Option<ThermalReading> {
-        STATE_WATCH.try_get()
     }
 
     /// The chip and hashboard temperatures, or `None` when neither kind has
@@ -451,19 +397,6 @@ impl Handle {
     /// full.
     pub(crate) async fn submit_dies(&self, dies: TempStats) {
         INPUT.send(Submitted::Dies(dies)).await;
-    }
-
-    /// Per-task subscription. Call once per consumer task before
-    /// entering its loop.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the underlying `Watch` has no free receiver slots.
-    #[must_use]
-    pub fn subscribe(&self) -> ThermalSubscription {
-        STATE_WATCH
-            .receiver()
-            .expect("BUG: Handle receiver slots exhausted; raise WATCH_CAPACITY")
     }
 }
 
@@ -579,25 +512,11 @@ impl Note {
 /// What a tick decided from the sensor's answer, for the loop to act on.
 #[derive(Debug, PartialEq, Eq)]
 struct Step {
-    /// Whether a reading goes out, and what it carries.
-    tick: Tick,
     /// The edge of the unreadable pair this tick crossed, if any.
     unreadable: Option<Note>,
     /// The edge of the overheat pair this tick crossed, if any. Only a
     /// measurement can cross one, and it can cross both pairs' at once.
     dangerous: Option<Note>,
-}
-
-/// Whether a reading goes out this tick, and the temperatures it
-/// carries.
-#[derive(Debug, PartialEq, Eq)]
-enum Tick {
-    /// Publish a reading: this tick's sample, `None` on a tick that
-    /// measured nothing.
-    Publish { temps: Option<TempSample> },
-    /// Inside the miss budget: say nothing this tick. Silence that short
-    /// is a hiccup the loop rides out.
-    Withhold,
 }
 
 /// What one tick hands the next: the miss budget.
@@ -609,47 +528,39 @@ struct Thermal {
 impl Thermal {
     /// Decide one tick from the sensor's answer: count or clear the
     /// miss budget, find the halts and releases the answer calls for
-    /// against the halts `held` says the manager holds, and say what to
-    /// publish. It performs nothing: the loop reads the mask, polls the
+    /// against the halts `held` says the manager holds. It performs nothing: the loop reads the mask, polls the
     /// sensor, and acts on the step, so this is a plain function of its
     /// arguments and the previous tick.
     fn judge(&mut self, reading: Reading, config: &ThermalConfig, held: PauseReasons) -> Step {
         match reading {
             Reading::Measured(temps) => Step {
-                tick: Tick::Publish { temps: Some(temps) },
                 unreadable: self.unreadable_halt.clear(held).map(Note::Recovered),
                 dangerous: temps.judge_dangerous(config, held),
             },
             Reading::Unreadable => {
-                // Past the budget the board runs unwatched and every
-                // consumer hears so on every tick.
-                let Some(ticks) = self.unreadable_halt.miss() else {
-                    return Step {
-                        tick: Tick::Withhold,
-                        unreadable: None,
-                        dangerous: None,
-                    };
-                };
-                let note = (!held.contains(PauseReason::TemperatureUnreadable))
-                    .then_some(Note::Unreadable(ticks));
+                // Inside the budget the silence is a hiccup that the loop
+                // rides out. Past it the halt goes out once, and the mask
+                // of the manager says when it stands.
+                let note = self
+                    .unreadable_halt
+                    .miss()
+                    .filter(|_| !held.contains(PauseReason::TemperatureUnreadable))
+                    .map(Note::Unreadable);
                 Self::held(note)
             }
             Reading::Idle => {
                 // Why an idle board releases the halt: "Chain presence" in
-                // `docs/MINING.md`. It has nothing to measure, so every
-                // consumer hears on the first idle tick that the reading
-                // is held.
+                // `docs/MINING.md`.
                 let note = self.unreadable_halt.clear(held).map(|_| Note::Idle);
                 Self::held(note)
             }
         }
     }
 
-    /// The step of a tick that measured nothing: a reading goes out with
-    /// no sample, and `unreadable` is the one edge such a tick can cross.
+    /// The step of a tick that measured nothing, where `unreadable` is
+    /// the one edge such a tick can cross.
     fn held(unreadable: Option<Note>) -> Step {
         Step {
-            tick: Tick::Publish { temps: None },
             unreadable,
             dangerous: None,
         }
@@ -688,15 +599,14 @@ fn take(reading: TempReading, temperatures: &mut Temperatures, tick: Instant) {
 /// gates nothing, so it is read after every decision a tick makes and
 /// never before one: a sensor that takes its time answering must not hold
 /// up the sample the halt turns on, nor the halt itself. Every tick reads
-/// it, including one that publishes no reading, because the chip
+/// it, including one that measured no chip temperature, because the chip
 /// sensor's silence says nothing about this sensor.
 async fn read_ambient<A: AmbientSensor>(
     ambient: &mut A,
     temperatures: &mut Temperatures,
     tick: Instant,
-) -> Option<Temperature> {
-    let reading = ambient.ambient().await;
-    if let Some(value) = reading {
+) {
+    if let Some(value) = ambient.ambient().await {
         take(
             TempReading {
                 source: TempSource::Ambient,
@@ -706,7 +616,6 @@ async fn read_ambient<A: AmbientSensor>(
             tick,
         );
     }
-    reading
 }
 
 /// Run the thermal monitoring loop forever.
@@ -716,7 +625,7 @@ async fn read_ambient<A: AmbientSensor>(
 /// sensor, [`NoAmbient`] where it has none. `mcu` is the thermometer on
 /// the MCU die, [`NoMcu`] where the MCU has none, and the loop pushes its
 /// reading to the metrics on each tick. `_runner` is the right to run
-/// this loop, which is the one that publishes the readings. It is borrowed
+/// this loop, which is the one that publishes the temperatures. It is borrowed
 /// mutably, so one runner runs one loop at a time, and `main` gives it to
 /// one task. `manager_handle` takes the two
 /// message pairs this loop sends, and is also where it reads both halts
@@ -734,11 +643,10 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatu
     mut sensor: S,
     mut ambient: A,
     mut mcu: M,
-    runner: &mut Runner,
+    _runner: &mut Runner,
     manager_handle: ManagerHandle,
     config_handle: ConfigHandle,
 ) -> ! {
-    let publisher = runner.publisher();
     let mut config_subscription = config_handle.subscribe();
     let current = config_handle.current().await;
     let mut config: ThermalConfig = current.thermal;
@@ -797,21 +705,9 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatu
         for note in [step.unreadable, step.dangerous].into_iter().flatten() {
             note.report(manager_handle).await;
         }
-        let ambient_temp = read_ambient(&mut ambient, &mut temperatures, now).await;
+        read_ambient(&mut ambient, &mut temperatures, now).await;
         temperatures.publish_ambient(now, &WATCHES);
-        // A tick inside the miss budget withholds its reading, for the
-        // reason `Tick::Withhold` gives.
-        if let Tick::Publish { temps } = step.tick {
-            // The chain voltage goes out only beside a measurement, and a
-            // tick that measured nothing reports none.
-            publisher.send(ThermalReading {
-                temps,
-                ambient: ambient_temp,
-                chain_voltage: temps.and_then(|_| sensor.chain_voltage()),
-                timestamp_ms: now.as_millis(),
-            });
-        }
-        // Read last, after the reading the cooling loop turns on has gone
+        // Read last, after the sample the cooling loop turns on has gone
         // out. The gauge is dropped on a full metrics channel, because this
         // safety loop must not wait on the metrics, and the next tick
         // replaces it.
@@ -822,7 +718,7 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatu
 }
 
 /// Task shell around [`run_thermal`], which polls the temperature
-/// sensors and publishes the thermal reading. Takes the board's sensor
+/// sensors and publishes the temperatures. Takes the board's sensor
 /// type, an I2C sensor array on most boards, and its ambient temperature sensor type,
 /// [`NoAmbient`] on a board without one, and its MCU thermometer type,
 /// [`NoMcu`] on an MCU without one. Neither
