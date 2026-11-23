@@ -30,7 +30,7 @@ use ubos_core::units::Temperature;
 use ubos_temperature::{Reading, TempSource};
 
 use crate::filter::TempFilter;
-use crate::{TempSample, WATCH_CAPACITY};
+use crate::{TempSample, TempStats, WATCH_CAPACITY};
 
 #[cfg(test)]
 #[path = "tests/temps.rs"]
@@ -99,6 +99,13 @@ impl Temperatures {
             TempSource::ControlBoard | TempSource::Psu => return,
         };
         filter.update(reading.value, now);
+    }
+
+    /// Fold the hottest and the mean die of the chains of a tick into
+    /// the chip filter. A chain reads each chip once in a pass, so its
+    /// dies reach the filter as the summary of every tick.
+    pub(crate) fn update_dies(&mut self, dies: TempStats, now: Instant) {
+        self.chip.update_stats(dies, now);
     }
 
     /// The chip and hashboard values at `now`, or `None` when neither has

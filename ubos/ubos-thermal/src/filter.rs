@@ -57,10 +57,10 @@ struct Pane {
 }
 
 impl Pane {
-    fn start(value: Temperature, epoch: u64) -> Self {
+    fn start(stats: TempStats, epoch: u64) -> Self {
         Self {
-            max: value,
-            sum: i64::from(value.millicelsius()),
+            max: stats.max,
+            sum: i64::from(stats.mean.millicelsius()),
             count: 1,
             epoch,
         }
@@ -104,8 +104,20 @@ impl TempFilter {
 
     /// Fold `value` into the pane of `now`.
     pub fn update(&mut self, value: Temperature, now: Instant) {
+        let stats = TempStats {
+            max: value,
+            mean: value,
+        };
+        self.update_stats(stats, now);
+    }
+
+    /// Fold the maximum and the mean of one tick into the pane of `now`,
+    /// as one reading. A source that already holds both for the tick
+    /// hands them over whole, so the filter takes one value where the
+    /// source read many.
+    pub(crate) fn update_stats(&mut self, stats: TempStats, now: Instant) {
         let epoch = self.epoch(now);
-        let pane = Pane::start(value, epoch);
+        let pane = Pane::start(stats, epoch);
         // The modulo keeps the index below `PANES`.
         #[allow(clippy::cast_possible_truncation)]
         let slot = &mut self.panes[(epoch % PANES as u64) as usize];

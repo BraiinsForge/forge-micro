@@ -334,9 +334,25 @@ static TAKEN: ubos_core::take_once::TakeOnce = ubos_core::take_once::TakeOnce::n
 /// bounds how far a source runs ahead of the loop.
 const INPUT_DEPTH: usize = 16;
 
-/// The readings that sources hand to thermal, through
-/// [`Handle::submit`]. [`run_thermal`] is the only reader.
-static INPUT: Channel<CSMutex, TempReading, INPUT_DEPTH> = Channel::new();
+/// What a source hands to thermal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Submitted {
+    /// The reading of one sensor. It gets a series of its own and goes
+    /// into the filter of its kind.
+    Reading(TempReading),
+    /// The reading of one chip of a chain, handed in when the chip
+    /// answers. It gets a series of its own, and the filter takes the
+    /// dies of the chain from [`Submitted::Dies`].
+    Series(TempReading),
+    /// The hottest and the mean die of the chains of one tick. It goes
+    /// into the chip filter, because a chip answers once in a pass and
+    /// the filter needs the dies of every tick.
+    Dies(TempStats),
+}
+
+/// What sources hand to thermal, through the submit methods of
+/// [`Handle`]. [`run_thermal`] is the only reader.
+static INPUT: Channel<CSMutex, Submitted, INPUT_DEPTH> = Channel::new();
 
 /// The filtered temperatures the firmware's one thermal task publishes.
 static WATCHES: Watches = Watches::new();
@@ -382,7 +398,20 @@ impl Handle {
 
     /// Hand one reading to thermal. Waits while the input channel is full.
     pub async fn submit(&self, reading: TempReading) {
-        INPUT.send(reading).await;
+        INPUT.send(Submitted::Reading(reading)).await;
+    }
+
+    /// Hand the new reading of one chip of a chain to thermal, for its
+    /// series. Waits while the input channel is full.
+    pub(crate) async fn submit_series(&self, reading: TempReading) {
+        INPUT.send(Submitted::Series(reading)).await;
+    }
+
+    /// Hand the hottest and the mean die of the chains of this tick to
+    /// thermal, for the chip filter. Waits while the input channel is
+    /// full.
+    pub(crate) async fn submit_dies(&self, dies: TempStats) {
+        INPUT.send(Submitted::Dies(dies)).await;
     }
 
     /// Per-task subscription. Call once per consumer task before
@@ -592,12 +621,22 @@ impl Thermal {
     }
 }
 
-/// Take each reading that a source submits as a reading of the tick at
+/// Take everything that a source submits as input of the tick at
 /// `tick`, and never return. A source awaits on a full channel, so this
 /// runs beside the source and not after it.
 async fn drain_input(temperatures: &mut Temperatures, tick: Instant) -> Infallible {
     loop {
-        take(INPUT.receive().await, temperatures, tick);
+        take_submitted(INPUT.receive().await, temperatures, tick);
+    }
+}
+
+/// Give `submitted` its series, its place in a filter at `tick`, or
+/// both, as its variant says.
+fn take_submitted(submitted: Submitted, temperatures: &mut Temperatures, tick: Instant) {
+    match submitted {
+        Submitted::Reading(reading) => take(reading, temperatures, tick),
+        Submitted::Series(reading) => publish_sensor_reading(reading),
+        Submitted::Dies(dies) => temperatures.update_dies(dies, tick),
     }
 }
 
@@ -709,7 +748,7 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatu
             Either::Second(never) => match never {},
         };
         while let Ok(submitted) = INPUT.try_receive() {
-            take(submitted, &mut temperatures, now);
+            take_submitted(submitted, &mut temperatures, now);
         }
         // The readings carry the time of this tick, so the filters are
         // read at that time and hold every reading of this tick, however

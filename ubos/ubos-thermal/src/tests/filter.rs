@@ -104,3 +104,17 @@ fn six_hundred_chips_fit_in_the_fixed_memory() {
     assert_eq!(stats.max, degrees(69));
     assert_eq!(stats.mean, Temperature::from_millicelsius(54_500));
 }
+
+#[test]
+fn the_stats_of_a_tick_count_as_one_reading() {
+    let mut filter = TempFilter::for_interval(INTERVAL);
+    let tick = |max, mean| TempStats {
+        max: degrees(max),
+        mean: degrees(mean),
+    };
+    filter.update_stats(tick(70, 60), at(0));
+    filter.update_stats(tick(66, 64), at(1000));
+    let stats = filter.value(at(1000)).expect("two ticks are inside");
+    assert_eq!(stats.max, degrees(70));
+    assert_eq!(stats.mean, degrees(62));
+}

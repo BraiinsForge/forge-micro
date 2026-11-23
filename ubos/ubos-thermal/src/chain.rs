@@ -47,7 +47,13 @@
 //! window too wide to mean anything. What the loop must not miss is a
 //! chain going quiet altogether, and that is what this measures. The
 //! cost is that one chip falling silent while its neighbours answer
-//! leaves its last reading standing.
+//! leaves its last reading standing in the chain's summary.
+//!
+//! The series of a chip moves when the chip answers: each new reading is
+//! submitted once, on the sample after it arrived. The filter of thermal
+//! takes the hottest and the mean die of the chains on every sample
+//! instead, because a chip that answers once in a pass would leave its
+//! window between two turns.
 
 use crate::{Accumulator, Handle, Reading, TempSample, TemperatureSensor};
 use embassy_futures::{poll_once, yield_now};
@@ -98,8 +104,8 @@ pub struct ChainTemperature<const CHIPS: usize, const CHAINS: usize> {
     /// `CHAINS`, so [`Self::new`] asserts it holds enough slots to index
     /// by chain.
     stats: ChainStatsHandle,
-    /// Where the die temperature of each chip is submitted, so thermal
-    /// filters it and writes its series.
+    /// Where the new reading of each chip and the dies of every sample
+    /// are submitted, so thermal writes the series and filters the dies.
     thermal: Handle,
     /// Where silence is measured from until something answers, so a
     /// chain that takes its time enumerating does not arrive already
@@ -243,7 +249,9 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
                 continue;
             };
             let source = TempSource::chip(chain, chip);
-            self.thermal.submit(TempReading { source, value }).await;
+            self.thermal
+                .submit_series(TempReading { source, value })
+                .await;
             yield_now().await;
         }
         if let Some(temperature) = self.pvt[slot].temperature_summary() {
@@ -341,14 +349,19 @@ impl<const CHIPS: usize, const CHAINS: usize> TemperatureSensor
         if self.stalled() {
             return Reading::Unreadable;
         }
+        let Some(dies) = chips.map(Accumulator::stats) else {
+            return Reading::Unreadable;
+        };
+        // A stalled chain stops every chain handing over its dies, so the
+        // filter of thermal empties and the readings of a sibling cannot
+        // stand in for the dies that nothing reads.
+        self.thermal.submit_dies(dies).await;
         // The chips are the board's thermometer, so they both gate the
         // halt and drive the fans; the reading comes from the die itself,
         // so it is gated against the chip limit.
-        chips.map_or(Reading::Unreadable, |acc| {
-            Reading::Measured(TempSample {
-                chip: Some(acc.stats()),
-                hashboard: None,
-            })
+        Reading::Measured(TempSample {
+            chip: Some(dies),
+            hashboard: None,
         })
     }
 }
