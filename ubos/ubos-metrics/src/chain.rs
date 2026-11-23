@@ -391,6 +391,15 @@ impl ChainStatsHandle {
         self.stats.iter().take(self.chain_count())
     }
 
+    /// The lowest voltage sum that a wired chain reports, or `None` when
+    /// no chain has a complete sum. The chains of one board share a rail,
+    /// so the lowest sum is the reading that shows the droop of the board,
+    /// and a higher sum of another chain would hide it.
+    #[must_use]
+    pub fn lowest_voltage(&self) -> Option<Voltage> {
+        self.chains().filter_map(ChainStats::voltage).min()
+    }
+
     /// Sum of every chain's smoothed hashrate, saturating at `u64::MAX`.
     #[must_use]
     pub fn machine_hashrate(&self) -> u64 {

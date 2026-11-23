@@ -247,6 +247,21 @@ fn share_counts_sum_across_chains() {
     assert_eq!(handle.chain(HashboardIndex(2)).share_count(), 0);
 }
 
+#[test]
+fn the_lowest_voltage_is_the_lowest_sum_of_a_chain_that_has_one() {
+    let handle = table(3);
+    assert_eq!(handle.lowest_voltage(), None);
+
+    handle
+        .chain(HashboardIndex(0))
+        .set_voltage(Some(Voltage::from_mv(1215)));
+    handle
+        .chain(HashboardIndex(2))
+        .set_voltage(Some(Voltage::from_mv(1200)));
+    // Chain 1 has no complete sum, so it does not count as the lowest.
+    assert_eq!(handle.lowest_voltage(), Some(Voltage::from_mv(1200)));
+}
+
 /// The desync counter takes bytes at the line rate, so it is the one
 /// that can reach its ceiling. It holds there instead of wrapping,
 /// which would read as the line recovering.
