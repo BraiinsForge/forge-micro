@@ -35,6 +35,13 @@
 //! on an unpowered board is no fault is under "Chain presence" in
 //! `docs/MINING.md`.
 //!
+//! A source hands each reading to the task through [`Handle::submit`].
+//! The task writes the series of that reading in `metrics`, filters the
+//! readings by kind, and publishes the filtered temperatures once on each
+//! tick. The API reads them through [`Handle::filtered`] and
+//! [`Handle::ambient`]. Cooling subscribes to the one temperature that
+//! its PID follows, through [`Handle::subscribe_pid_temperature`].
+//!
 //! This task also writes the series of the ambient sensor, and the MCU
 //! temperature gauge, which it reads from the board's
 //! [`McuTemperatureSensor`] on each tick.
