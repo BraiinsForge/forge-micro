@@ -4288,6 +4288,7 @@ dependencies = [
  "ubos-logging",
  "ubos-manager",
  "ubos-metrics",
+ "ubos-temperature",
  "ubos-thermal",
 ]
 

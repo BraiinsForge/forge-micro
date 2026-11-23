@@ -46,6 +46,8 @@ ubos-thermal     = { workspace = true }
 ubos-config      = { workspace = true, default-features = false, features = ["std"] }
 # The hashboard that the config task of the tests runs on.
 ubos-asic        = { workspace = true }
+# The reading that the sensor of the tests submits to thermal.
+ubos-temperature = { workspace = true }
 # The handle that `run_thermal` reports to in the tests.
 ubos-manager     = { workspace = true, default-features = false }
 # Each test takes its handles in a process of its own.
