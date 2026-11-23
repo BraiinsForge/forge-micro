@@ -47,7 +47,7 @@ const _: () = assert!(
 /// or drop it when the metrics channel is full. The loop that calls this
 /// must not wait on the metrics, and the next reading replaces a dropped
 /// one.
-pub(crate) fn publish_sensor_reading(reading: Reading) {
+pub(crate) fn publish_reading(reading: Reading) {
     match reading.source {
         TempSource::Hashboard { chain, address } => {
             publish_hashboard_reading(chain, address, reading.value);

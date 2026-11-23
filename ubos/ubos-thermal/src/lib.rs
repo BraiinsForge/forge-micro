@@ -124,7 +124,7 @@ fn measured(reading: Reading) -> TempSample {
     }
 }
 
-use crate::metrics::publish_sensor_reading;
+use crate::metrics::publish_reading;
 use crate::threshold::{Action, evaluate};
 use core::convert::Infallible;
 
@@ -588,7 +588,7 @@ async fn drain_input(temperatures: &mut Temperatures, tick: Instant) -> Infallib
 fn take_submitted(submitted: Submitted, temperatures: &mut Temperatures, tick: Instant) {
     match submitted {
         Submitted::Reading(reading) => take(reading, temperatures, tick),
-        Submitted::Series(reading) => publish_sensor_reading(reading),
+        Submitted::Series(reading) => publish_reading(reading),
         Submitted::Dies(dies) => temperatures.update_dies(dies, tick),
     }
 }
@@ -598,7 +598,7 @@ fn take_submitted(submitted: Submitted, temperatures: &mut Temperatures, tick: I
 /// than the window of a filter, so a reading stamped with the time it
 /// arrived at could leave the window before its own tick publishes.
 fn take(reading: TempReading, temperatures: &mut Temperatures, tick: Instant) {
-    publish_sensor_reading(reading);
+    publish_reading(reading);
     temperatures.update(reading, tick);
 }
 
