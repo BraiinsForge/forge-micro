@@ -24,6 +24,7 @@ const SENSOR: u8 = 0x48;
 
 use super::*;
 use crate::TempStats;
+use ubos_config::{Source, Statistic};
 use ubos_core::index::{ChipAddress, HashboardIndex};
 
 /// The sample interval of the filters, which gives panes of 500 ms.
@@ -133,4 +134,74 @@ fn a_silent_source_publishes_none() {
     temperatures.publish_filtered(Instant::from_millis(3000), &WATCHES);
     temperatures.publish_ambient(Instant::from_millis(3000), &WATCHES);
     assert_eq!(published(&WATCHES.ambient), None);
+}
+
+/// A target that follows `statistic` of `source`. Thermal reads no
+/// setpoint, so any temperature serves.
+const fn target(source: Source, statistic: Statistic) -> PidTarget {
+    PidTarget {
+        source,
+        statistic,
+        temp: Temperature::from_celsius(0),
+    }
+}
+
+#[test]
+fn the_pid_temperature_is_the_statistic_of_the_target_over_its_kind() {
+    static WATCHES: Watches = Watches::new();
+    let mut temperatures = Temperatures::for_interval(INTERVAL);
+    let now = Instant::from_millis(0);
+    let chain = HashboardIndex(0);
+    temperatures.update(
+        reading(TempSource::chip(chain, ChipAddress::One(0)), 90),
+        now,
+    );
+    temperatures.update(
+        reading(TempSource::chip(chain, ChipAddress::One(1)), 70),
+        now,
+    );
+    temperatures.update(reading(TempSource::hashboard(chain, SENSOR), 60), now);
+    let pid = |source, statistic, celsius| PidTemperature {
+        source,
+        statistic,
+        temp: Some(Temperature::from_celsius(celsius)),
+    };
+
+    temperatures.publish_pid(now, target(Source::Chip, Statistic::Max), &WATCHES);
+    assert_eq!(
+        WATCHES.pid.try_get(),
+        Some(pid(Source::Chip, Statistic::Max, 90))
+    );
+    temperatures.publish_pid(now, target(Source::Chip, Statistic::Mean), &WATCHES);
+    assert_eq!(
+        WATCHES.pid.try_get(),
+        Some(pid(Source::Chip, Statistic::Mean, 80))
+    );
+    // The hashboard, even beside a hotter die.
+    temperatures.publish_pid(now, target(Source::Hashboard, Statistic::Max), &WATCHES);
+    assert_eq!(
+        WATCHES.pid.try_get(),
+        Some(pid(Source::Hashboard, Statistic::Max, 60))
+    );
+}
+
+#[test]
+fn the_pid_temperature_is_none_without_a_reading_of_the_target_kind() {
+    static WATCHES: Watches = Watches::new();
+    let mut temperatures = Temperatures::for_interval(INTERVAL);
+    let now = Instant::from_millis(0);
+    let chain = HashboardIndex(0);
+    temperatures.update(
+        reading(TempSource::chip(chain, ChipAddress::One(0)), 90),
+        now,
+    );
+
+    // The die is never handed to a target that follows the hashboard.
+    temperatures.publish_pid(now, target(Source::Hashboard, Statistic::Max), &WATCHES);
+    assert_eq!(WATCHES.pid.try_get().and_then(|pid| pid.temp), None);
+
+    // The chip reading has left its window.
+    let later = Instant::from_millis(3000);
+    temperatures.publish_pid(later, target(Source::Chip, Statistic::Max), &WATCHES);
+    assert_eq!(WATCHES.pid.try_get().and_then(|pid| pid.temp), None);
 }

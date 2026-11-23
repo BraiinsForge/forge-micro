@@ -560,6 +560,8 @@ rusty_fork_test! {
             sample.and_then(|sample| sample.chip).map(|chip| chip.max),
             Some(seventy)
         );
+        // The default target follows the hashboard, which read nothing.
+        assert_eq!(watches.pid.try_get().map(|pid| pid.temp), Some(None));
         assert_eq!(watches.ambient.try_get(), Some(None));
     }
 }

@@ -62,6 +62,7 @@ mod threshold;
 pub use array::SensorArray;
 pub use filter::TempFilter;
 pub use stats::{Accumulator, TempStats};
+pub use temps::PidTemperature;
 pub use temps::{FilteredWatch, TempWatch, Temperatures, Watches};
 
 #[cfg(test)]
@@ -126,7 +127,7 @@ use embassy_sync::channel::Channel;
 use embassy_sync::watch::{Receiver, Sender, Watch};
 use embassy_time::{Duration, Instant, Ticker};
 use ubos_config::Handle as ConfigHandle;
-use ubos_config::ThermalConfig;
+use ubos_config::{PidTarget, ThermalConfig};
 use ubos_core::units::{Temperature, Voltage};
 use ubos_logging::{error, info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage, PauseReason, PauseReasons};
@@ -357,6 +358,10 @@ static INPUT: Channel<CSMutex, Submitted, INPUT_DEPTH> = Channel::new();
 /// The filtered temperatures the firmware's one thermal task publishes.
 static WATCHES: Watches = Watches::new();
 
+/// Per-task subscription returned by
+/// [`Handle::subscribe_pid_temperature`].
+pub type PidTemperatureSubscription = Receiver<'static, CSMutex, PidTemperature, WATCH_CAPACITY>;
+
 /// Consumer-side handle for the thermal subsystem.
 ///
 /// The handle holds no data: its methods are the only way to the private
@@ -394,6 +399,25 @@ impl Handle {
     #[must_use]
     pub fn current(&self) -> Option<ThermalReading> {
         STATE_WATCH.try_get()
+    }
+
+    /// Per-task subscription to the temperature that the cooling PID
+    /// follows: the statistic of the cooling target over the readings of
+    /// its kind, or `None` when that kind has no reading inside the
+    /// window, beside the kind and the statistic that selected it. The
+    /// loop sends it on every tick, so a subscriber that
+    /// stops waking knows that the loop stopped. Call once per consumer
+    /// task before entering its loop.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the watch has no free receiver slots.
+    #[must_use]
+    pub fn subscribe_pid_temperature(&self) -> PidTemperatureSubscription {
+        WATCHES
+            .pid
+            .receiver()
+            .expect("BUG: Handle receiver slots exhausted; raise WATCH_CAPACITY")
     }
 
     /// Hand one reading to thermal. Waits while the input channel is full.
@@ -705,7 +729,9 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatu
 ) -> ! {
     let publisher = runner.publisher();
     let mut config_subscription = config_handle.subscribe();
-    let mut config: ThermalConfig = config_handle.current().await.thermal;
+    let current = config_handle.current().await;
+    let mut config: ThermalConfig = current.thermal;
+    let mut pid_target: PidTarget = current.cooling.target;
 
     let mut sample_interval = Duration::from_millis(u64::from(config.sample_interval_ms));
     let mut ticker = Ticker::every(sample_interval);
@@ -733,6 +759,7 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatu
                 );
             }
             config = new_thermal;
+            pid_target = updated.cooling.target;
         }
         let now = Instant::now();
         let elapsed = now.duration_since(prev_tick);
@@ -754,6 +781,7 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatu
         // read at that time and hold every reading of this tick, however
         // long the sample took.
         temperatures.publish_filtered(now, &WATCHES);
+        temperatures.publish_pid(now, pid_target, &WATCHES);
         let step = thermal.judge(reading, &config, manager_handle.pause_reasons());
         for note in [step.unreadable, step.dangerous].into_iter().flatten() {
             note.report(manager_handle).await;

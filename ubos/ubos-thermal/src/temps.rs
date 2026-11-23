@@ -26,6 +26,7 @@
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::Watch;
 use embassy_time::{Duration, Instant};
+use ubos_config::{PidTarget, Source, Statistic};
 use ubos_core::units::Temperature;
 use ubos_temperature::{Reading, TempSource};
 
@@ -40,6 +41,24 @@ mod tests;
 /// is inside the window of its filter.
 pub type TempWatch = Watch<CriticalSectionRawMutex, Option<Temperature>, WATCH_CAPACITY>;
 
+/// The temperature that the cooling PID follows, with the selection that
+/// picked it. The selection travels with the value because the target can
+/// change between the tick that selects and the reader that steers, and
+/// the reader then sees that the value answers another target.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PidTemperature {
+    /// The kind of reading that the statistic is taken over.
+    pub source: Source,
+    /// The reduction of the readings of that kind.
+    pub statistic: Statistic,
+    /// The value, or `None` when that kind has no reading inside the
+    /// window of its filter.
+    pub temp: Option<Temperature>,
+}
+
+/// The published temperature that the cooling PID follows.
+pub(crate) type PidWatch = Watch<CriticalSectionRawMutex, PidTemperature, WATCH_CAPACITY>;
+
 /// The published chip and hashboard temperatures. They travel together
 /// so that a reader sees both kinds of one tick. `None` means that neither
 /// kind has a reading inside the window of its filter.
@@ -49,6 +68,8 @@ pub type FilteredWatch = Watch<CriticalSectionRawMutex, Option<TempSample>, WATC
 pub struct Watches {
     /// The chip and the hashboard temperatures.
     pub filtered: FilteredWatch,
+    /// The temperature that the cooling PID follows.
+    pub(crate) pid: PidWatch,
     /// The air around the board.
     pub ambient: TempWatch,
 }
@@ -58,6 +79,7 @@ impl Watches {
     pub const fn new() -> Self {
         Self {
             filtered: Watch::new(),
+            pid: Watch::new(),
             ambient: Watch::new(),
         }
     }
@@ -119,6 +141,26 @@ impl Temperatures {
     /// Publish the chip and hashboard values into `watches`.
     pub fn publish_filtered(&self, now: Instant, watches: &Watches) {
         watches.filtered.sender().send(self.filtered(now));
+    }
+
+    /// Publish the temperature that the cooling PID follows into
+    /// `watches`: the statistic of `target` over the readings of its kind,
+    /// or `None` when that kind has no reading inside its window. The
+    /// selection is made here because thermal holds every filter, so the
+    /// cooling loop wakes on the one value it steers by.
+    pub(crate) fn publish_pid(&self, now: Instant, target: PidTarget, watches: &Watches) {
+        let PidTarget {
+            source, statistic, ..
+        } = target;
+        let temp = self
+            .filtered(now)
+            .and_then(|filtered| filtered.temp_stats(source))
+            .map(|stats| stats.temp(statistic));
+        watches.pid.sender().send(PidTemperature {
+            source,
+            statistic,
+            temp,
+        });
     }
 
     /// Publish the ambient value into `watches`. It is apart from the
