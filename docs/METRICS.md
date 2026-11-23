@@ -215,46 +215,41 @@ OTA waits for the miner's `Stopped` state, independent of this metric.
 Code: `ubos/ubos-thermal/src/metrics.rs`,
 `ubos/ubos-thermal/src/array.rs`, `ubos/ubos-thermal/src/chain.rs`.
 
-The series in this section carry a temperature. One more is the summary
-of the chip temperatures, under "Per-hashboard PVT series" below, and
-one more is the temperature the cooling PID follows, under "Cooling
-and fans".
+The series in this section carry a temperature. One more is the
+temperature the cooling PID follows, under "Cooling and fans".
 
-- `ambient_temperature_celsius` is the ambient temperature around
-  the board. `ubos_thermal::run_thermal` reads the ambient sensor on
-  every tick, on a board that measures its air, including one that
-  measured no chip temperature and one that published no reading at
-  all. The gauge is pushed on every tick whose read returns a value.
-  If the channel is full, the push drops that sample. A tick whose
-  sensor answers nothing writes nothing, so the gauge leaves the
-  exposition when its TTL passes. It carries no label, because a board
-  reports one ambient reading or none.
-- The reading series hold every reading that a sensor takes.
-  `ubos_thermal::array::SensorArray` pushes the readings of its sensors
-  on every tick, and `ubos_thermal::ChainTemperature` pushes the reading
-  of each chip together with the per-hashboard PVT series. If the
-  channel is full, a push drops that sample. See "Reading series"
-  below.
-- `mcu_temperature_celsius` is the temperature of the MCU die
-  on the control board. `ubos_thermal::run_thermal` writes it on every
-  tick, from the board's `ubos_thermal::McuTemperatureSensor`, on the
-  boards whose MCU carries an internal thermometer: esp32s3.
+Each kind of reading has a series name of its own, and
+`ubos_thermal::run_thermal` writes every series. If the channel is
+full, a write drops that sample.
 
-These gauges measure different hardware. Under load a control board
-is tens of degrees cooler than a hashboard, and the air is cooler again.
+- `ubos_thermal::array::SensorArray` submits the readings of its
+  sensors on every tick.
+- The driver of a chain submits the reading of a chip at the moment
+  the chip answers, through `ubos_thermal::Handle::submit_chip`. The
+  driver never waits for thermal. If the input channel of thermal is
+  full, that reading is dropped, and the chip submits again on its next
+  turn.
+- The ambient sensor of the board gives the temperature of the air
+  around the board, `ambient_temperature_celsius`. `run_thermal` reads
+  it on every tick, also on a tick that measured no chip temperature.
+- The board's `ubos_thermal::McuTemperatureSensor` gives the
+  temperature of the MCU die on the control board,
+  `mcu_temperature_celsius`. `run_thermal` reads it on every tick, on
+  the boards whose MCU has an internal thermometer: esp32s3.
+
+The sources measure different hardware. Under load a control board is
+tens of degrees cooler than a hashboard, and the air is cooler again.
 
 What the ambient reading is and is not for is stated once, on
 `ubos_thermal::AmbientSensor`. If the hashboard rail is down,
 `ubos_thermal::run_thermal` still reads it. See "Two ways out of an
 overheat halt" in `docs/MINING.md`.
 
-No gauge marks a held value. A gauge keeps what was last written to it
-until its TTL passes, so a consumer that must tell a held value from a
-fresh one reads `/api/system/temperature` instead, which reports `null`
-for a kind the last sample did not read. The ambient gauge can also run
-ahead of the watch: a tick that publishes no reading still writes the
-gauge, so the two carry different ambient values until the next tick
-that publishes.
+No series marks a held value. A read that returns nothing writes
+nothing, so the series keeps the last written value until its TTL
+passes. A consumer that must tell a held value from a fresh one reads
+`/api/system/temperature` instead. That endpoint reports `null` for a
+kind that has no reading inside the window of the thermal filter.
 
 ### Reading series
 
@@ -265,19 +260,19 @@ what the reading measures, and the labels tell where it comes from:
 |---------|--------|
 | Hashboard | `pcb_temperature_celsius{hashboard="0",id="0x48"}` |
 | Chip | `chip_temperature_celsius{hashboard="0",chip_addr="5"}` |
-| Ambient | `ambient_temperature_celsius{id="0x49"}` |
-| Control board | `control_board_temperature_celsius{id="0x48"}` |
-| PSU | `psu_temperature_celsius{id="0x48"}` |
+| Ambient | `ambient_temperature_celsius` |
+| Control board | `control_board_temperature_celsius` |
+| PSU | `psu_temperature_celsius` |
+| MCU die | `mcu_temperature_celsius` |
 
 The value is the reading that the sensor measured, with no offset.
 Only hashboard and chip readings have a `hashboard` label.
-`id` is the I2C address of the sensor that took the reading. Every
-series except a chip series carries it.
-`chip_addr` is the address of the chip on its hashboard. A chip has the
-same series whether a TMP461 diode read it or the chain did.
-
-No board has a sensor table entry for the air, the control board or the
-PSU yet. The ambient and MCU gauges above still carry those readings.
+`id` is the I2C address of the sensor that took the reading. Only a
+hashboard series carries it.
+`chip_addr` is the index of the chip on its hashboard. The lone chip of
+a hashboard that has one chip is chip 0. A chip has the same series
+whether a TMP461 diode read it or the chain did.
+The other series carry no label, because a board has one of each.
 
 ### Units
 
