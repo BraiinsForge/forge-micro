@@ -29,12 +29,14 @@ use crate::control_board::CONTROL_BOARD_FORGE_AXE;
 /// What each channel of `sensor` measures.
 fn sources(sensor: &SensorDescriptor) -> [Option<TempSource>; 5] {
     match *sensor {
-        SensorDescriptor::Lm75a(part) => [Some(part.local), None, None, None, None],
-        SensorDescriptor::Tmp102(part) => [Some(part.local), None, None, None, None],
-        SensorDescriptor::Tmp461(part) => [Some(part.local), Some(part.remote), None, None, None],
+        SensorDescriptor::Lm75a(part) => [Some(part.local()), None, None, None, None],
+        SensorDescriptor::Tmp102(part) => [Some(part.local()), None, None, None, None],
+        SensorDescriptor::Tmp461(part) => {
+            [Some(part.local()), Some(part.remote()), None, None, None]
+        }
         SensorDescriptor::Tmp464(part) => {
-            let [first, second, third, fourth] = part.remote;
-            [Some(part.local), first, second, third, fourth]
+            let [first, second, third, fourth] = part.remote();
+            [Some(part.local()), first, second, third, fourth]
         }
     }
 }
@@ -47,8 +49,9 @@ fn kinds_match_sensors<Psu: Copy>(machine: &MachineDescriptor<Psu>) -> bool {
         |kind: fn(TempSource) -> bool| machine.sensors().flat_map(sources).flatten().any(kind);
     let defaults = machine.hashboard.defaults;
     let dangerous = defaults.dangerous;
-    dangerous.chip.is_some() == reads(|source| matches!(source, TempSource::Chip(_)))
-        && dangerous.hashboard.is_some() == reads(|source| source == TempSource::Hashboard)
+    dangerous.chip.is_some() == reads(|source| matches!(source, TempSource::Chip { .. }))
+        && dangerous.hashboard.is_some()
+            == reads(|source| matches!(source, TempSource::Hashboard { .. }))
         && dangerous.temp(defaults.cooling_target.source).is_some()
 }
 

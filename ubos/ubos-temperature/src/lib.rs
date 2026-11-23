@@ -36,7 +36,7 @@ pub mod tmp464;
 
 use embedded_hal_async::i2c::{I2c, SevenBitAddress};
 use heapless::Vec;
-use ubos_core::index::ChipAddress;
+use ubos_core::index::{ChipAddress, HashboardIndex};
 use ubos_core::units::Temperature;
 
 use crate::lm75a::Lm75a;
@@ -92,7 +92,7 @@ impl<Bus: I2c> Sensor<Bus> {
 
     /// Read every channel of the sensor through its driver, which tags
     /// each channel's reading, or the fault that kept it from one, with
-    /// what the channel measures.
+    /// the source that the channel measures.
     pub async fn read_temperatures(&mut self) -> Readings<Bus::Error> {
         match self.descriptor {
             SensorDescriptor::Lm75a(driver) => driver.read_temperatures(&mut self.bus).await,
@@ -103,19 +103,46 @@ impl<Bus: I2c> Sensor<Bus> {
     }
 }
 
-/// What a [`Reading`] measures.
+#[cfg(test)]
+#[path = "tests/lib.rs"]
+mod tests;
+
+/// What a [`Reading`] measures, and which one of its kind. A source that
+/// can occur more than once carries its identity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TempSource {
-    /// The hashboard under the sensor.
-    Hashboard,
-    /// The die of one chip.
-    Chip(ChipAddress),
+    /// The hashboard on `chain`, as the I2C sensor at `address`
+    /// reads it.
+    Hashboard {
+        chain: HashboardIndex,
+        address: SevenBitAddress,
+    },
+    /// The die of the chip `chip` on `chain`.
+    Chip {
+        chain: HashboardIndex,
+        chip: ChipAddress,
+    },
     /// The air around the board.
     Ambient,
     /// The control board.
     ControlBoard,
     /// The power supply.
     Psu,
+}
+
+impl TempSource {
+    /// The hashboard on `chain`, as the I2C sensor at `address`
+    /// reads it.
+    #[must_use]
+    pub const fn hashboard(chain: HashboardIndex, address: SevenBitAddress) -> Self {
+        Self::Hashboard { chain, address }
+    }
+
+    /// The die of the chip `chip` on `chain`.
+    #[must_use]
+    pub const fn chip(chain: HashboardIndex, chip: ChipAddress) -> Self {
+        Self::Chip { chain, chip }
+    }
 }
 
 /// One temperature a sensor measured, and what it measured. Every sensor

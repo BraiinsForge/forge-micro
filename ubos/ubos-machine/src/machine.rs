@@ -24,8 +24,8 @@ use ubos_core::units::{Current, Power, Temperature, Voltage};
 use ubos_psu::sic45x::{LoopScale, Sic45xConfig};
 use ubos_psu::tps53647::{Phases, Tps53647Config};
 use ubos_psu::{BfmPsuDescriptor, BmmPsuDescriptor, ForgeAxePsuDescriptor};
+use ubos_temperature::SensorDescriptor;
 use ubos_temperature::tmp102::Tmp102;
-use ubos_temperature::{SensorDescriptor, TempSource};
 
 use crate::control_board::{
     CONTROL_BOARD_BMM_ADAPTER, CONTROL_BOARD_ESP32S3, CONTROL_BOARD_HASHNODE, CONTROL_BOARD_RP2040,
@@ -204,10 +204,7 @@ const FORGE_AXE_TPS: Tps53647Config = Tps53647Config {
 /// The Forge Axe PSU, with the TMP102 that reads it.
 pub(crate) const FORGE_AXE_PSU: ForgeAxePsuDescriptor = ForgeAxePsuDescriptor {
     tps: FORGE_AXE_TPS,
-    temp: &[SensorDescriptor::Tmp102(Tmp102 {
-        address: 0x49,
-        local: TempSource::Psu,
-    })],
+    temp: &[SensorDescriptor::Tmp102(Tmp102::psu(0x49))],
 };
 
 #[cfg(test)]

@@ -25,6 +25,7 @@
 //! driver handles either.
 
 use embedded_hal_async::i2c::{I2c, SevenBitAddress};
+use ubos_core::index::HashboardIndex;
 use ubos_core::units::Temperature;
 
 use crate::{Readings, TempSource, add_source};
@@ -47,12 +48,30 @@ const MAX_TEMPERATURE: Temperature = Temperature::from_millicelsius(125_000);
 #[derive(Clone, Copy)]
 pub struct Lm75a {
     /// The sensor's 7-bit I2C address.
-    pub address: SevenBitAddress,
+    pub(crate) address: SevenBitAddress,
     /// What the sensor's own channel measures.
-    pub local: TempSource,
+    pub(crate) local: TempSource,
 }
 
 impl Lm75a {
+    /// The sensor at `address` that measures the hashboard on `chain`.
+    /// The source of its readings carries the same address, so a board
+    /// states it once.
+    #[must_use]
+    pub const fn hashboard(chain: u8, address: SevenBitAddress) -> Self {
+        let chain = HashboardIndex(chain);
+        Self {
+            address,
+            local: TempSource::Hashboard { chain, address },
+        }
+    }
+
+    /// What the sensor's own channel measures.
+    #[must_use]
+    pub const fn local(&self) -> TempSource {
+        self.local
+    }
+
     /// Read the temperature register.
     /// Returns `Err` on bus error or out-of-range reading.
     pub async fn read_temperature<I, E>(&self, i2c: &mut I) -> Result<Temperature, Error<E>>

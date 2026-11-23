@@ -25,6 +25,7 @@
 //! for a simple read-only use.
 
 use embedded_hal_async::i2c::{I2c, SevenBitAddress};
+use ubos_core::index::HashboardIndex;
 use ubos_core::units::Temperature;
 
 use crate::{Readings, TempSource, add_source};
@@ -55,12 +56,39 @@ const MILLICELSIUS_DENOMINATOR: i32 = 2;
 #[derive(Clone, Copy)]
 pub struct Tmp102 {
     /// The sensor's 7-bit I2C address.
-    pub address: SevenBitAddress,
+    pub(crate) address: SevenBitAddress,
     /// What the sensor's own channel measures.
-    pub local: TempSource,
+    pub(crate) local: TempSource,
 }
 
 impl Tmp102 {
+    /// The sensor at `address` that measures the hashboard on `chain`.
+    /// The source of its readings carries the same address, so a board
+    /// states it once.
+    #[must_use]
+    pub const fn hashboard(chain: u8, address: SevenBitAddress) -> Self {
+        let chain = HashboardIndex(chain);
+        Self {
+            address,
+            local: TempSource::Hashboard { chain, address },
+        }
+    }
+
+    /// The sensor at `address` that measures the power supply.
+    #[must_use]
+    pub const fn psu(address: SevenBitAddress) -> Self {
+        Self {
+            address,
+            local: TempSource::Psu,
+        }
+    }
+
+    /// What the sensor's own channel measures.
+    #[must_use]
+    pub const fn local(&self) -> TempSource {
+        self.local
+    }
+
     /// Read the temperature register.
     ///
     /// Returns `Err` on a bus error or when the decoded value is outside

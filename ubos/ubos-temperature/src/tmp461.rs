@@ -31,6 +31,7 @@
 //! Ideality correction and offset calibration are not applied.
 
 use embedded_hal_async::i2c::{I2c, SevenBitAddress};
+use ubos_core::index::{ChipAddress, HashboardIndex};
 use ubos_core::units::Temperature;
 
 use crate::{Readings, TempSource, add_source};
@@ -97,14 +98,40 @@ const FRACTION_STEP_DENOMINATOR: i32 = 10;
 #[derive(Clone, Copy)]
 pub struct Tmp461 {
     /// The sensor's 7-bit I2C address.
-    pub address: SevenBitAddress,
+    pub(crate) address: SevenBitAddress,
     /// What the local channel, the sensor's own package, measures.
-    pub local: TempSource,
+    pub(crate) local: TempSource,
     /// What the remote diode measures.
-    pub remote: TempSource,
+    pub(crate) remote: TempSource,
 }
 
 impl Tmp461 {
+    /// The sensor at `address` whose package measures the hashboard on
+    /// `chain`, and whose remote diode measures the die of `chip` on that
+    /// chain. The source of its local readings carries the same address,
+    /// so a board states it once.
+    #[must_use]
+    pub const fn hashboard(chain: u8, address: SevenBitAddress, chip: ChipAddress) -> Self {
+        let chain = HashboardIndex(chain);
+        Self {
+            address,
+            local: TempSource::Hashboard { chain, address },
+            remote: TempSource::Chip { chain, chip },
+        }
+    }
+
+    /// What the local channel measures.
+    #[must_use]
+    pub const fn local(&self) -> TempSource {
+        self.local
+    }
+
+    /// What the remote diode measures.
+    #[must_use]
+    pub const fn remote(&self) -> TempSource {
+        self.remote
+    }
+
     /// Read both channels, each as what its field names, or as the fault
     /// that kept it from a reading.
     pub async fn read_temperatures<I: I2c>(&self, i2c: &mut I) -> Readings<I::Error> {

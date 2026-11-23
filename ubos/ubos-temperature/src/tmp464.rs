@@ -39,6 +39,7 @@
 //! register.
 
 use embedded_hal_async::i2c::{I2c, SevenBitAddress};
+use ubos_core::index::{ChipAddress, HashboardIndex};
 use ubos_core::units::Temperature;
 
 use crate::{Readings, TempSource, add_source};
@@ -122,16 +123,62 @@ impl RemoteChannel {
 #[derive(Clone, Copy)]
 pub struct Tmp464 {
     /// The sensor's 7-bit I2C address.
-    pub address: SevenBitAddress,
+    pub(crate) address: SevenBitAddress,
     /// What the local channel, the sensor's own package, measures.
-    pub local: TempSource,
+    pub(crate) local: TempSource,
     /// What each remote diode measures, in [`RemoteChannel::ALL`] order,
     /// or `None` for a channel the board leaves unwired. An unwired channel
     /// is not read, since its open diode would only report a fault.
-    pub remote: [Option<TempSource>; 4],
+    pub(crate) remote: [Option<TempSource>; 4],
+}
+
+/// The source of the die of `chip` on `chain`, or `None` for an unwired
+/// channel. It maps one element, because a `const fn` cannot map an array.
+const fn chip_source(chain: HashboardIndex, chip: Option<ChipAddress>) -> Option<TempSource> {
+    match chip {
+        Some(chip) => Some(TempSource::Chip { chain, chip }),
+        None => None,
+    }
 }
 
 impl Tmp464 {
+    /// The sensor at `address` whose package measures the hashboard on
+    /// `chain`, and whose remote diodes measure the dies of `chips` on
+    /// that chain, in [`RemoteChannel::ALL`] order. `None` is a channel
+    /// that the board leaves unwired. The source of its local readings
+    /// carries the same address, so a board states it once.
+    #[must_use]
+    pub const fn hashboard(
+        chain: u8,
+        address: SevenBitAddress,
+        chips: [Option<ChipAddress>; 4],
+    ) -> Self {
+        let chain = HashboardIndex(chain);
+        let [first, second, third, fourth] = chips;
+        Self {
+            address,
+            local: TempSource::Hashboard { chain, address },
+            remote: [
+                chip_source(chain, first),
+                chip_source(chain, second),
+                chip_source(chain, third),
+                chip_source(chain, fourth),
+            ],
+        }
+    }
+
+    /// What the local channel measures.
+    #[must_use]
+    pub const fn local(&self) -> TempSource {
+        self.local
+    }
+
+    /// What each remote diode measures, in [`RemoteChannel::ALL`] order.
+    #[must_use]
+    pub const fn remote(&self) -> [Option<TempSource>; 4] {
+        self.remote
+    }
+
     /// Read the local and every wired remote channel, each as what its
     /// field names, or as the fault that kept it from a reading.
     pub async fn read_temperatures<I: I2c>(&self, i2c: &mut I) -> Readings<I::Error> {

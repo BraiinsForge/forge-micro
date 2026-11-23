@@ -38,11 +38,11 @@ use ubos_config::{
 };
 use ubos_core::index::ChipAddress;
 use ubos_core::units::{Efficiency, FanPwm, Frequency, Power, Temperature, Voltage};
+use ubos_temperature::SensorDescriptor;
 use ubos_temperature::lm75a::Lm75a;
 use ubos_temperature::tmp102::Tmp102;
 use ubos_temperature::tmp461::Tmp461;
 use ubos_temperature::tmp464::Tmp464;
-use ubos_temperature::{SensorDescriptor, TempSource};
 
 use crate::ChipDescriptor;
 // The built-in hashboard statics below are populated with the built-in
@@ -206,22 +206,10 @@ pub const BMM101_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     eeprom_i2c_address: Some(0x50),
     // The four LM75A board sensors, IC12D..IC12A at `0x49..=0x4c`.
     temp: &[
-        SensorDescriptor::Lm75a(Lm75a {
-            address: 0x49,
-            local: TempSource::Hashboard,
-        }),
-        SensorDescriptor::Lm75a(Lm75a {
-            address: 0x4a,
-            local: TempSource::Hashboard,
-        }),
-        SensorDescriptor::Lm75a(Lm75a {
-            address: 0x4b,
-            local: TempSource::Hashboard,
-        }),
-        SensorDescriptor::Lm75a(Lm75a {
-            address: 0x4c,
-            local: TempSource::Hashboard,
-        }),
+        SensorDescriptor::Lm75a(Lm75a::hashboard(0, 0x49)),
+        SensorDescriptor::Lm75a(Lm75a::hashboard(0, 0x4a)),
+        SensorDescriptor::Lm75a(Lm75a::hashboard(0, 0x4b)),
+        SensorDescriptor::Lm75a(Lm75a::hashboard(0, 0x4c)),
     ],
 };
 
@@ -265,19 +253,9 @@ pub const BFMX4_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     // threshold of their own kind, and the hashboard readings drive the
     // cooling PID.
     temp: &[
-        SensorDescriptor::Tmp461(Tmp461 {
-            address: 0x4E,
-            local: TempSource::Hashboard,
-            remote: TempSource::Chip(ChipAddress::One(0)),
-        }),
-        SensorDescriptor::Tmp102(Tmp102 {
-            address: 0x48,
-            local: TempSource::Hashboard,
-        }),
-        SensorDescriptor::Tmp102(Tmp102 {
-            address: 0x49,
-            local: TempSource::Hashboard,
-        }),
+        SensorDescriptor::Tmp461(Tmp461::hashboard(0, 0x4E, ChipAddress::One(0))),
+        SensorDescriptor::Tmp102(Tmp102::hashboard(0, 0x48)),
+        SensorDescriptor::Tmp102(Tmp102::hashboard(0, 0x49)),
     ],
 };
 
@@ -315,19 +293,16 @@ pub const FORGE_AXE_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     model: "Forge Axe",
     eeprom_i2c_address: None,
     temp: &[
-        SensorDescriptor::Tmp102(Tmp102 {
-            address: 0x48,
-            local: TempSource::Hashboard,
-        }),
-        SensorDescriptor::Tmp464(Tmp464 {
-            address: 0x4A,
-            local: TempSource::Hashboard,
-            remote: [
-                Some(TempSource::Chip(ChipAddress::One(0))),
-                Some(TempSource::Chip(ChipAddress::One(1))),
-                Some(TempSource::Chip(ChipAddress::One(2))),
-                Some(TempSource::Chip(ChipAddress::One(3))),
+        SensorDescriptor::Tmp102(Tmp102::hashboard(0, 0x48)),
+        SensorDescriptor::Tmp464(Tmp464::hashboard(
+            0,
+            0x4A,
+            [
+                Some(ChipAddress::One(0)),
+                Some(ChipAddress::One(1)),
+                Some(ChipAddress::One(2)),
+                Some(ChipAddress::One(3)),
             ],
-        }),
+        )),
     ],
 };

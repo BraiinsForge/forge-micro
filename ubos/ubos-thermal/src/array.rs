@@ -28,19 +28,11 @@
 
 use embassy_time::{Duration, with_timeout};
 use embedded_hal_async::i2c::{I2c, SevenBitAddress};
-use ubos_core::index::HashboardIndex;
 use ubos_logging::{Debug2Format, error};
 use ubos_temperature::{ReadingError, Sensor, SensorDescriptor, TempSource};
 
 use crate::metrics::publish_sensor_reading;
 use crate::{Accumulator, Reading, TempSample, TemperatureSensor};
-
-/// The chain of every board that carries an I2C sensor table: one
-/// hashboard, on chain 0.
-///
-/// TODO: Take the chain from the board once a machine carries a sensor
-/// table per hashboard.
-const CHAIN: HashboardIndex = HashboardIndex(0);
 
 /// The longest that the read of one sensor may take. A sensor that does not
 /// answer in this time is passed over, so it cannot stop the reads of the
@@ -96,14 +88,14 @@ where
                 let Ok(reading) = result.inspect_err(|error| log_fault(address, error)) else {
                     continue;
                 };
-                publish_sensor_reading(CHAIN, address, reading);
+                publish_sensor_reading(reading);
                 match (reading.source, reading.value) {
-                    (TempSource::Chip(_), temp) => {
+                    (TempSource::Chip { .. }, temp) => {
                         chip = chip
                             .map(|acc| acc.include(temp))
                             .or_else(|| Some(temp.into()));
                     }
-                    (TempSource::Hashboard, temp) => {
+                    (TempSource::Hashboard { .. }, temp) => {
                         hashboard = hashboard
                             .map(|acc| acc.include(temp))
                             .or_else(|| Some(temp.into()));

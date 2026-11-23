@@ -32,7 +32,7 @@ use ubos_core::index::{ChipAddress, HashboardIndex};
 use ubos_core::units::Temperature;
 use ubos_metrics::catalog::{AMBIENT_TEMPERATURE, HASHBOARD_LABEL, ID_LABEL};
 use ubos_metrics::consts::Metrics;
-use ubos_metrics::{Metric, metric};
+use ubos_metrics::metric;
 use ubos_temperature::{Reading, TempSource};
 
 /// The default TTL of a metric is a multiple of the slowest push
@@ -43,25 +43,18 @@ const _: () = assert!(
     "the thermal sample interval bound exceeds Metrics::SLOWEST_PUSH_INTERVAL"
 );
 
-/// Push one reading that the I2C sensor at `address` on `chain` took.
-pub(crate) fn publish_sensor_reading(
-    chain: HashboardIndex,
-    address: SevenBitAddress,
-    reading: Reading,
-) {
+/// Push one reading under the name and the labels that its source names.
+pub(crate) fn publish_sensor_reading(reading: Reading) {
     match reading.source {
-        TempSource::Hashboard => publish_hashboard_reading(chain, address, reading.value),
-        TempSource::Chip(chip) => publish_chip_reading(chain, chip, reading.value),
-        TempSource::Ambient => {
-            publish_board_reading(metric!(AMBIENT_TEMPERATURE, reading.value), address);
+        TempSource::Hashboard { chain, address } => {
+            publish_hashboard_reading(chain, address, reading.value);
         }
-        TempSource::ControlBoard => publish_board_reading(
-            metric!("control_board_temperature_celsius", reading.value),
-            address,
-        ),
-        TempSource::Psu => {
-            publish_board_reading(metric!("psu_temperature_celsius", reading.value), address);
+        TempSource::Chip { chain, chip } => publish_chip_reading(chain, chip, reading.value),
+        TempSource::Ambient => metric!(AMBIENT_TEMPERATURE, reading.value).try_push(),
+        TempSource::ControlBoard => {
+            metric!("control_board_temperature_celsius", reading.value).try_push();
         }
+        TempSource::Psu => metric!("psu_temperature_celsius", reading.value).try_push(),
     }
 }
 
@@ -70,14 +63,6 @@ pub(crate) fn publish_sensor_reading(
 fn publish_hashboard_reading(chain: HashboardIndex, address: SevenBitAddress, value: Temperature) {
     metric!("pcb_temperature_celsius", value)
         .label(HASHBOARD_LABEL, chain)
-        .label(ID_LABEL, format_args!("{address:#04x}"))
-        .try_push();
-}
-
-/// Push `reading`, a reading of something on no hashboard, under the I2C
-/// address of the sensor that took it.
-fn publish_board_reading(reading: Metric, address: SevenBitAddress) {
-    reading
         .label(ID_LABEL, format_args!("{address:#04x}"))
         .try_push();
 }

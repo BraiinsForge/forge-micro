@@ -50,9 +50,8 @@ pub const TYPE_LABEL: &str = "type";
 /// `min`, `mean` and `max`, or `oldest` and `newest` for a set of ages.
 pub const STAT_LABEL: &str = "stat";
 
-/// The temperature of the air around the board. A board with one
-/// ambient sensor pushes it with no label, and a board that reads the
-/// air through its sensor table adds [`ID_LABEL`].
+/// The temperature of the air around the board. It carries no label,
+/// because a board reports one ambient reading.
 pub const AMBIENT_TEMPERATURE: Name<Temperature> = Name::new("ambient_temperature_celsius");
 
 /// The spread of the chip temperatures of one hashboard, one series for
