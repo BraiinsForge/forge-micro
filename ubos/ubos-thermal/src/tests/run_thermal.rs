@@ -45,8 +45,8 @@ use ubos_core::units::Temperature;
 use ubos_manager::{Handle as ManagerHandle, Message, PauseReason, PauseSubscription, run_manager};
 
 use super::{
-    NoAmbient, NoMcu, Reading, SENSOR_FAULT_TICKS, TempSample, TempStats, TemperatureSensor, clock,
-    run_thermal,
+    AmbientSensor, NoAmbient, NoMcu, Reading, SENSOR_FAULT_TICKS, TempSample, TempStats,
+    TemperatureSensor, clock, run_thermal,
 };
 
 /// A board sensor whose answers are scripted in advance.
@@ -563,5 +563,44 @@ rusty_fork_test! {
         // The default target follows the hashboard, which read nothing.
         assert_eq!(watches.pid.try_get().map(|pid| pid.temp), Some(None));
         assert_eq!(watches.ambient.try_get(), Some(None));
+    }
+}
+
+/// An ambient sensor that reads 25 °C on every tick.
+struct WarmAir;
+
+impl AmbientSensor for WarmAir {
+    async fn ambient(&mut self) -> Option<Temperature> {
+        Some(Temperature::from_celsius(25))
+    }
+}
+
+rusty_fork_test! {
+    #[test]
+    fn the_ambient_reading_reaches_its_watch_on_its_own_tick() {
+        let _clock = clock();
+        let driver = MockDriver::get();
+        driver.reset();
+        let (mut manager_runner, manager) = ManagerHandle::take();
+        let (_mining_runner, mining) = ubos_mining::Handle::take();
+        let (mut thermal_runner, thermal_handle) = crate::Handle::take();
+        let (mut config_runner, config) = ubos_config::Handle::take();
+        let store = StoreDir::new();
+        let mut config_task = pin!(run_config(&store, &mut config_runner));
+        settle(&mut config_task);
+        let mut manager_task = pin!(run_manager(&mut manager_runner, mining));
+        let mut thermal = pin!(run_thermal(
+            ChipSensor,
+            WarmAir,
+            NoMcu,
+            &mut thermal_runner,
+            manager,
+            config
+        ));
+        prime(&mut thermal);
+        prime(&mut manager_task);
+        assert_eq!(thermal_handle.ambient(), None);
+        tick(driver, &mut thermal, &mut manager_task);
+        assert_eq!(thermal_handle.ambient(), Some(Temperature::from_celsius(25)));
     }
 }
