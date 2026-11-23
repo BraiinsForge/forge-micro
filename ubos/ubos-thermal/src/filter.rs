@@ -78,7 +78,7 @@ impl Pane {
 /// history. A kind that is silent for the length of the window
 /// yields `None` and needs no timer. The owner of the filter chooses which
 /// readings it takes.
-pub struct TempFilter {
+pub(crate) struct TempFilter {
     width: Duration,
     panes: [Option<Pane>; PANES],
 }
@@ -87,8 +87,7 @@ impl TempFilter {
     /// A filter for readings that arrive once in each `interval`. The
     /// shortest window is `PANES - 1` pane widths, and it must hold the
     /// last reading of every sensor of the kind.
-    #[must_use]
-    pub const fn for_interval(interval: Duration) -> Self {
+    pub(crate) const fn for_interval(interval: Duration) -> Self {
         Self {
             width: Duration::from_ticks(interval.as_ticks() / PANES_PER_INTERVAL as u64),
             panes: [None; PANES],
@@ -103,7 +102,7 @@ impl TempFilter {
     }
 
     /// Fold `value` into the pane of `now`.
-    pub fn update(&mut self, value: Temperature, now: Instant) {
+    pub(crate) fn update(&mut self, value: Temperature, now: Instant) {
         let stats = TempStats {
             max: value,
             mean: value,
@@ -129,8 +128,7 @@ impl TempFilter {
 
     /// The maximum and the mean of the panes of the last `PANES` widths,
     /// or `None` if no temperature fell inside them.
-    #[must_use]
-    pub fn value(&self, now: Instant) -> Option<TempStats> {
+    pub(crate) fn value(&self, now: Instant) -> Option<TempStats> {
         let epoch = self.epoch(now);
         let mut live = self
             .panes

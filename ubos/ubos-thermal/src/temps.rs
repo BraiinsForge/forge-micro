@@ -39,7 +39,7 @@ mod tests;
 
 /// A published temperature. `None` means that no reading of the source
 /// is inside the window of its filter.
-pub type TempWatch = Watch<CriticalSectionRawMutex, Option<Temperature>, WATCH_CAPACITY>;
+pub(crate) type TempWatch = Watch<CriticalSectionRawMutex, Option<Temperature>, WATCH_CAPACITY>;
 
 /// The temperature that the cooling PID follows, with the selection that
 /// picked it. The selection travels with the value because the target can
@@ -62,21 +62,20 @@ pub(crate) type PidWatch = Watch<CriticalSectionRawMutex, PidTemperature, WATCH_
 /// The published chip and hashboard temperatures. They travel together
 /// so that a reader sees both kinds of one tick. `None` means that neither
 /// kind has a reading inside the window of its filter.
-pub type FilteredWatch = Watch<CriticalSectionRawMutex, Option<TempSample>, WATCH_CAPACITY>;
+pub(crate) type FilteredWatch = Watch<CriticalSectionRawMutex, Option<TempSample>, WATCH_CAPACITY>;
 
 /// One watch for each published value.
-pub struct Watches {
+pub(crate) struct Watches {
     /// The chip and the hashboard temperatures.
-    pub filtered: FilteredWatch,
+    pub(crate) filtered: FilteredWatch,
     /// The temperature that the cooling PID follows.
     pub(crate) pid: PidWatch,
     /// The air around the board.
-    pub ambient: TempWatch,
+    pub(crate) ambient: TempWatch,
 }
 
 impl Watches {
-    #[must_use]
-    pub const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
             filtered: Watch::new(),
             pid: Watch::new(),
@@ -85,16 +84,10 @@ impl Watches {
     }
 }
 
-impl Default for Watches {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// The filters of every published temperature. A reading of the control
 /// board or of the power supply has no consumer but its metric, so it has
 /// no filter.
-pub struct Temperatures {
+pub(crate) struct Temperatures {
     hashboard: TempFilter,
     chip: TempFilter,
     ambient: TempFilter,
@@ -102,8 +95,7 @@ pub struct Temperatures {
 
 impl Temperatures {
     /// Filters for readings that arrive once in each `interval`.
-    #[must_use]
-    pub const fn for_interval(interval: Duration) -> Self {
+    pub(crate) const fn for_interval(interval: Duration) -> Self {
         Self {
             hashboard: TempFilter::for_interval(interval),
             chip: TempFilter::for_interval(interval),
@@ -113,7 +105,7 @@ impl Temperatures {
 
     /// Fold `reading` into the filter of its kind, whichever chain or
     /// sensor it names.
-    pub fn update(&mut self, reading: Reading, now: Instant) {
+    pub(crate) fn update(&mut self, reading: Reading, now: Instant) {
         let filter = match reading.source {
             TempSource::Hashboard { .. } => &mut self.hashboard,
             TempSource::Chip { .. } => &mut self.chip,
@@ -139,7 +131,7 @@ impl Temperatures {
     }
 
     /// Publish the chip and hashboard values into `watches`.
-    pub fn publish_filtered(&self, now: Instant, watches: &Watches) {
+    pub(crate) fn publish_filtered(&self, now: Instant, watches: &Watches) {
         watches.filtered.sender().send(self.filtered(now));
     }
 
@@ -166,7 +158,7 @@ impl Temperatures {
     /// Publish the ambient value into `watches`. It is apart from the
     /// chip and hashboard values because the loop reads the ambient
     /// sensor after they have gone out.
-    pub fn publish_ambient(&self, now: Instant, watches: &Watches) {
+    pub(crate) fn publish_ambient(&self, now: Instant, watches: &Watches) {
         let ambient = self.ambient.value(now).map(|stats| stats.max);
         watches.ambient.sender().send(ambient);
     }

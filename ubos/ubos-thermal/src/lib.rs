@@ -67,10 +67,8 @@ mod temps;
 mod threshold;
 
 pub use array::SensorArray;
-pub use filter::TempFilter;
 pub use stats::{Accumulator, TempStats};
 pub use temps::PidTemperature;
-pub use temps::{FilteredWatch, TempWatch, Temperatures, Watches};
 
 #[cfg(test)]
 #[path = "tests/threshold.rs"]
@@ -125,6 +123,7 @@ fn measured(reading: Reading) -> TempSample {
 }
 
 use crate::metrics::publish_reading;
+use crate::temps::{Temperatures, Watches};
 use crate::threshold::{Action, evaluate};
 use core::convert::Infallible;
 
