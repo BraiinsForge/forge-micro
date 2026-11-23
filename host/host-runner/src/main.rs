@@ -645,7 +645,7 @@ fn main() {
         }
 
         match fan::FanHwmonController::open() {
-            Some(controller) => match temperature::HashboardTemperature::open() {
+            Some(controller) => match temperature::HashboardTemperature::open(thermal_handle) {
                 Some(sensor) => {
                     spawner.spawn(
                         thermal_task(sensor, thermal_runner, manager_handle, config_handle)

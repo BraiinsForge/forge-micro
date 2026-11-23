@@ -43,7 +43,10 @@ const _: () = assert!(
     "the thermal sample interval bound exceeds Metrics::SLOWEST_PUSH_INTERVAL"
 );
 
-/// Push one reading under the name and the labels that its source names.
+/// Push one reading under the name and the labels that its source names,
+/// or drop it when the metrics channel is full. The loop that calls this
+/// must not wait on the metrics, and the next reading replaces a dropped
+/// one.
 pub(crate) fn publish_sensor_reading(reading: Reading) {
     match reading.source {
         TempSource::Hashboard { chain, address } => {
@@ -72,7 +75,7 @@ fn publish_hashboard_reading(chain: HashboardIndex, address: SevenBitAddress, va
 /// TODO: A board that read one chip both through a sensor diode and over
 /// its chain would write this series from two places, each overwriting the
 /// other. No board does today; one that does needs the series told apart.
-pub(crate) fn publish_chip_reading(chain: HashboardIndex, chip: ChipAddress, value: Temperature) {
+fn publish_chip_reading(chain: HashboardIndex, chip: ChipAddress, value: Temperature) {
     metric!("chip_temperature_celsius", value)
         .label(HASHBOARD_LABEL, chain)
         .label("chip_addr", chip)

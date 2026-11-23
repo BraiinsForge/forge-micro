@@ -402,9 +402,10 @@ async fn boot(spawner: Spawner) {
     )));
 
     // Temperature and fan monitor via shared I2C bus.
-    let hashboard_temp = ubos_thermal::SensorArray::new(config::MACHINE.sensors(), || {
-        embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus)
-    });
+    let hashboard_temp =
+        ubos_thermal::SensorArray::new(config::MACHINE.sensors(), handles.thermal, || {
+            embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus)
+        });
     let board_fan = fan::BoardFan::new(
         hw.fan_pwm_slice,
         hw.fan_pwm_pin,

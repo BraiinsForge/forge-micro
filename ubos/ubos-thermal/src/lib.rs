@@ -114,8 +114,13 @@ fn measured(reading: Reading) -> TempSample {
     }
 }
 
+use crate::metrics::publish_sensor_reading;
 use crate::threshold::{Action, evaluate};
+use core::convert::Infallible;
+
+use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Channel;
 use embassy_sync::watch::{Receiver, Sender, Watch};
 use embassy_time::{Duration, Instant, Ticker};
 use ubos_config::Handle as ConfigHandle;
@@ -125,6 +130,7 @@ use ubos_logging::{error, info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage, PauseReason, PauseReasons};
 use ubos_metrics::catalog::AMBIENT_TEMPERATURE;
 use ubos_metrics::metric;
+use ubos_temperature::Reading as TempReading;
 
 ubos_events::events! {
     dangerous_temperature(temp: Temperature)  error = "Critical temperature {} °C, mining halted",
@@ -322,6 +328,15 @@ pub type ThermalSubscription = Receiver<'static, CSMutex, ThermalReading, WATCH_
 /// Records that the firmware took the thermal handle.
 static TAKEN: ubos_core::take_once::TakeOnce = ubos_core::take_once::TakeOnce::new("thermal");
 
+/// Depth of the input channel. A source awaits when it is full, and
+/// [`run_thermal`] drains it while the source runs, so the depth only
+/// bounds how far a source runs ahead of the loop.
+const INPUT_DEPTH: usize = 16;
+
+/// The readings that sources hand to thermal, through
+/// [`Handle::submit`]. [`run_thermal`] is the only reader.
+static INPUT: Channel<CSMutex, TempReading, INPUT_DEPTH> = Channel::new();
+
 /// Consumer-side handle for the thermal subsystem.
 ///
 /// The handle holds no data: its methods are the only way to the private
@@ -359,6 +374,11 @@ impl Handle {
     #[must_use]
     pub fn current(&self) -> Option<ThermalReading> {
         STATE_WATCH.try_get()
+    }
+
+    /// Hand one reading to thermal. Waits while the input channel is full.
+    pub async fn submit(&self, reading: TempReading) {
+        INPUT.send(reading).await;
     }
 
     /// Per-task subscription. Call once per consumer task before
@@ -568,6 +588,15 @@ impl Thermal {
     }
 }
 
+/// Write the metric of each reading that a source submits, and never
+/// return. A source awaits on a full channel, so this runs beside the
+/// source and not after it.
+async fn drain_input() -> Infallible {
+    loop {
+        publish_sensor_reading(INPUT.receive().await);
+    }
+}
+
 /// Read the ambient temperature and publish its gauge. It gates
 /// nothing, so it is read after every decision a tick makes and never
 /// before one: a sensor that takes its time answering must not hold up
@@ -648,7 +677,15 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatu
         }
         prev_tick = now;
 
-        let reading = sensor.sample().await;
+        // The sensor submits readings while it samples, so they are
+        // drained in step with it, and what it left behind afterwards.
+        let reading = match select(sensor.sample(), drain_input()).await {
+            Either::First(reading) => reading,
+            Either::Second(never) => match never {},
+        };
+        while let Ok(submitted) = INPUT.try_receive() {
+            publish_sensor_reading(submitted);
+        }
         let step = thermal.judge(reading, &config, manager_handle.pause_reasons());
         for note in [step.unreadable, step.dangerous].into_iter().flatten() {
             note.report(manager_handle).await;

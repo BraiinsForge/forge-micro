@@ -49,8 +49,7 @@
 //! cost is that one chip falling silent while its neighbours answer
 //! leaves its last reading standing.
 
-use crate::metrics::publish_chip_reading;
-use crate::{Accumulator, Reading, TempSample, TemperatureSensor};
+use crate::{Accumulator, Handle, Reading, TempSample, TemperatureSensor};
 use embassy_futures::{poll_once, yield_now};
 use embassy_time::{Duration, Instant, Ticker};
 use ubos_asic::ChainPvt;
@@ -60,6 +59,7 @@ use ubos_logging::{debug, warn};
 use ubos_metrics::catalog::{CHIP_TEMPERATURE_SUMMARY, HASHBOARD_LABEL, STAT_LABEL};
 use ubos_metrics::chain::ChainStatsHandle;
 use ubos_metrics::metric;
+use ubos_temperature::{Reading as TempReading, TempSource};
 
 #[cfg(test)]
 #[path = "tests/chain.rs"]
@@ -98,6 +98,9 @@ pub struct ChainTemperature<const CHIPS: usize, const CHAINS: usize> {
     /// `CHAINS`, so [`Self::new`] asserts it holds enough slots to index
     /// by chain.
     stats: ChainStatsHandle,
+    /// Where the die temperature of each chip is submitted, so thermal
+    /// filters it and writes its series.
+    thermal: Handle,
     /// Where silence is measured from until something answers, so a
     /// chain that takes its time enumerating does not arrive already
     /// expired.
@@ -126,7 +129,11 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
     /// accounting table must be at least as long as the board's chain
     /// count for every chain to have a slot.
     #[must_use]
-    pub fn new(pvt: &'static [ChainPvt<CHIPS>; CHAINS], stats: ChainStatsHandle) -> Self {
+    pub fn new(
+        pvt: &'static [ChainPvt<CHIPS>; CHAINS],
+        stats: ChainStatsHandle,
+        thermal: Handle,
+    ) -> Self {
         assert!(
             stats.slots() >= CHAINS,
             "BUG: fewer ChainStats slots than the board's chains"
@@ -134,6 +141,7 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
         Self {
             pvt,
             stats,
+            thermal,
             started: Instant::now(),
             report_ticker: Ticker::every(REPORT_INTERVAL),
             reported_answer: [None; CHAINS],
@@ -235,7 +243,8 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
             let Some(value) = self.pvt[slot].temperature(chip) else {
                 continue;
             };
-            publish_chip_reading(chain, chip, value);
+            let source = TempSource::chip(chain, chip);
+            self.thermal.submit(TempReading { source, value }).await;
             yield_now().await;
         }
         if let Some(temperature) = self.pvt[slot].temperature_summary() {

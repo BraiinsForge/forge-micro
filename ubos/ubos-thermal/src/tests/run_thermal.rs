@@ -405,3 +405,57 @@ rusty_fork_test! {
         );
     }
 }
+
+/// A sensor that submits more readings than the input channel holds
+/// while it samples, and sets `done` once it has submitted them all.
+struct SubmittingSensor {
+    done: &'static portable_atomic::AtomicBool,
+}
+
+impl TemperatureSensor for SubmittingSensor {
+    async fn sample(&mut self) -> Reading {
+        for _ in 0..2 * super::INPUT_DEPTH {
+            let source = ubos_temperature::TempSource::Ambient;
+            let value = Temperature::from_millicelsius(25_000);
+            crate::Handle(())
+                .submit(ubos_temperature::Reading { source, value })
+                .await;
+        }
+        self.done.store(true, portable_atomic::Ordering::SeqCst);
+        Reading::Idle
+    }
+}
+
+rusty_fork_test! {
+    #[test]
+    fn a_source_that_submits_more_than_the_channel_holds_is_drained() {
+        static DONE: portable_atomic::AtomicBool = portable_atomic::AtomicBool::new(false);
+        let _clock = clock();
+        let driver = MockDriver::get();
+        driver.reset();
+        let (mut manager_runner, manager) = ManagerHandle::take();
+        let (_mining_runner, mining) = ubos_mining::Handle::take();
+        let (mut thermal_runner, _thermal_handle) = crate::Handle::take();
+        let (mut config_runner, config) = ubos_config::Handle::take();
+        let store = StoreDir::new();
+        let mut config_task = pin!(run_config(&store, &mut config_runner));
+        settle(&mut config_task);
+        let mut manager_task = pin!(run_manager(&mut manager_runner, mining));
+        let mut thermal = pin!(run_thermal(
+            SubmittingSensor { done: &DONE },
+            NoAmbient,
+            NoMcu,
+            &mut thermal_runner,
+            manager,
+            config
+        ));
+        prime(&mut thermal);
+        prime(&mut manager_task);
+        tick(driver, &mut thermal, &mut manager_task);
+        assert!(DONE.load(portable_atomic::Ordering::SeqCst));
+        assert!(
+            super::INPUT.try_receive().is_err(),
+            "nothing is left queued"
+        );
+    }
+}

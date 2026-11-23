@@ -30,20 +30,23 @@ use embedded_i2c_unix::I2c as HostI2c;
 use log::{error, info};
 use ubos_asic::BMM101_HASHBOARD;
 use ubos_temperature::Sensor;
-use ubos_thermal::{Accumulator, Reading, TempSample, TemperatureSensor};
+use ubos_thermal::{Accumulator, Handle as ThermalHandle, Reading, TempSample, TemperatureSensor};
 
 use crate::psu::I2C_BUS_ENV;
 
 pub struct HashboardTemperature {
     sensors: Vec<Sensor<HostI2c>>,
+    /// Where each reading is submitted, so thermal filters it and writes
+    /// its series.
+    thermal: ThermalHandle,
 }
 
 impl HashboardTemperature {
     /// Open a handle to the PSU I2C bus for each of the four LM75A
     /// sensors. Bus path comes from `UBOS_I2C_BUS`, defaulting to
     /// `/dev/i2c-0`. Returns `None` if the env var is set but empty
-    /// or the bus cannot be opened.
-    pub fn open() -> Option<Self> {
+    /// or the bus cannot be opened. Each reading goes to `thermal`.
+    pub fn open(thermal: ThermalHandle) -> Option<Self> {
         let env_path = std::env::var(I2C_BUS_ENV);
         let path = env_path.as_deref().unwrap_or("/dev/i2c-0");
         if path.is_empty() {
@@ -65,7 +68,7 @@ impl HashboardTemperature {
             "temperature: opened {path} for {} LM75A sensor(s)",
             BMM101_HASHBOARD.temp.len()
         );
-        Some(Self { sensors })
+        Some(Self { sensors, thermal })
     }
 }
 
@@ -77,6 +80,7 @@ impl TemperatureSensor for HashboardTemperature {
             for result in sensor.read_temperatures().await {
                 match result {
                     Ok(reading) => {
+                        self.thermal.submit(reading).await;
                         hashboard = hashboard
                             .map(|acc| acc.include(reading.value))
                             .or_else(|| Some(reading.value.into()));

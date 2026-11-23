@@ -31,8 +31,7 @@ use embedded_hal_async::i2c::{I2c, SevenBitAddress};
 use ubos_logging::{Debug2Format, error};
 use ubos_temperature::{ReadingError, Sensor, SensorDescriptor, TempSource};
 
-use crate::metrics::publish_sensor_reading;
-use crate::{Accumulator, Reading, TempSample, TemperatureSensor};
+use crate::{Accumulator, Handle, Reading, TempSample, TemperatureSensor};
 
 /// The longest that the read of one sensor may take. A sensor that does not
 /// answer in this time is passed over, so it cannot stop the reads of the
@@ -43,11 +42,14 @@ const READ_TIMEOUT: Duration = Duration::from_millis(250);
 /// to `N` sensors.
 pub struct SensorArray<const N: usize, Bus> {
     sensors: heapless::Vec<Sensor<Bus>, N>,
+    /// Where each reading is submitted, so thermal filters it and writes
+    /// its series.
+    thermal: Handle,
 }
 
 impl<const N: usize, Bus: I2c> SensorArray<N, Bus> {
     /// One [`Sensor`] for each of `sensors`, each read through a device
-    /// of its own from `bus_device`.
+    /// of its own from `bus_device`. Each reading goes to `thermal`.
     ///
     /// # Panics
     ///
@@ -55,6 +57,7 @@ impl<const N: usize, Bus: I2c> SensorArray<N, Bus> {
     #[must_use]
     pub fn new(
         sensors: impl IntoIterator<Item = &'static SensorDescriptor>,
+        thermal: Handle,
         mut bus_device: impl FnMut() -> Bus,
     ) -> Self {
         Self {
@@ -62,6 +65,7 @@ impl<const N: usize, Bus: I2c> SensorArray<N, Bus> {
                 .into_iter()
                 .map(|descriptor| Sensor::new(descriptor, bus_device()))
                 .collect(),
+            thermal,
         }
     }
 }
@@ -88,7 +92,7 @@ where
                 let Ok(reading) = result.inspect_err(|error| log_fault(address, error)) else {
                     continue;
                 };
-                publish_sensor_reading(reading);
+                self.thermal.submit(reading).await;
                 match (reading.source, reading.value) {
                     (TempSource::Chip { .. }, temp) => {
                         chip = chip

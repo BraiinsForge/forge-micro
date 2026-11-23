@@ -504,7 +504,8 @@ async fn boot(spawner: Spawner) {
     )));
 
     // Temperature and fan monitor via shared I2C bus.
-    let hashboard_temp = ubos_thermal::SensorArray::new(machine.sensors(), || I2cDevice::new(bus));
+    let hashboard_temp =
+        ubos_thermal::SensorArray::new(machine.sensors(), handles.thermal, || I2cDevice::new(bus));
     // Both fan connectors hang off the EMC2302-1 on the same bus.
     let (board_fan, board_tach) =
         emc2302_1::new_with_range(emc2302_1::Range::RpmMin500, || I2cDevice::new(bus)).await;
