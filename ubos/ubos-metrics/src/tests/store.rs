@@ -35,7 +35,7 @@ use super::{
     KEY_CAPACITY, LONGEST_KEY_LABELS, LONGEST_KEY_NAME, LONGEST_RENDERED_KEY_BYTES, MetricKey,
     StoredValue, upsert_metric,
 };
-use crate::catalog::{CHIP_TEMPERATURE_SUMMARY, HASHBOARD_LABEL, STAT_LABEL};
+use crate::catalog::HASHBOARD_LABEL;
 use crate::metric;
 use crate::metrics::Metric;
 use crate::name::Name;
@@ -45,31 +45,14 @@ use crate::value::Count;
 /// value.
 const ANY_TEMPERATURE: Temperature = Temperature::from_celsius(60);
 
-/// The summary of the chip temperatures of a hashboard carries two
-/// labels and the longest name in the tree. Its series overran the cap
-/// once and was dropped at runtime, so each is asserted to encode rather
-/// than left to the `warn!`.
-#[test]
-fn the_chip_temperature_summary_key_fits_the_budget() {
-    for stat in ["min", "mean", "max"] {
-        let metric = metric!(CHIP_TEMPERATURE_SUMMARY, ANY_TEMPERATURE)
-            .label(HASHBOARD_LABEL, HashboardIndex(0))
-            .label(STAT_LABEL, stat);
-        assert!(
-            MetricKey::from_metric(&metric).is_some(),
-            "the {stat} series does not encode within KEY_CAPACITY"
-        );
-    }
-}
-
 /// The length the capacity is asserted against must be the length of the
 /// key `from_metric` actually builds, or the compile-time check guards
 /// nothing.
 #[test]
 fn the_longest_key_constants_match_what_from_metric_renders() {
     let metric = metric!(LONGEST_KEY_NAME, ANY_TEMPERATURE)
-        .label(STAT_LABEL, "mean")
-        .label(HASHBOARD_LABEL, HashboardIndex(0));
+        .label(HASHBOARD_LABEL, HashboardIndex(0))
+        .label("chip_addr", u8::MAX);
     let key = MetricKey::from_metric(&metric).expect("the longest key must encode");
     assert_eq!(
         key.0.as_str(),

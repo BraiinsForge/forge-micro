@@ -400,19 +400,16 @@ pool credit.
 Code: `ubos/ubos-thermal/src/chain.rs`.
 
 On a board whose chips are its only thermometer, `ChainTemperature`
-publishes two more gauges every ten seconds, from inside the thermal
-sample. Both are labelled `hashboard="i"`, and only a present chain
-reports:
+publishes one more gauge every ten seconds, from inside the thermal
+sample. It is labelled `hashboard="i"`, and only a present chain reports:
 
 - `chip_voltage_sum_volts` — the sum of the core
   voltages the chain's chips report about themselves. The chips sit in
   series across one rail, so this is the string voltage.
-- `chip_temperature_summary_celsius{stat=...}` — the spread
-  of die temperatures across the chain, as three series: `min`, `mean`
-  and `max`.
 
-The spread is what says whether one die is running away from the rest.
-The reading of each die is under `chip_temperature_celsius`.
+The reading of each die is under `chip_temperature_celsius`. Thermal
+exports no aggregate of them, so a dashboard computes the lowest, the
+mean and the highest die of a hashboard from those series.
 
 ## Hashrate
 

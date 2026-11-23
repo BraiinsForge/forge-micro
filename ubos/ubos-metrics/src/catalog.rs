@@ -54,11 +54,10 @@ pub const STAT_LABEL: &str = "stat";
 /// because a board reports one ambient reading.
 pub const AMBIENT_TEMPERATURE: Name<Temperature> = Name::new("ambient_temperature_celsius");
 
-/// The spread of the chip temperatures of one hashboard, one series for
-/// each statistic under [`STAT_LABEL`]. Each chip reading has a series of
-/// its own, and this one shows whether one chip runs away from the rest.
-pub const CHIP_TEMPERATURE_SUMMARY: Name<Temperature> =
-    Name::new("chip_temperature_summary_celsius");
+/// The temperature of the die of one chip, one series for each chip of
+/// a hashboard. It is the longest key the tree renders, so the key
+/// budget of the store reads the name from here.
+pub const CHIP_TEMPERATURE: Name<Temperature> = Name::new("chip_temperature_celsius");
 
 /// The power of the supply, one series for each side under
 /// [`TYPE_LABEL`]: `input` and `output`.

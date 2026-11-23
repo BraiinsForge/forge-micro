@@ -54,9 +54,9 @@ use embassy_futures::{poll_once, yield_now};
 use embassy_time::{Duration, Instant, Ticker};
 use ubos_asic::ChainPvt;
 use ubos_core::index::{ChipAddress, HashboardIndex};
-use ubos_core::units::{Temperature, Voltage};
+use ubos_core::units::Voltage;
 use ubos_logging::{debug, warn};
-use ubos_metrics::catalog::{CHIP_TEMPERATURE_SUMMARY, HASHBOARD_LABEL, STAT_LABEL};
+use ubos_metrics::catalog::HASHBOARD_LABEL;
 use ubos_metrics::chain::ChainStatsHandle;
 use ubos_metrics::metric;
 use ubos_temperature::{Reading as TempReading, TempSource};
@@ -221,10 +221,9 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
         Some(voltage.total)
     }
 
-    /// One present chain's voltage gauge, die temperatures, their spread
-    /// and log line.
+    /// One present chain's voltage gauge, die temperatures and log lines.
     ///
-    /// It yields after each chip's reading and again after the spread, so
+    /// It yields after each chip's reading and again after the summary, so
     /// the ingest task drains the metrics channel while the report runs.
     /// The series of one chain can outnumber the slots of the channel, and
     /// a report pushed in one burst would lose the same tail every time.
@@ -248,9 +247,6 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
             yield_now().await;
         }
         if let Some(temperature) = self.pvt[slot].temperature_summary() {
-            Self::publish_stat(chain, "min", temperature.lowest);
-            Self::publish_stat(chain, "mean", temperature.mean);
-            Self::publish_stat(chain, "max", temperature.highest);
             debug!(
                 "chain {} pvt: {} chips report {} to {} °C, mean {} °C",
                 chain, temperature.chips, temperature.lowest, temperature.highest, temperature.mean
@@ -270,15 +266,6 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
             "chain {} pvt: string {} V, chips {} to {} V",
             chain, voltage.total, voltage.lowest, voltage.highest
         );
-    }
-
-    /// Push one statistic of the chip temperatures of a hashboard, under
-    /// the `stat` label so the three share a name.
-    fn publish_stat(chain: HashboardIndex, stat: &'static str, temperature: Temperature) {
-        metric!(CHIP_TEMPERATURE_SUMMARY, temperature)
-            .label(HASHBOARD_LABEL, chain)
-            .label(STAT_LABEL, stat)
-            .try_push();
     }
 }
 

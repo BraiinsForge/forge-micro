@@ -65,14 +65,15 @@ pub(crate) struct StoredValue {
 /// and the test beside it is what catches one that does not.
 const KEY_CAPACITY: usize = 80;
 
-/// The name of the longest key the tree renders, the summary of the chip
-/// temperatures of a hashboard.
-const LONGEST_KEY_NAME: Name<Temperature> = catalog::CHIP_TEMPERATURE_SUMMARY;
+/// The name of the longest key the tree renders, the temperature of one
+/// chip of a hashboard.
+const LONGEST_KEY_NAME: Name<Temperature> = catalog::CHIP_TEMPERATURE;
 
 /// The labels of the longest key, in the sorted form that
 /// [`MetricKey::from_metric`] builds. A hashboard index is one digit for
-/// every board below ten hashboards, and `mean` is the longest statistic.
-const LONGEST_KEY_LABELS: &str = "{hashboard=\"0\",stat=\"mean\"}";
+/// every board below ten hashboards, and a chip address has three digits
+/// at most.
+const LONGEST_KEY_LABELS: &str = "{chip_addr=\"255\",hashboard=\"0\"}";
 
 /// Bytes of the longest key the tree renders. The name comes from the
 /// catalog, so a rename moves this length with it.
