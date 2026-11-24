@@ -110,9 +110,23 @@ let
       value = dir;
     }) memberDirs
   );
+
+  # Crate directory -> its package name, the reverse of dirForName.
+  nameForDir = lib.mapAttrs' (name: dir: lib.nameValuePair dir name) dirForName;
 in
 {
   inherit memberDirs dirForName;
+
+  # The workspace packages a package lists itself, in any dependency
+  # table, by name. nix/crate-layers.nix holds the base crates to an
+  # allowed list with it.
+  directDepNames =
+    name:
+    lib.unique (
+      map (dir: nameForDir.${dir}) (
+        builtins.filter (dir: nameForDir ? ${dir}) (directDeps dirForName.${name})
+      )
+    );
 
   # All workspace package names.
   members = builtins.attrNames dirForName;

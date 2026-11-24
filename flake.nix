@@ -150,7 +150,7 @@
         sources = import ./nix/source.nix {
           inherit pkgs craneLib patchedCrates;
         };
-        inherit (sources) src srcFor;
+        inherit (sources) src srcFor crateGraph;
 
         # Workspace package names present in this tree, from crate-graph.
         # The checks and images modules gate every firmware crate on its
@@ -328,6 +328,7 @@
               brands
               esp32s3SlotBytes
               members
+              crateGraph
               ;
           }
           # Vendored micro-sv2 is its own workspace the root crane build does

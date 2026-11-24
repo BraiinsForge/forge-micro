@@ -80,6 +80,9 @@
   # In this repo every board is a member, so the filters are the identity
   # and gate all of them.
   members,
+  # The dependency walk over the manifests, from nix/crate-graph.nix,
+  # for the crate-layers gate.
+  crateGraph,
 }:
 let
   inherit (pkgs) lib;
@@ -1006,6 +1009,10 @@ hostClippyChecks
     fi
     touch $out
   '';
+
+  # The base crates list only the workspace crates their rows allow.
+  # The rows and the reason are in nix/crate-layers.nix.
+  crate-layers = import ./crate-layers.nix { inherit pkgs crateGraph; };
 
   # The paths instruction files name; the rule and the reason are in
   # nix/instruction-paths.nix, which both trees of the pair call.
