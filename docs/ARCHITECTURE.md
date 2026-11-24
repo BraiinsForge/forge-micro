@@ -76,7 +76,8 @@ map and the dependency direction.
    not the same module as the fan PID loop.
 9. **Typed units at module APIs.** `Frequency`, `Voltage`, `Power`,
    `Current`, `Efficiency`, `FanPwm`, `FanRpm`, and `Temperature` are
-   newtypes in `ubos-core`.
+   newtypes in `ubos-core`. `Ratio` is the one exception. It lives in
+   `ubos-metrics`, because only a metric states a ratio.
 10. **Uniform module template.** Every subsystem that runs a task
     follows the same skeleton: private `STATE_WATCH` and
     `COMMAND_CHANNEL` statics, a public `Command` enum with domain

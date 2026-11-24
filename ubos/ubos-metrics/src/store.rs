@@ -74,7 +74,7 @@ const _: () = assert!(
 /// Characters of the widest integer a line carries, the digits of
 /// `u64::MAX`. `i64::MIN` is one digit shorter and takes that place with
 /// its sign.
-const MAX_INTEGER_CHARS: usize = u64::MAX.ilog10() as usize + 1;
+pub(crate) const MAX_INTEGER_CHARS: usize = u64::MAX.ilog10() as usize + 1;
 
 /// Bytes the longest series line takes in a scrape: the key, a space, an
 /// integer value, a space, the millisecond timestamp, and the newline. A

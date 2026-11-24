@@ -46,3 +46,4 @@ pub mod cpu_load;
 pub mod hashrate;
 pub mod metrics;
 mod store;
+pub mod value;
