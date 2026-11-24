@@ -226,4 +226,43 @@ in
       done
       touch $out
     '';
+
+  # A push site builds its metric with the `metric!` macro, which checks
+  # the name in a `const` block, so a bad name stops the build. A direct
+  # call of the metric constructor, or of the name constructor, passes the
+  # compiler with a name that was checked nowhere, or checked only when
+  # the line runs. The compiler cannot tell the two apart, so this gate
+  # reads the sources for the calls. `excludeDirs` names the directories
+  # the scan skips: the crate that owns the constructors in the open tree,
+  # and the open tree itself in the tree that consumes it, where this same
+  # gate already ran.
+  metricConstructor =
+    {
+      root,
+      excludeDirs,
+    }:
+    let
+      calls = [
+        "Metric::new("
+        "Name::new("
+      ];
+    in
+    pkgs.runCommand "metric-constructor" { } ''
+      cd ${root}
+      hits=$(grep -rnF ${
+        lib.concatMapStringsSep " " (call: "-e ${lib.escapeShellArg call}") calls
+      } --include='*.rs' . \
+        ${lib.concatMapStringsSep " " (dir: "--exclude-dir=${lib.escapeShellArg dir}") excludeDirs} \
+        || true)
+      if [ -n "$hits" ]; then
+        echo "These lines call ${lib.concatStringsSep " or " calls} directly:" >&2
+        echo "$hits" | sed 's/^/  /' >&2
+        echo "" >&2
+        echo "Build the metric with the metric! macro, and take a shared" >&2
+        echo "name from the catalog. Both check the name of the series" >&2
+        echo "when the crate is compiled." >&2
+        exit 1
+      fi
+      touch $out
+    '';
 }

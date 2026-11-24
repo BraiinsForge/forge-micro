@@ -937,6 +937,16 @@ hostClippyChecks
     exclude = [ "esp32s3-bootloader" ];
   };
 
+  # Only ubos-metrics may call the metric and the name constructors,
+  # because every other crate builds a metric through the macro that
+  # checks its name.
+  # nix/board-parity.nix holds the gate, and both trees of the pair run
+  # it.
+  metric-constructor = boardParity.metricConstructor {
+    inherit root;
+    excludeDirs = [ "ubos-metrics" ];
+  };
+
   # The hook that holds `nix run .#gate` to its approved invocations. It
   # runs in the session's own shell, so it is loose text rather than a
   # package, and a lost executable bit would retire it without a word.
