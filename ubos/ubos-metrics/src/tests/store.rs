@@ -21,9 +21,8 @@
 //! [`super::KEY_CAPACITY`], which is not checked at compile time for a
 //! metric the constant does not name.
 
-use super::{
-    KEY_CAPACITY, LONGEST_RENDERED_KEY, Label, LabelValue, Labels, Metric, MetricKey, Value,
-};
+use super::{KEY_CAPACITY, LONGEST_RENDERED_KEY, MetricKey};
+use crate::metrics::{Label, LabelValue, Labels, Metric, Value};
 
 /// Build the key for a metric carrying the labels given, in the order
 /// given, so a test states the call `ubos-thermal` makes rather than the
