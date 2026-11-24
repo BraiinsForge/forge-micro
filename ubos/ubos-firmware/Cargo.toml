@@ -32,6 +32,9 @@ defmt = [
     "ubos-psu/defmt",
     "ubos-thermal/defmt",
 ]
+# Keep the metrics store and serve it on the Prometheus port. A board
+# enables this by default unless its RAM cannot hold the store.
+metrics = ["ubos-metrics/metrics"]
 
 [dependencies]
 # defmt is needed even though logging goes through the facade: the facade's

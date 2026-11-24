@@ -8,8 +8,13 @@ version = "0.1.0"
 workspace = true
 
 [features]
-default = ["defmt"]
+default = ["defmt", "metrics"]
 defmt   = ["dep:defmt", "ubos-core/defmt", "ubos-logging/defmt", "ubos-mdns/defmt", "ubos-net/defmt", "ubos-http/defmt", "edge-http/defmt"]
+# The metrics store: the channel, the series map, the render buffer and
+# the scrape service. A firmware without it frees the RAM they hold, and
+# every push then returns at once. Only a firmware asks for it, through
+# `ubos-firmware`, because a library crate only pushes.
+metrics = []
 
 [dependencies]
 edge-http         = { workspace = true, features = ["io"] }

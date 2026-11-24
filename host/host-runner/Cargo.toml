@@ -47,7 +47,7 @@ ubos-http          = { workspace = true, default-features = false }
 ubos-machine       = { workspace = true }
 ubos-manager       = { workspace = true, default-features = false }
 ubos-mdns          = { workspace = true, default-features = false }
-ubos-metrics       = { workspace = true, default-features = false }
+ubos-metrics       = { workspace = true, default-features = false, features = ["metrics"] }
 ubos-mining         = { workspace = true }
 ubos-net           = { workspace = true, default-features = false }
 ubos-psu           = { workspace = true }

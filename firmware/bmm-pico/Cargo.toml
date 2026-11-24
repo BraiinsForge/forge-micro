@@ -8,8 +8,9 @@ version = "0.1.0"
 workspace = true
 
 [features]
-default = ["display"]
+default = ["display", "metrics"]
 display = []
+metrics = ["ubos-firmware/metrics"]
 
 # cortex-m-rt is named only by the `#[embassy_executor::main]` expansion, which
 # this board uses instead of `#[cortex_m_rt::entry]`. That reference vanished

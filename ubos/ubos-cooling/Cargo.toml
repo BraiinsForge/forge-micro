@@ -50,6 +50,8 @@ ubos-asic        = { workspace = true }
 ubos-temperature = { workspace = true }
 # The handle that `run_thermal` reports to in the tests.
 ubos-manager     = { workspace = true, default-features = false }
+# The tests run the ingest task and read the series it stores.
+ubos-metrics     = { workspace = true, default-features = false, features = ["metrics"] }
 # Each test takes its handles in a process of its own.
 rusty-fork       = { workspace = true }
 
