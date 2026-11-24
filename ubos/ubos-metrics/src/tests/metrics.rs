@@ -76,15 +76,15 @@ fn a_constant_renders_with_no_timestamp_once_the_clock_is_set() {
         expiry: None,
     };
     assert_eq!(
-        line("hashboard_chain_voltage_volts{chain=\"0\"}", &stored, 2).as_str(),
-        "hashboard_chain_voltage_volts{chain=\"0\"} 21.600\n"
+        line("psu_voltage_volts{type=\"readback\"}", &stored, 2).as_str(),
+        "psu_voltage_volts{type=\"readback\"} 21.600\n"
     );
 }
 
 const TTL_SECS: u32 = 10;
 const TTL_MS: u64 = TTL_SECS as u64 * 1_000;
 const TAKEN_AT_MS: u64 = 5_000;
-const KEY: &str = "board_ambient_temperature_celsius";
+const KEY: &str = "ambient_temperature_celsius";
 
 /// The exposition of a map with one series, rendered at `now_ms`.
 fn exposition(expiry: Option<Expiry>, ntp_offset: u64, now_ms: u64) -> heapless::String<128> {
@@ -128,7 +128,7 @@ fn an_expired_series_is_hidden_before_the_clock_is_set() {
 fn a_constant_stays_with_no_timestamp() {
     assert_eq!(
         exposition(None, 2, u64::MAX).as_str(),
-        "board_ambient_temperature_celsius 25.500\n"
+        "ambient_temperature_celsius 25.500\n"
     );
 }
 

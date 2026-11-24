@@ -421,18 +421,13 @@ fn build_prometheus_body<const MAX: usize, const BODY: usize>(
         Some((uptime_secs + ntp_offset) * 1000)
     };
 
-    render_scalar(&mut writer, "board_uptime_seconds", uptime_secs, ts_ms);
+    render_scalar(&mut writer, "uptime_seconds", uptime_secs, ts_ms);
 
     let request_count = net.request_count();
-    render_scalar(
-        &mut writer,
-        "board_http_requests_total",
-        request_count,
-        ts_ms,
-    );
+    render_scalar(&mut writer, "http_requests", request_count, ts_ms);
 
     let synced = u8::from(ntp_offset != 0);
-    render_scalar(&mut writer, "board_ntp_synced", synced, ts_ms);
+    render_scalar(&mut writer, "ntp_synced", synced, ts_ms);
 
     if writer.overflowed() {
         warn!(

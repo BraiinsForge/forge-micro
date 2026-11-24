@@ -24,7 +24,7 @@
 use embassy_time::{Duration, Instant, Ticker};
 use portable_atomic::{AtomicU64, Ordering};
 
-use crate::metrics::{Label, LabelValue, Labels, Metric};
+use crate::metric;
 use crate::value::Ratio;
 
 /// Maximum number of cores tracked by [`record_idle`]. Each board
@@ -42,16 +42,10 @@ pub fn record_idle(cpu: usize, ticks: u64) {
     IDLE_TICKS[cpu].fetch_add(ticks, Ordering::Relaxed);
 }
 
-/// Static `cpu` label values, indexed by core ID. Avoids per-window
-/// integer-to-string formatting on the publish path.
-const CPU_LABELS: [&str; MAX_CPUS] = ["0", "1"];
+/// Window length over which the published ratio is averaged.
+const WINDOW: Duration = Duration::from_secs(5);
 
-/// Window length over which the published ratio is averaged, paired
-/// with its `window` label string. Co-located so changing the cadence
-/// forces the dashboard label to follow.
-const WINDOW: (Duration, &str) = (Duration::from_secs(5), "5s");
-
-/// Publish `board_cpu_busy_ratio` once per [`WINDOW`] for each of the
+/// Publish `cpu_busy_ratio` once per [`WINDOW`] for each of the
 /// `N_CPUS` active cores.
 ///
 /// Call this from a firmware `#[embassy_executor::task]`. `N_CPUS`
@@ -59,7 +53,7 @@ const WINDOW: (Duration, &str) = (Duration::from_secs(5), "5s");
 pub async fn run_cpu_load<const N_CPUS: usize>() -> ! {
     const { assert!(N_CPUS <= MAX_CPUS, "N_CPUS exceeds MAX_CPUS") };
 
-    let mut ticker = Ticker::every(WINDOW.0);
+    let mut ticker = Ticker::every(WINDOW);
     let mut prev_idle: [u64; N_CPUS] =
         core::array::from_fn(|index| IDLE_TICKS[index].load(Ordering::Relaxed));
     let mut prev_instant = Instant::now();
@@ -79,17 +73,8 @@ pub async fn run_cpu_load<const N_CPUS: usize>() -> ! {
             let idle = now_idle[cpu_index].wrapping_sub(prev_idle[cpu_index]);
             let busy = Ratio::new(elapsed.saturating_sub(idle), elapsed);
 
-            let mut labels = Labels::new();
-            // Window and cpu labels are fixed and known to fit; pushes cannot fail.
-            let _ = labels.push(Label {
-                name: "window",
-                value: LabelValue::Static(WINDOW.1),
-            });
-            let _ = labels.push(Label {
-                name: "cpu",
-                value: LabelValue::Static(CPU_LABELS[cpu_index]),
-            });
-            Metric::with_labels("board_cpu_busy_ratio", labels, busy)
+            metric!("cpu_busy_ratio", busy)
+                .label("cpu", cpu_index)
                 .push()
                 .await;
 
