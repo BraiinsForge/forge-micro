@@ -308,7 +308,6 @@ impl Power {
 #[serde(transparent)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(inline, description = "A current in mA."))]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Current(u32);
 
 /// The schema of the integer a [`Current`] serializes as, so a record that
@@ -403,10 +402,11 @@ macro_rules! show_in_thousandths {
     };
 }
 
-// Megahertz, volts, watts, and joules per terahash.
+// Megahertz, volts, watts, amps, and joules per terahash.
 show_in_thousandths!(Frequency, |frequency| frequency.khz());
 show_in_thousandths!(Voltage, |voltage| voltage.mv());
 show_in_thousandths!(Power, |power| power.mw());
+show_in_thousandths!(Current, |current| current.ma());
 show_in_thousandths!(Efficiency, |efficiency| efficiency.mj_per_th());
 
 /// Temperature in millicelsius, and the one type that firmware holds and

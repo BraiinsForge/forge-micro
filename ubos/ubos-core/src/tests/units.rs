@@ -182,6 +182,8 @@ fn a_scaled_unit_displays_with_three_decimals() {
     assert_eq!(Voltage::from_mv(1_405).to_string(), "1.405");
     assert_eq!(Power::from_mw(44_000).to_string(), "44.000");
     assert_eq!(Power::from_mw(u32::MAX).to_string(), "4294967.295");
+    assert_eq!(Current::from_ma(25_500).to_string(), "25.500");
+    assert_eq!(Current::from_ma(7).to_string(), "0.007");
     let efficiency =
         Efficiency::from_mj_per_th(core::num::NonZeroU32::new(40_001).expect("nonzero"));
     assert_eq!(efficiency.to_string(), "40.001");
