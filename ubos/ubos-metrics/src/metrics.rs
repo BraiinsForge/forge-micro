@@ -45,7 +45,28 @@ use ubos_http::{
 #[path = "tests/metrics.rs"]
 mod tests;
 
-pub use crate::store::{METRIC_LINE_BYTES, MetricsStatics, run_ingest};
+pub use crate::store::{MetricsStatics, run_ingest};
+
+/// Bytes a series key may take, the name with its labels expanded. The
+/// store asserts it against the longest key any metric renders, and each
+/// byte costs one byte per map slot, so a board pays it `MAX_METRICS`
+/// times over.
+///
+/// The budget is beside the metric because a board sizes its render
+/// buffer from it in every build, and the store is absent from some.
+pub(crate) const KEY_CAPACITY: usize = 80;
+
+/// Characters of the widest number a line carries, the digits of
+/// `u64::MAX`. The text of every [`Value`] fits it, and a test of the
+/// value holds that.
+pub(crate) const MAX_INTEGER_CHARS: usize = u64::MAX.ilog10() as usize + 1;
+
+/// Bytes the longest series line takes in a scrape: the key, a space, the
+/// value, a space, the millisecond timestamp, and the newline. A
+/// board sizes its render buffer as this times its series cap, so the
+/// buffer holds a full map.
+pub const METRIC_LINE_BYTES: usize =
+    KEY_CAPACITY + 1 + MAX_INTEGER_CHARS + 1 + MAX_INTEGER_CHARS + 1;
 
 /// Bytes the text of one label value may take. The longest value a push
 /// site writes is a short word or an index, and each byte costs one byte

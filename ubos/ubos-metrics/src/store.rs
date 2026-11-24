@@ -18,9 +18,9 @@
 // shall be considered distinct from the grant above.
 
 //! The metrics store: the channel that carries a pushed metric, the map
-//! of current series that the ingest task fills from it, and the key and
-//! the line budget of one series. It is one module so that one build
-//! switch can remove the store as a whole.
+//! of current series that the ingest task fills from it, and the key of
+//! one series. It is one module so that one build switch can remove the
+//! store as a whole.
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
@@ -33,7 +33,7 @@ use ubos_core::units::Temperature;
 use crate::catalog;
 use crate::consts::Metrics;
 use crate::freshness::Expiry;
-use crate::metrics::Metric;
+use crate::metrics::{KEY_CAPACITY, Metric};
 use crate::name::Name;
 use crate::value::Value;
 
@@ -46,24 +46,6 @@ pub(crate) struct StoredValue {
     pub(crate) value: Value,
     pub(crate) expiry: Option<Expiry>,
 }
-
-/// Canonical map key: metric name plus labels sorted by name and serialized.
-///
-/// Labels are sorted so that `{a="1",b="2"}` and `{b="2",a="1"}` map to
-/// the same key.
-///
-/// Budget: the longest key any metric renders is
-/// [`LONGEST_RENDERED_KEY_BYTES`], and the capacity is checked against it
-/// below rather than against a length restated here. A prose budget is
-/// what went stale last time: it named a 49-byte key while a longer one
-/// was already being emitted, and the two-label per-chain series that
-/// followed overran the cap and was dropped at runtime for a `warn!`.
-///
-/// Each byte costs one byte per map slot, so a board pays it
-/// `MAX_METRICS` times over and this is raised deliberately rather than
-/// rounded up. A metric longer than the constant below must move both,
-/// and the test beside it is what catches one that does not.
-const KEY_CAPACITY: usize = 80;
 
 /// The name of the longest key the tree renders, the temperature of one
 /// chip of a hashboard.
@@ -85,18 +67,10 @@ const _: () = assert!(
     "KEY_CAPACITY is below the longest key a metric renders"
 );
 
-/// Characters of the widest number a line carries, the digits of
-/// `u64::MAX`. The text of every [`Value`] fits it, and a test of the
-/// value holds that.
-pub(crate) const MAX_INTEGER_CHARS: usize = u64::MAX.ilog10() as usize + 1;
-
-/// Bytes the longest series line takes in a scrape: the key, a space, the
-/// value, a space, the millisecond timestamp, and the newline. A
-/// board sizes its render buffer as this times its series cap, so the
-/// buffer holds a full map.
-pub const METRIC_LINE_BYTES: usize =
-    KEY_CAPACITY + 1 + MAX_INTEGER_CHARS + 1 + MAX_INTEGER_CHARS + 1;
-
+/// Canonical map key: metric name plus labels sorted by name and serialized.
+///
+/// Labels are sorted so that `{a="1",b="2"}` and `{b="2",a="1"}` map to
+/// the same key.
 #[derive(PartialEq, Eq, Hash)]
 pub(crate) struct MetricKey(pub(crate) heapless::String<KEY_CAPACITY>);
 

@@ -27,7 +27,7 @@ use std::string::{String, ToString};
 use ubos_core::units::{Current, FanPwm, FanRpm, Frequency, Power, Temperature, Voltage};
 
 use super::{Ratio, Value};
-use crate::store::MAX_INTEGER_CHARS;
+use crate::metrics::MAX_INTEGER_CHARS;
 
 /// The text of a value built from the unit given.
 fn shown(value: impl Into<Value>) -> String {
