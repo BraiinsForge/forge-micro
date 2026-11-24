@@ -22,14 +22,21 @@
 //! A [`HashboardDescriptor`] carries the chip's capability descriptor and
 //! per-hashboard topology (series voltage domains, chip count, PSU
 //! ceiling) so the tuner can read chip capabilities through a
-//! hashboard-scoped seam. The static instances (such as
+//! hashboard-scoped seam. It also carries the values its model hands to
+//! a new config, so a board and its defaults come from one constant. The
+//! static instances (such as
 //! [`BMM101_HASHBOARD`]) name the concrete hashboards the firmware
 //! supports; the consumer picks the matching [`crate::ChainDriver`]
 //! implementation separately.
 
 use core::num::NonZeroU32;
+use core::ops::RangeInclusive;
 
-use ubos_core::units::{Efficiency, Frequency, Temperature, Voltage};
+use ubos_config::{
+    DefaultTuning, HashboardDefaults, MiningBounds, MiningInfo, PidTarget, Source, Statistic,
+    TemperatureDescriptor, TunerInfo,
+};
+use ubos_core::units::{Efficiency, FanPwm, Frequency, Power, Temperature, Voltage};
 
 use crate::ChipDescriptor;
 // The built-in hashboard statics below are populated with the built-in
@@ -40,45 +47,6 @@ use crate::bm13xx::chip::{BM1362, BM1370};
 #[cfg(test)]
 #[path = "tests/board.rs"]
 mod tests;
-
-/// The kind of reading a board's cooling setpoint is compared with.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CoolingSource {
-    /// A sensor on the hashboard.
-    Hashboard,
-    /// A chip's own die.
-    Chip,
-}
-
-/// How the readings of one kind reduce to the single value the cooling PID
-/// follows.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CoolingStatistic {
-    /// The hottest reading.
-    Max,
-    /// The mean of the readings.
-    Mean,
-}
-
-/// Per-board cooling profile. Grouped onto [`HashboardDescriptor`] so the
-/// cooling defaults travel with the board rather than as loose fields.
-/// A setpoint is compared with the kind of reading it names, so a board
-/// that tracks a hashboard reading sets it below the die temperature it means.
-#[derive(Clone, Copy)]
-pub struct BoardCooling {
-    /// The kind of reading the cooling PID starts on.
-    pub target_source: CoolingSource,
-    /// How the readings of that kind reduce to the value the PID follows.
-    pub target_statistic: CoolingStatistic,
-    /// The setpoint the PID starts on, compared with that value.
-    pub target_temp: Temperature,
-    /// Cooling PID fan-floor (minimum duty).
-    pub min_fan_pwm: u8,
-    /// Half-decay time of the smoother on the temperature the cooling PID
-    /// reads, counted in thermal samples, which are seconds at the default
-    /// one-second sample interval. Zero passes the reading through.
-    pub input_smoother_half_decay_secs: u32,
-}
 
 /// Hashboard-level descriptor. Carries the chip's capability descriptor
 /// so the tuner can read chip capabilities through a hashboard-scoped
@@ -111,28 +79,14 @@ pub struct HashboardDescriptor {
     // from its hashboard's. ubos-psu already has descriptor types for
     // the PSU itself, but this field has not moved into them yet.
     pub max_psu_voltage: Voltage,
-    /// Boot operating point, so a board comes up at its correct rail and
-    /// clock from its descriptor alone, with no `.cargo/config.toml` env.
-    pub default_voltage: Voltage,
-    pub default_frequency: Frequency,
-    /// Efficiency a power target starts from, so an operator who picks
-    /// one has a value that suits the board.
-    pub default_efficiency: Efficiency,
+    /// The values a new config starts with on this hashboard: the boot
+    /// operating point, the halt thresholds and the cooling profile. They
+    /// travel with the model, so a board comes up at its correct rail and
+    /// clock from its descriptor alone, and the firmware hands them to
+    /// the config task as they stand here.
+    pub defaults: HashboardDefaults,
     /// Swarm color assigned to this device type for UI grouping.
     pub swarm_color: &'static str,
-    /// Per-board cooling profile (PID setpoint and fan floor).
-    pub cooling: BoardCooling,
-    /// Die-temperature halt threshold, or `None` on a machine that reads
-    /// no die, read by `Config::for_board` into `ThermalConfig::dangerous`.
-    /// Travels with the board because a chip family's safe junction
-    /// ceiling is a property of the silicon, not a runtime tuning knob.
-    pub dangerous_chip_temp: Option<Temperature>,
-    /// Hashboard halt threshold, or `None` on a machine that reads no
-    /// hashboard sensor, read by `Config::for_board` into
-    /// `ThermalConfig::dangerous`. Travels with the
-    /// board because the temperature a hashboard may reach is a property of
-    /// the board, as the chip ceiling is a property of the silicon.
-    pub dangerous_hashboard_temp: Option<Temperature>,
     /// Product name reported to external clients and the dashboard, sited
     /// here so the active board's name has one home.
     pub model: &'static str,
@@ -166,6 +120,46 @@ impl HashboardDescriptor {
         };
         Voltage::from_mv(ceiling)
     }
+
+    /// Accepted tuning ranges on this hashboard, and the machine's
+    /// `tuners`. The frequency range is the chip's own, and the voltage
+    /// ceiling is [`Self::max_rail_voltage`]. The config crate takes
+    /// both as plain values, so the crate that owns the hardware reads
+    /// it here. It panics as [`ubos_config::bounds`] does.
+    #[must_use]
+    pub const fn bounds(
+        &self,
+        tuners: &'static [TunerInfo],
+        input_power: Option<RangeInclusive<Power>>,
+    ) -> MiningBounds {
+        ubos_config::bounds(
+            self.chip.frequency_range.min()..=self.chip.frequency_range.max(),
+            self.max_rail_voltage(),
+            tuners,
+            input_power,
+        )
+    }
+
+    /// Static capability metadata of this hashboard: its chip model, its
+    /// product name, its swarm color, its chip count and its defaults.
+    /// Each firmware crate builds its `MINING_INFO` const from this. It
+    /// panics as [`ubos_config::mining_info`] does.
+    #[must_use]
+    pub const fn mining_info(
+        &self,
+        bounds: &'static MiningBounds,
+        default_tuning: DefaultTuning,
+    ) -> MiningInfo {
+        ubos_config::mining_info(
+            self.chip.asic_model,
+            self.model,
+            self.swarm_color,
+            self.num_chips,
+            &self.defaults,
+            bounds,
+            default_tuning,
+        )
+    }
 }
 
 /// Hashboard descriptor. The `max_psu_voltage` mirrors
@@ -176,22 +170,26 @@ pub const BMM101_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     num_voltage_domains: 4,
     num_chips: 4,
     max_psu_voltage: Voltage::from_mv(1675),
-    default_voltage: Voltage::from_mv(1400),
-    default_frequency: Frequency::from_mhz(525),
-    // Measured on the bmm-pico.
-    default_efficiency: Efficiency::from_mj_per_th(
-        NonZeroU32::new(40_000).expect("BUG: efficiency is zero"),
-    ),
-    swarm_color: "blue",
-    cooling: BoardCooling {
-        target_source: CoolingSource::Hashboard,
-        target_statistic: CoolingStatistic::Max,
-        target_temp: Temperature::from_celsius(60),
-        min_fan_pwm: 20,
+    defaults: HashboardDefaults {
+        frequency: Frequency::from_mhz(525),
+        voltage: Voltage::from_mv(1400),
+        // Measured on the bmm-pico.
+        efficiency: Efficiency::from_mj_per_th(
+            NonZeroU32::new(40_000).expect("BUG: efficiency is zero"),
+        ),
+        dangerous: TemperatureDescriptor {
+            chip: None,
+            hashboard: Some(Temperature::from_celsius(83)),
+        },
+        cooling_target: PidTarget {
+            source: Source::Hashboard,
+            statistic: Statistic::Max,
+            temp: Temperature::from_celsius(60),
+        },
+        min_fan_pwm: FanPwm::from_percent(20),
         input_smoother_half_decay_secs: 0,
     },
-    dangerous_chip_temp: None,
-    dangerous_hashboard_temp: Some(Temperature::from_celsius(83)),
+    swarm_color: "blue",
     model: "miniminer",
     // Confirmed against BOS's AM2-S17 addressing
     // (`BASE_I2C_ADDRESS = 0x50`, single-hashboard `hashboard_address = 1`
@@ -209,22 +207,26 @@ pub const BFMX4_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     num_voltage_domains: 4,
     num_chips: 4,
     max_psu_voltage: Voltage::from_mv(4800),
-    default_voltage: Voltage::from_mv(4550),
-    default_frequency: Frequency::from_mhz(600),
-    // TODO: Replace this placeholder with a value measured on the board.
-    default_efficiency: Efficiency::from_mj_per_th(
-        NonZeroU32::new(15_000).expect("BUG: efficiency is zero"),
-    ),
-    swarm_color: "blue",
-    cooling: BoardCooling {
-        target_source: CoolingSource::Hashboard,
-        target_statistic: CoolingStatistic::Max,
-        target_temp: Temperature::from_celsius(47),
-        min_fan_pwm: 20,
+    defaults: HashboardDefaults {
+        frequency: Frequency::from_mhz(600),
+        voltage: Voltage::from_mv(4550),
+        // TODO: Replace this placeholder with a value measured on the board.
+        efficiency: Efficiency::from_mj_per_th(
+            NonZeroU32::new(15_000).expect("BUG: efficiency is zero"),
+        ),
+        dangerous: TemperatureDescriptor {
+            chip: Some(Temperature::from_celsius(110)),
+            hashboard: Some(Temperature::from_celsius(75)),
+        },
+        cooling_target: PidTarget {
+            source: Source::Hashboard,
+            statistic: Statistic::Max,
+            temp: Temperature::from_celsius(47),
+        },
+        min_fan_pwm: FanPwm::from_percent(20),
         input_smoother_half_decay_secs: 0,
     },
-    dangerous_chip_temp: Some(Temperature::from_celsius(110)),
-    dangerous_hashboard_temp: Some(Temperature::from_celsius(75)),
+    swarm_color: "blue",
     model: "Braiins Forge Miner x4",
     // Tentative, unlike BMM101_HASHBOARD's 0x50: not yet cross-checked
     // against a parsed product-name match the way 0x50 was. See
@@ -241,24 +243,28 @@ pub const FORGE_AXE_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     // Caps max_rail_voltage below the chip's 1250 mV policy ceiling;
     // the tuner opens the cores at this 1.2 V rail.
     max_psu_voltage: Voltage::from_mv(1200),
-    default_voltage: Voltage::from_mv(1150),
-    default_frequency: Frequency::from_mhz(600),
-    // Measured on the forge-axe.
-    default_efficiency: Efficiency::from_mj_per_th(
-        NonZeroU32::new(15_000).expect("BUG: efficiency is zero"),
-    ),
-    swarm_color: "blue",
-    // Same cooling profile and hashboard halt threshold as the hashnode until
-    // tuned on hardware.
-    cooling: BoardCooling {
-        target_source: CoolingSource::Hashboard,
-        target_statistic: CoolingStatistic::Max,
-        target_temp: Temperature::from_celsius(47),
-        min_fan_pwm: 20,
+    defaults: HashboardDefaults {
+        frequency: Frequency::from_mhz(600),
+        voltage: Voltage::from_mv(1150),
+        // Measured on the forge-axe.
+        efficiency: Efficiency::from_mj_per_th(
+            NonZeroU32::new(15_000).expect("BUG: efficiency is zero"),
+        ),
+        // Same hashboard halt threshold and cooling profile as the
+        // hashnode until tuned on hardware.
+        dangerous: TemperatureDescriptor {
+            chip: Some(Temperature::from_celsius(110)),
+            hashboard: Some(Temperature::from_celsius(75)),
+        },
+        cooling_target: PidTarget {
+            source: Source::Hashboard,
+            statistic: Statistic::Max,
+            temp: Temperature::from_celsius(47),
+        },
+        min_fan_pwm: FanPwm::from_percent(20),
         input_smoother_half_decay_secs: 0,
     },
-    dangerous_chip_temp: Some(Temperature::from_celsius(110)),
-    dangerous_hashboard_temp: Some(Temperature::from_celsius(75)),
+    swarm_color: "blue",
     model: "Forge Axe",
     eeprom_i2c_address: None,
 };

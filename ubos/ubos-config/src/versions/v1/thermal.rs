@@ -61,7 +61,7 @@ pub struct ThermalConfig {
     /// Temperatures above which mining is halted, one for each kind of
     /// reading the machine measures. The die threshold is the junction
     /// ceiling of the chip family. `Config::for_board` takes them from the
-    /// board descriptor, and [`validate`](Self::validate) holds the
+    /// hashboard defaults, and [`validate`](Self::validate) holds the
     /// hashboard one at or below the chip one.
     pub dangerous: TemperatureDescriptor,
     /// Temperature below which a halted miner may resume.

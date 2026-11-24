@@ -39,13 +39,11 @@ use ubos_core::units::Temperature;
 
 use crate::storage::encode_record;
 use crate::{
-    ApiConfig, CONFIG_KEY, Config, DefaultTuning, LOAD_BUFFER_SIZE, MiningInfo, NetworkMode, Seed,
-    SeedField, decode_blob, encode_blob, file_storage::FileStorage, load_initial, storage::Storage,
+    ApiConfig, CONFIG_KEY, Config, LOAD_BUFFER_SIZE, NetworkMode, Seed, SeedField, decode_blob,
+    encode_blob, file_storage::FileStorage, load_initial, storage::Storage,
 };
 
-const BOARD: &ubos_asic::HashboardDescriptor = &ubos_asic::BMM101_HASHBOARD;
-
-static INFO: MiningInfo = crate::mining_info(BOARD, &crate::MINING_BOUNDS, DefaultTuning::Fixed);
+use crate::tests_fixture::{DEFAULTS, INFO};
 
 /// The fingerprint of a field's source on the first boot.
 const SOURCE: u32 = 0x1111_1111;
@@ -98,7 +96,7 @@ fn seed() -> Seed {
 
 /// The board defaults with the fields of [`seed`] written over them.
 fn seeded() -> Config {
-    let mut config = Config::for_board(BOARD, INFO.default_tuning);
+    let mut config = Config::for_board(&DEFAULTS, INFO.default_tuning);
     config.api = login("operator");
     config.network.mode = static_mode([192, 168, 1, 10]);
     config
@@ -186,7 +184,7 @@ fn empty_store_takes_and_persists_the_seed() {
     let dir = fresh_dir("empty");
     let mut storage = FileStorage::new(&dir);
 
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(&seed())));
+    let loaded = block_on(load_initial(&mut storage, &DEFAULTS, &INFO, Some(&seed())));
     assert_eq!(
         loaded,
         seeded(),
@@ -207,19 +205,22 @@ fn empty_store_takes_and_persists_the_seed() {
 fn seed_already_taken_keeps_the_operator_changes() {
     let dir = fresh_dir("taken");
     let mut storage = FileStorage::new(&dir);
-    block_on(load_initial(&mut storage, BOARD, &INFO, Some(&seed())));
+    block_on(load_initial(&mut storage, &DEFAULTS, &INFO, Some(&seed())));
 
     let mut edited = seeded();
     edited.api = login("edited");
     save(&mut storage, &edited);
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(&seed())));
+    let loaded = block_on(load_initial(&mut storage, &DEFAULTS, &INFO, Some(&seed())));
     assert_eq!(loaded, edited, "an unchanged seed must not touch the store");
 
-    save(&mut storage, &Config::for_board(BOARD, INFO.default_tuning));
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(&seed())));
+    save(
+        &mut storage,
+        &Config::for_board(&DEFAULTS, INFO.default_tuning),
+    );
+    let loaded = block_on(load_initial(&mut storage, &DEFAULTS, &INFO, Some(&seed())));
     assert_eq!(
         loaded,
-        Config::for_board(BOARD, INFO.default_tuning),
+        Config::for_board(&DEFAULTS, INFO.default_tuning),
         "a factory reset must keep an unchanged seed out"
     );
 
@@ -233,7 +234,7 @@ fn seed_already_taken_keeps_the_operator_changes() {
 fn changed_field_is_taken_again_alone() {
     let dir = fresh_dir("changed");
     let mut storage = FileStorage::new(&dir);
-    block_on(load_initial(&mut storage, BOARD, &INFO, Some(&seed())));
+    block_on(load_initial(&mut storage, &DEFAULTS, &INFO, Some(&seed())));
 
     let mut edited = seeded();
     edited.api = login("edited");
@@ -249,11 +250,11 @@ fn changed_field_is_taken_again_alone() {
     };
     let mut expected = edited.clone();
     expected.network.mode = static_mode([192, 168, 1, 20]);
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(&changed)));
+    let loaded = block_on(load_initial(&mut storage, &DEFAULTS, &INFO, Some(&changed)));
     assert_eq!(loaded, expected, "only the changed field must be taken");
     assert_eq!(stored(&mut storage), Some(expected.clone()));
 
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(&changed)));
+    let loaded = block_on(load_initial(&mut storage, &DEFAULTS, &INFO, Some(&changed)));
     assert_eq!(loaded, expected, "a field is taken once per change");
 
     let _ = fs::remove_dir_all(&dir);
@@ -266,7 +267,7 @@ fn stored_config_without_a_record_takes_the_seed() {
     let dir = fresh_dir("upgrade");
     let mut storage = FileStorage::new(&dir);
 
-    let mut existing = Config::for_board(BOARD, INFO.default_tuning);
+    let mut existing = Config::for_board(&DEFAULTS, INFO.default_tuning);
     existing.thermal.dangerous = TemperatureDescriptor {
         chip: None,
         hashboard: Some(Temperature::from_celsius(80)),
@@ -278,7 +279,7 @@ fn stored_config_without_a_record_takes_the_seed() {
         chip: None,
         hashboard: Some(Temperature::from_celsius(80)),
     };
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(&seed())));
+    let loaded = block_on(load_initial(&mut storage, &DEFAULTS, &INFO, Some(&seed())));
     assert_eq!(loaded, expected);
     assert_eq!(stored(&mut storage), Some(expected));
 
@@ -292,12 +293,12 @@ fn failed_config_write_takes_the_seed_again() {
     let dir = fresh_dir("failed-write");
     let mut storage = Probe::new(&dir);
     storage.refuse_config = true;
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(&seed())));
+    let loaded = block_on(load_initial(&mut storage, &DEFAULTS, &INFO, Some(&seed())));
     assert_eq!(loaded, seeded(), "the boot still runs on the seed");
     assert_eq!(storage.writes, 0, "the fingerprints wait for the config");
 
     storage.refuse_config = false;
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(&seed())));
+    let loaded = block_on(load_initial(&mut storage, &DEFAULTS, &INFO, Some(&seed())));
     assert_eq!(loaded, seeded());
     assert_eq!(stored(&mut storage.inner), Some(seeded()));
 
@@ -313,15 +314,25 @@ fn seed_matching_the_defaults_is_recorded_once() {
     let mut storage = Probe::new(&dir);
     let unchanged = Seed {
         api: Some(field(
-            Config::for_board(BOARD, INFO.default_tuning).api,
+            Config::for_board(&DEFAULTS, INFO.default_tuning).api,
             SOURCE,
         )),
         ..Seed::default()
     };
 
-    block_on(load_initial(&mut storage, BOARD, &INFO, Some(&unchanged)));
+    block_on(load_initial(
+        &mut storage,
+        &DEFAULTS,
+        &INFO,
+        Some(&unchanged),
+    ));
     assert_eq!(storage.writes, 1, "only the fingerprints are saved");
-    block_on(load_initial(&mut storage, BOARD, &INFO, Some(&unchanged)));
+    block_on(load_initial(
+        &mut storage,
+        &DEFAULTS,
+        &INFO,
+        Some(&unchanged),
+    ));
     assert_eq!(storage.writes, 1, "an unchanged seed writes nothing");
 
     let _ = fs::remove_dir_all(&dir);
@@ -334,7 +345,7 @@ fn seed_matching_the_defaults_is_recorded_once() {
 fn field_left_out_keeps_its_value_and_fingerprint() {
     let dir = fresh_dir("left-out");
     let mut storage = FileStorage::new(&dir);
-    block_on(load_initial(&mut storage, BOARD, &INFO, Some(&seed())));
+    block_on(load_initial(&mut storage, &DEFAULTS, &INFO, Some(&seed())));
 
     let mut edited = seeded();
     edited.api = login("edited");
@@ -344,9 +355,14 @@ fn field_left_out_keeps_its_value_and_fingerprint() {
         api: None,
         ..seed()
     };
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(&without_api)));
+    let loaded = block_on(load_initial(
+        &mut storage,
+        &DEFAULTS,
+        &INFO,
+        Some(&without_api),
+    ));
     assert_eq!(loaded, edited);
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(&seed())));
+    let loaded = block_on(load_initial(&mut storage, &DEFAULTS, &INFO, Some(&seed())));
     assert_eq!(loaded, edited, "the api fingerprint must still be taken");
 
     let _ = fs::remove_dir_all(&dir);
@@ -359,8 +375,8 @@ fn empty_store_without_a_seed_stays_empty() {
     let dir = fresh_dir("none");
     let mut storage = FileStorage::new(&dir);
 
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, None));
-    assert_eq!(loaded, Config::for_board(BOARD, INFO.default_tuning));
+    let loaded = block_on(load_initial(&mut storage, &DEFAULTS, &INFO, None));
+    assert_eq!(loaded, Config::for_board(&DEFAULTS, INFO.default_tuning));
     assert_eq!(stored(&mut storage), None, "defaults are not persisted");
 
     let _ = fs::remove_dir_all(&dir);
@@ -375,13 +391,18 @@ fn seed_that_changes_nothing_stays_unstored() {
 
     let unchanged = Seed {
         api: Some(field(
-            Config::for_board(BOARD, INFO.default_tuning).api,
+            Config::for_board(&DEFAULTS, INFO.default_tuning).api,
             SOURCE,
         )),
         ..Seed::default()
     };
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(&unchanged)));
-    assert_eq!(loaded, Config::for_board(BOARD, INFO.default_tuning));
+    let loaded = block_on(load_initial(
+        &mut storage,
+        &DEFAULTS,
+        &INFO,
+        Some(&unchanged),
+    ));
+    assert_eq!(loaded, Config::for_board(&DEFAULTS, INFO.default_tuning));
     assert_eq!(stored(&mut storage), None, "defaults are not persisted");
 
     let _ = fs::remove_dir_all(&dir);
@@ -398,21 +419,21 @@ fn invalid_seed_keeps_the_config() {
         api: Some(field(login(""), SOURCE)),
         ..Seed::default()
     };
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(&bad)));
-    assert_eq!(loaded, Config::for_board(BOARD, INFO.default_tuning));
+    let loaded = block_on(load_initial(&mut storage, &DEFAULTS, &INFO, Some(&bad)));
+    assert_eq!(loaded, Config::for_board(&DEFAULTS, INFO.default_tuning));
     assert_eq!(
         stored(&mut storage),
         None,
         "a rejected seed is not persisted"
     );
 
-    let mut existing = Config::for_board(BOARD, INFO.default_tuning);
+    let mut existing = Config::for_board(&DEFAULTS, INFO.default_tuning);
     existing.thermal.dangerous = TemperatureDescriptor {
         chip: None,
         hashboard: Some(Temperature::from_celsius(80)),
     };
     save(&mut storage, &existing);
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(&bad)));
+    let loaded = block_on(load_initial(&mut storage, &DEFAULTS, &INFO, Some(&bad)));
     assert_eq!(loaded, existing);
     assert_eq!(stored(&mut storage), Some(existing));
 
@@ -426,17 +447,17 @@ fn stored_thresholds_of_other_kinds_take_the_machine_ones() {
     let dir = fresh_dir("kinds");
     let mut storage = FileStorage::new(&dir);
 
-    let mut other = Config::for_board(BOARD, INFO.default_tuning);
+    let mut other = Config::for_board(&DEFAULTS, INFO.default_tuning);
     other.thermal.dangerous = TemperatureDescriptor {
         chip: Some(Temperature::from_celsius(110)),
         hashboard: Some(Temperature::from_celsius(80)),
     };
     other.api = login("kept");
     save(&mut storage, &other);
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, None));
+    let loaded = block_on(load_initial(&mut storage, &DEFAULTS, &INFO, None));
 
     let mut expected = other;
-    expected.thermal.dangerous = TemperatureDescriptor::dangerous_of(BOARD);
+    expected.thermal.dangerous = DEFAULTS.dangerous;
     assert_eq!(loaded, expected);
 
     let _ = fs::remove_dir_all(&dir);
@@ -449,7 +470,7 @@ fn stored_thresholds_of_other_kinds_take_the_machine_ones() {
 fn unreadable_config_takes_every_seed_field() {
     let dir = fresh_dir("unreadable");
     let mut storage = FileStorage::new(&dir);
-    block_on(load_initial(&mut storage, BOARD, &INFO, Some(&seed())));
+    block_on(load_initial(&mut storage, &DEFAULTS, &INFO, Some(&seed())));
 
     let mut edited = seeded();
     edited.thermal.dangerous = TemperatureDescriptor {
@@ -457,7 +478,7 @@ fn unreadable_config_takes_every_seed_field() {
         hashboard: Some(Temperature::from_celsius(80)),
     };
     save_unreadable(&mut storage, &edited);
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(&seed())));
+    let loaded = block_on(load_initial(&mut storage, &DEFAULTS, &INFO, Some(&seed())));
     assert_eq!(loaded, seeded(), "the defaults take every seed field");
     assert_eq!(
         stored(&mut storage),
@@ -476,8 +497,8 @@ fn unreadable_config_without_a_seed_gives_the_defaults() {
     let mut storage = Probe::new(&dir);
     save_unreadable(&mut storage.inner, &seeded());
 
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, None));
-    assert_eq!(loaded, Config::for_board(BOARD, INFO.default_tuning));
+    let loaded = block_on(load_initial(&mut storage, &DEFAULTS, &INFO, None));
+    assert_eq!(loaded, Config::for_board(&DEFAULTS, INFO.default_tuning));
     assert_eq!(storage.writes, 0, "the defaults are not persisted");
 
     let _ = fs::remove_dir_all(&dir);
@@ -491,8 +512,8 @@ fn failed_config_read_takes_no_seed() {
     let mut storage = Probe::new(&dir);
     storage.fail_config_read = true;
 
-    let loaded = block_on(load_initial(&mut storage, BOARD, &INFO, Some(&seed())));
-    assert_eq!(loaded, Config::for_board(BOARD, INFO.default_tuning));
+    let loaded = block_on(load_initial(&mut storage, &DEFAULTS, &INFO, Some(&seed())));
+    assert_eq!(loaded, Config::for_board(&DEFAULTS, INFO.default_tuning));
     assert_eq!(storage.writes, 0, "a failed read writes nothing");
 
     let _ = fs::remove_dir_all(&dir);

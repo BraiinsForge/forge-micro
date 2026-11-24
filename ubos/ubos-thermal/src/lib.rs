@@ -92,6 +92,16 @@ fn clock() -> std::sync::MutexGuard<'static, ()> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+/// The config that a first boot builds for the hashboard the tests run
+/// on.
+#[cfg(test)]
+fn default_config() -> ubos_config::Config {
+    ubos_config::Config::for_board(
+        &ubos_asic::BMM101_HASHBOARD.defaults,
+        ubos_config::DefaultTuning::Fixed,
+    )
+}
+
 /// The sample a poll produced, or a panic naming what it gave instead.
 #[cfg(test)]
 fn measured(reading: Reading) -> TempSample {

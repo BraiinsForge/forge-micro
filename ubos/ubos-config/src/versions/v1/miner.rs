@@ -45,14 +45,7 @@ pub enum Tuning {
 
 /// Miner-level tuning configuration.
 #[derive(
-    Clone,
-    Debug,
-    Default,
-    PartialEq,
-    Eq,
-    serde::Serialize,
-    serde::Deserialize,
-    postcard_schema::Schema,
+    Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
 )]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]

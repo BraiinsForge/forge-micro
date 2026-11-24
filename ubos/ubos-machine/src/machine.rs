@@ -46,9 +46,9 @@ pub use ubos_metrics::chain::MAX_CHAINS;
 /// temperature-sensor group it drives.
 ///
 /// Identity and capability metadata is not carried here; the REST API
-/// serves it from the per-board `ubos_config::mining_info` const fn,
-/// which derives it from the hashboard descriptor so a second chip model
-/// reports its own values.
+/// serves it from the per-board `HashboardDescriptor::mining_info` const
+/// fn, which reads it from the hashboard descriptor so a second chip
+/// model reports its own values.
 ///
 /// Generic over `Psu`: no code handles a `MachineDescriptor` generically
 /// — every board names its own concrete

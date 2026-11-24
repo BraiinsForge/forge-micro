@@ -64,6 +64,8 @@ both injected at spawn:
   (`docs/DEVFEE.md`).
 - `config::BOARD` (`&HashboardDescriptor`) carries the chip-neutral
   hashboard facts the actor and tuner need.
+- The `defaults` field of `config::BOARD` (`HashboardDefaults`) is what
+  the config task builds a new config from.
 
 ## Halt/resume edges via `ubos-manager`
 
@@ -255,10 +257,10 @@ The miner calls it once per step and passes the result to the tuner, which reads
 Both shared policies take `()`, and the four-argument form of the macro supplies it.
 
 The set lists the tuners it offers in `MachineTuner::TUNERS`: each one's name, the `Tuning` variant it reads, and whether a power tuner reads the efficiency.
-The firmware passes the list to `ubos_config::bounds`, so the config accepts only a tuning one of these tuners reads, and the mining form shows only these tuners and the fields they read.
+The firmware passes the list to `HashboardDescriptor::bounds`, so the config accepts only a tuning one of these tuners reads, and the mining form shows only these tuners and the fields they read.
 The firmware also passes the input-power range a power target may ask for, which no descriptor states.
 The frequency range is the chip's own, and the voltage range runs from zero to the board's rail ceiling.
-A new config starts on the `DefaultTuning` the firmware passes to `ubos_config::mining_info`.
+A new config starts on the `DefaultTuning` the firmware passes to `HashboardDescriptor::mining_info`.
 At boot, a stored tuning outside the accepted ranges is clamped into them, and one that no listed tuner reads is replaced by the default tuning; the rest of the stored config is kept.
 
 ## Chain presence

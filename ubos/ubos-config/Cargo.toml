@@ -28,7 +28,6 @@ portable-atomic        = { workspace = true }
 defmt                  = { workspace = true, optional = true }
 heapless               = { workspace = true, features = ["serde"] }
 serde                  = { version = "1", default-features = false, features = ["derive"] }
-ubos-asic              = { workspace = true }
 ubos-core              = { workspace = true }
 ubos-events            = { workspace = true, default-features = false }
 ubos-logging           = { workspace = true }

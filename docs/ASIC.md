@@ -214,6 +214,12 @@ vendor. A chain is always a single chip model. Each firmware's
 `config::BOARD` / `config::CHIP` is the single point selection flows
 from.
 
+The descriptor also holds the values that its hashboard model hands to
+a new config, in its `defaults` field. The type of the field is
+`ubos_config::HashboardDefaults`, so `ubos-asic` depends on
+`ubos-config`. `ubos-config` reads these values as plain data and names
+no board.
+
 ### The serial actor
 
 A board owns a static array of `Serial`, one actor per chain. Each actor

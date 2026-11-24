@@ -169,6 +169,25 @@ fn run_bringup(responders: u8) -> (heapless::Vec<Op, 512>, u8) {
     run_bringup_for(&Bm1362, BMM101_HASHBOARD, responders)
 }
 
+/// The config defaults of the synthetic hashboards below. A bring-up
+/// reads the topology of a board and none of these values.
+const TEST_DEFAULTS: ubos_config::HashboardDefaults = ubos_config::HashboardDefaults {
+    frequency: ubos_core::units::Frequency::from_mhz(0),
+    voltage: ubos_core::units::Voltage::from_mv(0),
+    efficiency: ubos_core::units::Efficiency::from_mj_per_th(core::num::NonZeroU32::MIN),
+    dangerous: ubos_config::TemperatureDescriptor {
+        chip: Some(ubos_core::units::Temperature::from_celsius(110)),
+        hashboard: Some(ubos_core::units::Temperature::from_celsius(90)),
+    },
+    cooling_target: ubos_config::PidTarget {
+        source: ubos_config::Source::Hashboard,
+        statistic: ubos_config::Statistic::Max,
+        temp: ubos_core::units::Temperature::from_celsius(0),
+    },
+    min_fan_pwm: ubos_core::units::FanPwm::ZERO,
+    input_smoother_half_decay_secs: 0,
+};
+
 /// Synthetic eight-chip, two-domain hashboard for BM1366 multi-domain
 /// tests. Four chips per domain; addressing stride is 1.
 const BMM_TEST_MULTI_DOMAIN: HashboardDescriptor = HashboardDescriptor {
@@ -176,19 +195,8 @@ const BMM_TEST_MULTI_DOMAIN: HashboardDescriptor = HashboardDescriptor {
     num_voltage_domains: 2,
     num_chips: 8,
     max_psu_voltage: ubos_core::units::Voltage::from_mv(5000),
-    default_voltage: ubos_core::units::Voltage::from_mv(0),
-    default_frequency: ubos_core::units::Frequency::from_mhz(0),
-    default_efficiency: ubos_core::units::Efficiency::from_mj_per_th(core::num::NonZeroU32::MIN),
+    defaults: TEST_DEFAULTS,
     swarm_color: "blue",
-    cooling: crate::board::BoardCooling {
-        target_source: crate::board::CoolingSource::Hashboard,
-        target_statistic: crate::board::CoolingStatistic::Max,
-        target_temp: ubos_core::units::Temperature::from_celsius(0),
-        min_fan_pwm: 0,
-        input_smoother_half_decay_secs: 0,
-    },
-    dangerous_chip_temp: Some(ubos_core::units::Temperature::from_celsius(110)),
-    dangerous_hashboard_temp: Some(ubos_core::units::Temperature::from_celsius(90)),
     model: "test",
     eeprom_i2c_address: None,
 };
@@ -201,19 +209,8 @@ const BM1370_TEST_BOARD: HashboardDescriptor = HashboardDescriptor {
     num_voltage_domains: 1,
     num_chips: 1,
     max_psu_voltage: ubos_core::units::Voltage::from_mv(5000),
-    default_voltage: ubos_core::units::Voltage::from_mv(0),
-    default_frequency: ubos_core::units::Frequency::from_mhz(0),
-    default_efficiency: ubos_core::units::Efficiency::from_mj_per_th(core::num::NonZeroU32::MIN),
+    defaults: TEST_DEFAULTS,
     swarm_color: "blue",
-    cooling: crate::board::BoardCooling {
-        target_source: crate::board::CoolingSource::Hashboard,
-        target_statistic: crate::board::CoolingStatistic::Max,
-        target_temp: ubos_core::units::Temperature::from_celsius(0),
-        min_fan_pwm: 0,
-        input_smoother_half_decay_secs: 0,
-    },
-    dangerous_chip_temp: Some(ubos_core::units::Temperature::from_celsius(110)),
-    dangerous_hashboard_temp: Some(ubos_core::units::Temperature::from_celsius(90)),
     model: "test",
     eeprom_i2c_address: None,
 };

@@ -481,7 +481,7 @@ rusty_fork_test! {
             let (mut subscription, publish) = test_config();
             publish(ubos_config::Config {
                 miner: ubos_config::MinerConfig { tuning: power },
-                ..ubos_config::Config::default()
+                ..crate::fixture::default_config()
             });
             let halted = Cell::new(false);
             let machine = async {
@@ -804,7 +804,7 @@ rusty_fork_test! {
                         ),
                     }),
                 },
-                ..ubos_config::Config::default()
+                ..crate::fixture::default_config()
             });
             assert!(matches!(
                 block_on_with(psu, miner.advance(state, &mut subscription)),
@@ -1034,7 +1034,7 @@ impl MachineTuner<1> for LiveTuner {
 /// The tuner the default configuration selects, as the mining loop
 /// records it. Every tuner in this file serves that variant.
 fn fixed_selection() -> Selected {
-    Selected::of(&ubos_config::Config::default().miner.tuning)
+    Selected::of(&crate::fixture::default_config().miner.tuning)
 }
 
 /// A configuration whose fixed target is `frequency` at `voltage`.
@@ -1046,7 +1046,7 @@ fn fixed_config(frequency: Frequency, voltage: Voltage) -> ubos_config::Config {
                 voltage,
             }),
         },
-        ..ubos_config::Config::default()
+        ..crate::fixture::default_config()
     }
 }
 

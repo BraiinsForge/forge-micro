@@ -30,7 +30,8 @@ use std::task::Wake;
 
 use rusty_fork::rusty_fork_test;
 
-use crate::{Config, Handle};
+use crate::Handle;
+use crate::tests_fixture::default_config;
 
 /// A waker that records that it was woken.
 struct Woken(AtomicBool);
@@ -55,7 +56,7 @@ rusty_fork_test! {
         assert!(current.as_mut().poll(&mut context).is_pending());
         assert!(!woken.0.load(Ordering::Relaxed));
 
-        let mut published = Config::default();
+        let mut published = default_config();
         published.thermal.sample_interval_ms += 1;
         runner.publish(published.clone());
         assert!(woken.0.load(Ordering::Relaxed));

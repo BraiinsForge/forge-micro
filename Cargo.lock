@@ -4216,6 +4216,7 @@ dependencies = [
  "heapless 0.9.2",
  "mining-protocol",
  "sha2 0.10.9",
+ "ubos-config",
  "ubos-core",
 ]
 
@@ -4261,7 +4262,6 @@ dependencies = [
  "serde-json-core",
  "serde_json",
  "sha2 0.10.9",
- "ubos-asic",
  "ubos-core",
  "ubos-events",
  "ubos-logging",

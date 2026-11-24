@@ -31,3 +31,12 @@ use crate::park::Park;
 pub(crate) fn park() -> &'static Park {
     std::boxed::Box::leak(std::boxed::Box::new(Park::new()))
 }
+
+/// The config that a first boot builds for the hashboard these tests
+/// drive, on its fixed tuning.
+pub(crate) fn default_config() -> ubos_config::Config {
+    ubos_config::Config::for_board(
+        &ubos_asic::BMM101_HASHBOARD.defaults,
+        ubos_config::DefaultTuning::Fixed,
+    )
+}

@@ -57,7 +57,7 @@ fn cool_sample() -> TempSample {
 
 /// Judge one reading against `held`, and answer what the tick decided.
 fn judge(thermal: &mut Thermal, reading: Reading, held: PauseReasons) -> Step {
-    let config = ubos_config::Config::default().thermal;
+    let config = crate::default_config().thermal;
     thermal.judge(reading, &config, held)
 }
 
@@ -174,7 +174,7 @@ fn a_measurement_releases_the_halt_and_the_budget_starts_over() {
 
 #[test]
 fn a_dangerous_measurement_halts_once_and_a_cool_one_under_the_halt_resumes() {
-    let config = ubos_config::Config::default().thermal;
+    let config = crate::default_config().thermal;
     // One degree above the hashboard threshold the default config sets.
     let threshold = config
         .dangerous
@@ -206,7 +206,7 @@ fn a_dangerous_measurement_halts_once_and_a_cool_one_under_the_halt_resumes() {
 
 #[test]
 fn every_kind_of_a_sample_is_judged_against_its_own_threshold() {
-    let mut config = ubos_config::Config::default().thermal;
+    let mut config = crate::default_config().thermal;
     let (dangerous_chip, dangerous_hashboard) = (
         Temperature::from_celsius(110),
         Temperature::from_celsius(83),

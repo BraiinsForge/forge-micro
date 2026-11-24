@@ -24,7 +24,7 @@
 //! config and wait for changes.
 //!
 //! Firmware spawns [`run`], which publishes one config at boot: the
-//! stored one, or on a first boot [`Config::default`], with each field
+//! stored one, or on a first boot [`Config::for_board`], with each field
 //! of the board's [`Seed`] written over it whose source changed since
 //! the store last took it. It then drains the command channel forever.
 //! On each [`Message::Update`] it persists the new value and publishes
@@ -41,6 +41,10 @@ extern crate std;
 
 mod message;
 mod versions;
+
+#[cfg(test)]
+#[path = "tests/fixture.rs"]
+mod tests_fixture;
 
 #[cfg(test)]
 #[path = "tests/storage.rs"]
@@ -71,6 +75,7 @@ mod tests_seed;
 mod tests_schema;
 
 pub mod api;
+pub mod board;
 pub mod cooling;
 pub mod fee;
 pub mod miner;
@@ -83,10 +88,10 @@ pub mod thermal;
 
 use seed::Taken;
 use storage::SEED_KEY;
-use ubos_asic::HashboardDescriptor;
 use ubos_core::units::{Efficiency, Frequency, Power, Voltage};
 
 pub use api::ApiConfig;
+pub use board::HashboardDefaults;
 pub use cooling::{
     BOUNDS as COOLING_BOUNDS, CoolingBounds, CoolingConfig, CoolingInfo, FanMode,
     INFO as COOLING_INFO, PidConfig, PidTarget, Statistic,
@@ -97,8 +102,8 @@ pub use fee::{
 };
 pub use miner::{MinerConfig, Tuning};
 pub use mining::{
-    BOUNDS as MINING_BOUNDS, DefaultTuning, FrequencyVoltageTarget, MiningBounds, MiningInfo,
-    PowerTarget, TunerInfo, bounds, mining_info,
+    DefaultTuning, FrequencyVoltageTarget, MiningBounds, MiningInfo, PowerTarget, TunerInfo,
+    bounds, mining_info,
 };
 pub use network::{NetworkConfig, NetworkMode};
 pub use pool::{
@@ -730,25 +735,15 @@ impl ConfigUpdate {
     }
 }
 
-impl Default for Config {
-    /// Factory defaults for the BMM101 board.
-    ///
-    /// Provided so the test suite (and any caller without a specific
-    /// board) has a stable baseline; the firmware uses
-    /// [`Config::for_board`] with its own descriptor instead.
-    fn default() -> Self {
-        Self::for_board(&ubos_asic::BMM101_HASHBOARD, DefaultTuning::Fixed)
-    }
-}
-
 impl Config {
-    /// Factory defaults for `board`, with `default_tuning` as the tuning.
+    /// Factory defaults for a board that hands in `defaults`, with
+    /// `default_tuning` as the tuning.
     ///
     /// Not a `const fn` because [`ApiConfig`]'s default cannot be `const`
     /// (heapless 0.9 `String::push_str` is not `const fn`). The value is
     /// computed once at boot; it is cheap.
     #[must_use]
-    pub fn for_board(board: &'static HashboardDescriptor, default_tuning: DefaultTuning) -> Self {
+    pub fn for_board(defaults: &HashboardDefaults, default_tuning: DefaultTuning) -> Self {
         let mut host = heapless::String::new();
         host.push_str(option_env!("POOL_HOST").unwrap_or(DEFAULT_POOL_HOST))
             .expect("BUG: POOL_HOST exceeds PoolEntry::host capacity");
@@ -771,12 +766,12 @@ impl Config {
         Self {
             pool,
             thermal: ThermalConfig {
-                // The halt thresholds live on the board descriptor rather
-                // than a single hardcoded default, so a board comes up with
-                // a threshold for each kind of reading it measures: its chip
+                // The halt thresholds come from the board rather than from
+                // a single hardcoded default, so a board comes up with a
+                // threshold for each kind of reading it measures: its chip
                 // family's junction ceiling, the temperature its hashboard
                 // may reach, or both.
-                dangerous: TemperatureDescriptor::dangerous_of(board),
+                dangerous: defaults.dangerous,
                 sample_interval_ms: thermal::DEFAULT_SAMPLE_INTERVAL_MS,
                 cooldown_temp: thermal::DEFAULT_COOLDOWN_TEMP,
             },
@@ -784,19 +779,18 @@ impl Config {
                 // Every board boots under PID control; a fixed duty is an
                 // explicit operator choice, never a factory default.
                 mode: FanMode::Auto,
-                // The board's setpoints live on its descriptor, see
-                // `PidTarget::default_for`.
-                // Runtime-editable via the UI afterwards.
-                target: PidTarget::default_for(board),
+                // The board states its own setpoint. It is editable at
+                // run time through the UI afterwards.
+                target: defaults.cooling_target,
                 fixed_fan_pwm: cooling::DEFAULT_FIXED_FAN_PWM,
                 pid: PidConfig {
-                    min_fan_pwm: board.cooling.min_fan_pwm,
-                    input_smoother_half_decay_secs: board.cooling.input_smoother_half_decay_secs,
+                    min_fan_pwm: defaults.min_fan_pwm.percent(),
+                    input_smoother_half_decay_secs: defaults.input_smoother_half_decay_secs,
                     ..PidConfig::default()
                 },
             },
             miner: MinerConfig {
-                tuning: default_tuning.tuning(board),
+                tuning: default_tuning.tuning(defaults),
             },
             api: ApiConfig::default(),
             network: NetworkConfig::default(),
@@ -830,7 +824,7 @@ impl Config {
     /// [`CoolingUpdate::min_fan_pwm`] and so reaches flash from the UI; it is
     /// bounded here alongside `cooling.fixed_fan_pwm`. The remaining
     /// `cooling.pid` gains have no [`ConfigUpdate`] path and enter flash only
-    /// via [`Config::default`]; they are not re-validated here.
+    /// via [`Config::for_board`]; they are not re-validated here.
     ///
     /// # Errors
     ///
@@ -907,7 +901,7 @@ impl Config {
 pub async fn run<S: Storage>(
     runner: &mut Runner,
     mut storage: S,
-    board: &'static HashboardDescriptor,
+    defaults: &HashboardDefaults,
     info: &'static MiningInfo,
     seed: Option<&Seed>,
     fee: Option<FeeSlot>,
@@ -917,7 +911,7 @@ pub async fn run<S: Storage>(
     if let Some(fee) = fee {
         fee::install(fee);
     }
-    let mut committed = load_initial(&mut storage, board, info, seed).await;
+    let mut committed = load_initial(&mut storage, defaults, info, seed).await;
     runner.publish(committed.clone());
     let mut preview: Option<(NetworkConfig, Instant)> = None;
     info!("config: started");
@@ -990,7 +984,8 @@ pub async fn run<S: Storage>(
             Message::FactoryReset => {
                 preview = None;
                 clear_pending_status();
-                committed = factory_reset(runner, &mut storage, board, info.default_tuning).await;
+                committed =
+                    factory_reset(runner, &mut storage, defaults, info.default_tuning).await;
                 NETWORK_WATCH.sender().send(committed.network.clone());
                 ubos_core::reboot::request_reboot();
             }
@@ -1049,21 +1044,22 @@ async fn drop_until_reboot(runner: &Runner) -> ! {
 
 /// Task shell around [`run`], which drives the persisted config store.
 /// Takes the board's storage backend, which bottoms out in its own flash
-/// driver, the hashboard descriptor, and the firmware's [`MiningInfo`],
+/// driver, the [`HashboardDefaults`] of its hashboard, and the firmware's
+/// [`MiningInfo`],
 /// whose bounds the store validates against and whose default tuning a
 /// new config starts on. The task's `seed` argument holds the settings
 /// the board recovered from the firmware it replaced, when it has any to
 /// offer; a board with none spawns it with `None`.
 #[macro_export]
 macro_rules! config_task {
-    ($storage:ty, $board:expr, $info:expr, $fee:expr) => {
+    ($storage:ty, $defaults:expr, $info:expr, $fee:expr) => {
         #[embassy_executor::task]
         async fn config_task(
             mut runner: ubos_config::Runner,
             storage: $storage,
             seed: Option<ubos_config::Seed>,
         ) -> ! {
-            ubos_config::run(&mut runner, storage, $board, $info, seed.as_ref(), $fee).await
+            ubos_config::run(&mut runner, storage, $defaults, $info, seed.as_ref(), $fee).await
         }
     };
 }
@@ -1106,7 +1102,7 @@ fn clear_pending_status() {
 /// I/O error takes no seed, so a flash fault never writes.
 async fn load_initial<S: Storage>(
     storage: &mut S,
-    board: &'static HashboardDescriptor,
+    defaults: &HashboardDefaults,
     info: &'static MiningInfo,
     seed: Option<&Seed>,
 ) -> Config {
@@ -1119,15 +1115,18 @@ async fn load_initial<S: Storage>(
         let loaded = {
             let mut buffer = [0u8; LOAD_BUFFER_SIZE];
             match storage.load(CONFIG_KEY, &mut buffer).await {
-                Ok(Some(blob)) => decode_stored::<S::Error>(blob, board, info),
+                Ok(Some(blob)) => decode_stored::<S::Error>(blob, defaults, info),
                 Ok(None) => {
                     info!("config: no stored config, using defaults");
-                    Some(Loaded::Live(Config::for_board(board, info.default_tuning)))
+                    Some(Loaded::Live(Config::for_board(
+                        defaults,
+                        info.default_tuning,
+                    )))
                 }
                 Err(_) => {
                     warn!("config: load failed, using defaults");
                     crate::events::config_unusable();
-                    return Config::for_board(board, info.default_tuning);
+                    return Config::for_board(defaults, info.default_tuning);
                 }
             }
         };
@@ -1141,14 +1140,14 @@ async fn load_initial<S: Storage>(
         (loaded.map(Loaded::into_config), lost)
     };
     let Some(seed) = seed else {
-        return stored.unwrap_or_else(|| Config::for_board(board, info.default_tuning));
+        return stored.unwrap_or_else(|| Config::for_board(defaults, info.default_tuning));
     };
     // The boot config is scoped to the merge, so the task holds one config
     // across the writes below rather than two. The merge moves `stored`
     // whole and never borrows it, because a borrowed local keeps its room
     // in the task until its scope ends.
     let (config, taken, store) = {
-        let base = stored.unwrap_or_else(|| Config::for_board(board, info.default_tuning));
+        let base = stored.unwrap_or_else(|| Config::for_board(defaults, info.default_tuning));
         let Some(taken) = load_taken(storage).await else {
             return base;
         };
@@ -1195,7 +1194,7 @@ impl Loaded {
 /// it does not decode or fails validation.
 fn decode_stored<E>(
     blob: &[u8],
-    board: &'static HashboardDescriptor,
+    defaults: &HashboardDefaults,
     info: &'static MiningInfo,
 ) -> Option<Loaded> {
     let mut loaded = decode_record::<E>(blob)?;
@@ -1215,12 +1214,12 @@ fn decode_stored<E>(
             "config: stored tuning selects a tuner this machine does not offer, using the default tuning"
         );
         crate::events::config_tuning_adjusted();
-        config.miner.tuning = info.default_tuning.tuning(board);
+        config.miner.tuning = info.default_tuning.tuning(defaults);
     }
     // A firmware update can change the kinds of reading a machine
     // measures, and a threshold is kept only for a kind the machine reads.
     // Only the thresholds are replaced then, as the tuning is.
-    let dangerous = TemperatureDescriptor::dangerous_of(board);
+    let dangerous = defaults.dangerous;
     if !config.thermal.dangerous.same_kinds(&dangerous) {
         warn!(
             "config: stored dangerous temperatures name other reading kinds than the machine, using the default ones"
@@ -1238,7 +1237,7 @@ fn decode_stored<E>(
         warn!(
             "config: stored cooling target follows a reading kind the machine does not measure, using the default target"
         );
-        config.cooling.target = PidTarget::default_for(board);
+        config.cooling.target = defaults.cooling_target;
     }
     if config.validate(info.bounds).is_err() {
         warn!("config: stored config failed validation, using defaults");
@@ -1423,10 +1422,10 @@ async fn set_network<S: Storage>(runner: &Runner, config: &Config, storage: &mut
 async fn factory_reset<S: Storage>(
     runner: &Runner,
     storage: &mut S,
-    board: &'static HashboardDescriptor,
+    defaults: &HashboardDefaults,
     default_tuning: DefaultTuning,
 ) -> Config {
-    let config = Config::for_board(board, default_tuning);
+    let config = Config::for_board(defaults, default_tuning);
     persist(&config, storage).await;
     runner.publish(config.clone());
     info!("config: factory reset to defaults");

@@ -9,7 +9,7 @@ workspace = true
 
 [features]
 default = []
-defmt   = ["dep:defmt", "ubos-core/defmt"]
+defmt   = ["dep:defmt", "ubos-config/defmt", "ubos-core/defmt"]
 
 [dependencies]
 bitfield-struct = { workspace = true }
@@ -18,6 +18,9 @@ embassy-time    = { workspace = true }
 defmt           = { workspace = true, optional = true }
 heapless        = { workspace = true }
 sha2            = { workspace = true }
+# A hashboard descriptor holds the values its model hands to a new
+# config, in the type the config schema declares.
+ubos-config     = { workspace = true }
 ubos-core       = { workspace = true }
 
 [dev-dependencies]

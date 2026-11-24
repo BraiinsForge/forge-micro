@@ -27,6 +27,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::network::HOSTNAME_MAX;
+use crate::tests_fixture::default_config;
 use crate::versions::{
     MIN_SCHEMA_PREFIX_LEN, SchemaPrefix, Step, VERSIONS, Version, Versioned, downgrade_version,
     older_version,
@@ -81,7 +82,7 @@ impl Step for V2 {
                 hostname: self.hostname,
                 ..NetworkConfig::default()
             },
-            ..Config::default()
+            ..default_config()
         }
     }
 
@@ -103,7 +104,7 @@ const UNKNOWN: [u8; 8] = [9; 8];
 /// A config that differs from the defaults in every field of the chain
 /// and in a field that no version of it holds.
 fn edited() -> Config {
-    let mut config = Config::default();
+    let mut config = default_config();
     config.api.username = "operator".try_into().expect("BUG: username fits");
     config.network.hostname = "miner-1".try_into().expect("BUG: hostname fits");
     config.thermal.sample_interval_ms += 1;
@@ -229,7 +230,7 @@ fn oldest_record_upgrades_to_the_live_config() {
         postcard::to_slice(&V1 { api: login.clone() }, &mut buffer).expect("BUG: V1 encodes");
     let expected = Config {
         api: login,
-        ..Config::default()
+        ..default_config()
     };
     assert_eq!((CHAIN[0].upgrade)(payload), Some(expected));
 }
@@ -268,14 +269,14 @@ fn down_then_up_keeps_what_the_version_holds() {
     let expected = Config {
         api: config.api.clone(),
         network: config.network.clone(),
-        ..Config::default()
+        ..default_config()
     };
     assert_eq!((CHAIN[1].upgrade)(&buffer[8..length]), Some(expected));
 
     let length = (CHAIN[0].downgrade)(&config, &mut buffer).expect("BUG: the record fits");
     let expected = Config {
         api: config.api,
-        ..Config::default()
+        ..default_config()
     };
     assert_eq!((CHAIN[0].upgrade)(&buffer[8..length]), Some(expected));
 }
@@ -326,9 +327,9 @@ fn version_1_record_loads_as_the_live_config() {
         option_env!("POOL_HOST").is_none()
             && option_env!("POOL_PORT").is_none()
             && option_env!("POOL_USER").is_none(),
-        "POOL_* env vars override Config::default; unset them to run this test",
+        "POOL_* env vars override the default pool; unset them to run this test",
     );
-    let mut expected = Config::default();
+    let mut expected = default_config();
     expected.cooling.pid.smoother_half_decay_secs = 7;
     assert_eq!(decode_blob::<()>(VERSION_1_RECORD).ok(), Some(expected));
 }

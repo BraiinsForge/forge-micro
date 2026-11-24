@@ -155,7 +155,7 @@ type BoardConfigStorage = FlashStorage<SyncFlash<ubos_ota::EspSharedFlash>>;
 
 ubos_config::config_task!(
     BoardConfigStorage,
-    config::BOARD,
+    &config::BOARD.defaults,
     &config::MINING_INFO,
     FEE_SLOT
 );

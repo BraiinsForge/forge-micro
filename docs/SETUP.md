@@ -76,7 +76,7 @@ boards that have a display.
 
 Pool config lives in the `ubos-config` record store and is persisted in
 the on-chip flash. The HTTP API mutates it at runtime; the `POOL_*` env
-vars only seed `Config::default`, which is the value used on a fresh
+vars only seed `Config::for_board`, which is the value used on a fresh
 board before the first store. A stored blob in flash supersedes both.
 
 Set the env vars before `cargo build` / `cargo run` to change the
@@ -94,7 +94,7 @@ POOL_HOST=stratum.example.com POOL_PORT=3333 cargo run --release
 | `POOL_PROTOCOL` | string | `sv2` | `1`, `sv1` or `stratum` selects Stratum V1; `2`, `sv2`, `stratum2` or any other value selects Stratum V2 with the Braiins pool key |
 | `POOL_PASSWORD` | string | unset → no password | seeds the Sv1 password slot of the default `PoolEntry` |
 
-Code: `ubos/ubos-config/src/lib.rs` (`DEFAULT_POOL_*` and `Config::default`).
+Code: `ubos/ubos-config/src/lib.rs` (`DEFAULT_POOL_*` and `Config::for_board`).
 
 ## mDNS discovery
 

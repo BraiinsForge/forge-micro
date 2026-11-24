@@ -26,8 +26,7 @@
 
 use core::ops::RangeInclusive;
 
-use crate::thermal::{Source, TemperatureDescriptor};
-use ubos_asic::{CoolingSource, CoolingStatistic, HashboardDescriptor};
+use crate::thermal::TemperatureDescriptor;
 use ubos_core::units::Temperature;
 
 pub use crate::versions::live::{CoolingConfig, FanMode, PidConfig, PidTarget, Statistic};
@@ -39,26 +38,6 @@ impl Statistic {
         match self {
             Self::Max => "max",
             Self::Mean => "mean",
-        }
-    }
-}
-
-impl PidTarget {
-    /// The target `board` starts with: the reading, reduction and
-    /// setpoint its cooling profile names.
-    #[must_use]
-    pub const fn default_for(board: &HashboardDescriptor) -> Self {
-        let cooling = &board.cooling;
-        Self {
-            source: match cooling.target_source {
-                CoolingSource::Hashboard => Source::Hashboard,
-                CoolingSource::Chip => Source::Chip,
-            },
-            statistic: match cooling.target_statistic {
-                CoolingStatistic::Max => Statistic::Max,
-                CoolingStatistic::Mean => Statistic::Mean,
-            },
-            temp: cooling.target_temp,
         }
     }
 }
@@ -76,7 +55,7 @@ impl FanMode {
 }
 
 impl Default for PidConfig {
-    /// Factory-tuned PID gains for the BMM101 cooling profile.
+    /// Factory-tuned PID gains that every new config starts with.
     fn default() -> Self {
         Self {
             min_fan_pwm: 20,
@@ -85,23 +64,6 @@ impl Default for PidConfig {
             d_gain: -100.0,
             smoother_half_decay_secs: 10,
             input_smoother_half_decay_secs: 0,
-        }
-    }
-}
-
-impl Default for CoolingConfig {
-    /// Factory default: PID control of the hottest hashboard reading at a
-    /// 67 °C setpoint with tuned gains.
-    fn default() -> Self {
-        Self {
-            mode: FanMode::Auto,
-            target: PidTarget {
-                source: Source::Hashboard,
-                statistic: Statistic::Max,
-                temp: Temperature::from_celsius(67),
-            },
-            fixed_fan_pwm: DEFAULT_FIXED_FAN_PWM,
-            pid: PidConfig::default(),
         }
     }
 }

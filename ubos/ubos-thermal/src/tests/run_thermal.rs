@@ -38,7 +38,9 @@ use std::collections::VecDeque;
 
 use embassy_time::{Duration, MockDriver};
 use rusty_fork::rusty_fork_test;
-use ubos_config::{DefaultTuning, FileStorage, MiningInfo, Runner as ConfigRunner};
+use ubos_config::{
+    DefaultTuning, FileStorage, MiningBounds, MiningInfo, Runner as ConfigRunner, TunerInfo,
+};
 use ubos_core::units::Temperature;
 use ubos_manager::{Handle as ManagerHandle, Message, PauseReason, PauseSubscription, run_manager};
 
@@ -73,7 +75,7 @@ impl TemperatureSensor for ScriptedSensor {
 }
 
 /// A measured reading of 90 °C, above the `dangerous_hashboard_temp` of the
-/// BMM101 that `Config::default` describes. Well above the 45 °C default
+/// BMM101 that the tests run on. Well above the 45 °C default
 /// `cooldown_temp`, so a tick taken while the halt stands evaluates to
 /// `Ok` and not to a resume.
 fn hot_reading() -> Reading {
@@ -109,13 +111,13 @@ impl Drop for StoreDir {
     }
 }
 
-/// The hashboard and bounds the config task runs on. The defaults it
-/// publishes are those of `Config::default`.
-static INFO: MiningInfo = ubos_config::mining_info(
-    &ubos_asic::BMM101_HASHBOARD,
-    &ubos_config::MINING_BOUNDS,
-    DefaultTuning::Fixed,
-);
+/// The bounds of a machine that offers the fixed tuner alone.
+static BOUNDS: MiningBounds =
+    ubos_asic::BMM101_HASHBOARD.bounds(&[TunerInfo::Fixed { name: "Fixed" }], None);
+
+/// The mining metadata the config task runs on. The defaults it publishes
+/// are those of [`crate::default_config`].
+static INFO: MiningInfo = ubos_asic::BMM101_HASHBOARD.mining_info(&BOUNDS, DefaultTuning::Fixed);
 
 /// The real config task over an empty store, which publishes the defaults
 /// on its first poll. `run_thermal` waits for that publish before it reads
@@ -129,7 +131,7 @@ fn run_config<'a>(
         ubos_config::run(
             runner,
             FileStorage::new(dir),
-            &ubos_asic::BMM101_HASHBOARD,
+            &ubos_asic::BMM101_HASHBOARD.defaults,
             &INFO,
             None,
             None,
@@ -172,7 +174,7 @@ fn tick<F: Future, M: Future>(
     thermal: &mut Pin<&mut F>,
     manager: &mut Pin<&mut M>,
 ) {
-    let interval = u64::from(ubos_config::Config::default().thermal.sample_interval_ms);
+    let interval = u64::from(crate::default_config().thermal.sample_interval_ms);
     driver.advance(Duration::from_millis(interval));
     settle(thermal);
     settle(manager);

@@ -28,6 +28,7 @@ use ubos_config::{PidTarget, Source, Statistic};
 use ubos_core::units::{FanPwm, Temperature};
 use ubos_thermal::{TempSample, TempStats};
 
+use super::tests_harness::default_config;
 use super::{Cooling, Hold, Note, PidInput, Step, stale_timeout};
 
 /// Well below the default target, so the PID drives the duty toward its
@@ -60,7 +61,7 @@ fn floor(config: &Config) -> FanPwm {
 
 /// A config with the fan taken off the PID at `duty` percent.
 fn fixed(duty: u8) -> Config {
-    let mut config = Config::default();
+    let mut config = default_config();
     config.cooling.mode = FanMode::Fixed;
     config.cooling.fixed_fan_pwm = duty;
     config
@@ -68,7 +69,7 @@ fn fixed(duty: u8) -> Config {
 
 #[test]
 fn auto_starts_at_the_floor_and_a_measurement_hands_the_fan_to_the_pid() {
-    let config = Config::default();
+    let config = default_config();
     let mut cooling = Cooling::new(&config, START);
     assert_eq!(cooling.pwm, floor(&config));
     assert_eq!(cooling.hold, Hold::None);
@@ -85,7 +86,7 @@ fn auto_starts_at_the_floor_and_a_measurement_hands_the_fan_to_the_pid() {
 
 #[test]
 fn a_reading_with_no_measurement_parks_the_fan_until_one_arrives() {
-    let config = Config::default();
+    let config = default_config();
     let mut cooling = Cooling::new(&config, START);
 
     assert_eq!(cooling.on_reading(None, START), quiet(FanPwm::FULL));
@@ -107,7 +108,7 @@ fn a_reading_with_no_measurement_parks_the_fan_until_one_arrives() {
 fn a_measurement_after_a_hold_reaches_the_pid_unsmoothed() {
     // A proportional-only PID whose duty reads back the temperature it
     // saw, behind a smoother that would otherwise blend 80 into 40.
-    let mut config = Config::default();
+    let mut config = default_config();
     config.cooling.target.temp = Temperature::from_millicelsius(0);
     config.cooling.pid.p_gain = -1.0;
     config.cooling.pid.i_gain = 0.0;
@@ -130,7 +131,7 @@ fn a_measurement_after_a_hold_reaches_the_pid_unsmoothed() {
 
 #[test]
 fn a_stall_forces_full_once_and_a_reading_recovers_it_once() {
-    let config = Config::default();
+    let config = default_config();
     let stale = stale_timeout(config.thermal.sample_interval_ms);
     let mut cooling = Cooling::new(&config, START);
 
@@ -210,7 +211,7 @@ fn a_fixed_duty_change_lands_on_the_next_tick() {
 
 #[test]
 fn leaving_fixed_mode_raises_the_fan_to_the_floor_on_the_next_tick() {
-    let auto = Config::default();
+    let auto = default_config();
     // A fixed duty below the floor, which the PID would not command.
     let mut cooling = Cooling::new(&fixed(0), START);
     assert_eq!(cooling.on_tick(START), quiet(FanPwm::from_percent(0)));
@@ -223,7 +224,7 @@ fn leaving_fixed_mode_raises_the_fan_to_the_floor_on_the_next_tick() {
 
 #[test]
 fn the_pid_follows_the_hashboard_max_and_never_the_die() {
-    let config = Config::default();
+    let config = default_config();
     let mut cooling = Cooling::new(&config, START);
     let hot = Temperature::from_celsius(90);
     let chip = TempStats {
@@ -271,7 +272,7 @@ fn the_pid_follows_the_hashboard_max_and_never_the_die() {
 
 #[test]
 fn the_pid_follows_nothing_under_a_hold_or_a_fixed_duty() {
-    let mut cooling = Cooling::new(&Config::default(), START);
+    let mut cooling = Cooling::new(&default_config(), START);
     cooling.on_reading(Some(hashboard(COOL)), START);
     assert!(cooling.pid_input().is_some());
     cooling.on_reading(None, START);
@@ -284,7 +285,7 @@ fn the_pid_follows_nothing_under_a_hold_or_a_fixed_duty() {
 
 #[test]
 fn the_pid_follows_only_the_target_kind_and_without_it_runs_full() {
-    let mut config = Config::default();
+    let mut config = default_config();
     config.cooling.target = PidTarget {
         source: Source::Chip,
         statistic: Statistic::Mean,
@@ -330,7 +331,7 @@ fn the_pid_follows_only_the_target_kind_and_without_it_runs_full() {
 fn a_new_target_kind_reaches_the_pid_unsmoothed() {
     // The proportional-only PID of the test above for a hold, whose duty
     // reads back the temperature it saw.
-    let mut config = Config::default();
+    let mut config = default_config();
     config.cooling.target.temp = Temperature::from_millicelsius(0);
     config.cooling.pid.p_gain = -1.0;
     config.cooling.pid.i_gain = 0.0;

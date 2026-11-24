@@ -24,6 +24,7 @@ use core::num::NonZeroU32;
 use ubos_core::units::{Efficiency, Frequency, Power, Temperature, Voltage};
 
 use crate::seed::Taken;
+use crate::tests_fixture::default_config;
 use crate::{
     ApiConfig, Config, CoolingConfig, FanMode, FrequencyVoltageTarget, LOAD_BUFFER_SIZE, LoadError,
     MinerConfig, NetworkConfig, NetworkMode, PidConfig, PidTarget, PoolEntry, PowerTarget,
@@ -34,7 +35,7 @@ use crate::{
 /// Round-trip: encode the default config and decode it back.
 #[test]
 fn round_trip_default() {
-    let config = Config::default();
+    let config = default_config();
     let mut buffer = [0u8; 512];
     let length = encode_blob(&config, &mut buffer).expect("encode must succeed");
     let decoded: Config = decode_blob::<()>(&buffer[..length]).expect("decode must succeed");
@@ -60,7 +61,7 @@ fn round_trip_static_network() {
             },
             hostname: heapless::String::try_from("miner-1").expect("BUG: hostname fits"),
         },
-        ..Default::default()
+        ..default_config()
     };
     let mut buffer = [0u8; 512];
     let length = encode_blob(&config, &mut buffer).expect("encode must succeed");
@@ -86,7 +87,7 @@ fn schema_mismatch_returns_error() {
 /// A valid schema-hash prefix but a corrupted postcard payload returns Corrupt.
 #[test]
 fn corrupted_payload_returns_corrupt() {
-    let config = Config::default();
+    let config = default_config();
     let mut buffer = [0u8; 512];
     let length = encode_blob(&config, &mut buffer).expect("encode must succeed");
     // Flip a byte in the postcard payload (offset 8 and beyond).
@@ -108,14 +109,14 @@ fn corrupted_payload_returns_corrupt() {
 /// consciously update both the expected hash and the golden bytes before
 /// the commit can land.
 ///
-/// Precondition: the `POOL_*` env vars consumed by [`Config::default`]
+/// Precondition: the `POOL_*` env vars consumed by [`Config::for_board`]
 /// must be unset at build time. The golden bytes capture the unmodified
 /// factory defaults; setting any override shifts the encoded payload.
 // Schema hash for ubos_config::Config as of this commit.
 // Update this when Config's shape changes.
 const EXPECTED_HASH: [u8; 8] = [22, 94, 167, 65, 122, 95, 186, 108];
 
-// Postcard encoding of Config::default() with the schema-hash prefix.
+// Postcard encoding of default_config() with the schema-hash prefix.
 // 129 bytes total: 8-byte hash + 119-byte pre-network payload + 2-byte
 // network section.
 // Update this when Config's default values or shape changes.
@@ -157,19 +158,19 @@ const EXPECTED_BLOB: &[u8] = &[
 ];
 
 // The golden bytes capture the BMM101 factory defaults, which is what
-// `Config::default()` produces.
+// the fixture config holds.
 #[test]
 fn golden_snapshot() {
     assert!(
         option_env!("POOL_HOST").is_none()
             && option_env!("POOL_PORT").is_none()
             && option_env!("POOL_USER").is_none(),
-        "POOL_* env vars override Config::default; unset them to run this test",
+        "POOL_* env vars override the default pool; unset them to run this test",
     );
 
     assert_eq!(Config::SCHEMA_HASH, EXPECTED_HASH);
 
-    let config = Config::default();
+    let config = default_config();
     let mut buffer = [0u8; 512];
     let length = encode_blob(&config, &mut buffer).expect("encode must succeed");
     assert_eq!(&buffer[..length], EXPECTED_BLOB);
@@ -280,7 +281,7 @@ fn widest_seed_record_fills_its_buffer() {
         }),
     };
     let mut taken = Taken::default();
-    widest.apply(&mut Config::default(), &mut taken);
+    widest.apply(&mut default_config(), &mut taken);
 
     let mut buffer = [0u8; 2 * TAKEN_BUFFER_SIZE];
     let record = postcard::to_slice(&taken, &mut buffer).expect("BUG: the probe holds any record");

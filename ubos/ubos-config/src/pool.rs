@@ -26,7 +26,7 @@
 
 pub use crate::versions::live::{MAX_POOLS, NAME_CAPACITY, PoolEntry, ProtocolKind};
 
-/// Factory-default pool host for [`crate::Config::default`]. Overridable at
+/// Factory-default pool host for [`crate::Config::for_board`]. Overridable at
 /// compile time by setting the `POOL_HOST` env var; a stored config
 /// in flash supersedes both.
 pub const DEFAULT_POOL_HOST: &str = "stratum.braiins.com";

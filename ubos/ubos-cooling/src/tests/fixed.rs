@@ -34,8 +34,8 @@ use ubos_config::{Config, FanMode};
 use ubos_core::units::FanPwm;
 
 use super::tests_harness::{
-    FakeTach, METRICS_STATICS, RecordingFan, Rig, drive, moderate_reading, publish_config,
-    publish_reading, run_config,
+    FakeTach, METRICS_STATICS, RecordingFan, Rig, default_config, drive, moderate_reading,
+    publish_config, publish_reading, run_config,
 };
 use super::{CONTROL_INTERVAL, run_cooling, stale_timeout};
 
@@ -48,7 +48,7 @@ const FIRST_DUTY: u8 = 15;
 const SECOND_DUTY: u8 = 0;
 
 fn fixed_config(duty: u8) -> Config {
-    let mut config = Config::default();
+    let mut config = default_config();
     config.cooling.mode = FanMode::Fixed;
     config.cooling.fixed_fan_pwm = duty;
     config
@@ -64,7 +64,7 @@ rusty_fork_test! {
         let mut config_task = pin!(run_config(&rig, &mut runners.config));
         drive!(config_task);
 
-        let default_config = Config::default();
+        let default_config = default_config();
         let stale = stale_timeout(default_config.thermal.sample_interval_ms);
         let floor_pwm = FanPwm::from_percent(default_config.cooling.pid.min_fan_pwm);
 

@@ -54,9 +54,10 @@ Two placements are deliberate:
 
 Two components have no descriptor on purpose: the fan, because the
 `ubos_cooling::FanOutput`/tach traits already abstract everything the
-binary would otherwise configure, and mining identity (`MiningInfo`),
-which `ubos-config` derives per board from the hashboard descriptor so
-relocating it would buy nothing but a dependency edge.
+binary would otherwise configure, and mining identity (`MiningInfo`).
+The hashboard descriptor builds the `MiningInfo` of each board with
+`HashboardDescriptor::mining_info`, so the machine needs no record of
+its own for it.
 
 `MachineDescriptor` is generic over its PSU type (`Psu: Copy`) rather
 than wrapping a `Bmm`/`Bfm` sum type: no code ever handles a
@@ -148,9 +149,9 @@ graph TD
     machine --> psu[ubos-psu]
     machine --> temperature[ubos-temperature]
     machine --> metrics[ubos-metrics]
-    config[ubos-config] --> asic
+    asic --> config[ubos-config]
     psu --> metrics
-    asic --> core[ubos-core]
+    config --> core[ubos-core]
     temperature --> core
     metrics --> core
 ```

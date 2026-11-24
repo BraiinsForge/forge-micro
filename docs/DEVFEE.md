@@ -112,7 +112,7 @@ to the config task and the serial task:
 pub(crate) const FEE_SLOT: Option<ubos_config::FeeSlot> =
     ubos_config::FeeSlot::last_of(config::FEE_POOL, POOL_SLOTS);
 
-ubos_config::config_task!(BoardConfigStorage, config::BOARD, &config::MINING_INFO, FEE_SLOT);
+ubos_config::config_task!(BoardConfigStorage, &config::BOARD.defaults, &config::MINING_INFO, FEE_SLOT);
 ```
 
 ```rust

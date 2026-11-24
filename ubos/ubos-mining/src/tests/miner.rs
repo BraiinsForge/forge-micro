@@ -955,7 +955,7 @@ fn test_config() -> (
 ) {
     extern crate std;
     let watch = &*std::boxed::Box::leak(std::boxed::Box::new(embassy_sync::watch::Watch::new()));
-    watch.sender().send(ubos_config::Config::default());
+    watch.sender().send(crate::fixture::default_config());
     (
         watch.receiver().expect("configuration receiver"),
         move |config| watch.sender().send(config),

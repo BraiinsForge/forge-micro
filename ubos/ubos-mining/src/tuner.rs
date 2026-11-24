@@ -85,7 +85,7 @@ pub trait MachineTuner<const CHAINS: usize>: Sized {
 
     /// The tuners [`select`](Self::select) builds, in the order the
     /// mining form shows them. The firmware passes this list to
-    /// `ubos_config::bounds`, and the config accepts only a [`Tuning`]
+    /// `HashboardDescriptor::bounds`, and the config accepts only a [`Tuning`]
     /// that one of these tuners reads.
     const TUNERS: &'static [TunerInfo];
 

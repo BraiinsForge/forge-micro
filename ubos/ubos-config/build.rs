@@ -21,7 +21,7 @@
 //! factory-default pool endpoint, so cargo rebuilds this crate when they
 //! change.
 //!
-//! [`crate::Config::default`] reads `POOL_USER`, `POOL_HOST`,
+//! [`crate::Config::for_board`] reads `POOL_USER`, `POOL_HOST`,
 //! `POOL_PORT`, and `POOL_PROTOCOL` through `option_env!`. Cargo does not track `option_env!`
 //! inputs on its own, so without these `rerun-if-env-changed` lines a
 //! `POOL_USER=braiinstest cargo run` could silently reuse a stale build

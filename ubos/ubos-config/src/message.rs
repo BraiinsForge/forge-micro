@@ -57,7 +57,7 @@ pub enum Message {
     /// Revert a pending network preview at once, republishing the
     /// committed config. A no-op when nothing is pending.
     RevertNetwork,
-    /// Wipe the persisted config back to [`Config::default`] and publish
+    /// Wipe the persisted config back to [`Config::for_board`] and publish
     /// the defaults on the state watch. The API layer requests a reboot
     /// immediately after sending this message; the board never returns to
     /// normal operation with the fresh defaults.

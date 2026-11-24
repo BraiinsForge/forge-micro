@@ -115,15 +115,14 @@ pub type TunerSet = ubos_mining::tuner::Tuners;
 
 /// Accepted tuning ranges and tuners for [`BOARD`]; the API validates
 /// against these.
-pub const BOUNDS: ubos_config::MiningBounds = ubos_config::bounds(
-    BOARD,
+pub const BOUNDS: ubos_config::MiningBounds = BOARD.bounds(
     <TunerSet as ubos_mining::tuner::MachineTuner<CHAINS>>::TUNERS,
     Some(ubos_machine::MINIMINER_INPUT_POWER),
 );
 
 /// Static mining capability metadata, built from [`BOARD`].
 pub const MINING_INFO: ubos_config::MiningInfo =
-    ubos_config::mining_info(BOARD, &BOUNDS, ubos_config::DefaultTuning::Fixed);
+    BOARD.mining_info(&BOUNDS, ubos_config::DefaultTuning::Fixed);
 
 /// The fee pool this board mines for: the Braiins fee pool with the
 /// worker the pool reads as an unregistered device, under the build's

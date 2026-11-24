@@ -21,20 +21,12 @@
 //!
 //! Re-exports [`Tuning`] and [`MinerConfig`], which select a tuner and
 //! provide its target for each chip bring-up cycle, from the live
-//! version of the config schema, and defines their defaults and
+//! version of the config schema, and defines their
 //! validation.
 
-use crate::mining::{DefaultTuning, FrequencyVoltageTarget, MiningBounds, PowerTarget};
+use crate::mining::{FrequencyVoltageTarget, MiningBounds, PowerTarget};
 
 pub use crate::versions::live::{MinerConfig, Tuning};
-
-impl Default for Tuning {
-    /// Factory defaults for the BMM101 board. Firmware builds its real
-    /// per-board defaults via [`crate::Config::for_board`].
-    fn default() -> Self {
-        DefaultTuning::Fixed.tuning(&ubos_asic::BMM101_HASHBOARD)
-    }
-}
 
 impl Tuning {
     /// Validate the selected tuner and its parameters against `bounds`.

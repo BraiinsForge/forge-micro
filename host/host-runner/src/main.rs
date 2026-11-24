@@ -31,7 +31,7 @@
 //! Pool config matches the firmware: the stratum task reads
 //! `ubos_config::Config::pool[0]` on each reconnect, so an operator
 //! POSTs credentials to `/api/config` and they persist in the host's
-//! file-backed storage. `Config::default()` seeds an SV1 entry at
+//! file-backed storage. `Config::for_board` seeds an SV1 entry at
 //! the public Braiins endpoint with an empty user so the connection
 //! is rejected until the operator configures their worker.
 //!
@@ -88,13 +88,12 @@ pub const BOARD: &ubos_asic::HashboardDescriptor = &ubos_asic::BMM101_HASHBOARD;
 /// The tuners the host runner runs. The miner builds them, and
 /// [`BOUNDS`] lists them for the config and the mining form.
 pub type TunerSet = ubos_mining::tuner::Tuners;
-pub const BOUNDS: ubos_config::MiningBounds = ubos_config::bounds(
-    BOARD,
+pub const BOUNDS: ubos_config::MiningBounds = BOARD.bounds(
     <TunerSet as ubos_mining::tuner::MachineTuner<1>>::TUNERS,
     Some(ubos_machine::MINIMINER_INPUT_POWER),
 );
 pub const MINING_INFO: ubos_config::MiningInfo =
-    ubos_config::mining_info(BOARD, &BOUNDS, ubos_config::DefaultTuning::Fixed);
+    BOARD.mining_info(&BOUNDS, ubos_config::DefaultTuning::Fixed);
 
 /// Concurrent TCP connections the HTTP server (:80) accepts. It serves
 /// the web UI and the REST API behind one router, and matches the depth
@@ -305,7 +304,15 @@ async fn manager_task(mut manager_runner: ubos_manager::Runner, mining: MiningHa
 
 #[embassy_executor::task]
 async fn config_task(mut config_runner: ubos_config::Runner, storage: FileStorage) -> ! {
-    ubos_config::run(&mut config_runner, storage, BOARD, &MINING_INFO, None, None).await
+    ubos_config::run(
+        &mut config_runner,
+        storage,
+        &BOARD.defaults,
+        &MINING_INFO,
+        None,
+        None,
+    )
+    .await
 }
 
 /// CPU-side ASIC mock; spawned when no BM1362 hashboard is wired.

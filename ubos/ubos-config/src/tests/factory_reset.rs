@@ -21,7 +21,7 @@
 //!
 //! These drive [`crate::factory_reset`] directly — the same helper the
 //! `Message::FactoryReset` arm calls — so a regression in the reset
-//! (a broken `Config::default()` selection or a dropped `persist`) is
+//! (a broken choice of the defaults or a dropped `persist`) is
 //! caught by real code rather than a reimplementation of the steps. The
 //! helper also publishes on the state watch of the handle it is given.
 //! Each of those tests takes the handle in a process of its own, so the
@@ -42,16 +42,18 @@ use ubos_core::units::{Efficiency, Frequency, Power, Temperature, Voltage};
 
 use rusty_fork::rusty_fork_test;
 
+use crate::tests_fixture::{BOUNDS, DEFAULTS, FIXED_ONLY_BOUNDS, INFO, default_config};
+
 use crate::{
     Config, DefaultTuning, FrequencyVoltageTarget, Handle, LOAD_BUFFER_SIZE, MinerConfig,
-    MiningBounds, MiningInfo, PowerTarget, TunerInfo, Tuning, decode_blob, factory_reset,
-    file_storage::FileStorage, load_initial, storage::Storage,
+    MiningInfo, PowerTarget, Tuning, decode_blob, factory_reset, file_storage::FileStorage,
+    load_initial, storage::Storage,
 };
 
 rusty_fork_test! {
     /// Drive `factory_reset` against empty storage, then reload and decode.
     /// Asserts both the returned config and the reloaded blob equal
-    /// `Config::default()`, confirming the reset writes the correct defaults.
+    /// the fixture config, confirming the reset writes the correct defaults.
     #[test]
     fn factory_reset_persists_and_reloads_default() {
         let dir = std::env::temp_dir().join(format!(
@@ -67,17 +69,17 @@ rusty_fork_test! {
         let reset = block_on(factory_reset(
             &runner,
             &mut storage,
-            &ubos_asic::BMM101_HASHBOARD,
+            &DEFAULTS,
             DefaultTuning::Fixed,
         ));
         assert_eq!(
             reset,
-            Config::default(),
-            "factory_reset must return Config::default()"
+            default_config(),
+            "factory_reset must return the defaults"
         );
         assert_eq!(
             block_on(handle.current()),
-            Config::default(),
+            default_config(),
             "factory_reset must publish through the handle it is given"
         );
 
@@ -92,8 +94,8 @@ rusty_fork_test! {
 
         assert_eq!(
             reloaded,
-            Config::default(),
-            "config reloaded after factory reset must equal Config::default()"
+            default_config(),
+            "config reloaded after factory reset must equal the defaults"
         );
 
         let _ = fs::remove_dir_all(&dir);
@@ -118,7 +120,7 @@ rusty_fork_test! {
 
         // Store a modified config (non-default dangerous temperature) to simulate
         // pre-existing state. 85.0 differs from the default of 83.0.
-        let mut modified = Config::default();
+        let mut modified = default_config();
         modified.thermal.dangerous = TemperatureDescriptor {
             chip: None,
             hashboard: Some(Temperature::from_celsius(85)),
@@ -134,17 +136,17 @@ rusty_fork_test! {
         let reset = block_on(factory_reset(
             &runner,
             &mut storage,
-            &ubos_asic::BMM101_HASHBOARD,
+            &DEFAULTS,
             DefaultTuning::Fixed,
         ));
         assert_eq!(
             reset,
-            Config::default(),
-            "factory_reset must return Config::default()"
+            default_config(),
+            "factory_reset must return the defaults"
         );
         assert_eq!(
             block_on(handle.current()),
-            Config::default(),
+            default_config(),
             "factory_reset must publish through the handle it is given"
         );
 
@@ -159,8 +161,8 @@ rusty_fork_test! {
 
         assert_eq!(
             reloaded,
-            Config::default(),
-            "config after factory reset must equal Config::default() even when prior config existed"
+            default_config(),
+            "config after factory reset must equal the defaults even when prior config existed"
         );
         assert_ne!(
             reloaded.thermal, modified.thermal,
@@ -171,23 +173,8 @@ rusty_fork_test! {
     }
 }
 
-static BMM101_INFO: MiningInfo = crate::mining_info(
-    &ubos_asic::BMM101_HASHBOARD,
-    &crate::MINING_BOUNDS,
-    DefaultTuning::Fixed,
-);
-
-static FIXED_ONLY_BOUNDS: MiningBounds = crate::bounds(
-    &ubos_asic::BMM101_HASHBOARD,
-    &[TunerInfo::Fixed { name: "Fixed" }],
-    None,
-);
-
-static FIXED_ONLY_INFO: MiningInfo = crate::mining_info(
-    &ubos_asic::BMM101_HASHBOARD,
-    &FIXED_ONLY_BOUNDS,
-    DefaultTuning::Fixed,
-);
+/// The mining metadata of a machine that offers the fixed tuner alone.
+static FIXED_ONLY_INFO: MiningInfo = crate::tests_fixture::info(&FIXED_ONLY_BOUNDS);
 
 /// Store `tuning` in a config whose thermal limit differs from the
 /// default, boot it against `info`, and return what was stored and what
@@ -200,7 +187,7 @@ fn boot_with_stored(name: &str, tuning: Tuning, info: &'static MiningInfo) -> (C
             .map_or(0, |duration| duration.as_nanos()),
     ));
     let mut storage = FileStorage::new(&dir);
-    let mut stored = Config::default();
+    let mut stored = default_config();
     stored.thermal.dangerous = TemperatureDescriptor {
         chip: None,
         hashboard: Some(Temperature::from_celsius(85)),
@@ -210,12 +197,7 @@ fn boot_with_stored(name: &str, tuning: Tuning, info: &'static MiningInfo) -> (C
     let len = crate::encode_blob(&stored, &mut buffer).expect("BUG: encode_blob failed in test");
     block_on(storage.store(crate::storage::CONFIG_KEY, &buffer[..len]))
         .expect("BUG: FileStorage::store failed in test");
-    let loaded = block_on(load_initial(
-        &mut storage,
-        &ubos_asic::BMM101_HASHBOARD,
-        info,
-        None,
-    ));
+    let loaded = block_on(load_initial(&mut storage, &DEFAULTS, info, None));
     let _ = fs::remove_dir_all(&dir);
     (stored, loaded)
 }
@@ -224,14 +206,14 @@ fn boot_with_stored(name: &str, tuning: Tuning, info: &'static MiningInfo) -> (C
 /// rest of the stored config survives.
 #[test]
 fn load_clamps_stored_tuning_and_keeps_the_rest() {
-    let frequency = crate::MINING_BOUNDS.frequency.clone();
+    let frequency = BOUNDS.frequency.clone();
     let (stored, loaded) = boot_with_stored(
         "clamp",
         Tuning::Fixed(FrequencyVoltageTarget {
             frequency: Frequency::from_khz(frequency.end().khz() + 1),
             voltage: Voltage::from_mv(1_200),
         }),
-        &BMM101_INFO,
+        &INFO,
     );
     let clamped = Tuning::Fixed(FrequencyVoltageTarget {
         frequency: *frequency.end(),
@@ -260,7 +242,7 @@ fn load_replaces_unoffered_tuning_and_keeps_the_rest() {
         }),
         &FIXED_ONLY_INFO,
     );
-    let default = DefaultTuning::Fixed.tuning(&ubos_asic::BMM101_HASHBOARD);
+    let default = DefaultTuning::Fixed.tuning(&DEFAULTS);
     assert_eq!(
         loaded,
         Config {

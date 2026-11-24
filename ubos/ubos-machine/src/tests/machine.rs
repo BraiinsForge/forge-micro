@@ -21,7 +21,6 @@
 //! sensor table takes, so the thermal loop judges each reading against a
 //! threshold of its own kind.
 
-use ubos_asic::CoolingSource;
 use ubos_temperature::{SensorDescriptor, TempSource};
 
 use super::*;
@@ -45,14 +44,11 @@ fn sources(sensor: &SensorDescriptor) -> [Option<TempSource>; 5] {
 fn kinds_match_sensors<Psu: Copy>(machine: &MachineDescriptor<Psu>) -> bool {
     let reads =
         |kind: fn(TempSource) -> bool| machine.temp.iter().flat_map(sources).flatten().any(kind);
-    let board = machine.hashboard;
-    board.dangerous_chip_temp.is_some() == reads(|source| matches!(source, TempSource::Chip(_)))
-        && board.dangerous_hashboard_temp.is_some()
-            == reads(|source| source == TempSource::Hashboard)
-        && match board.cooling.target_source {
-            CoolingSource::Chip => board.dangerous_chip_temp.is_some(),
-            CoolingSource::Hashboard => board.dangerous_hashboard_temp.is_some(),
-        }
+    let defaults = machine.hashboard.defaults;
+    let dangerous = defaults.dangerous;
+    dangerous.chip.is_some() == reads(|source| matches!(source, TempSource::Chip(_)))
+        && dangerous.hashboard.is_some() == reads(|source| source == TempSource::Hashboard)
+        && dangerous.temp(defaults.cooling_target.source).is_some()
 }
 
 #[test]

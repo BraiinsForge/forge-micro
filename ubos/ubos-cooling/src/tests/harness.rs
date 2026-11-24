@@ -40,8 +40,8 @@ use std::format;
 
 use embassy_time::{Duration, MockDriver};
 use ubos_config::{
-    Config, DefaultTuning, FileStorage, Handle as ConfigHandle, Message, MiningInfo,
-    Runner as ConfigRunner,
+    Config, DefaultTuning, FileStorage, Handle as ConfigHandle, Message, MiningBounds, MiningInfo,
+    Runner as ConfigRunner, TunerInfo,
 };
 use ubos_core::units::{FanPwm, FanRpm, Temperature};
 use ubos_manager::Handle as ManagerHandle;
@@ -122,13 +122,19 @@ impl TemperatureSensor for OneReading {
     }
 }
 
-/// The hashboard and bounds the config task runs on. The defaults it
-/// publishes are those of `Config::default`.
-static INFO: MiningInfo = ubos_config::mining_info(
-    &ubos_asic::BMM101_HASHBOARD,
-    &ubos_config::MINING_BOUNDS,
-    DefaultTuning::Fixed,
-);
+/// The hashboard whose defaults the config task and the tests run on.
+const BOARD: &ubos_asic::HashboardDescriptor = &ubos_asic::BMM101_HASHBOARD;
+
+/// The bounds of a machine that offers the fixed tuner alone.
+static BOUNDS: MiningBounds = BOARD.bounds(&[TunerInfo::Fixed { name: "Fixed" }], None);
+
+/// The mining metadata the config task runs on.
+static INFO: MiningInfo = BOARD.mining_info(&BOUNDS, DefaultTuning::Fixed);
+
+/// The config that the config task publishes over an empty store.
+pub(crate) fn default_config() -> Config {
+    Config::for_board(&BOARD.defaults, DefaultTuning::Fixed)
+}
 
 /// The real config task over a store in a directory of its own.
 pub(crate) fn run_config<'a>(
@@ -140,7 +146,7 @@ pub(crate) fn run_config<'a>(
         ubos_config::run(
             runner,
             FileStorage::new(dir),
-            &ubos_asic::BMM101_HASHBOARD,
+            &BOARD.defaults,
             &INFO,
             None,
             None,

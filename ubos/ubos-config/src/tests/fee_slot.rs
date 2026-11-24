@@ -18,8 +18,9 @@
 // shall be considered distinct from the grant above.
 
 use super::*;
+use crate::Handle;
 use crate::fee::{FeePool, FeeSlot, FeeWorker, Fixed};
-use crate::{Config, Handle};
+use crate::tests_fixture::{BOUNDS, default_config};
 use core::fmt::Write as _;
 use embassy_futures::block_on;
 use rusty_fork::rusty_fork_test;
@@ -49,7 +50,7 @@ rusty_fork_test! {
         assert_eq!(POOL_SLOTS, MAX_POOLS);
         assert_eq!(FeeSlot::last_of(FEE, FOUR_SESSIONS), None);
         let (runner, handle) = Handle::take();
-        runner.publish(Config::default());
+        runner.publish(default_config());
         assert_eq!(block_on(handle.pool_slot(MAX_POOLS)), None);
         assert_eq!(block_on(handle.view()).fee, None);
         assert_eq!(block_on(handle.view()).fee_permille, None);
@@ -78,7 +79,7 @@ rusty_fork_test! {
         let fee = FeeSlot::last_of(FEE, FOUR_SESSIONS).expect("the switch is on");
         let (runner, handle) = Handle::take();
         crate::fee::FEE_SLOT.init(fee).expect("BUG: the cell is this test's own");
-        runner.publish(Config::default());
+        runner.publish(default_config());
         let config = block_on(handle.current());
         assert_eq!(block_on(handle.pool_slot(0)), config.pool.first().cloned());
         assert_eq!(block_on(handle.pool_slot(MAX_POOLS - 1)), None);
@@ -90,7 +91,7 @@ rusty_fork_test! {
         assert_eq!(view.pool.as_ref(), Some(&config.pool));
         assert_eq!(view.fee, Some(FEE.entry(&[])));
         assert_eq!(view.fee_permille, Some(FEE.permille));
-        assert_eq!(view.validate(&config, &crate::mining::BOUNDS), Ok(()));
+        assert_eq!(view.validate(&config, &BOUNDS), Ok(()));
     }
 }
 
@@ -126,7 +127,7 @@ rusty_fork_test! {
         .expect("the switch is on");
         let (runner, handle) = Handle::take();
         crate::fee::FEE_SLOT.init(fee).expect("BUG: the cell is this test's own");
-        runner.publish(Config::default());
+        runner.publish(default_config());
         let mut config = block_on(handle.current());
         let primary = config
             .pool
@@ -151,7 +152,7 @@ rusty_fork_test! {
         let fee = FeeSlot::last_of(FEE, MAX_POOLS).expect("the switch is on");
         let (runner, handle) = Handle::take();
         crate::fee::FEE_SLOT.init(fee).expect("BUG: the cell is this test's own");
-        runner.publish(Config::default());
+        runner.publish(default_config());
         assert_eq!(block_on(handle.pool_slot(MAX_POOLS - 1)), Some(FEE.entry(&[])));
         assert_eq!(block_on(handle.pool_slot(MAX_POOLS)), None);
     }

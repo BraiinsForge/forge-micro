@@ -27,7 +27,6 @@
 
 use core::ops::RangeInclusive;
 
-use ubos_asic::HashboardDescriptor;
 use ubos_core::units::Temperature;
 
 pub use crate::versions::live::{Source, TemperatureDescriptor, ThermalConfig};
@@ -61,16 +60,6 @@ impl TemperatureDescriptor {
             && self.hashboard.is_some() == other.hashboard.is_some()
     }
 
-    /// The halt thresholds `board` declares, one for each kind of
-    /// reading the machine measures.
-    #[must_use]
-    pub const fn dangerous_of(board: &HashboardDescriptor) -> Self {
-        Self {
-            chip: board.dangerous_chip_temp,
-            hashboard: board.dangerous_hashboard_temp,
-        }
-    }
-
     /// The highest of the temperatures, or `None` when there is none.
     #[must_use]
     pub fn max(&self) -> Option<Temperature> {
@@ -79,11 +68,11 @@ impl TemperatureDescriptor {
 }
 
 /// Poll interval in milliseconds a board starts with. It is the same on
-/// every board, so it lives here rather than on the board descriptor.
+/// every board, so it lives here rather than in the hashboard defaults.
 pub(crate) const DEFAULT_SAMPLE_INTERVAL_MS: u32 = 1000;
 
 /// Resume threshold a board starts with. It is the same on every board,
-/// so it lives here rather than on the board descriptor.
+/// so it lives here rather than in the hashboard defaults.
 pub(crate) const DEFAULT_COOLDOWN_TEMP: Temperature = Temperature::from_celsius(45);
 
 impl ThermalConfig {
