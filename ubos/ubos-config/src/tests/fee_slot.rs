@@ -18,9 +18,10 @@
 // shall be considered distinct from the grant above.
 
 use super::*;
-use crate::Handle;
 use crate::fee::{FeePool, FeeSlot, FeeWorker, Fixed};
+use crate::{Config, Handle};
 use core::fmt::Write as _;
+use embassy_futures::block_on;
 use rusty_fork::rusty_fork_test;
 
 /// The worker a fee board states: here a fixed one, so the entry
@@ -47,10 +48,11 @@ rusty_fork_test! {
         }
         assert_eq!(POOL_SLOTS, MAX_POOLS);
         assert_eq!(FeeSlot::last_of(FEE, FOUR_SESSIONS), None);
-        let (_runner, handle) = Handle::take();
-        assert_eq!(handle.pool_slot(MAX_POOLS), None);
-        assert_eq!(handle.view().fee, None);
-        assert_eq!(handle.view().fee_permille, None);
+        let (runner, handle) = Handle::take();
+        runner.publish(Config::default());
+        assert_eq!(block_on(handle.pool_slot(MAX_POOLS)), None);
+        assert_eq!(block_on(handle.view()).fee, None);
+        assert_eq!(block_on(handle.view()).fee_permille, None);
     }
 }
 
@@ -74,16 +76,17 @@ rusty_fork_test! {
             return;
         }
         let fee = FeeSlot::last_of(FEE, FOUR_SESSIONS).expect("the switch is on");
-        let (_runner, handle) = Handle::take();
+        let (runner, handle) = Handle::take();
         crate::fee::FEE_SLOT.init(fee).expect("BUG: the cell is this test's own");
-        let config = handle.current();
-        assert_eq!(handle.pool_slot(0), config.pool.first().cloned());
-        assert_eq!(handle.pool_slot(MAX_POOLS - 1), None);
-        assert_eq!(handle.pool_slot(FOUR_SESSIONS - 1), Some(FEE.entry(&[])));
-        assert_eq!(handle.pool_slot(FOUR_SESSIONS), None);
+        runner.publish(Config::default());
+        let config = block_on(handle.current());
+        assert_eq!(block_on(handle.pool_slot(0)), config.pool.first().cloned());
+        assert_eq!(block_on(handle.pool_slot(MAX_POOLS - 1)), None);
+        assert_eq!(block_on(handle.pool_slot(FOUR_SESSIONS - 1)), Some(FEE.entry(&[])));
+        assert_eq!(block_on(handle.pool_slot(FOUR_SESSIONS)), None);
         // The GET view serves the fee entry as its own field, beside
         // the operator list, and a POST that echoes it back validates.
-        let view = handle.view();
+        let view = block_on(handle.view());
         assert_eq!(view.pool.as_ref(), Some(&config.pool));
         assert_eq!(view.fee, Some(FEE.entry(&[])));
         assert_eq!(view.fee_permille, Some(FEE.permille));
@@ -121,9 +124,10 @@ rusty_fork_test! {
             MAX_POOLS,
         )
         .expect("the switch is on");
-        let (_runner, handle) = Handle::take();
+        let (runner, handle) = Handle::take();
         crate::fee::FEE_SLOT.init(fee).expect("BUG: the cell is this test's own");
-        let mut config = handle.current();
+        runner.publish(Config::default());
+        let mut config = block_on(handle.current());
         let primary = config
             .pool
             .first()
@@ -132,9 +136,9 @@ rusty_fork_test! {
         while config.pool.push(primary.clone()).is_ok() {}
         assert_eq!(config.pool.len(), MAX_POOLS);
         crate::STATE_WATCH.sender().send(config);
-        let fee_entry = handle.pool_slot(MAX_POOLS - 1).expect("the fee slot");
+        let fee_entry = block_on(handle.pool_slot(MAX_POOLS - 1)).expect("the fee slot");
         assert_eq!(fee_entry.user.as_str(), "2");
-        assert_eq!(handle.view().fee, Some(fee_entry));
+        assert_eq!(block_on(handle.view()).fee, Some(fee_entry));
     }
 }
 
@@ -145,9 +149,10 @@ rusty_fork_test! {
             return;
         }
         let fee = FeeSlot::last_of(FEE, MAX_POOLS).expect("the switch is on");
-        let (_runner, handle) = Handle::take();
+        let (runner, handle) = Handle::take();
         crate::fee::FEE_SLOT.init(fee).expect("BUG: the cell is this test's own");
-        assert_eq!(handle.pool_slot(MAX_POOLS - 1), Some(FEE.entry(&[])));
-        assert_eq!(handle.pool_slot(MAX_POOLS), None);
+        runner.publish(Config::default());
+        assert_eq!(block_on(handle.pool_slot(MAX_POOLS - 1)), Some(FEE.entry(&[])));
+        assert_eq!(block_on(handle.pool_slot(MAX_POOLS)), None);
     }
 }

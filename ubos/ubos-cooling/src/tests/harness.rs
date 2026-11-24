@@ -189,7 +189,11 @@ pub(crate) fn publish_reading(
     reading: Reading,
     mut rest: impl FnMut(),
 ) {
-    let interval = u64::from(rig.config.current().thermal.sample_interval_ms);
+    let interval = u64::from(
+        embassy_futures::block_on(rig.config.current())
+            .thermal
+            .sample_interval_ms,
+    );
     let mut thermal = pin!(run_thermal(
         OneReading(Cell::new(Some(reading))),
         NoAmbient,

@@ -462,12 +462,15 @@ impl Service for RestApiService {
                 write_json_response(connection, status, body).await
             }
             ("GET", "/api/config") => {
+                // The view is read before the buffer exists, so the
+                // future holds the buffer across the write only.
+                let response = self.config.view().await;
                 let mut body_buf = [0u8; CONFIG_RESPONSE_BUFFER_SIZE];
-                // Drop the snapshot and the response struct before the
-                // await so neither lives on the rest_api future stack
-                // across write_json_response.
+                // Drop the response struct before the await so it does
+                // not live on the rest_api future stack across
+                // write_json_response.
                 let serialize_result = {
-                    let response = self.config.view();
+                    let response = response;
                     serde_json_core::ser::to_slice(&response, &mut body_buf)
                 };
                 let Ok(length) = serialize_result else {
@@ -493,7 +496,7 @@ impl Service for RestApiService {
                     .await;
                 };
 
-                let current = self.config.current();
+                let current = self.config.current().await;
 
                 // An empty password in the update means the operator did
                 // not re-type the current secret; preserve the stored value
@@ -551,8 +554,8 @@ impl Service for RestApiService {
 /// Call once before spawning worker tasks so the first request
 /// authenticates against the operator's configured credentials. Warn
 /// when default credentials are still in place.
-pub fn seed_api_credentials(config: ubos_config::Handle) {
-    let api = config.current().api;
+pub async fn seed_api_credentials(config: ubos_config::Handle) {
+    let api = config.current().await.api;
     ubos_auth::auth::set_credentials(&api.username, &api.password);
     ubos_auth::auth::warn_if_default_credentials();
 }

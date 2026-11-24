@@ -237,6 +237,34 @@ async fn mdns_task(stack: Stack<'static>) -> ! {
     ubos_mdns::run_mdns(stack, BOARD_NAME, BOARD_NAME, "host", MDNS_SERVICES).await
 }
 
+/// Seeds both credential stores from the first published config, then
+/// spawns the HTTP workers, so the first request authenticates against
+/// the credentials of the operator. A task, because the seeds wait for
+/// the config task, which runs once the executor does.
+#[embassy_executor::task]
+async fn serve_http_task(
+    spawner: Spawner,
+    config_handle: ubos_config::Handle,
+    acceptor: ubos_http::TcpAccept<'static>,
+    buffers: [&'static mut [u8]; HTTP_POOL],
+    service: &'static HttpService,
+) {
+    ubos_api::seed_api_credentials(config_handle).await;
+    ubos_webui::seed_webui_credentials(config_handle).await;
+    for buffer in buffers {
+        spawner.spawn(
+            http_worker_task(
+                acceptor,
+                buffer,
+                service,
+                ubos_http::consts::Http::SOCKET_TIMEOUT,
+                ubos_http::consts::Http::IDLE_TIMEOUT,
+            )
+            .expect("BUG: http_worker_task token"),
+        );
+    }
+}
+
 /// Keeps the credential store in sync with config changes at runtime.
 #[embassy_executor::task]
 async fn sync_credentials_task(config_handle: ubos_config::Handle) -> ! {
@@ -320,7 +348,7 @@ async fn stratum_client_task(stack: Stack<'static>, config_handle: ubos_config::
         pool.clear_work();
         pool.set_alive(false);
 
-        let snapshot = config_handle.current();
+        let snapshot = config_handle.current().await;
         let Some(entry) = snapshot.pool.first() else {
             warn!("stratum-client: pool list empty, awaiting config update");
             if had_pool {
@@ -507,14 +535,13 @@ fn main() {
         ubos_auth::csprng::seed_csprng(csprng_seed);
 
         // The web UI and the REST API on :80 — seed both credential
-        // stores once, then spawn one worker task per pool slot so each
-        // has its own static TaskStorage. The executor closure is not
+        // stores, then spawn one worker task per pool slot so each has its
+        // own static TaskStorage. `serve_http_task` does both once the
+        // config is published. The executor closure is not
         // async, so `block_on` drives the infallible bind to match the
         // firmware's boot-time ordering. This block and the metrics one
         // below hand-expand `serve_http_pool!`, which assumes an async
         // context; keep them in sync if that macro changes.
-        ubos_api::seed_api_credentials(config_handle);
-        ubos_webui::seed_webui_credentials(config_handle);
         static HTTP_TCP_BUFFERS: ConstStaticCell<
             edge_nal_embassy::TcpBuffers<
                 HTTP_POOL,
@@ -556,18 +583,10 @@ fn main() {
             HTTP_WORK.take(),
             ubos_http::consts::Http::REQUEST_BUFFER_SIZE,
         );
-        for buffer in http_buffers {
-            spawner.spawn(
-                http_worker_task(
-                    http_acceptor,
-                    buffer,
-                    http_service,
-                    ubos_http::consts::Http::SOCKET_TIMEOUT,
-                    ubos_http::consts::Http::IDLE_TIMEOUT,
-                )
-                .expect("BUG: http_worker_task token"),
-            );
-        }
+        spawner.spawn(
+            serve_http_task(spawner, config_handle, http_acceptor, http_buffers, http_service)
+                .expect("BUG: serve_http_task token"),
+        );
         spawner.spawn(
             sync_credentials_task(config_handle)
                 .expect("BUG: sync_credentials_task token"),

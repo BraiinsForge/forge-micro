@@ -358,7 +358,7 @@ where
     // Extract the configured hostname before building SystemInfo so the
     // full Config snapshot is dropped before the serialize_and_respond
     // await, keeping the response future small.
-    let configured_hostname = service.config.current().network.hostname;
+    let configured_hostname = service.config.current().await.network.hostname;
     let hostname = if configured_hostname.is_empty() {
         board_name
     } else {
@@ -596,7 +596,7 @@ where
     let mode = match config.pending_mode_is_static() {
         Some(true) => "static",
         Some(false) => "dhcp",
-        None => match config.current().network.mode {
+        None => match config.current().await.network.mode {
             ubos_config::NetworkMode::Dhcp => "dhcp",
             ubos_config::NetworkMode::Static { .. } => "static",
         },

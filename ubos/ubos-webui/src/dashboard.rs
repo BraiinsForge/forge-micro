@@ -608,8 +608,8 @@ impl Service for DashboardService {
 /// authenticates against the operator's configured credentials. The REST
 /// API listener owns the config watch that keeps the shared credential
 /// store in sync on later changes.
-pub fn seed_webui_credentials(config: ubos_config::Handle) {
-    let api = config.current().api;
+pub async fn seed_webui_credentials(config: ubos_config::Handle) {
+    let api = config.current().await.api;
     ubos_auth::auth::set_credentials(&api.username, &api.password);
     ubos_auth::auth::warn_if_default_credentials();
 }

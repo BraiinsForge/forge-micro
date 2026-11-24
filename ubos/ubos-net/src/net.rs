@@ -550,7 +550,7 @@ pub async fn run_network_control(
     let mut network = config.subscribe_network();
     // Seed from the committed config the firmware already applied at boot,
     // so only a genuine later transition triggers a switch.
-    let mut applied = config.current().network;
+    let mut applied = config.current().await.network;
     let mut last_addr: Option<Ipv4Address> = None;
     let mut confirm_pending = false;
 

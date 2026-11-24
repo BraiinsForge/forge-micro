@@ -76,7 +76,7 @@ rusty_fork_test! {
             "factory_reset must return Config::default()"
         );
         assert_eq!(
-            handle.current(),
+            block_on(handle.current()),
             Config::default(),
             "factory_reset must publish through the handle it is given"
         );
@@ -143,7 +143,7 @@ rusty_fork_test! {
             "factory_reset must return Config::default()"
         );
         assert_eq!(
-            handle.current(),
+            block_on(handle.current()),
             Config::default(),
             "factory_reset must publish through the handle it is given"
         );

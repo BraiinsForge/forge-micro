@@ -248,7 +248,7 @@ pub async fn run_stratum_session<const N: usize>(
         // removed entry would otherwise stay "Alive" forever.
         handle.set_alive(false);
 
-        let Some(entry) = config.pool_slot(slot) else {
+        let Some(entry) = config.pool_slot(slot).await else {
             // An empty primary slot means no mining at all — worth a
             // warning. Higher slots are backup entries; absent ones
             // are the normal single-pool configuration.

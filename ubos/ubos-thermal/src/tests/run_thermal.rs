@@ -38,6 +38,7 @@ use std::collections::VecDeque;
 
 use embassy_time::{Duration, MockDriver};
 use rusty_fork::rusty_fork_test;
+use ubos_config::{DefaultTuning, FileStorage, MiningInfo, Runner as ConfigRunner};
 use ubos_core::units::Temperature;
 use ubos_manager::{Handle as ManagerHandle, Message, PauseReason, PauseSubscription, run_manager};
 
@@ -84,6 +85,57 @@ fn hot_reading() -> Reading {
             mean: temp,
         }),
     })
+}
+
+/// The directory of the config store of one test, removed when the test
+/// ends.
+struct StoreDir(std::path::PathBuf);
+
+impl StoreDir {
+    fn new() -> Self {
+        Self(std::env::temp_dir().join(std::format!(
+            "ubos_thermal_{}_{:x}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |duration| duration.as_nanos()),
+        )))
+    }
+}
+
+impl Drop for StoreDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// The hashboard and bounds the config task runs on. The defaults it
+/// publishes are those of `Config::default`.
+static INFO: MiningInfo = ubos_config::mining_info(
+    &ubos_asic::BMM101_HASHBOARD,
+    &ubos_config::MINING_BOUNDS,
+    DefaultTuning::Fixed,
+);
+
+/// The real config task over an empty store, which publishes the defaults
+/// on its first poll. `run_thermal` waits for that publish before it reads
+/// its config.
+fn run_config<'a>(
+    store: &StoreDir,
+    runner: &'a mut ConfigRunner,
+) -> impl Future<Output = core::convert::Infallible> + use<'a> {
+    let dir = store.0.clone();
+    async move {
+        ubos_config::run(
+            runner,
+            FileStorage::new(dir),
+            &ubos_asic::BMM101_HASHBOARD,
+            &INFO,
+            None,
+            None,
+        )
+        .await
+    }
 }
 
 /// Polls per phase. One tick's chain of awaits is a handful of polls, so
@@ -145,7 +197,10 @@ rusty_fork_test! {
         let (mut manager_runner, manager) = ManagerHandle::take();
         let (_mining_runner, mining) = ubos_mining::Handle::take();
         let (mut thermal_runner, _thermal_handle) = crate::Handle::take();
-        let (_config_runner, config) = ubos_config::Handle::take();
+        let (mut config_runner, config) = ubos_config::Handle::take();
+        let store = StoreDir::new();
+        let mut config_task = pin!(run_config(&store, &mut config_runner));
+        settle(&mut config_task);
         let mut mask = manager.subscribe();
         let mut manager_task = pin!(run_manager(&mut manager_runner, mining));
 
@@ -190,7 +245,10 @@ rusty_fork_test! {
         let (mut manager_runner, manager) = ManagerHandle::take();
         let (_mining_runner, mining) = ubos_mining::Handle::take();
         let (mut thermal_runner, _thermal_handle) = crate::Handle::take();
-        let (_config_runner, config) = ubos_config::Handle::take();
+        let (mut config_runner, config) = ubos_config::Handle::take();
+        let store = StoreDir::new();
+        let mut config_task = pin!(run_config(&store, &mut config_runner));
+        settle(&mut config_task);
         let mut mask = manager.subscribe();
         let mut manager_task = pin!(run_manager(&mut manager_runner, mining));
 
@@ -270,7 +328,10 @@ rusty_fork_test! {
         let (mut manager_runner, manager) = ManagerHandle::take();
         let (_mining_runner, mining) = ubos_mining::Handle::take();
         let (mut thermal_runner, thermal_handle) = crate::Handle::take();
-        let (_config_runner, config) = ubos_config::Handle::take();
+        let (mut config_runner, config) = ubos_config::Handle::take();
+        let store = StoreDir::new();
+        let mut config_task = pin!(run_config(&store, &mut config_runner));
+        settle(&mut config_task);
         let mut mask = manager.subscribe();
         let mut manager_task = pin!(run_manager(&mut manager_runner, mining));
 

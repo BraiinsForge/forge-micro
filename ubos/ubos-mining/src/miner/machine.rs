@@ -63,8 +63,8 @@ where
     pub async fn run(&mut self, config: ubos_config::Handle) {
         let mut subscription = config.subscribe();
         // This task is spawned before the configuration task, and the
-        // first state reads the tuning. Without the wait it would read
-        // `Config::default()`, the operating point of another board.
+        // first state reads the tuning through this subscription, so it
+        // waits for the first published config.
         subscription.changed().await;
         self.cut_rail().await;
         let mut state = MinerState::Choose(Choose);

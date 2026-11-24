@@ -53,6 +53,8 @@ portable-atomic  = { workspace = true }
 # The `run_thermal` tests run the real manager, which halts mining through
 # its handle, and take every handle in a process of their own.
 ubos-mining      = { workspace = true, default-features = false }
+# The loop tests run the real config task over a `FileStorage`.
+ubos-config      = { workspace = true, default-features = false, features = ["std"] }
 rusty-fork       = { workspace = true }
 
 [package.metadata.cargo-machete]

@@ -681,7 +681,7 @@ where
     T: TachReader<N>,
 {
     let mut config_subscription = config_handle.subscribe();
-    let mut cooling = Cooling::new(&config_handle.current(), Instant::now());
+    let mut cooling = Cooling::new(&config_handle.current().await, Instant::now());
 
     let tach_labels = T::LABELS;
 

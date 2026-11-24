@@ -451,7 +451,7 @@ pub async fn run_pool_weights_watcher(
     let mut generation = config.subscribe_generation();
     let mut last_sent: Option<[u32; 8]> = None;
     loop {
-        let weights = pool_weights(&config.current().pool);
+        let weights = pool_weights(&config.current().await.pool);
         if last_sent != Some(weights) {
             for actor in actors {
                 actor.set_pool_weights(weights);

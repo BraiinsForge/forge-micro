@@ -602,7 +602,7 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatu
 ) -> ! {
     let publisher = runner.publisher();
     let mut config_subscription = config_handle.subscribe();
-    let mut config: ThermalConfig = config_handle.current().thermal;
+    let mut config: ThermalConfig = config_handle.current().await.thermal;
 
     let mut sample_interval = Duration::from_millis(u64::from(config.sample_interval_ms));
     let mut ticker = Ticker::every(sample_interval);

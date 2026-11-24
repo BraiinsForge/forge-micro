@@ -54,6 +54,10 @@ mod tests_versions;
 #[path = "tests/validation.rs"]
 mod tests_validation;
 
+#[cfg(test)]
+#[path = "tests/handle.rs"]
+mod tests_handle;
+
 #[cfg(all(test, feature = "std"))]
 #[path = "tests/factory_reset.rs"]
 mod tests_factory_reset;
@@ -153,7 +157,16 @@ ubos_events::events! {
 ///
 /// Covers thermal, cooling, mining/tuner, manager, API, and stratum
 /// client, with two slots spare for future consumers.
-const WATCH_CAPACITY: usize = 8;
+const WATCH_SUBSCRIBERS: usize = 8;
+
+/// Receiver slots that tasks hold while they wait in [`Handle::current`]
+/// for the first publish. It covers every task that can wait: cooling,
+/// thermal, net control, the pool-weights watcher, one stratum session for
+/// each pool slot, and the serve task, with spare slots.
+const FIRST_PUBLISH_WAITERS: usize = 32;
+
+/// Receiver slots of the config watch: the subscribers and the waiters.
+const WATCH_CAPACITY: usize = WATCH_SUBSCRIBERS + FIRST_PUBLISH_WAITERS;
 
 /// Depth of the config command channel.
 const COMMAND_CHANNEL_DEPTH: usize = 4;
@@ -325,13 +338,26 @@ impl Handle {
         (Runner(()), Self(()))
     }
 
-    /// Returns the most recently published config, falling back to
-    /// [`Config::default`] if nothing has been published yet.
-    #[must_use]
-    pub fn current(&self) -> Config {
-        // Fall back to Default before the first publish; the window is
-        // tiny but must not return garbage.
-        STATE_WATCH.try_get().unwrap_or_default()
+    /// Returns the most recently published config, and waits for the
+    /// first publish when the config task has made none yet.
+    ///
+    /// A task that starts before the config task has read the store
+    /// waits here, so it never runs on values that the board did not
+    /// state. The wait holds a receiver of the watch until the publish
+    /// and gives it back on return.
+    ///
+    /// # Panics
+    ///
+    /// Panics if more tasks wait than [`FIRST_PUBLISH_WAITERS`] allows.
+    pub async fn current(&self) -> Config {
+        if let Some(config) = STATE_WATCH.try_get() {
+            return config;
+        }
+        STATE_WATCH
+            .receiver()
+            .expect("BUG: first-publish waiters exhausted the receiver slots; raise FIRST_PUBLISH_WAITERS")
+            .get()
+            .await
     }
 
     /// The entry a session slot runs: the operator's entry below the
@@ -340,9 +366,8 @@ impl Handle {
     /// the fee entry is built on each read over the current config:
     /// its worker name follows the operator pools the board runs,
     /// which are the slots below the fee's.
-    #[must_use]
-    pub fn pool_slot(&self, slot: usize) -> Option<PoolEntry> {
-        let current = self.current();
+    pub async fn pool_slot(&self, slot: usize) -> Option<PoolEntry> {
+        let current = self.current().await;
         if let Some(fee) = fee::FEE_SLOT.try_get()
             && fee.slot == slot
         {
@@ -354,9 +379,8 @@ impl Handle {
 
     /// The config as `GET /api/config` serves it: the current config
     /// with the fee entry and its share beside the operator's list.
-    #[must_use]
-    pub fn view(&self) -> ConfigUpdate {
-        let current = self.current();
+    pub async fn view(&self) -> ConfigUpdate {
+        let current = self.current().await;
         let mut view = ConfigUpdate::from_config(&current);
         if let Some(fee) = fee::FEE_SLOT.try_get() {
             let operator = &current.pool[..fee.slot.min(current.pool.len())];
