@@ -40,8 +40,9 @@ use embassy_time::Ticker;
 
 use crate::metrics::PoolMetricsSnapshot;
 use crate::work::{Solution, WorkAssignment};
-use ubos_metrics::metrics::Metric;
-use ubos_metrics::value::Value;
+use ubos_metrics::catalog::{POOL_LABEL, TYPE_LABEL};
+use ubos_metrics::metric;
+use ubos_metrics::value::Count;
 
 #[cfg(test)]
 #[path = "tests/asic_session.rs"]
@@ -169,24 +170,19 @@ impl<const N: usize, const CHAINS: usize> PoolHandle<'_, N, CHAINS> {
     /// waiting, so the session future holds no metric across an await.
     pub(crate) fn push_counters(&self) -> Option<PoolMetricsSnapshot> {
         let snapshot = self.counters()?;
-        Metric::indexed(
-            "board_shares_accepted_total",
-            &[("pool", self.slot)],
-            Value::Count(snapshot.shares_accepted),
-        )
-        .try_push();
-        Metric::indexed(
-            "board_shares_rejected_total",
-            &[("pool", self.slot)],
-            Value::Count(snapshot.shares_rejected),
-        )
-        .try_push();
-        Metric::indexed(
-            "board_stratum_reconnects_total",
-            &[("pool", self.slot)],
-            Value::Count(u64::from(snapshot.reconnects)),
-        )
-        .try_push();
+        // Both series count submits, told apart by the answer of the pool.
+        for (answer, submits) in [
+            ("accepted", snapshot.shares_accepted),
+            ("rejected", snapshot.shares_rejected),
+        ] {
+            metric!("pool_submits", Count(submits))
+                .label(POOL_LABEL, self.slot)
+                .label(TYPE_LABEL, answer)
+                .try_push();
+        }
+        metric!("pool_reconnects", Count(u64::from(snapshot.reconnects)))
+            .label(POOL_LABEL, self.slot)
+            .try_push();
         Some(snapshot)
     }
 

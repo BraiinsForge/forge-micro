@@ -79,7 +79,7 @@ pub enum MiningState {
 
 impl MiningState {
     /// The camelCase wire string for this state used in the REST API
-    /// and as the `state` label of the `board_miner_state` metric.
+    /// and as the `state` label of the `miner_state` metric.
     #[must_use]
     pub fn as_api_str(self) -> &'static str {
         match self {

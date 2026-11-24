@@ -34,6 +34,10 @@ use crate::name::Name;
 /// index of the hashboard from 0, the chain index of the REST API.
 pub const HASHBOARD_LABEL: &str = "hashboard";
 
+/// The label of the pool a series belongs to. Its value is the index of
+/// the pool slot from 0.
+pub const POOL_LABEL: &str = "pool";
+
 /// The label of the sensor that took a reading. Its value is the I2C
 /// address of the sensor, such as `0x48`.
 pub const ID_LABEL: &str = "id";

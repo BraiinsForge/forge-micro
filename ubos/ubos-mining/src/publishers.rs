@@ -25,14 +25,16 @@
 //! `#[embassy_executor::task]` wrapper.
 
 use embassy_time::{Duration, Ticker};
-use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric};
-use ubos_metrics::value::Value;
+use ubos_metrics::catalog::{HASHBOARD_LABEL, POOL_LABEL, TYPE_LABEL};
+use ubos_metrics::metric;
+use ubos_metrics::value::{Count, Flag};
 
 use crate::{Handle as MiningHandle, MiningState};
 use ubos_metrics::chain as stats;
 
-/// Publish lifecycle status and each chain's confirmed accounting every two seconds.
-/// Chain metrics carry `chain="i"`; pool shares also carry `pool="i"`.
+/// Publish the miner state and the confirmed accounting of each hashboard
+/// every two seconds. A hashboard series carries the `hashboard` label,
+/// and the pool work shares also carry the `pool` label.
 /// The PSU publishes its own commanded and measured rail voltages.
 pub async fn run_miner_metrics_publisher(mining: MiningHandle, pool_slots: usize) -> ! {
     let mut ticker = Ticker::every(Duration::from_secs(2));
@@ -40,58 +42,47 @@ pub async fn run_miner_metrics_publisher(mining: MiningHandle, pool_slots: usize
         ticker.next().await;
         let stats_handle = stats::handle();
         for (chain, stats) in stats_handle.chains().enumerate() {
-            let by_chain = [("chain", chain)];
-            Metric::indexed("board_chain_frequency_hertz", &by_chain, stats.frequency())
+            metric!("frequency_hertz", stats.frequency())
+                .label(HASHBOARD_LABEL, chain)
                 .push()
                 .await;
-            let values = [
-                (
-                    "board_uart_desync_bytes_total",
-                    Value::Count(u64::from(stats.desync_bytes())),
-                ),
-                ("board_chain_chips", Value::Count(u64::from(stats.chips()))),
-                (
-                    "board_chain_present",
-                    Value::Flag(stats.presence().is_present()),
-                ),
-                ("board_hashrate_hps", Value::Count(stats.hashrate())),
-                ("board_shares_total", Value::Count(stats.share_count())),
-            ];
-            for (name, value) in values {
-                Metric::indexed(name, &by_chain, value).push().await;
-            }
+            metric!("uart_desync_bytes", Count(u64::from(stats.desync_bytes())))
+                .label(HASHBOARD_LABEL, chain)
+                .push()
+                .await;
+            metric!("hashboard_present", Flag(stats.presence().is_present()))
+                .label(HASHBOARD_LABEL, chain)
+                .push()
+                .await;
+            metric!("hashrate_hps", Count(stats.hashrate()))
+                .label(HASHBOARD_LABEL, chain)
+                .push()
+                .await;
+            // The chain counts only the shares it found, so `valid` is the
+            // one type of this series.
+            metric!("hashboard_shares", Count(stats.share_count()))
+                .label(HASHBOARD_LABEL, chain)
+                .label(TYPE_LABEL, "valid")
+                .push()
+                .await;
             let limit = pool_slots.min(crate::consts::MAX_POOL_SLOTS);
             for slot in 0..limit {
-                Metric::indexed(
-                    "board_pool_work_shares_total",
-                    &[("chain", chain), ("pool", slot)],
-                    Value::Count(stats.pool_shares(slot)),
-                )
-                .push()
-                .await;
+                metric!("pool_work_shares", Count(stats.pool_shares(slot)))
+                    .label(HASHBOARD_LABEL, chain)
+                    .label(POOL_LABEL, slot)
+                    .push()
+                    .await;
             }
         }
         let state = mining.state();
-        let running = Value::Flag(matches!(state, Some(MiningState::Running)));
-        Metric::with_no_labels("board_miner_running", running)
-            .push()
-            .await;
         // One series per state, 1 on the current one, so a panel can
         // show which phase the miner is in rather than only whether it
         // hashes. Every series is 0 before the first publish.
         for candidate in MiningState::ALL {
-            let mut labels = Labels::new();
-            let _ = labels.push(Label {
-                name: "state",
-                value: LabelValue::Static(candidate.as_api_str()),
-            });
-            Metric::with_labels(
-                "board_miner_state",
-                labels,
-                Value::Flag(state == Some(candidate)),
-            )
-            .push()
-            .await;
+            metric!("miner_state", Flag(state == Some(candidate)))
+                .label("state", candidate.as_api_str())
+                .push()
+                .await;
         }
     }
 }
