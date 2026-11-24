@@ -239,10 +239,10 @@ whichever slot runs it, so a query reads the same on every board.
 
 | Series | Meaning |
 |---|---|
-| `board_pool_work_shares_total{chain,pool}` | difficulty-1 chip shares, by the slot that got the work |
-| `board_shares_accepted_total{pool}` | shares the pool accepted |
-| `board_shares_rejected_total{pool}` | shares the pool rejected |
-| `board_stratum_reconnects_total{pool}` | connection attempts after the first |
+| `pool_work_shares{hashboard,pool}` | difficulty-1 chip shares, by the slot that got the work |
+| `pool_submits{pool,type="accepted"}` | submits the pool accepted |
+| `pool_submits{pool,type="rejected"}` | submits the pool rejected |
+| `pool_reconnects{pool}` | connection attempts after the first |
 
 The first series is the one the scheduler feeds back, so it is the
 split the board delivered. The other three are the pool's view of the
@@ -252,9 +252,9 @@ The share each pool gets of the work, as a fraction, over the board's
 whole life:
 
 ```promql
-sum by (pool) (board_pool_work_shares_total)
+sum by (pool) (pool_work_shares)
   / ignoring (pool) group_left
-sum (board_pool_work_shares_total)
+sum (pool_work_shares)
 ```
 
 The fee slot's line settles at `permille / 1000`.
@@ -263,9 +263,9 @@ The same share over the last three minutes, which shows the scheduler
 at work and reacts to a pool going down:
 
 ```promql
-sum by (pool) (rate(board_pool_work_shares_total[3m]))
+sum by (pool) (rate(pool_work_shares[3m]))
   / ignoring (pool) group_left
-sum (rate(board_pool_work_shares_total[3m]))
+sum (rate(pool_work_shares[3m]))
 ```
 
 The fee slot is the last session slot of the board, and its series
@@ -273,8 +273,8 @@ carry that number. Whether the fee pool accepts what it gets, on a
 board with four sessions:
 
 ```promql
-rate(board_shares_rejected_total{pool="3"}[15m])
-  / rate(board_shares_accepted_total{pool="3"}[15m])
+rate(pool_submits{pool="3",type="rejected"}[15m])
+  / rate(pool_submits{pool="3",type="accepted"}[15m])
 ```
 
 ## Logs

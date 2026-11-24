@@ -432,7 +432,7 @@ The pulses per revolution belong to the board, and the shared module
 takes them as a parameter. The hashnode fans give two pulses per
 revolution, so `RPM = 60 × pio_hz / (ticks × cycles_per_tick × 2)`.
 `BoardTach` drains the latest period for each fan on every control tick
-and publishes one labelled `board_fan_rpm` series per connector. An
+and publishes one labelled `fan_rpm` series per connector. An
 empty connector reads 0 rpm.
 
 ## Temperature sensors

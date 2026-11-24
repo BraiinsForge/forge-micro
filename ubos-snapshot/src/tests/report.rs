@@ -55,8 +55,8 @@ fn markdown_report_covers_every_section() {
     assert!(markdown.contains("not collected"));
 
     // Metrics: parsed rows plus the unparseable line noted.
-    assert!(markdown.contains("board_fan_rpm"));
-    assert!(markdown.contains("board_uptime_seconds"));
+    assert!(markdown.contains("fan_rpm"));
+    assert!(markdown.contains("uptime_seconds"));
     assert!(markdown.contains("unparseable"));
     assert!(markdown.contains("not a valid metric line"));
 

@@ -354,22 +354,23 @@ prometheus exposition and the logs:
   `POOL_INDEX_SPACE = 8` (the alive-bitmap index space). The
   existing metric names carry a `pool` label — one series per
   configured slot, pushed by the session of that slot:
-  `board_shares_accepted_total{pool="0"}`,
-  `board_shares_rejected_total{pool="0"}`,
-  `board_stratum_reconnects_total{pool="0"}`. No unlabelled
+  `pool_submits{pool="0",type="accepted"}`,
+  `pool_submits{pool="0",type="rejected"}`,
+  `pool_reconnects{pool="0"}`. No unlabelled
   duplicates are emitted; the REST `system_info` totals sum the
   arrays in code, so its schema is unchanged.
 - `ubos-mining` counts delivered shares, in units of 2^32 expected
   hashes, per chain and per originating slot (the `pool_shares`
   array in `ChainStats`, bumped next to the scheduler's
   `accumulate_share`) and publishes
-  `board_pool_work_shares_total{chain="0",pool="0"}` — the ratio
+  `pool_work_shares{hashboard="0",pool="0"}` — the ratio
   between these series is the split the scheduler actually
   delivered. The hashrate EWMA and the share count are per chain as
   well. Each `ChainStats` owns a `HashrateEstimator`, and the two
-  series are `board_hashrate_hps{chain="0"}` and
-  `board_shares_total{chain="0"}`. They describe chip output, not
-  pool credit, so a machine total is the sum over the `chain` label.
+  series are `hashrate_hps{hashboard="0"}` and
+  `hashboard_shares{hashboard="0",type="valid"}`. They describe chip
+  output, not pool credit, so a machine total is the sum over the
+  `hashboard` label.
 - Logs carry `pool {slot}` at the session and state layers: the
   `StratumState` visitor lines (new job, accepted, rejected,
   session updates), the submit and solution-drop lines in `run.rs`,

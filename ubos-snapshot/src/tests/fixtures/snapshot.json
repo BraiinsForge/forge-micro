@@ -63,12 +63,12 @@
   ],
   "metrics": [
     {
-      "name": "board_fan_rpm",
+      "name": "fan_rpm",
       "labels": "fan=\"0\"",
       "value": "4980",
       "timestamp_ms": 1720950000000
     },
-    { "name": "board_uptime_seconds", "value": "123" },
+    { "name": "uptime_seconds", "value": "123" },
     { "raw": "not a valid metric line" }
   ],
   "errors": {

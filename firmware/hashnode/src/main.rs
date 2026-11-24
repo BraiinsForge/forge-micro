@@ -416,7 +416,7 @@ async fn boot(spawner: Spawner) {
     // Five connectors need five state machines, but a PIO block has only
     // four and addresses a single 32-GPIO window, so the tachs split:
     // GPIO23/24/25 on PIO0, GPIO38/44 on PIO1. The cooling loop drains
-    // the latest period per fan and publishes one labeled board_fan_rpm
+    // the latest period per fan and publishes one labeled fan_rpm
     // series each.
     let tach_pio0 = Pio::new(hw.pio, Irqs);
     let tach_pio1 = Pio::new(hw.pio1, Irqs);

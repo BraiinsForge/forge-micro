@@ -262,7 +262,7 @@ impl Service for RestApiService {
         TcpSocket: Read + Write + TcpSplit,
     {
         // Count each request that reaches this handler so
-        // `board_http_requests_total` reflects dashboard and API traffic.
+        // `http_requests` reflects dashboard and API traffic.
         // The metrics port does not increment it, and a connection
         // dropped before its request is parsed is never counted.
         self.net.record_request();

@@ -183,7 +183,7 @@ weightless pool list keeps the primary-plus-backups behavior. When
 every entry is 0 the first slot is treated as weighted. Weights take
 effect at runtime on the same config-watch publish that restarts the
 pool sessions; the delivered split is observable via the
-`board_pool_work_shares_total{pool=...}` metric.
+`pool_work_shares{pool=...}` metric.
 
 A board that runs a fee slot serves its entry as `fee`, one entry of
 the same shape as a `pool` entry, beside the operator's list, and the

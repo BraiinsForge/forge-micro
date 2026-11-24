@@ -16,7 +16,9 @@ Any async context pushes a `Metric` value into a static `Channel` with
 `Metric::push`, which waits while the channel is full, or
 `Metric::try_push`, which drops the sample instead. The value of a
 `Metric` is a typed unit from `ubos_core::units`, a
-`ubos_metrics::value::Ratio`, a flag or a count. See "Units" below.
+`ubos_metrics::value::Ratio`, a flag or a count. See "Units" below. A
+push site builds the `Metric` with the `metric!` macro. See "Names"
+below.
 
 Each board declares
 one `MetricsStatics` with `metrics_statics!`, which holds the series
@@ -83,7 +85,7 @@ Code: `ubos/ubos-metrics/src/cpu_load.rs`.
 Each board brackets its executor's idle wait with `Instant::now()` and
 adds the elapsed ticks to the per-core slot through `record_idle`. The publisher
 task periodically diffs each slot against wall-clock ticks and pushes
-the busy ticks over the elapsed ticks as `board_cpu_busy_ratio`, labelled
+the busy ticks over the elapsed ticks as `cpu_busy_ratio`, labelled
 `cpu="0"`, `cpu="1"`, ..., up to the per-board active-core count. The
 value is a `Ratio` in thousandths, and the math uses integers only. The
 ratio is 0 when no time elapsed between two samples.
@@ -122,33 +124,90 @@ CPU usage with Rust Embassy"
 (<https://www.giacomocaironi.dev/posts/measuring-cpu-usage-with-rust-embassy/>,
 reference impl at <https://gitlab.com/giacomocaironi/embassy-cpu-usage>).
 
+## Names
+
+Code: `ubos/ubos-metrics/src/name.rs`, `ubos/ubos-metrics/src/catalog.rs`.
+
+A push site builds its metric with the `metric!` macro and adds each
+label with `Metric::label`:
+
+```rust
+metric!("chip_voltage_sum_volts", voltage)
+    .label(HASHBOARD_LABEL, chain)
+    .try_push();
+```
+
+A count and a flag have no unit type in `ubos_core::units`. A push site
+wraps a count in `Count` and a flag in `Flag`. Both types are in
+`ubos_metrics::value`:
+
+```rust
+metric!("pool_reconnects", Count(reconnects))
+metric!("hashboard_present", Flag(present))
+```
+
+The macro checks the name when the crate is compiled. `Name::new` is the
+check. It refuses a name that breaks one of these rules:
+
+- A name has lowercase letters, digits and single underscores only.
+- A name does not start with `board_`. It starts with `hashboard_` only
+  if the hashboard is the noun of the series, as in `hashboard_present`.
+- A name does not end in a scaled unit such as `_mv` or `_percent`.
+- A name of a typed unit ends in the suffix of that unit: `_celsius`,
+  `_volts`, `_watts`, `_amperes`, `_hertz` or `_ratio`.
+- A name of a count, a flag, a fan duty or a fan speed ends in none of
+  these suffixes.
+
+The `nix` check `metric-constructor` refuses a direct call of
+`Metric::new` or `Name::new` outside `ubos-metrics`, because such a call
+can skip the check.
+
+A name that one site pushes is a literal at that site. `catalog.rs`
+holds each name and each label that more than one site uses.
+
+The `hashboard` label is the index of the hashboard, from 0. It is the
+chain index of the REST API. The `pool` label is the index of the pool
+slot, from 0. A counter has no `_total` suffix.
+
 ## Voltage
 
 Code: `ubos/ubos-psu/src/supply.rs`,
 `ubos/ubos-mining/src/publishers.rs`,
 `ubos/ubos-thermal/src/chain.rs`.
 
-`board_psu_output_voltage_set_volts` is the voltage the supply landed the last
+`psu_set_voltage_volts` is the voltage the supply landed the last
 commanded hashboard rail on, which is the request rounded to the supply's
 step.
-`output_voltage_measured_volts` is a physical reading of that rail. Its
-`source` label is `psu` for the supply's own readback and `feedback` for a
+`psu_voltage_volts` is a physical reading of that rail. Its `type` label
+is `psu` for the supply's own readback and `feedback` for a
 separate monitor on the rail, and a board that has both exports one series
 for each. A zero value on a board without a voltage sensor means
 unavailable.
-`hashboard_chain_voltage_volts` is different:
+`chip_voltage_sum_volts` is different:
 it sums the on-die core voltages reported by the chips. It remains a
 separate metric because it is not a PSU rail measurement.
 There is no unlabelled miner voltage series: the confirmed setpoint is
-`board_psu_output_voltage_set_volts` and it has no duplicate.
+`psu_set_voltage_volts` and it has no duplicate.
+
+## Supply power and status
+
+Code: `ubos/ubos-psu/src/supply.rs`.
+
+`psu_power_watts` is the power of the supply. Its `type` label is
+`input` or `output`. A sum over `type` adds the input to the output, so
+a query selects one type.
+
+`psu_status{flag="..."}` carries one series for each status flag of the
+supply: `current_limit`, `thermal_shutdown`, `overvoltage` and
+`undervoltage`. A series reads 1 while the supply raises its flag.
 
 ## Miner lifecycle
 
-`board_miner_running` becomes 1 after present chains start receiving work.
-It is 0 while the miner waits for a pool, during bring-up and after shutdown.
-`board_miner_state{state="..."}` carries one series per `MiningState`,
+`miner_state{state="..."}` carries one series per `MiningState`,
 spelled as `MiningState::as_api_str` does; the current state reads 1
 and the others 0, and every series reads 0 before the first publish.
+`miner_state{state="running"}` becomes 1 after present chains start
+to receive work.
 OTA waits for the miner's `Stopped` state, independent of this metric.
 
 ## Board temperature
@@ -156,11 +215,12 @@ OTA waits for the miner's `Stopped` state, independent of this metric.
 Code: `ubos/ubos-thermal/src/metrics.rs`,
 `ubos/ubos-thermal/src/array.rs`, `ubos/ubos-thermal/src/chain.rs`.
 
-Three gauges in this section carry a temperature. A fourth is the
-per-chain chip temperature, under "Per-chain PVT series" below, and a
-fifth is the temperature the cooling PID follows, under "Cooling PID".
+The series in this section carry a temperature. One more is the summary
+of the chip temperatures, under "Per-hashboard PVT series" below, and
+one more is the temperature the cooling PID follows, under "Cooling
+and fans".
 
-- `board_ambient_temperature_celsius` is the ambient temperature around
+- `ambient_temperature_celsius` is the ambient temperature around
   the board. `ubos_thermal::run_thermal` reads the ambient sensor on
   every tick, on a board that measures its air, including one that
   measured no chip temperature and one that published no reading at
@@ -169,17 +229,18 @@ fifth is the temperature the cooling PID follows, under "Cooling PID".
   sensor answers nothing writes nothing, so the gauge leaves the
   exposition when its TTL passes. It carries no label, because a board
   reports one ambient reading or none.
-- `board_temperature_celsius` is every reading that a sensor takes.
+- The reading series hold every reading that a sensor takes.
   `ubos_thermal::array::SensorArray` pushes the readings of its sensors
   on every tick, and `ubos_thermal::ChainTemperature` pushes the reading
-  of each chip together with the per-chain PVT series. If the channel
-  is full, a push drops that sample. See "Reading series" below.
-- `board_mcu_temperature_celsius` is the temperature of the MCU die
+  of each chip together with the per-hashboard PVT series. If the
+  channel is full, a push drops that sample. See "Reading series"
+  below.
+- `mcu_temperature_celsius` is the temperature of the MCU die
   on the control board. `ubos_thermal::run_thermal` writes it on every
   tick, from the board's `ubos_thermal::McuTemperatureSensor`, on the
   boards whose MCU carries an internal thermometer: esp32s3.
 
-The three gauges measure different hardware. Under load a control board
+These gauges measure different hardware. Under load a control board
 is tens of degrees cooler than a hashboard, and the air is cooler again.
 
 What the ambient reading is and is not for is stated once, on
@@ -197,26 +258,23 @@ that publishes.
 
 ### Reading series
 
-Each reading that a sensor takes has its own series under
-`board_temperature_celsius`. The `source` label tells what the
-reading measures, and the other labels tell where it comes from. A
-series carries only the labels that apply to it:
+Each reading that a sensor takes has its own series. The name tells
+what the reading measures, and the labels tell where it comes from:
 
 | Reading | Series |
 |---------|--------|
-| Hashboard | `board_temperature_celsius{source="hashboard",chain="0",addr="0x48"}` |
-| Chip | `board_temperature_celsius{source="chip",chain="0",chip="5"}` |
-| Ambient | `board_temperature_celsius{source="ambient",addr="0x49"}` |
-| Control board | `board_temperature_celsius{source="control_board",addr="0x48"}` |
-| PSU | `board_temperature_celsius{source="psu",addr="0x48"}` |
+| Hashboard | `pcb_temperature_celsius{hashboard="0",id="0x48"}` |
+| Chip | `chip_temperature_celsius{hashboard="0",chip_addr="5"}` |
+| Ambient | `ambient_temperature_celsius{id="0x49"}` |
+| Control board | `control_board_temperature_celsius{id="0x48"}` |
+| PSU | `psu_temperature_celsius{id="0x48"}` |
 
 The value is the reading that the sensor measured, with no offset.
-`chain` is the chain index that the `hashboard_chain_*` series also use.
-Only hashboard and chip readings have a chain.
-`addr` is the I2C address of the sensor that took the reading. Every
+Only hashboard and chip readings have a `hashboard` label.
+`id` is the I2C address of the sensor that took the reading. Every
 series except a chip series carries it.
-`chip` is the index of the chip on its chain. A chip has the same series
-whether a TMP461 diode read it or the chain did.
+`chip_addr` is the address of the chip on its hashboard. A chip has the
+same series whether a TMP461 diode read it or the chain did.
 
 No board has a sensor table entry for the air, the control board or the
 PSU yet. The ambient and MCU gauges above still carry those readings.
@@ -237,25 +295,29 @@ The render uses integer math only. The rp2040 is a Cortex-M0+ with no
 FPU, and no board has an FPU for `f64`, so a float render adds software
 floating-point to the exposition path.
 
-## Cooling PID
+## Cooling and fans
 
 Code: `ubos/ubos-cooling/src/lib.rs`.
 
-`ubos_cooling::run_cooling` writes two gauges on every step of the
+`ubos_cooling::run_cooling` writes these series on every step of the
 cooling loop:
 
-- `board_pid_temperature_celsius{type="measured"}` is the value
+- `fan_speed_control` is the fan duty that the loop commands, from 0 to
+  100.
+- `fan_rpm` is the speed of a fan. A board with more than one
+  tachometer adds the `fan` label.
+- `pid_temperature_celsius{type="measured"}` is the value
   that the PID follows. The raw readings behind it are under
-  `board_temperature_celsius`.
-- `board_pid_temperature_celsius{type="target"}` is the setpoint
+  "Reading series" above.
+- `pid_temperature_celsius{type="target"}` is the setpoint
   for that value.
-- `board_pid_source{source="...",stat="..."}` carries one series for
+- `pid_source{source="...",stat="..."}` carries one series for
   each kind and statistic. The series that the PID follows reads 1, and
   the other three read 0.
 
 If the fan mode is fixed, or a failsafe holds the fan at full, the PID
-does not run. Then every `board_pid_source` series reads 0, and the PID
-pushes no `board_pid_temperature_celsius` series, so both leave the
+does not run. Then every `pid_source` series reads 0, and the PID
+pushes no `pid_temperature_celsius` series, so both leave the
 exposition when their TTL passes.
 
 ## Per-pool series
@@ -274,18 +336,21 @@ A slot that has never had a pool in the config has no session, so it
 has none of these three series. A slot whose pool is removed keeps
 pushing its last counts every 2 s.
 
-- `board_shares_accepted_total{pool=...}` — pool-accepted shares.
-- `board_shares_rejected_total{pool=...}` — pool-rejected shares.
-- `board_stratum_reconnects_total{pool=...}` — reconnect attempts.
+- `pool_submits{pool=...,type="accepted"}` — submits that the pool
+  accepted.
+- `pool_submits{pool=...,type="rejected"}` — submits that the pool
+  rejected.
+- `pool_reconnects{pool=...}` — reconnect attempts.
 
 The miner metrics task pushes one more series, and no stratum session
 writes it:
 
-- `board_pool_work_shares_total{chain=...,pool=...}` — chip shares
+- `pool_work_shares{hashboard=...,pool=...}` — chip shares
   for the slot that supplied the work, in the unit below. The ratio
   between these series is the work split that the dispatch scheduler
-  delivered. The `chain` label names the chain that found the shares,
-  because a board can own more than one. See `ubos_metrics::chain`.
+  delivered. The `hashboard` label names the hashboard that found the
+  shares, because a board can own more than one. See
+  `ubos_metrics::chain`.
 
 It pushes this series for every slot the board compiles in, so a slot
 with no pool in the config still has it.
@@ -299,57 +364,55 @@ filters at.
 There are no unlabelled duplicates of these series. A board total is
 `sum(...)` over the label.
 
-## Per-chain series
+## Per-hashboard series
 
 Code: `ubos/ubos-mining/src/publishers.rs`.
 
-Six series are labelled `chain="i"`. Each is pushed once for each chain
-the machine wired up, which `ChainStatsHandle::chain_count` reports. The
-unused slots of the `MAX_CHAINS`-sized table are never published, and no
-per-chain series is pushed before the miner metrics task starts:
+Five series are labelled `hashboard="i"`. Each is pushed once for each
+chain the machine wired up, which `ChainStatsHandle::chain_count`
+reports. The unused slots of the `MAX_CHAINS`-sized table are never
+published, and no per-hashboard series is pushed before the miner
+metrics task starts:
 
-- `board_chain_chips` — the chain's chip count from its most recent
-  bring-up, or zero for a chain that is absent, faulted, or not yet
-  enumerated. A faulted chain keeps the count it found in
-  `ChainStats::presence()`. No gauge and no endpoint reports that count.
-- `board_chain_present` — 1 when `ChainStats::presence()` is `Present`,
+- `hashboard_present` — 1 when `ChainStats::presence()` is `Present`,
   0 otherwise (absent, faulted, or not yet enumerated).
-- `board_chain_frequency_hertz` — the last frequency the chain's serial
+- `frequency_hertz` — the last frequency the chain's serial
   actor confirmed. This is the only frequency series; there is no
   unlabelled machine-wide one, because each chain carries its own clock.
-  Read it with `board_chain_present`: a chain held in reset keeps its
+  Read it with `hashboard_present`: a chain held in reset keeps its
   last frequency until the actor resets it during bring-up.
-- `board_uart_desync_bytes_total` — the chain's lifetime count of UART
+- `uart_desync_bytes` — the chain's lifetime count of UART
   bytes that the driver discarded, on a failed CRC or to find the start
   of a frame.
-- `board_hashrate_hps` — the smoothed hashrate of the chain's own
+- `hashrate_hps` — the smoothed hashrate of the chain's own
   estimator.
-- `board_shares_total` — the chain's lifetime chip shares, in the
-  same unit as `board_pool_work_shares_total`.
+- `hashboard_shares{type="valid"}` — the chain's lifetime chip shares,
+  in the same unit as `pool_work_shares`. `valid` is the only type,
+  because a chain counts only the shares that it found.
 
 No series here has an unlabelled duplicate. A board total is `sum(...)`
-over the `chain` label, as for the per-pool series above.
-`board_hashrate_hps` and `board_shares_total` describe chip output, not
+over the `hashboard` label, as for the per-pool series above.
+`hashrate_hps` and `hashboard_shares` describe chip output, not
 pool credit.
 
-## Per-chain PVT series
+## Per-hashboard PVT series
 
 Code: `ubos/ubos-thermal/src/chain.rs`.
 
 On a board whose chips are its only thermometer, `ChainTemperature`
 publishes two more gauges every ten seconds, from inside the thermal
-sample. Both are labelled `chain="i"`, and only a present chain reports:
+sample. Both are labelled `hashboard="i"`, and only a present chain
+reports:
 
-- `hashboard_chain_voltage_volts` — the sum of the core
+- `chip_voltage_sum_volts` — the sum of the core
   voltages the chain's chips report about themselves. The chips sit in
   series across one rail, so this is the string voltage.
-- `hashboard_chain_chip_temperature_celsius{stat=...}` — the spread
-  of die temperatures across the chain, as three series: `lowest`, `mean`
-  and `highest`.
+- `chip_temperature_summary_celsius{stat=...}` — the spread
+  of die temperatures across the chain, as three series: `min`, `mean`
+  and `max`.
 
 The spread is what says whether one die is running away from the rest.
-The reading of each die is under
-`board_temperature_celsius{source="chip"}`.
+The reading of each die is under `chip_temperature_celsius`.
 
 ## Hashrate
 

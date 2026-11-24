@@ -7,7 +7,7 @@ abnormally high CPU busy ratios / executor "empty polls" on the RP2350 build.
 
 On RP2350, when using a thread-mode executor loop (`poll(); WFE`), both cores
 can end up executing an extremely high number of empty `poll()` iterations
-(millions per 5s window), inflating `board_cpu_busy_ratio` and wasting CPU.
+(millions per 5s window), inflating `cpu_busy_ratio` and wasting CPU.
 
 ## Terminology
 
@@ -80,7 +80,7 @@ This means the empty polls were not driven by "task wake → `__pender` → `SEV
 Critical experiment:
 
 - Switching the idle instruction from `WFE` to `WFI` on RP2350 immediately
-  collapsed `board_cpu_poll_count` (≈ 0-100 per 5s) and `board_cpu_busy_ratio`
+  collapsed `board_cpu_poll_count` (≈ 0-100 per 5s) and `cpu_busy_ratio`
   became near-zero as expected for an idle system.
 
 Conclusion: on RP2350, in our configuration, `WFE` can return continuously due
