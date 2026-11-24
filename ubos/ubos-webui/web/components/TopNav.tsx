@@ -5,13 +5,15 @@ import type { BoardNotice } from '../app';
 export interface TopNavProps {
   view: string;
   boardNotice: BoardNotice;
+  /** The brand the board reports, which replaces the build-time one. */
+  brand?: string | null;
 }
 
-export default function TopNav({ view, boardNotice }: TopNavProps) {
+export default function TopNav({ view, boardNotice, brand }: TopNavProps) {
   return (
     <nav class="bar">
       <span class="logo">
-        <img src="/logo.svg" alt={__BRAND_NAME__} />
+        <img src="/logo.svg" alt={brand || __BRAND_NAME__} />
       </span>
       <a href="#dash" class={view === 'dash' ? 'on' : ''}>
         Dashboard

@@ -13,8 +13,9 @@ import NetOverlays from './components/NetOverlays';
 import Toasts from './components/Toasts';
 import { startPoll, useDash } from './lib/store';
 import { fmtHr } from './lib/format';
-import { API, loginRedirect, sleep } from './lib/api';
+import { API, getSystemInfo, loginRedirect, sleep } from './lib/api';
 import { tabTitle } from './lib/title';
+import type { SystemInfo } from './lib/types';
 
 // Hash-based view switch, no router. `#config[/sub]` -> config,
 // `#events` -> events, anything else -> dashboard.
@@ -66,8 +67,17 @@ export default function App() {
     }
   };
 
+  // The brand and product names come from the board's stored identity,
+  // which does not change while it runs, so they are read once. A failed
+  // read leaves the build-time brand and no product name.
+  const [hw, setHw] = useState<SystemInfo['hwInfo'] | null>(null);
+
   useEffect(() => {
     startPoll();
+    getSystemInfo().then(
+      (info) => setHw(info.hwInfo),
+      () => {},
+    );
     const onHash = () => setHash(location.hash);
     addEventListener('hashchange', onHash);
     return () => removeEventListener('hashchange', onHash);
@@ -79,16 +89,17 @@ export default function App() {
   // some networks. Until the first answer the tab carries the address
   // bar's host, which is what the login page shows.
   const ip = dash.info?.ip;
+  const brand = hw?.brandName;
   useEffect(() => {
-    document.title = tabTitle(ip);
-  }, [ip]);
+    document.title = tabTitle(ip, brand);
+  }, [ip, brand]);
 
   return (
     <>
       {/* Shared SVG symbol library reached by <use href="#..."> everywhere. */}
       <div dangerouslySetInnerHTML={{ __html: icons }} />
 
-      <TopNav view={view} boardNotice={boardNotice} />
+      <TopNav view={view} boardNotice={boardNotice} brand={brand} />
 
       <main id="dash" class={view !== 'dash' ? 'hide' : ''}>
         <Dashboard shown={view === 'dash'} />
@@ -102,7 +113,7 @@ export default function App() {
           can match the page to the sticker on the machine. */}
       <footer class="bar ft">
         <span class="bi">
-          {dash.info?.product_name ? dash.info.product_name + ' · ' : ''}
+          {hw?.productName ? hw.productName + ' · ' : ''}
           {dash.info?.nominal_hashrate ? fmtHr(dash.info.nominal_hashrate) + ' · ' : ''}
           IP: {dash.info?.ip || '–'} · MAC: {dash.info?.mac || '–'} · {dash.info?.build || '–'}
         </span>

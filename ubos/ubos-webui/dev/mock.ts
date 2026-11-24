@@ -156,6 +156,7 @@ const ASIC = {
 };
 const THERMAL = { bounds: { dangerousHashboardTemp: { start: 70000, end: 110000 }, cooldownTemp: { start: 50000, end: 90000 }, dangerousChipTemp: { start: 90000, end: 125000 } } };
 const COOLING = { bounds: { targetTemp: { start: 40000, end: 85000 }, minFanPwm: { start: 0, end: 100 }, fixedFanPwm: { start: 0, end: 100 } } };
+const SYSTEM_INFO = { hwInfo: { brandName: null, productName: 'Example Miner 1' } };
 const NETWORK = { mode: 'Dhcp', address: [192, 168, 1, 50], prefix_len: 24, gateway: [192, 168, 1, 1], dns: [[8, 8, 8, 8]] };
 
 const EVENTS_CATALOG = [
@@ -245,6 +246,7 @@ export function mockApi(): Middleware {
     switch (url) {
       case '/api/info': return send(res, info());
       case '/api/config': return send(res, CONFIG);
+      case '/api/system/info': return send(res, SYSTEM_INFO);
       case '/api/system/asic': return send(res, ASIC);
       case '/api/system/thermal': return send(res, THERMAL);
       case '/api/system/temperature': return send(res, temperatures());

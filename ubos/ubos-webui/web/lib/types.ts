@@ -4,6 +4,14 @@
 // response are optional here, so a partial poll still type-checks and
 // the components guard with `?.` / `??` rather than trusting presence.
 
+/** The names in the `GET /api/system/info` body that the page shows. */
+export interface SystemInfo {
+  hwInfo: {
+    brandName: string | null;
+    productName: string | null;
+  };
+}
+
 /** OTA slot state, nested in the `GET /api/info` body. */
 export interface Ota {
   runningSlot: string;

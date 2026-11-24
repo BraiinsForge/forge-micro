@@ -10,7 +10,7 @@
 // mutating call retries with a short backoff, matching the vanilla UI.
 
 import { toast, errMsg } from './toast';
-import type { Config, ConfigPatch, Info, Temperature } from './types';
+import type { Config, ConfigPatch, Info, SystemInfo, Temperature } from './types';
 
 // Empty rather than absent so the `API + path` call sites stay one
 // shape.
@@ -43,6 +43,7 @@ export async function getJSON<T = unknown>(path: string): Promise<T> {
 }
 
 export const getInfo = (): Promise<Info> => getJSON<Info>('/api/info');
+export const getSystemInfo = (): Promise<SystemInfo> => getJSON<SystemInfo>('/api/system/info');
 export const getTemperature = (): Promise<Temperature> => getJSON<Temperature>('/api/system/temperature');
 export const getConfig = (): Promise<Config> => getJSON<Config>('/api/config');
 
