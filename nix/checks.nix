@@ -646,7 +646,9 @@ hostClippyChecks
     let
       args = {
         CARGO_PROFILE = "";
-        cargoExtraArgs = "-p ubos-tuner -p ubos-events --features ubos-events/std";
+        # No default features, because the default `defmt` of ubos-metrics
+        # reaches crates of this set that have no defmt of their own.
+        cargoExtraArgs = "-p ubos-tuner -p ubos-events -p ubos-metrics --no-default-features --features ubos-events/std";
       };
     in
     craneLib.cargoDocTest (
@@ -655,6 +657,7 @@ hostClippyChecks
         src = srcFor [
           "ubos-tuner"
           "ubos-events"
+          "ubos-metrics"
         ];
         cargoArtifacts = craneLib.buildDepsOnly (args // { inherit src; });
         doInstallCargoArtifacts = false;
