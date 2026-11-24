@@ -107,8 +107,8 @@ mod tests;
 /// The build id is written through a JSON string escaper, so its worst
 /// case is twice `crate::ota::MAX_BUILD_ID_LEN` rather than that bound
 /// itself: the build environment can hand the id whole with a quote or a
-/// backslash in it. The product name
-/// comes from a board's stored identity and can be all control
+/// backslash in it. The brand and product names
+/// come from a board's stored identity and can be all control
 /// characters, each escaped to six bytes. 2048
 /// bytes covers all of it and leaves headroom for fields added in later
 /// phases without revisiting this constant.
@@ -380,6 +380,7 @@ where
         .map(crate::schema::state::ApiPauseReason::from);
 
     let hw_info = HwInfo {
+        brand_name: crate::hw_info::brand_name(),
         product_name: crate::hw_info::product_name(),
         nominal_hashrate: crate::hw_info::nominal_hashrate(),
         bootloader_version: crate::hw_info::bootloader_version(),

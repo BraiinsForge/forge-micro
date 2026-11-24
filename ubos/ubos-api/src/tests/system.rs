@@ -734,10 +734,11 @@ rusty_fork_test! {
 // ---------------------------------------------------------------------------
 
 /// Build a default `HwInfo` for tests that do not exercise hardware
-/// version fields: no PSU model and no published product name, nominal
-/// hashrate, versions or hashboard serials.
+/// version fields: no PSU model and no published brand or product name,
+/// nominal hashrate, versions or hashboard serials.
 fn default_hw_info() -> crate::schema::system_info::HwInfo {
     crate::schema::system_info::HwInfo {
+        brand_name: None,
         product_name: None,
         nominal_hashrate: None,
         bootloader_version: None,
@@ -872,6 +873,7 @@ fn system_info_hw_info_serializes_published_versions() {
         .expect("BUG: fits in HashboardIds");
 
     let hw_info = crate::schema::system_info::HwInfo {
+        brand_name: Some("Example Brand".parse().expect("BUG: fits in HwString")),
         product_name: Some("Example Miner 1".parse().expect("BUG: fits in HwString")),
         nominal_hashrate: Some(175_000_000_000_000),
         bootloader_version: Some("deadbeef".parse().expect("BUG: fits in HwString")),
@@ -883,7 +885,7 @@ fn system_info_hw_info_serializes_published_versions() {
     let json = serialize_system_info(false, None, hw_info);
     assert!(
         json.contains(
-            "\"hwInfo\":{\"productName\":\"Example Miner 1\",\
+            "\"hwInfo\":{\"brandName\":\"Example Brand\",\"productName\":\"Example Miner 1\",\
              \"nominalHashrate\":175000000000000,\"bootloaderVersion\":\"deadbeef\",\
              \"fanControllerVersion\":\"12.34.56 build 777\",\"psuModel\":\"PSU3300 rev a\",\
              \"hashboardIds\":[\"SERIAL0\",null,\"SERIAL2\"],\"chainsPresent\":2}"
@@ -899,7 +901,7 @@ fn system_info_hw_info_serializes_published_versions() {
 /// fails here, and updating this constant is the prompt to check the
 /// comment on `SCRATCH_SIZE`. The `const` block holds the claim that
 /// comment makes, so the pinned length cannot be moved past the buffer.
-const WORST_CASE_SYSTEM_INFO_LEN: usize = 1364;
+const WORST_CASE_SYSTEM_INFO_LEN: usize = 1619;
 const _: () = assert!(WORST_CASE_SYSTEM_INFO_LEN <= super::SCRATCH_SIZE);
 
 /// The scratch buffer `system.rs` serializes into must hold the largest
@@ -910,8 +912,8 @@ const _: () = assert!(WORST_CASE_SYSTEM_INFO_LEN <= super::SCRATCH_SIZE);
 /// Every string field stands at its maximum, and the build id is
 /// `MAX_BUILD_ID_LEN` double quotes, the widest character a build id
 /// can carry: the build environment can hand the id whole with a quote
-/// or a backslash in it. The product
-/// name is `HW_STRING_LEN` control characters, which serialize to six
+/// or a backslash in it. The brand and product
+/// names are `HW_STRING_LEN` control characters, which serialize to six
 /// bytes each, and the nominal hashrate is `u64::MAX`.
 ///
 /// Without this, nothing measures the body and the comment on
@@ -936,6 +938,11 @@ fn worst_case_system_info_fits_the_scratch_buffer() {
     while hashboard_ids.push(Some(max_string.clone())).is_ok() {}
 
     let hw_info = crate::schema::system_info::HwInfo {
+        brand_name: Some(
+            leaked(0x01, HW_STRING_LEN)
+                .parse()
+                .expect("BUG: fills HwString exactly"),
+        ),
         product_name: Some(
             leaked(0x01, HW_STRING_LEN)
                 .parse()

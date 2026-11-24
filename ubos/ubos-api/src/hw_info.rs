@@ -24,10 +24,11 @@
 //! publishes them here through a `Watch` so the system-info handler can
 //! read the latest snapshot lock-free. Every board's boot-time
 //! hashboard EEPROM read publishes its parsed serials the same way, and
-//! a board whose stored identity names the machine publishes that
-//! product name. A board that knows the hashrate its maker rates the
-//! machine at publishes that nominal hashrate. Boards that never publish
-//! a given cell leave its reader returning `None`.
+//! a board whose stored identity names the machine and its brand
+//! publishes that product name and brand name. A board that knows the
+//! hashrate its maker rates the machine at publishes that nominal
+//! hashrate. Boards that never publish a given cell leave its reader
+//! returning `None`.
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::Watch;
@@ -50,6 +51,7 @@ pub type HwString = String<HW_STRING_LEN>;
 static BOOTLOADER_VERSION: Watch<CriticalSectionRawMutex, HwString, 1> = Watch::new();
 static FAN_CONTROLLER_VERSION: Watch<CriticalSectionRawMutex, HwString, 1> = Watch::new();
 static PRODUCT_NAME: Watch<CriticalSectionRawMutex, HwString, 1> = Watch::new();
+static BRAND_NAME: Watch<CriticalSectionRawMutex, HwString, 1> = Watch::new();
 static NOMINAL_HASHRATE: Watch<CriticalSectionRawMutex, u64, 1> = Watch::new();
 
 /// Per-slot hashboard serials; the index is the physical chain number.
@@ -93,6 +95,17 @@ pub fn publish_product_name(name: HwString) {
 /// and on boards that never publish one.
 pub(crate) fn product_name() -> Option<HwString> {
     PRODUCT_NAME.try_get()
+}
+
+/// Publishes the brand the machine ships under. Call once at boot.
+pub fn publish_brand_name(name: HwString) {
+    BRAND_NAME.sender().send(name);
+}
+
+/// Returns the published brand name, or `None` before publication and
+/// on boards that never publish one.
+pub(crate) fn brand_name() -> Option<HwString> {
+    BRAND_NAME.try_get()
 }
 
 /// Publishes the hashrate the machine's maker rates it at, in hashes per

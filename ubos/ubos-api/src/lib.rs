@@ -61,7 +61,7 @@ ubos_events::events! {
 }
 
 pub use hw_info::{
-    HW_STRING_LEN, HashboardIds, HwString, publish_bootloader_version,
+    HW_STRING_LEN, HashboardIds, HwString, publish_bootloader_version, publish_brand_name,
     publish_fan_controller_version, publish_hashboard_id, publish_hashboard_ids,
     publish_nominal_hashrate, publish_product_name,
 };

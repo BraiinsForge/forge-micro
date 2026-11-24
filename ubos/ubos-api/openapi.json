@@ -896,10 +896,18 @@
         "type": "object"
       },
       "HwInfo": {
-        "description": "Hardware-identification fields embedded in the system-info response.\n\n`psuModel` is detected at runtime, at the PSU driver's first\nsuccessful init, and reads `null` where the supply is not\nidentifiable. `bootloaderVersion` and `fanControllerVersion` are\nread once at boot, on the boards that have both, and are `null`\nbefore that read and on every board that reports neither.\n`hashboardIds` comes from every board's boot-time hashboard EEPROM\nread the same way, `productName` from a board whose stored identity\nnames the machine, and `nominalHashrate` from a board that knows\nthe hashrate its maker rates the machine at.",
+        "description": "Hardware-identification fields embedded in the system-info response.\n\n`psuModel` is detected at runtime, at the PSU driver's first\nsuccessful init, and reads `null` where the supply is not\nidentifiable. `bootloaderVersion` and `fanControllerVersion` are\nread once at boot, on the boards that have both, and are `null`\nbefore that read and on every board that reports neither.\n`hashboardIds` comes from every board's boot-time hashboard EEPROM\nread the same way, `brandName` and `productName` from a board whose\nstored identity names the machine and its brand, and `nominalHashrate`\nfrom a board that knows the hashrate its maker rates the machine at.",
         "properties": {
           "bootloaderVersion": {
             "description": "Bootloader CRC-32 fingerprint as 8-char lowercase hex, or `null`\nbefore the boot-time capture runs or on boards that do not\npublish one.",
+            "maxLength": 40,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "brandName": {
+            "description": "The brand the machine ships under, or `null` before the boot-time\nread publishes it and on boards that publish none.",
             "maxLength": 40,
             "type": [
               "string",
@@ -962,6 +970,7 @@
           }
         },
         "required": [
+          "brandName",
           "productName",
           "nominalHashrate",
           "bootloaderVersion",

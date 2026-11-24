@@ -62,13 +62,17 @@ pub struct OtaInfo {
 /// read once at boot, on the boards that have both, and are `null`
 /// before that read and on every board that reports neither.
 /// `hashboardIds` comes from every board's boot-time hashboard EEPROM
-/// read the same way, `productName` from a board whose stored identity
-/// names the machine, and `nominalHashrate` from a board that knows
-/// the hashrate its maker rates the machine at.
+/// read the same way, `brandName` and `productName` from a board whose
+/// stored identity names the machine and its brand, and `nominalHashrate`
+/// from a board that knows the hashrate its maker rates the machine at.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct HwInfo {
+    /// The brand the machine ships under, or `null` before the boot-time
+    /// read publishes it and on boards that publish none.
+    #[cfg_attr(feature = "schema", schemars(with = "Option<&str>", length(max = crate::hw_info::HW_STRING_LEN)))]
+    pub brand_name: Option<HwString>,
     /// The machine's product name as its maker names the model, or
     /// `null` before the boot-time read publishes it and on boards that
     /// publish none.
