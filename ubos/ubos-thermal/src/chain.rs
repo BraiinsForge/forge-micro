@@ -49,8 +49,6 @@
 //! cost is that one chip falling silent while its neighbours answer
 //! leaves its last reading standing.
 
-use core::fmt::Write as _;
-
 use crate::metrics::publish_chip_reading;
 use crate::{Accumulator, Reading, TempSample, TemperatureSensor};
 use embassy_futures::{poll_once, yield_now};
@@ -59,8 +57,9 @@ use ubos_asic::ChainPvt;
 use ubos_core::index::{ChipAddress, HashboardIndex};
 use ubos_core::units::{Temperature, Voltage};
 use ubos_logging::{debug, warn};
+use ubos_metrics::catalog::{CHIP_TEMPERATURE_SUMMARY, HASHBOARD_LABEL, STAT_LABEL};
 use ubos_metrics::chain::ChainStatsHandle;
-use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric};
+use ubos_metrics::metric;
 
 #[cfg(test)]
 #[path = "tests/chain.rs"]
@@ -82,17 +81,6 @@ pub const SILENT_TICKS_BEFORE_FAULT: u8 = 2;
 
 /// How often each chain's summary is logged and its voltage published.
 const REPORT_INTERVAL: Duration = Duration::from_secs(10);
-
-/// A chain's core voltage as its chips report it, one series per chain
-/// under the `chain` label.
-const CHAIN_VOLTAGE_METRIC: &str = "hashboard_chain_voltage_volts";
-
-/// The spread of die temperatures across a chain, one series per
-/// statistic under the `stat` label and per chain under the `chain` one.
-/// Each die's reading is already published on its own, so this is here
-/// for the spread: whether one die is running away from the rest, which a
-/// single reading cannot say.
-const CHAIN_TEMPERATURE_METRIC: &str = "hashboard_chain_chip_temperature_celsius";
 
 /// The thermal loop's view of a board whose chips are its thermometer,
 /// spanning every one of its `CHAINS` chains.
@@ -251,9 +239,9 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
             yield_now().await;
         }
         if let Some(temperature) = self.pvt[slot].temperature_summary() {
-            Self::publish_stat(chain, "lowest", temperature.lowest);
+            Self::publish_stat(chain, "min", temperature.lowest);
             Self::publish_stat(chain, "mean", temperature.mean);
-            Self::publish_stat(chain, "highest", temperature.highest);
+            Self::publish_stat(chain, "max", temperature.highest);
             debug!(
                 "chain {} pvt: {} chips report {} to {} °C, mean {} °C",
                 chain, temperature.chips, temperature.lowest, temperature.highest, temperature.mean
@@ -264,38 +252,25 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
             warn!("chain {} pvt: no chip has reported a voltage", chain);
             return;
         };
-        Metric::indexed(CHAIN_VOLTAGE_METRIC, &[("chain", slot)], voltage.total).try_push();
+        // The sum of the chip voltages of the hashboard, as its chips
+        // report them.
+        metric!("chip_voltage_sum_volts", voltage.total)
+            .label(HASHBOARD_LABEL, chain)
+            .try_push();
         debug!(
             "chain {} pvt: string {} V, chips {} to {} V",
             chain, voltage.total, voltage.lowest, voltage.highest
         );
     }
 
-    /// One chain's die-temperature statistic, tagged with the `stat`
-    /// label so the three share a metric name.
+    /// Push one statistic of the chip temperatures of a hashboard, under
+    /// the `stat` label so the three share a name.
     fn publish_stat(chain: HashboardIndex, stat: &'static str, temperature: Temperature) {
-        let mut labels = chain_labels(chain);
-        let _ = labels.push(Label {
-            name: "stat",
-            value: LabelValue::Static(stat),
-        });
-        Metric::with_labels(CHAIN_TEMPERATURE_METRIC, labels, temperature).try_push();
+        metric!(CHIP_TEMPERATURE_SUMMARY, temperature)
+            .label(HASHBOARD_LABEL, chain)
+            .label(STAT_LABEL, stat)
+            .try_push();
     }
-}
-
-/// The `chain="<n>"` label, for the one metric that carries it alongside
-/// a second label: the die-temperature spread also tags a `stat`, so it
-/// cannot go through [`Metric::indexed`] alone. Since a board can own
-/// more than one chain, the series would otherwise collide.
-pub(crate) fn chain_labels(chain: HashboardIndex) -> Labels {
-    let mut chain_str = heapless::String::new();
-    let _ = write!(chain_str, "{chain}");
-    let mut labels = Labels::new();
-    let _ = labels.push(Label {
-        name: "chain",
-        value: LabelValue::Short(chain_str),
-    });
-    labels
 }
 
 impl<const CHIPS: usize, const CHAINS: usize> TemperatureSensor

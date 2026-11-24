@@ -48,8 +48,8 @@ fn a_stored_value_renders_as_one_line_in_its_base_unit() {
         expiry: Some(Expiry::new(1_000, Metrics::DEFAULT_TTL)),
     };
     assert_eq!(
-        line("board_ambient_temperature_celsius", &stored, 0).as_str(),
-        "board_ambient_temperature_celsius 25.500\n"
+        line("ambient_temperature_celsius", &stored, 0).as_str(),
+        "ambient_temperature_celsius 25.500\n"
     );
 }
 
@@ -62,8 +62,8 @@ fn a_line_carries_the_time_of_the_reading_once_the_clock_is_set() {
         expiry: Some(Expiry::new(1_000, Metrics::DEFAULT_TTL)),
     };
     assert_eq!(
-        line("hashboard_chain_voltage_volts{chain=\"0\"}", &stored, 2).as_str(),
-        "hashboard_chain_voltage_volts{chain=\"0\"} 21.600 3000\n"
+        line("chip_voltage_sum_volts{hashboard=\"0\"}", &stored, 2).as_str(),
+        "chip_voltage_sum_volts{hashboard=\"0\"} 21.600 3000\n"
     );
 }
 

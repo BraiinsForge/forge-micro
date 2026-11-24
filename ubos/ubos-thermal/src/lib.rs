@@ -35,8 +35,8 @@
 //! on an unpowered board is no fault is under "Chain presence" in
 //! `docs/MINING.md`.
 //!
-//! This task is also the sole writer of the ambient gauge, in `metrics`,
-//! and of the MCU temperature gauge, which it reads from the board's
+//! This task is also the sole writer of the ambient gauge and of the MCU
+//! temperature gauge, which it reads from the board's
 //! [`McuTemperatureSensor`] on each tick.
 //! `array` aggregates a board's I2C sensor table into the reading the
 //! task polls, over the drivers and the descriptor types in
@@ -112,7 +112,6 @@ fn measured(reading: Reading) -> TempSample {
     }
 }
 
-use crate::metrics::{AMBIENT_METRIC_NAME, MCU_METRIC_NAME};
 use crate::threshold::{Action, evaluate};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::{Receiver, Sender, Watch};
@@ -122,7 +121,8 @@ use ubos_config::ThermalConfig;
 use ubos_core::units::{Temperature, Voltage};
 use ubos_logging::{error, info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage, PauseReason, PauseReasons};
-use ubos_metrics::metrics::Metric;
+use ubos_metrics::catalog::AMBIENT_TEMPERATURE;
+use ubos_metrics::metric;
 
 ubos_events::events! {
     dangerous_temperature(temp: Temperature)  error = "Critical temperature {} °C, mining halted",
@@ -133,7 +133,7 @@ ubos_events::events! {
 
 type CSMutex = CriticalSectionRawMutex;
 
-/// What a reading measures. `metrics` turns it into the `source` label.
+/// What a reading measures.
 pub use ubos_config::Source;
 
 /// Which reduction of one kind's readings the cooling PID follows.
@@ -576,7 +576,7 @@ impl Thermal {
 async fn read_ambient<A: AmbientSensor>(ambient: &mut A) -> Option<Temperature> {
     let reading = ambient.ambient().await;
     if let Some(reading) = reading {
-        Metric::with_no_labels(AMBIENT_METRIC_NAME, reading).try_push();
+        metric!(AMBIENT_TEMPERATURE, reading).try_push();
     }
     reading
 }
@@ -669,7 +669,7 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatu
         // safety loop must not wait on the metrics, and the next tick
         // replaces it.
         if let Some(temp) = mcu.read().await {
-            Metric::with_no_labels(MCU_METRIC_NAME, temp).try_push();
+            metric!("mcu_temperature_celsius", temp).try_push();
         }
     }
 }

@@ -28,9 +28,13 @@ use embassy_sync::mutex::Mutex;
 use embassy_time::Instant;
 use ubos_logging::warn;
 
+use ubos_core::units::Temperature;
+
+use crate::catalog;
 use crate::consts::Metrics;
 use crate::freshness::Expiry;
 use crate::metrics::Metric;
+use crate::name::Name;
 use crate::value::Value;
 
 #[cfg(test)]
@@ -49,7 +53,7 @@ pub(crate) struct StoredValue {
 /// the same key.
 ///
 /// Budget: the longest key any metric renders is
-/// [`LONGEST_RENDERED_KEY`], and the capacity is checked against it
+/// [`LONGEST_RENDERED_KEY_BYTES`], and the capacity is checked against it
 /// below rather than against a length restated here. A prose budget is
 /// what went stale last time: it named a 49-byte key while a longer one
 /// was already being emitted, and the two-label per-chain series that
@@ -61,16 +65,22 @@ pub(crate) struct StoredValue {
 /// and the test beside it is what catches one that does not.
 const KEY_CAPACITY: usize = 80;
 
-/// The longest key the tree renders, in the label-expanded form
-/// [`MetricKey::from_metric`] builds: `board_temperature_celsius`
-/// with the `addr`, `chain` and `source` labels `ubos-thermal` gives a
-/// hashboard reading. A chain index is one digit for every `MAX_CHAINS`
-/// below ten, and a 7-bit address renders in four characters.
-const LONGEST_RENDERED_KEY: &str =
-    "board_temperature_celsius{addr=\"0x48\",chain=\"0\",source=\"hashboard\"}";
+/// The name of the longest key the tree renders, the summary of the chip
+/// temperatures of a hashboard.
+const LONGEST_KEY_NAME: Name<Temperature> = catalog::CHIP_TEMPERATURE_SUMMARY;
+
+/// The labels of the longest key, in the sorted form that
+/// [`MetricKey::from_metric`] builds. A hashboard index is one digit for
+/// every board below ten hashboards, and `mean` is the longest statistic.
+const LONGEST_KEY_LABELS: &str = "{hashboard=\"0\",stat=\"mean\"}";
+
+/// Bytes of the longest key the tree renders. The name comes from the
+/// catalog, so a rename moves this length with it.
+const LONGEST_RENDERED_KEY_BYTES: usize =
+    LONGEST_KEY_NAME.as_str().len() + LONGEST_KEY_LABELS.len();
 
 const _: () = assert!(
-    LONGEST_RENDERED_KEY.len() <= KEY_CAPACITY,
+    LONGEST_RENDERED_KEY_BYTES <= KEY_CAPACITY,
     "KEY_CAPACITY is below the longest key a metric renders"
 );
 

@@ -40,6 +40,7 @@ ubos_mdns::declare_service!(
     }
 );
 
+pub mod catalog;
 pub mod chain;
 pub mod consts;
 pub mod cpu_load;

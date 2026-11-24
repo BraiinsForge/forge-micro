@@ -1618,7 +1618,7 @@
         ]
       },
       "Source": {
-        "description": "What a temperature reading measures. `metrics` in `ubos-thermal`\nturns it into the `source` label.",
+        "description": "What a temperature reading measures. `ubos-thermal` publishes each\nkind under its own series name.",
         "oneOf": [
           {
             "const": "hashboard",

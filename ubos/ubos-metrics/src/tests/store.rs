@@ -22,16 +22,30 @@
 //! metric the constant does not name. Coverage too for the slot a full
 //! map gives to a new series.
 
+extern crate std;
+
+use std::format;
+
 use embassy_time::{Duration, block_for};
 
-use super::{KEY_CAPACITY, LONGEST_RENDERED_KEY, MetricKey, StoredValue, upsert_metric};
-use crate::metrics::{Label, LabelValue, Labels, Metric};
-use crate::value::Value;
 use ubos_core::index::HashboardIndex;
 use ubos_core::units::Temperature;
 
+use super::{
+    KEY_CAPACITY, LONGEST_KEY_LABELS, LONGEST_KEY_NAME, LONGEST_RENDERED_KEY_BYTES, MetricKey,
+    StoredValue, upsert_metric,
+};
+use crate::catalog::{CHIP_TEMPERATURE_SUMMARY, HASHBOARD_LABEL, STAT_LABEL};
+use crate::metric;
+use crate::metrics::{Label, LabelValue, Labels, Metric};
+use crate::value::Value;
+
+/// A temperature for a test that reads the key of a metric and never its
+/// value.
+const ANY_TEMPERATURE: Temperature = Temperature::from_celsius(60);
+
 /// Build the key for a metric carrying the labels given, in the order
-/// given, so a test states the call `ubos-thermal` makes rather than the
+/// given, so a test states the call a push site makes rather than the
 /// string it renders to.
 fn key_for(name: &'static str, labels: &[(&'static str, &'static str)]) -> Option<MetricKey> {
     let mut built = Labels::new();
@@ -49,34 +63,51 @@ fn key_for(name: &'static str, labels: &[(&'static str, &'static str)]) -> Optio
     MetricKey::from_metric(&Metric::with_labels(name, built, Value::Count(0)))
 }
 
-/// The per-chain die-temperature spread carries two labels and the
-/// longest name in the tree. It overran the cap once and was dropped at
-/// runtime, so it is asserted to encode rather than left to the `warn!`.
+/// The summary of the chip temperatures of a hashboard carries two
+/// labels and the longest name in the tree. Its series overran the cap
+/// once and was dropped at runtime, so each is asserted to encode rather
+/// than left to the `warn!`.
 #[test]
-fn the_per_chain_temperature_spread_key_fits_the_budget() {
-    for stat in ["lowest", "mean", "highest"] {
+fn the_chip_temperature_summary_key_fits_the_budget() {
+    for stat in ["min", "mean", "max"] {
+        let metric = metric!(CHIP_TEMPERATURE_SUMMARY, ANY_TEMPERATURE)
+            .label(HASHBOARD_LABEL, HashboardIndex(0))
+            .label(STAT_LABEL, stat);
         assert!(
-            key_for(
-                "hashboard_chain_chip_temperature_celsius",
-                &[("chain", "0"), ("stat", stat)],
-            )
-            .is_some(),
+            MetricKey::from_metric(&metric).is_some(),
             "the {stat} series does not encode within KEY_CAPACITY"
         );
     }
 }
 
-/// The constant the capacity is asserted against must be the string
-/// `from_metric` actually builds, or the compile-time check guards
+/// The length the capacity is asserted against must be the length of the
+/// key `from_metric` actually builds, or the compile-time check guards
 /// nothing.
 #[test]
-fn the_longest_key_constant_matches_what_from_metric_renders() {
-    let key = key_for(
-        "board_temperature_celsius",
-        &[("source", "hashboard"), ("chain", "0"), ("addr", "0x48")],
-    )
-    .expect("the longest key must encode");
-    assert_eq!(key.0.as_str(), LONGEST_RENDERED_KEY);
+fn the_longest_key_constants_match_what_from_metric_renders() {
+    let metric = metric!(LONGEST_KEY_NAME, ANY_TEMPERATURE)
+        .label(STAT_LABEL, "mean")
+        .label(HASHBOARD_LABEL, HashboardIndex(0));
+    let key = MetricKey::from_metric(&metric).expect("the longest key must encode");
+    assert_eq!(
+        key.0.as_str(),
+        format!("{}{LONGEST_KEY_LABELS}", LONGEST_KEY_NAME.as_str())
+    );
+    assert_eq!(key.0.len(), LONGEST_RENDERED_KEY_BYTES);
+}
+
+/// A push site adds its labels one call at a time, in any order, and the
+/// key holds them sorted by name with the text each value displays.
+#[test]
+fn labels_added_one_by_one_render_sorted_in_the_key() {
+    let metric = metric!("chip_temperature_celsius", ANY_TEMPERATURE)
+        .label(HASHBOARD_LABEL, HashboardIndex(0))
+        .label("chip_addr", 255_usize);
+    let key = MetricKey::from_metric(&metric).expect("the key must encode");
+    assert_eq!(
+        key.0.as_str(),
+        "chip_temperature_celsius{chip_addr=\"255\",hashboard=\"0\"}"
+    );
 }
 
 /// A key one byte past the cap is dropped rather than truncated: a
@@ -120,18 +151,4 @@ fn a_full_map_of_live_series_refuses_a_new_one() {
     upsert(&mut map, "second", Duration::from_secs(3_600));
     upsert(&mut map, "third", Duration::from_secs(3_600));
     assert!(holds(&map, "first") && holds(&map, "second") && !holds(&map, "third"));
-}
-
-/// A push site adds its labels one call at a time, in any order, and the
-/// key holds them sorted by name with the text each value displays.
-#[test]
-fn labels_added_one_by_one_render_sorted_in_the_key() {
-    let metric = crate::metric!("chip_temperature_celsius", Temperature::from_celsius(60))
-        .label("hashboard", HashboardIndex(0))
-        .label("chip_addr", 255_usize);
-    let key = MetricKey::from_metric(&metric).expect("the key must encode");
-    assert_eq!(
-        key.0.as_str(),
-        "chip_temperature_celsius{chip_addr=\"255\",hashboard=\"0\"}"
-    );
 }

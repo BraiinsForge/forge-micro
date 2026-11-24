@@ -21,8 +21,8 @@
 
 use ubos_core::units::Temperature;
 
-/// What a temperature reading measures. `metrics` in `ubos-thermal`
-/// turns it into the `source` label.
+/// What a temperature reading measures. `ubos-thermal` publishes each
+/// kind under its own series name.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
 )]
