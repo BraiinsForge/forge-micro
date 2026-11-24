@@ -211,12 +211,54 @@ pub(crate) fn older_version(hash: [u8; 8], versions: &[Version]) -> Option<&Vers
     older.iter().find(|version| version.hash == hash)
 }
 
+/// The fewest leading bytes of a schema hash that an image can declare.
+///
+/// A header may have room for only part of the hash, so the header
+/// format chooses how many bytes it carries, down to this many. A test
+/// holds the versions in [`VERSIONS`] apart in this many bytes, so a
+/// prefix of any allowed length names one version.
+pub const MIN_SCHEMA_PREFIX_LEN: usize = 4;
+
+/// The leading bytes of a schema hash that an image declares, which may
+/// be the whole hash.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct SchemaPrefix {
+    /// The prefix, then zero bytes.
+    bytes: [u8; 8],
+    /// How many leading bytes of `bytes` the prefix holds.
+    len: usize,
+}
+
+impl SchemaPrefix {
+    /// The prefix `prefix`, whose length the header format of the caller
+    /// chooses. A length shorter than [`MIN_SCHEMA_PREFIX_LEN`] or longer
+    /// than the hash does not build.
+    #[must_use]
+    pub fn new<const N: usize>(prefix: [u8; N]) -> Self {
+        const {
+            assert!(
+                N >= MIN_SCHEMA_PREFIX_LEN && N <= Config::SCHEMA_HASH.len(),
+                "A schema hash prefix is shorter than MIN_SCHEMA_PREFIX_LEN or longer than the hash."
+            );
+        }
+        let mut bytes = [0; 8];
+        bytes[..N].copy_from_slice(&prefix);
+        Self { bytes, len: N }
+    }
+
+    /// Whether `hash` starts with this prefix.
+    pub(crate) fn matches(&self, hash: [u8; 8]) -> bool {
+        hash.starts_with(&self.bytes[..self.len])
+    }
+}
+
 /// The config that the image an OTA staged reads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum StagedConfig {
-    /// A ubos image that declares this schema hash.
-    Schema([u8; 8]),
+    /// A ubos image that declares its schema hash, or a prefix of it.
+    Schema(SchemaPrefix),
     /// An image that the board does not recognize as ubos, which leaves
     /// the ubos record in place.
     Unrecognized,
@@ -226,17 +268,18 @@ pub enum StagedConfig {
 /// before it reboots into an image that reads `staged`, or `None` when
 /// it writes nothing.
 ///
-/// An unrecognized image takes the oldest version, so a ubos image
-/// installed after it upgrades from that record. A build writes nothing
-/// for its own schema or for one it does not know: a newer image upgrades
-/// from the stored record, and any other image boots on the defaults and
-/// the seed.
+/// A ubos image takes the older version whose hash starts with the prefix
+/// it declares. An unrecognized image takes the oldest version, so a ubos
+/// image installed after it upgrades from that record. A build writes
+/// nothing for its own schema or for one it does not know: a newer image
+/// upgrades from the stored record, and any other image boots on the
+/// defaults and the seed.
 pub(crate) fn downgrade_version(staged: StagedConfig, versions: &[Version]) -> Option<&Version> {
-    let target = match staged {
-        StagedConfig::Schema(hash) => hash,
-        StagedConfig::Unrecognized => versions.first()?.hash,
-    };
-    older_version(target, versions)
+    let (_, older) = versions.split_last()?;
+    match staged {
+        StagedConfig::Schema(prefix) => older.iter().find(|version| prefix.matches(version.hash)),
+        StagedConfig::Unrecognized => older.first(),
+    }
 }
 
 /// The schema hash of this build, under a symbol name that a packer

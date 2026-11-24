@@ -311,7 +311,10 @@ record in that schema. If not, the task writes no record. An image with the
 same schema reads the stored record, and a newer image upgrades it. Any other
 image starts from the defaults.
 
-The OTA target gives that schema through `OtaTarget::staged_config`. If it
+The OTA target gives that schema through `OtaTarget::staged_config`, as the
+schema hash or as its first bytes. The header format of the target sets how
+many bytes, from `MIN_SCHEMA_PREFIX_LEN` up to the whole hash. The task then
+takes the older version whose hash starts with these bytes. If the target
 gives `None`, the handler tells the config task nothing. The RP and ESP boards
 give `None`, because their images declare no schema. On these boards, an OTA
 upgrade keeps the config, and an OTA downgrade to an older schema loses it.

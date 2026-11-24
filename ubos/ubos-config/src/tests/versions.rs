@@ -27,7 +27,10 @@
 use serde::{Deserialize, Serialize};
 
 use crate::network::HOSTNAME_MAX;
-use crate::versions::{Step, Version, Versioned, downgrade_version, older_version};
+use crate::versions::{
+    MIN_SCHEMA_PREFIX_LEN, SchemaPrefix, Step, VERSIONS, Version, Versioned, downgrade_version,
+    older_version,
+};
 use crate::{ApiConfig, Config, LOAD_BUFFER_SIZE, NetworkConfig, StagedConfig, decode_blob};
 
 /// Version 1 of the synthetic chain: the API login alone.
@@ -143,6 +146,11 @@ fn empty_list_reads_no_older_version() {
     assert_eq!(older(V1::HASH, &[]), None);
 }
 
+/// A staged image that declares the whole of `hash`.
+fn whole(hash: [u8; 8]) -> StagedConfig {
+    StagedConfig::Schema(SchemaPrefix::new(hash))
+}
+
 /// The version a downgrade stores, or `None` when it stores nothing.
 fn downgrade(staged: StagedConfig, versions: &[Version]) -> Option<u16> {
     downgrade_version(staged, versions).map(|version| version.number)
@@ -152,15 +160,15 @@ fn downgrade(staged: StagedConfig, versions: &[Version]) -> Option<u16> {
 /// declares.
 #[test]
 fn downgrade_to_an_older_version_stores_its_record() {
-    assert_eq!(downgrade(StagedConfig::Schema(V1::HASH), CHAIN), Some(1));
+    assert_eq!(downgrade(whole(V1::HASH), CHAIN), Some(1));
 }
 
 /// A staged image of the build's own schema, or of one the build does
 /// not know, reads the stored record as it is.
 #[test]
 fn downgrade_to_the_own_or_an_unknown_schema_stores_nothing() {
-    assert_eq!(downgrade(StagedConfig::Schema(V2::HASH), CHAIN), None);
-    assert_eq!(downgrade(StagedConfig::Schema(UNKNOWN), CHAIN), None);
+    assert_eq!(downgrade(whole(V2::HASH), CHAIN), None);
+    assert_eq!(downgrade(whole(UNKNOWN), CHAIN), None);
 }
 
 /// An unrecognized image takes the record of the oldest version, so a
@@ -171,6 +179,44 @@ fn downgrade_to_an_unrecognized_image_stores_the_oldest_version() {
     assert_eq!(downgrade(StagedConfig::Unrecognized, CHAIN), Some(1));
     assert_eq!(downgrade(StagedConfig::Unrecognized, &CHAIN[..1]), None);
     assert_eq!(downgrade(StagedConfig::Unrecognized, &[]), None);
+}
+
+/// A staged image that declares the first `N` bytes of `hash`.
+fn prefix<const N: usize>(hash: [u8; 8]) -> StagedConfig {
+    StagedConfig::Schema(SchemaPrefix::new::<N>(
+        *hash.first_chunk().expect("BUG: a hash holds the prefix"),
+    ))
+}
+
+/// A prefix of any length the header format chooses takes the older
+/// version whose hash starts with it, and nothing for the build's own
+/// schema or for one the build does not know.
+#[test]
+fn downgrade_to_a_prefix_stores_the_version_it_starts() {
+    assert_eq!(
+        downgrade(prefix::<MIN_SCHEMA_PREFIX_LEN>(V1::HASH), CHAIN),
+        Some(1)
+    );
+    assert_eq!(downgrade(prefix::<5>(V1::HASH), CHAIN), Some(1));
+    assert_eq!(downgrade(prefix::<5>(V2::HASH), CHAIN), None);
+    assert_eq!(downgrade(prefix::<5>(UNKNOWN), CHAIN), None);
+}
+
+/// No two versions in the real list share their first
+/// [`MIN_SCHEMA_PREFIX_LEN`] bytes, so a prefix of any allowed length
+/// names one version.
+#[test]
+fn versions_have_distinct_prefixes() {
+    for (index, version) in VERSIONS.iter().enumerate() {
+        assert!(
+            VERSIONS[..index]
+                .iter()
+                .all(|older| older.hash[..MIN_SCHEMA_PREFIX_LEN]
+                    != version.hash[..MIN_SCHEMA_PREFIX_LEN]),
+            "version {} shares its schema hash prefix with an older version",
+            version.number
+        );
+    }
 }
 
 /// A record of version 1 goes up both steps to the live config, and the

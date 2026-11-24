@@ -122,8 +122,8 @@ pub mod file_storage;
 pub use file_storage::FileStorage;
 
 pub use message::Message;
-pub use versions::StagedConfig;
 pub use versions::live::Config;
+pub use versions::{MIN_SCHEMA_PREFIX_LEN, SchemaPrefix, StagedConfig};
 
 use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
