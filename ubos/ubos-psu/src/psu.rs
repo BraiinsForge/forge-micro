@@ -30,7 +30,7 @@ pub const MODEL_LEN: usize = 40;
 /// The PSU model string a driver identifies during its one-shot init.
 pub type ModelString = heapless::String<MODEL_LEN>;
 
-/// Where a measured output-rail voltage comes from. It is the `source`
+/// Where a measured output-rail voltage comes from. It is the `type`
 /// label of the measured-voltage gauge, so every board names its
 /// readings the same way and a dashboard needs no list of parts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

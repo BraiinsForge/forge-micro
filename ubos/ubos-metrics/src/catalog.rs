@@ -26,7 +26,7 @@
 //!
 //! Metrics: `../../../docs/METRICS.md`.
 
-use ubos_core::units::Temperature;
+use ubos_core::units::{Power, Temperature};
 
 use crate::name::Name;
 
@@ -37,6 +37,10 @@ pub const HASHBOARD_LABEL: &str = "hashboard";
 /// The label of the sensor that took a reading. Its value is the I2C
 /// address of the sensor, such as `0x48`.
 pub const ID_LABEL: &str = "id";
+
+/// The label that tells apart two readings of one quantity, such as the
+/// input and the output power of the supply.
+pub const TYPE_LABEL: &str = "type";
 
 /// The label that tells apart the statistics of one quantity, such as
 /// `min`, `mean` and `max`, or `oldest` and `newest` for a set of ages.
@@ -52,3 +56,7 @@ pub const AMBIENT_TEMPERATURE: Name<Temperature> = Name::new("ambient_temperatur
 /// its own, and this one shows whether one chip runs away from the rest.
 pub const CHIP_TEMPERATURE_SUMMARY: Name<Temperature> =
     Name::new("chip_temperature_summary_celsius");
+
+/// The power of the supply, one series for each side under
+/// [`TYPE_LABEL`]: `input` and `output`.
+pub const PSU_POWER: Name<Power> = Name::new("psu_power_watts");
