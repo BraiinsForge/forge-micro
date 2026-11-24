@@ -34,6 +34,7 @@ use ubos_logging::warn;
 
 use crate::consts::Metrics;
 use crate::freshness::Expiry;
+use crate::name::{Name, Unit};
 use crate::store::{METRICS, MetricKey, StoredValue};
 use crate::value::Value;
 use ubos_http::{
@@ -126,6 +127,42 @@ impl Metric {
         value: impl Into<Value>,
     ) -> Self {
         Self::stamped(name, index_labels(indices), value.into())
+    }
+
+    /// Build a metric with no labels under a checked name, stamped with
+    /// the current monotonic time.
+    ///
+    /// Push sites reach it through the `metric!` macro, which builds the
+    /// name in a `const` context so that the check runs in the build.
+    #[must_use]
+    pub fn new<U: Unit>(name: Name<U>, value: U) -> Self {
+        Self::stamped(name.as_str(), Labels::new(), value.into())
+    }
+
+    /// Add the label `name` with the text of `value`.
+    ///
+    /// The store sorts the labels of a series, so the order of the calls
+    /// does not change the series. Only the label capacity makes it
+    /// matter, because the labels beyond it are dropped, the last first.
+    /// A value that does not fit the capacity of a label value is not
+    /// stored: the label keeps the pieces of the text that fitted, and a
+    /// single text that is too long leaves it empty.
+    #[must_use]
+    pub fn label(mut self, name: &'static str, value: impl core::fmt::Display) -> Self {
+        self.push_label(name, &value);
+        self
+    }
+
+    /// Write `value` into a new label `name`. The value is a trait object
+    /// so that the code is compiled once and not once for each type a
+    /// push site labels with.
+    fn push_label(&mut self, name: &'static str, value: &dyn core::fmt::Display) {
+        let mut text = heapless::String::new();
+        let _ = write!(text, "{value}");
+        let _ = self.labels.push(Label {
+            name,
+            value: LabelValue::Short(text),
+        });
     }
 
     /// Build a metric from a value that is already converted, stamped with

@@ -324,3 +324,19 @@ const fn ends_with(text: &[u8], suffix: &[u8]) -> bool {
 const fn equals(text: &[u8], other: &[u8]) -> bool {
     text.len() == other.len() && starts_with(text, other)
 }
+
+/// Build a [`Metric`](crate::Metric) from a name and a value of its unit.
+///
+/// A literal name is checked here, in a `const` block that takes its unit
+/// from the value, so `metric!("fan_rpm", rpm)` needs no declared name. A
+/// declared [`Name`] was checked where it was declared and passes through,
+/// which is why the macro has a second arm.
+#[macro_export]
+macro_rules! metric {
+    ($name:literal, $value:expr) => {
+        $crate::Metric::new(const { $crate::Name::new($name) }, $value)
+    };
+    ($name:expr, $value:expr) => {
+        $crate::Metric::new($name, $value)
+    };
+}

@@ -27,6 +27,8 @@ use embassy_time::{Duration, block_for};
 use super::{KEY_CAPACITY, LONGEST_RENDERED_KEY, MetricKey, StoredValue, upsert_metric};
 use crate::metrics::{Label, LabelValue, Labels, Metric};
 use crate::value::Value;
+use ubos_core::index::HashboardIndex;
+use ubos_core::units::Temperature;
 
 /// Build the key for a metric carrying the labels given, in the order
 /// given, so a test states the call `ubos-thermal` makes rather than the
@@ -118,4 +120,18 @@ fn a_full_map_of_live_series_refuses_a_new_one() {
     upsert(&mut map, "second", Duration::from_secs(3_600));
     upsert(&mut map, "third", Duration::from_secs(3_600));
     assert!(holds(&map, "first") && holds(&map, "second") && !holds(&map, "third"));
+}
+
+/// A push site adds its labels one call at a time, in any order, and the
+/// key holds them sorted by name with the text each value displays.
+#[test]
+fn labels_added_one_by_one_render_sorted_in_the_key() {
+    let metric = crate::metric!("chip_temperature_celsius", Temperature::from_celsius(60))
+        .label("hashboard", HashboardIndex(0))
+        .label("chip_addr", 255_usize);
+    let key = MetricKey::from_metric(&metric).expect("the key must encode");
+    assert_eq!(
+        key.0.as_str(),
+        "chip_temperature_celsius{chip_addr=\"255\",hashboard=\"0\"}"
+    );
 }

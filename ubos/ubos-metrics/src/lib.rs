@@ -50,4 +50,5 @@ mod name;
 mod store;
 pub mod value;
 
+pub use metrics::Metric;
 pub use name::{Name, Unit};

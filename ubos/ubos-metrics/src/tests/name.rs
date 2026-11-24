@@ -24,6 +24,7 @@
 use ubos_core::units::{Current, FanPwm, FanRpm, Frequency, Power, Temperature, Voltage};
 
 use super::Name;
+use crate::metric;
 use crate::value::{Count, Flag, Ratio};
 
 /// Every unit accepts a name that ends in its suffix, and a unit with no
@@ -134,4 +135,22 @@ fn a_count_that_states_a_unit_is_refused() {
 #[should_panic(expected = "the name does not end in the unit of the value")]
 fn a_voltage_that_states_another_unit_is_refused() {
     let _ = Name::<Voltage>::new("x_celsius");
+}
+
+/// A literal name takes its unit from the value beside it, and the
+/// macro checks it there.
+#[test]
+fn the_macro_builds_a_metric_from_a_literal_name() {
+    let metric = metric!("fan_rpm", FanRpm::from_rpm(1200));
+    assert_eq!(metric.name(), "fan_rpm");
+    assert!(metric.labels().is_empty());
+}
+
+/// A declared name is a path, so it falls to the arm that passes it
+/// through with the unit it was declared with.
+#[test]
+fn the_macro_builds_a_metric_from_a_declared_name() {
+    const SET_VOLTAGE: Name<Voltage> = Name::new("psu_set_voltage_volts");
+    let metric = metric!(SET_VOLTAGE, Voltage::from_mv(12_000));
+    assert_eq!(metric.name(), "psu_set_voltage_volts");
 }
