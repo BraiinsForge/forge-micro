@@ -37,31 +37,13 @@ use super::{
 };
 use crate::catalog::{CHIP_TEMPERATURE_SUMMARY, HASHBOARD_LABEL, STAT_LABEL};
 use crate::metric;
-use crate::metrics::{Label, LabelValue, Labels, Metric};
-use crate::value::Value;
+use crate::metrics::Metric;
+use crate::name::Name;
+use crate::value::Count;
 
 /// A temperature for a test that reads the key of a metric and never its
 /// value.
 const ANY_TEMPERATURE: Temperature = Temperature::from_celsius(60);
-
-/// Build the key for a metric carrying the labels given, in the order
-/// given, so a test states the call a push site makes rather than the
-/// string it renders to.
-fn key_for(name: &'static str, labels: &[(&'static str, &'static str)]) -> Option<MetricKey> {
-    let mut built = Labels::new();
-    for (name, value) in labels {
-        assert!(
-            built
-                .push(Label {
-                    name,
-                    value: LabelValue::Static(value),
-                })
-                .is_ok(),
-            "test labels fit MAX_LABELS"
-        );
-    }
-    MetricKey::from_metric(&Metric::with_labels(name, built, Value::Count(0)))
-}
 
 /// The summary of the chip temperatures of a hashboard carries two
 /// labels and the longest name in the tree. Its series overran the cap
@@ -114,17 +96,17 @@ fn labels_added_one_by_one_render_sorted_in_the_key() {
 /// truncated key would collide with another metric's.
 #[test]
 fn a_key_past_the_budget_is_refused() {
-    const OVERLONG: &str = "x";
-    let name: &'static str =
-        "this_name_is_deliberately_longer_than_the_key_capacity_allows_for_any_metric_at_all";
-    assert!(name.len() > KEY_CAPACITY);
-    assert!(key_for(name, &[("label", OVERLONG)]).is_none());
+    let name = Name::<Count>::new(
+        "this_name_is_deliberately_longer_than_the_key_capacity_allows_for_any_metric_at_all",
+    );
+    assert!(name.as_str().len() > KEY_CAPACITY);
+    assert!(MetricKey::from_metric(&Metric::new(name, Count(0))).is_none());
 }
 
 type Map = heapless::index_map::FnvIndexMap<MetricKey, StoredValue, 2>;
 
 fn upsert(map: &mut Map, name: &'static str, ttl: Duration) {
-    upsert_metric(map, &Metric::with_no_labels(name, Value::Count(0)).ttl(ttl));
+    upsert_metric(map, &Metric::new(Name::new(name), Count(0)).ttl(ttl));
 }
 
 fn holds(map: &Map, name: &str) -> bool {

@@ -47,41 +47,25 @@ mod tests;
 
 pub use crate::store::{METRIC_LINE_BYTES, MetricsStatics, run_ingest};
 
-/// A label value, either a static string or an owned inline string for
-/// dynamic values such as chip identifiers.
-#[non_exhaustive]
-pub enum LabelValue {
-    /// A compile-time constant string.
-    Static(&'static str),
-    /// An owned string for values known only at runtime.
-    Short(heapless::String<24>),
-}
-
-impl LabelValue {
-    pub(crate) fn as_str(&self) -> &str {
-        match self {
-            LabelValue::Static(text) => text,
-            LabelValue::Short(text) => text.as_str(),
-        }
-    }
-}
+/// Bytes the text of one label value may take. The longest value a push
+/// site writes is a short word or an index, and each byte costs one byte
+/// for every label of every queued metric.
+const LABEL_VALUE_CAPACITY: usize = 24;
 
 /// A name-value label pair attached to a metric.
-pub struct Label {
-    pub name: &'static str,
-    pub value: LabelValue,
+pub(crate) struct Label {
+    pub(crate) name: &'static str,
+    pub(crate) value: heapless::String<LABEL_VALUE_CAPACITY>,
 }
 
-/// Fixed-capacity label vector carried by a [`Metric`]. Re-exported as a
-/// type alias so callers building labels for `Metric::with_labels` need
-/// not name the const generic capacity directly.
-pub type Labels = heapless::Vec<Label, { Metrics::MAX_LABELS }>;
+/// Fixed-capacity label vector carried by a [`Metric`].
+type Labels = heapless::Vec<Label, { Metrics::MAX_LABELS }>;
 
 /// A single metric observation to push into the exposition channel.
 ///
-/// Fields are private; construct through [`Metric::with_no_labels`],
-/// [`Metric::with_labels`] or [`Metric::indexed`], each of which stamps
-/// the metric with the current monotonic time, and push it with
+/// Fields are private; construct through the `metric!` macro, which
+/// checks the name and stamps the metric with the current monotonic
+/// time, add each label with [`Metric::label`], and push it with
 /// [`Metric::push`] or [`Metric::try_push`].
 ///
 /// A measured metric stores the time of its measurement in **monotonic
@@ -97,38 +81,6 @@ pub struct Metric {
 }
 
 impl Metric {
-    /// Build a metric with no labels, stamped with the current
-    /// monotonic time.
-    #[must_use]
-    pub fn with_no_labels(name: &'static str, value: impl Into<Value>) -> Self {
-        Self::stamped(name, Labels::new(), value.into())
-    }
-
-    /// Build a metric carrying the provided labels, stamped with the
-    /// current monotonic time.
-    #[must_use]
-    pub fn with_labels(name: &'static str, labels: Labels, value: impl Into<Value>) -> Self {
-        Self::stamped(name, labels, value.into())
-    }
-
-    /// Build a metric carrying one `<label>="<index>"` tag per entry of
-    /// `indices`, in the order given, stamped with the current monotonic
-    /// time.
-    ///
-    /// The shape every index-tagged series in this tree uses: a pool slot,
-    /// a hashboard chain, or both on one series. Each index renders
-    /// through [`LabelValue::Short`], whose capacity bounds the rendered
-    /// text. An index cannot approach that bound. Entries beyond the label
-    /// capacity are dropped, as [`Labels`] drops them everywhere.
-    #[must_use]
-    pub fn indexed(
-        name: &'static str,
-        indices: &[(&'static str, usize)],
-        value: impl Into<Value>,
-    ) -> Self {
-        Self::stamped(name, index_labels(indices), value.into())
-    }
-
     /// Build a metric with no labels under a checked name, stamped with
     /// the current monotonic time.
     ///
@@ -136,7 +88,7 @@ impl Metric {
     /// name in a `const` context so that the check runs in the build.
     #[must_use]
     pub fn new<U: Unit>(name: Name<U>, value: U) -> Self {
-        Self::stamped(name.as_str(), Labels::new(), value.into())
+        Self::stamped(name.as_str(), value.into())
     }
 
     /// Add the label `name` with the text of `value`.
@@ -159,19 +111,16 @@ impl Metric {
     fn push_label(&mut self, name: &'static str, value: &dyn core::fmt::Display) {
         let mut text = heapless::String::new();
         let _ = write!(text, "{value}");
-        let _ = self.labels.push(Label {
-            name,
-            value: LabelValue::Short(text),
-        });
+        let _ = self.labels.push(Label { name, value: text });
     }
 
     /// Build a metric from a value that is already converted, stamped with
-    /// the current monotonic time. Every public constructor ends here, so
+    /// the current monotonic time. The public constructor ends here, so
     /// the code is compiled once and not once for each unit pushed.
-    fn stamped(name: &'static str, labels: Labels, value: Value) -> Self {
+    fn stamped(name: &'static str, value: Value) -> Self {
         Self {
             name,
-            labels,
+            labels: Labels::new(),
             value,
             expiry: Some(Expiry::new(
                 Instant::now().as_millis(),
@@ -238,24 +187,9 @@ impl Metric {
 
     /// Labels attached to this metric.
     #[must_use]
-    pub fn labels(&self) -> &[Label] {
+    pub(crate) fn labels(&self) -> &[Label] {
         &self.labels
     }
-}
-
-/// One `<label>="<index>"` label for each entry of `indices`, in the order
-/// given.
-fn index_labels(indices: &[(&'static str, usize)]) -> Labels {
-    let mut labels = Labels::new();
-    for &(label, index) in indices {
-        let mut index_str = heapless::String::new();
-        let _ = write!(index_str, "{index}");
-        let _ = labels.push(Label {
-            name: label,
-            value: LabelValue::Short(index_str),
-        });
-    }
-    labels
 }
 
 /// Prometheus `/metrics` exposition handler.

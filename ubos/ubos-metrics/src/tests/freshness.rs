@@ -27,10 +27,11 @@ use embassy_time::Duration;
 use crate::consts::Metrics;
 use crate::freshness::Expiry;
 use crate::metrics::Metric;
-use crate::value::Value;
+use crate::name::Name;
+use crate::value::Count;
 
 fn metric() -> Metric {
-    Metric::with_no_labels("test_metric", Value::Count(0))
+    Metric::new(Name::new("test_metric"), Count(0))
 }
 
 fn ttl_secs(metric: &Metric) -> Option<NonZeroU32> {
