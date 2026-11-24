@@ -24,9 +24,11 @@ use embassy_time::Duration;
 use ubos_core::units::{Temperature, Voltage};
 use ubos_http::BufferWriter;
 
-use super::{METRIC_LINE_BYTES, MetricKey, StoredValue, render_metric, render_stored};
+use super::{render_metric, render_stored};
 use crate::consts::Metrics;
 use crate::freshness::Expiry;
+use crate::metrics::METRIC_LINE_BYTES;
+use crate::store::{MetricKey, StoredValue};
 
 /// The line `render_metric` writes for a stored value under `key`, with
 /// the clock offset given.

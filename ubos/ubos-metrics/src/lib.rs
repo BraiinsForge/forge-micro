@@ -39,6 +39,7 @@ mod freshness;
 pub mod hashrate;
 pub mod metrics;
 mod name;
+mod scrape;
 mod store;
 pub mod value;
 

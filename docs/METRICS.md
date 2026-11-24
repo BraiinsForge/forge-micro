@@ -10,7 +10,7 @@ an interval.
 ## Endpoint model
 
 Code: `ubos/ubos-metrics/src/metrics.rs`, `ubos/ubos-metrics/src/store.rs`,
-`ubos/ubos-metrics/src/value.rs`.
+`ubos/ubos-metrics/src/scrape.rs`, `ubos/ubos-metrics/src/value.rs`.
 
 Any async context pushes a `Metric` value into a static `Channel` with
 `Metric::push`, which waits while the channel is full, or

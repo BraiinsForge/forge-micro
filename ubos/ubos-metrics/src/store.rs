@@ -17,10 +17,9 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! The metrics store: the channel that carries a pushed metric, the map
-//! of current series that the ingest task fills from it, and the key of
-//! one series. It is one module so that one build switch can remove the
-//! store as a whole.
+//! The metrics store: the channel that carries a pushed metric and the
+//! map of current series that the ingest task fills from it. The scrape
+//! service that renders the map is in `scrape`.
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;

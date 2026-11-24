@@ -47,8 +47,8 @@ Port 80 serves a `ubos_http::PrefixRouter` over
 (`ubos-webui/src/dashboard.rs`). Each handler seeds its credentials at
 boot through `ubos_api::seed_api_credentials` and
 `ubos_webui::seed_webui_credentials`. Port 8081 serves
-`ubos_metrics::PrometheusMetricsService` (`ubos-metrics/src/metrics.rs`);
-a separate `ubos_metrics::run_ingest` task drains the push channel into
+`ubos_metrics::metrics::PrometheusMetricsService` (`ubos-metrics/src/scrape.rs`);
+a separate `ubos_metrics::metrics::run_ingest` task drains the push channel into
 the shared metric map the service renders.
 
 ## Request lifecycle
