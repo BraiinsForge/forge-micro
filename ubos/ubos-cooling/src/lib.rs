@@ -22,7 +22,7 @@
 //! `TachReader`, and publishes the resulting `FanState` as the sole
 //! writer. Generic over the thermal source, fan output, and tach reader
 //! to stay portable across boards. A board may carry several fans; each
-//! tachometer publishes its own labeled `board_fan_rpm` series. A board
+//! tachometer publishes its own labeled `fan_rpm` series. A board
 //! whose fans sit behind a fan controller chip takes its driver from
 //! here: [`emc2302_1`] drives the EMC2302-1.
 //!
@@ -81,8 +81,9 @@ use ubos_config::{Config, CoolingConfig, FanMode};
 use ubos_config::{PidTarget, Source, Statistic};
 use ubos_core::units::{FanPwm, FanRpm, Temperature};
 use ubos_logging::{error, info};
-use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric};
-use ubos_metrics::value::Value;
+use ubos_metrics::catalog::{STAT_LABEL, TYPE_LABEL};
+use ubos_metrics::metric;
+use ubos_metrics::value::Flag;
 use ubos_thermal::{Handle as ThermalHandle, TempSample};
 
 use crate::pid::TempControl;
@@ -110,7 +111,7 @@ pub trait FanOutput {
 /// The implementation returns the speed of each fan measured since the previous
 /// call.
 ///
-/// `LABELS[i]` is the `fan` label attached to fan `i`'s `board_fan_rpm`
+/// `LABELS[i]` is the `fan` label attached to fan `i`'s `fan_rpm`
 /// series. `None` publishes that series with no label, which single-fan
 /// boards use to keep the historical unlabeled metric.
 ///
@@ -150,11 +151,6 @@ pub fn pulses_to_rpm(pulses: u64, pulses_per_rev: u64, elapsed_us: u64) -> FanRp
         .unwrap_or(0);
     FanRpm::from_rpm(u32::try_from(rpm).unwrap_or(u32::MAX))
 }
-
-const METRIC_FAN_PWM: &str = "board_fan_pwm_percent";
-const METRIC_FAN_RPM: &str = "board_fan_rpm";
-const METRIC_PID_TEMPERATURE: &str = "board_pid_temperature_celsius";
-const METRIC_PID_SOURCE: &str = "board_pid_source";
 
 /// Subscriber capacity for the fan watch. Every reader takes a
 /// point-in-time snapshot via [`Handle::current`]; none subscribe, so a
@@ -584,18 +580,12 @@ async fn publish_state<const N: usize>(
         pid_source: pid.map(|input| input.source),
     });
 
-    Metric::with_no_labels(METRIC_FAN_PWM, pwm).push().await;
+    metric!("fan_speed_control", pwm).push().await;
     for (label, reading) in tach_labels.iter().zip(rpms.iter()) {
+        let metric = metric!("fan_rpm", *reading);
         let metric = match *label {
-            None => Metric::with_no_labels(METRIC_FAN_RPM, *reading),
-            Some(name) => {
-                let mut labels = Labels::new();
-                let _ = labels.push(Label {
-                    name: "fan",
-                    value: LabelValue::Static(name),
-                });
-                Metric::with_labels(METRIC_FAN_RPM, labels, *reading)
-            }
+            None => metric,
+            Some(name) => metric.label("fan", name),
         };
         metric.push().await;
     }
@@ -604,38 +594,27 @@ async fn publish_state<const N: usize>(
 
 /// Push what the PID follows: its value and its setpoint while it runs,
 /// as the `type="measured"` and `type="target"` series of one gauge, and
-/// a `board_pid_source` series for each kind and statistic, 1 on the one
-/// it follows. Every `board_pid_source` series is pushed on each step,
+/// a `pid_source` series for each kind and statistic, 1 on the one
+/// it follows. Every `pid_source` series is pushed on each step,
 /// so a pair the PID stopped following reads 0, and all four read 0
-/// while the PID does not run, as `board_miner_state` marks the miner's
+/// while the PID does not run, as `miner_state` marks the miner's
 /// state.
 async fn publish_pid(pid: Option<PidInput>) {
     if let Some(input) = pid {
         for (role, temp) in [("measured", input.temp), ("target", input.target)] {
-            let mut labels = Labels::new();
-            let _ = labels.push(Label {
-                name: "type",
-                value: LabelValue::Static(role),
-            });
-            Metric::with_labels(METRIC_PID_TEMPERATURE, labels, temp)
+            metric!("pid_temperature_celsius", temp)
+                .label(TYPE_LABEL, role)
                 .push()
                 .await;
         }
     }
     for source in [Source::Chip, Source::Hashboard] {
         for statistic in [Statistic::Max, Statistic::Mean] {
-            let mut labels = Labels::new();
-            let _ = labels.push(Label {
-                name: "source",
-                value: LabelValue::Static(source.as_str()),
-            });
-            let _ = labels.push(Label {
-                name: "stat",
-                value: LabelValue::Static(statistic.as_str()),
-            });
             let followed =
                 pid.is_some_and(|input| (input.source, input.statistic) == (source, statistic));
-            Metric::with_labels(METRIC_PID_SOURCE, labels, Value::Flag(followed))
+            metric!("pid_source", Flag(followed))
+                .label("source", source.as_str())
+                .label(STAT_LABEL, statistic.as_str())
                 .push()
                 .await;
         }
