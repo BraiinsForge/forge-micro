@@ -21,12 +21,11 @@
 //!
 //! Model and caveats: `../../../docs/METRICS.md`.
 
-use core::num::NonZeroU64;
-
 use embassy_time::{Duration, Instant, Ticker};
 use portable_atomic::{AtomicU64, Ordering};
 
-use crate::metrics::{Label, LabelValue, Labels, Metric, Value};
+use crate::metrics::{Label, LabelValue, Labels, Metric};
+use crate::value::Ratio;
 
 /// Maximum number of cores tracked by [`record_idle`]. Each board
 /// declares how many of these slots it populates by passing `N_CPUS`
@@ -78,7 +77,7 @@ pub async fn run_cpu_load<const N_CPUS: usize>() -> ! {
 
         for cpu_index in 0..N_CPUS {
             let idle = now_idle[cpu_index].wrapping_sub(prev_idle[cpu_index]);
-            let busy = busy_ratio(idle, elapsed);
+            let busy = Ratio::new(elapsed.saturating_sub(idle), elapsed);
 
             let mut labels = Labels::new();
             // Window and cpu labels are fixed and known to fit; pushes cannot fail.
@@ -90,7 +89,7 @@ pub async fn run_cpu_load<const N_CPUS: usize>() -> ! {
                 name: "cpu",
                 value: LabelValue::Static(CPU_LABELS[cpu_index]),
             });
-            Metric::with_labels("board_cpu_busy_ratio", labels, Value::Float(busy))
+            Metric::with_labels("board_cpu_busy_ratio", labels, busy)
                 .push()
                 .await;
 
@@ -99,17 +98,6 @@ pub async fn run_cpu_load<const N_CPUS: usize>() -> ! {
 
         prev_instant = now_instant;
     }
-}
-
-/// Convert idle and elapsed tick counts into a clamped 0..=1 busy
-/// ratio. Returns 0.0 when no time has elapsed since the last sample.
-fn busy_ratio(idle: u64, elapsed: u64) -> f64 {
-    let Some(elapsed) = NonZeroU64::new(elapsed) else {
-        return 0.0;
-    };
-    #[allow(clippy::cast_precision_loss)]
-    let ratio = idle as f64 / elapsed.get() as f64;
-    (1.0 - ratio).clamp(0.0, 1.0)
 }
 
 #[cfg(target_arch = "arm")]

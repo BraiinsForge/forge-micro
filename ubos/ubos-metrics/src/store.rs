@@ -28,7 +28,8 @@ use embassy_sync::mutex::Mutex;
 use ubos_logging::warn;
 
 use crate::consts::Metrics;
-use crate::metrics::{Metric, Value};
+use crate::metrics::Metric;
+use crate::value::Value;
 
 #[cfg(test)]
 #[path = "tests/store.rs"]
@@ -59,25 +60,25 @@ pub(crate) struct StoredValue {
 const KEY_CAPACITY: usize = 80;
 
 /// The longest key the tree renders, in the label-expanded form
-/// [`MetricKey::from_metric`] builds: `board_temperature_millicelsius`
+/// [`MetricKey::from_metric`] builds: `board_temperature_celsius`
 /// with the `addr`, `chain` and `source` labels `ubos-thermal` gives a
 /// hashboard reading. A chain index is one digit for every `MAX_CHAINS`
 /// below ten, and a 7-bit address renders in four characters.
 const LONGEST_RENDERED_KEY: &str =
-    "board_temperature_millicelsius{addr=\"0x48\",chain=\"0\",source=\"hashboard\"}";
+    "board_temperature_celsius{addr=\"0x48\",chain=\"0\",source=\"hashboard\"}";
 
 const _: () = assert!(
     LONGEST_RENDERED_KEY.len() <= KEY_CAPACITY,
     "KEY_CAPACITY is below the longest key a metric renders"
 );
 
-/// Characters of the widest integer a line carries, the digits of
-/// `u64::MAX`. `i64::MIN` is one digit shorter and takes that place with
-/// its sign.
+/// Characters of the widest number a line carries, the digits of
+/// `u64::MAX`. The text of every [`Value`] fits it, and a test of the
+/// value holds that.
 pub(crate) const MAX_INTEGER_CHARS: usize = u64::MAX.ilog10() as usize + 1;
 
-/// Bytes the longest series line takes in a scrape: the key, a space, an
-/// integer value, a space, the millisecond timestamp, and the newline. A
+/// Bytes the longest series line takes in a scrape: the key, a space, the
+/// value, a space, the millisecond timestamp, and the newline. A
 /// board sizes its render buffer as this times its series cap, so the
 /// buffer holds a full map.
 pub const METRIC_LINE_BYTES: usize =

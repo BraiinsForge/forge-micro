@@ -60,7 +60,7 @@ use ubos_core::index::{ChipAddress, HashboardIndex};
 use ubos_core::units::{Temperature, Voltage};
 use ubos_logging::{debug, warn};
 use ubos_metrics::chain::ChainStatsHandle;
-use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value};
+use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric};
 
 #[cfg(test)]
 #[path = "tests/chain.rs"]
@@ -83,20 +83,16 @@ pub const SILENT_TICKS_BEFORE_FAULT: u8 = 2;
 /// How often each chain's summary is logged and its voltage published.
 const REPORT_INTERVAL: Duration = Duration::from_secs(10);
 
-/// Microvolts in a millivolt, because the chain voltage series is in
-/// microvolts.
-const MICROVOLTS_PER_MILLIVOLT: i64 = 1000;
-
 /// A chain's core voltage as its chips report it, one series per chain
 /// under the `chain` label.
-const CHAIN_VOLTAGE_METRIC: &str = "hashboard_chain_voltage_microvolts";
+const CHAIN_VOLTAGE_METRIC: &str = "hashboard_chain_voltage_volts";
 
 /// The spread of die temperatures across a chain, one series per
 /// statistic under the `stat` label and per chain under the `chain` one.
 /// Each die's reading is already published on its own, so this is here
 /// for the spread: whether one die is running away from the rest, which a
 /// single reading cannot say.
-const CHAIN_TEMPERATURE_METRIC: &str = "hashboard_chain_chip_temperature_millicelsius";
+const CHAIN_TEMPERATURE_METRIC: &str = "hashboard_chain_chip_temperature_celsius";
 
 /// The thermal loop's view of a board whose chips are its thermometer,
 /// spanning every one of its `CHAINS` chains.
@@ -268,12 +264,7 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
             warn!("chain {} pvt: no chip has reported a voltage", chain);
             return;
         };
-        Metric::indexed(
-            CHAIN_VOLTAGE_METRIC,
-            &[("chain", slot)],
-            Value::Int(i64::from(voltage.total.mv()) * MICROVOLTS_PER_MILLIVOLT),
-        )
-        .try_push();
+        Metric::indexed(CHAIN_VOLTAGE_METRIC, &[("chain", slot)], voltage.total).try_push();
         debug!(
             "chain {} pvt: string {} V, chips {} to {} V",
             chain, voltage.total, voltage.lowest, voltage.highest
@@ -288,12 +279,7 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
             name: "stat",
             value: LabelValue::Static(stat),
         });
-        Metric::with_labels(
-            CHAIN_TEMPERATURE_METRIC,
-            labels,
-            Value::Int(i64::from(temperature.millicelsius())),
-        )
-        .try_push();
+        Metric::with_labels(CHAIN_TEMPERATURE_METRIC, labels, temperature).try_push();
     }
 }
 

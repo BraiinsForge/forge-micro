@@ -34,23 +34,16 @@ use ubos_logging::warn;
 
 use crate::consts::Metrics;
 use crate::store::{METRICS, MetricKey, StoredValue};
+use crate::value::Value;
 use ubos_http::{
     BufferWriter, RequestParts, Service, Status, format_content_length, start_response,
 };
 
-pub use crate::store::{METRIC_LINE_BYTES, MetricsStatics, run_ingest};
+#[cfg(test)]
+#[path = "tests/metrics.rs"]
+mod tests;
 
-/// A metric value.
-#[derive(Clone, Copy)]
-#[non_exhaustive]
-pub enum Value {
-    /// Signed integer value.
-    Int(i64),
-    /// Unsigned integer value.
-    Uint(u64),
-    /// Floating-point value.
-    Float(f64),
-}
+pub use crate::store::{METRIC_LINE_BYTES, MetricsStatics, run_ingest};
 
 /// A label value, either a static string or an owned inline string for
 /// dynamic values such as chip identifiers.
@@ -104,25 +97,15 @@ impl Metric {
     /// Build a metric with no labels, stamped with the current
     /// monotonic time.
     #[must_use]
-    pub fn with_no_labels(name: &'static str, value: Value) -> Self {
-        Self {
-            name,
-            labels: Labels::new(),
-            value,
-            timestamp_ms: Instant::now().as_millis(),
-        }
+    pub fn with_no_labels(name: &'static str, value: impl Into<Value>) -> Self {
+        Self::stamped(name, Labels::new(), value.into())
     }
 
     /// Build a metric carrying the provided labels, stamped with the
     /// current monotonic time.
     #[must_use]
-    pub fn with_labels(name: &'static str, labels: Labels, value: Value) -> Self {
-        Self {
-            name,
-            labels,
-            value,
-            timestamp_ms: Instant::now().as_millis(),
-        }
+    pub fn with_labels(name: &'static str, labels: Labels, value: impl Into<Value>) -> Self {
+        Self::stamped(name, labels, value.into())
     }
 
     /// Build a metric carrying one `<label>="<index>"` tag per entry of
@@ -135,17 +118,24 @@ impl Metric {
     /// text. An index cannot approach that bound. Entries beyond the label
     /// capacity are dropped, as [`Labels`] drops them everywhere.
     #[must_use]
-    pub fn indexed(name: &'static str, indices: &[(&'static str, usize)], value: Value) -> Self {
-        let mut labels = Labels::new();
-        for &(label, index) in indices {
-            let mut index_str = heapless::String::new();
-            let _ = write!(index_str, "{index}");
-            let _ = labels.push(Label {
-                name: label,
-                value: LabelValue::Short(index_str),
-            });
+    pub fn indexed(
+        name: &'static str,
+        indices: &[(&'static str, usize)],
+        value: impl Into<Value>,
+    ) -> Self {
+        Self::stamped(name, index_labels(indices), value.into())
+    }
+
+    /// Build a metric from a value that is already converted, stamped with
+    /// the current monotonic time. Every public constructor ends here, so
+    /// the code is compiled once and not once for each unit pushed.
+    fn stamped(name: &'static str, labels: Labels, value: Value) -> Self {
+        Self {
+            name,
+            labels,
+            value,
+            timestamp_ms: Instant::now().as_millis(),
         }
-        Self::with_labels(name, labels, value)
     }
 
     /// Push the metric into the exposition channel, waiting while the
@@ -189,6 +179,21 @@ impl Metric {
     pub fn labels(&self) -> &[Label] {
         &self.labels
     }
+}
+
+/// One `<label>="<index>"` label for each entry of `indices`, in the order
+/// given.
+fn index_labels(indices: &[(&'static str, usize)]) -> Labels {
+    let mut labels = Labels::new();
+    for &(label, index) in indices {
+        let mut index_str = heapless::String::new();
+        let _ = write!(index_str, "{index}");
+        let _ = labels.push(Label {
+            name: label,
+            value: LabelValue::Short(index_str),
+        });
+    }
+    labels
 }
 
 /// Prometheus `/metrics` exposition handler.
@@ -383,16 +388,7 @@ fn build_prometheus_body<const MAX: usize, const BODY: usize>(
 /// before the first sync.
 fn render_metric(writer: &mut BufferWriter<'_>, key: &str, stored: &StoredValue, ntp_offset: u64) {
     // The key encodes labels as `name{label=value,...}` or just `name`.
-    let _ = write!(writer, "{key} ");
-    match &stored.value {
-        Value::Int(value) => {
-            let _ = write!(writer, "{value}");
-        }
-        Value::Uint(value) => {
-            let _ = write!(writer, "{value}");
-        }
-        Value::Float(value) => render_float_value(writer, *value),
-    }
+    let _ = write!(writer, "{key} {}", stored.value);
     // Stored timestamps are monotonic ms since boot. Add the NTP epoch
     // offset to produce an absolute Unix-epoch timestamp. If NTP has
     // not synced yet, omit the timestamp so Prometheus stamps the
@@ -416,19 +412,4 @@ fn render_scalar<T: core::fmt::Display>(
         let _ = write!(writer, " {ts_ms}");
     }
     let _ = writeln!(writer);
-}
-
-/// Render a float value, handling NaN and infinity per Prometheus spec.
-fn render_float_value(writer: &mut BufferWriter<'_>, value: f64) {
-    if value.is_nan() {
-        let _ = write!(writer, "NaN");
-    } else if value.is_infinite() {
-        if value > 0.0 {
-            let _ = write!(writer, "+Inf");
-        } else {
-            let _ = write!(writer, "-Inf");
-        }
-    } else {
-        let _ = write!(writer, "{value:.6}");
-    }
 }

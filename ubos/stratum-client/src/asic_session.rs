@@ -40,7 +40,8 @@ use embassy_time::Ticker;
 
 use crate::metrics::PoolMetricsSnapshot;
 use crate::work::{Solution, WorkAssignment};
-use ubos_metrics::metrics::{Metric, Value};
+use ubos_metrics::metrics::Metric;
+use ubos_metrics::value::Value;
 
 #[cfg(test)]
 #[path = "tests/asic_session.rs"]
@@ -171,19 +172,19 @@ impl<const N: usize, const CHAINS: usize> PoolHandle<'_, N, CHAINS> {
         Metric::indexed(
             "board_shares_accepted_total",
             &[("pool", self.slot)],
-            Value::Uint(snapshot.shares_accepted),
+            Value::Count(snapshot.shares_accepted),
         )
         .try_push();
         Metric::indexed(
             "board_shares_rejected_total",
             &[("pool", self.slot)],
-            Value::Uint(snapshot.shares_rejected),
+            Value::Count(snapshot.shares_rejected),
         )
         .try_push();
         Metric::indexed(
             "board_stratum_reconnects_total",
             &[("pool", self.slot)],
-            Value::Uint(u64::from(snapshot.reconnects)),
+            Value::Count(u64::from(snapshot.reconnects)),
         )
         .try_push();
         Some(snapshot)

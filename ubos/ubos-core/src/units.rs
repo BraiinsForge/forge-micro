@@ -412,7 +412,7 @@ show_in_thousandths!(Efficiency, |efficiency| efficiency.mj_per_th());
 /// Temperature in millicelsius, and the one type that firmware holds and
 /// compares a temperature in. A raw number appears only where a value
 /// leaves the firmware: [`millicelsius`](Self::millicelsius) for the
-/// metrics, [`celsius_i32`](Self::celsius_i32) for the API, and
+/// event log, [`celsius_i32`](Self::celsius_i32) for the API, and
 /// [`celsius_f64`](Self::celsius_f64) for the PID loop in `ubos-cooling`,
 /// which operates in the unit its gains are tuned in.
 ///

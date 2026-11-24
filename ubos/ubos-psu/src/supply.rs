@@ -33,7 +33,8 @@ use embassy_sync::watch::{Receiver, Watch};
 use portable_atomic::{AtomicU32, Ordering};
 use ubos_core::take_once::TakeOnce;
 use ubos_core::units::{Power, Voltage};
-use ubos_metrics::metrics::{Metric, Value};
+use ubos_metrics::metrics::Metric;
+use ubos_metrics::value::Value;
 
 use crate::{CommandError, Error, ModelString, Psu, VoltageSource};
 
@@ -75,7 +76,7 @@ const WATCH_CAPACITY: usize = 4;
 
 /// Gauge carrying the voltage the rail was last set to, published on
 /// every poll once a command has set it.
-const SET_VOLTAGE_METRIC: &str = "board_psu_output_voltage_set_mv";
+const SET_VOLTAGE_METRIC: &str = "board_psu_output_voltage_set_volts";
 
 /// Per-task subscription returned by [`Handle::subscribe`].
 pub type PsuSubscription = Receiver<'static, CSMutex, PsuReading, WATCH_CAPACITY>;
@@ -494,16 +495,8 @@ impl<P: Psu> PowerSupply<P> {
                     input.mw(),
                     output.mw()
                 );
-                Metric::with_no_labels(
-                    "board_psu_input_power_mw",
-                    Value::Uint(u64::from(input.mw())),
-                )
-                .try_push();
-                Metric::with_no_labels(
-                    "board_psu_output_power_mw",
-                    Value::Uint(u64::from(output.mw())),
-                )
-                .try_push();
+                Metric::with_no_labels("board_psu_input_power_watts", *input).try_push();
+                Metric::with_no_labels("board_psu_output_power_watts", *output).try_push();
             }
             (Err(error), Ok(_)) | (Ok(_), Err(error)) => {
                 ubos_logging::error!(
@@ -543,8 +536,7 @@ impl<P: Psu> PowerSupply<P> {
             }
         }
         if setpoint.is_some() {
-            Metric::with_no_labels(SET_VOLTAGE_METRIC, Value::Uint(u64::from(set_voltage.mv())))
-                .try_push();
+            Metric::with_no_labels(SET_VOLTAGE_METRIC, set_voltage).try_push();
         }
 
         match (input_result, output_result, voltage_result) {
@@ -577,22 +569,22 @@ impl<P: Psu> PowerSupply<P> {
             Ok(flags) => {
                 Metric::with_no_labels(
                     "board_psu_status_current_limit",
-                    Value::Uint(u64::from(flags.current_limit)),
+                    Value::Flag(flags.current_limit),
                 )
                 .try_push();
                 Metric::with_no_labels(
                     "board_psu_status_thermal_shutdown",
-                    Value::Uint(u64::from(flags.thermal_shutdown)),
+                    Value::Flag(flags.thermal_shutdown),
                 )
                 .try_push();
                 Metric::with_no_labels(
                     "board_psu_status_overvoltage",
-                    Value::Uint(u64::from(flags.overvoltage)),
+                    Value::Flag(flags.overvoltage),
                 )
                 .try_push();
                 Metric::with_no_labels(
                     "board_psu_status_undervoltage",
-                    Value::Uint(u64::from(flags.undervoltage)),
+                    Value::Flag(flags.undervoltage),
                 )
                 .try_push();
                 let fault_now = flags.current_limit
@@ -650,7 +642,7 @@ pub const HEARTBEAT_TIMEOUT: embassy_time::Duration = embassy_time::Duration::fr
 
 /// Gauge carrying a measured output-rail voltage, one series for each
 /// [`VoltageSource`] the board reads.
-const MEASURED_VOLTAGE_METRIC: &str = "output_voltage_measured_mv";
+const MEASURED_VOLTAGE_METRIC: &str = "output_voltage_measured_volts";
 
 /// Publish a measured output-rail voltage tagged with its `source`, so a
 /// board that reads the rail from the supply and from a separate monitor
@@ -662,8 +654,7 @@ fn publish_measured_voltage(voltage: Voltage, source: VoltageSource) {
         name: "source",
         value: LabelValue::Static(source.label()),
     });
-    let value = Value::Uint(u64::from(voltage.mv()));
-    Metric::with_labels(MEASURED_VOLTAGE_METRIC, labels, value).try_push();
+    Metric::with_labels(MEASURED_VOLTAGE_METRIC, labels, voltage).try_push();
 }
 
 /// Task shell around [`PowerSupply::run`]. Takes the board's driver

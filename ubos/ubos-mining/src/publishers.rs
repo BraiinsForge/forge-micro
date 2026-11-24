@@ -25,7 +25,8 @@
 //! `#[embassy_executor::task]` wrapper.
 
 use embassy_time::{Duration, Ticker};
-use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value};
+use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric};
+use ubos_metrics::value::Value;
 
 use crate::{Handle as MiningHandle, MiningState};
 use ubos_metrics::chain as stats;
@@ -40,42 +41,39 @@ pub async fn run_miner_metrics_publisher(mining: MiningHandle, pool_slots: usize
         let stats_handle = stats::handle();
         for (chain, stats) in stats_handle.chains().enumerate() {
             let by_chain = [("chain", chain)];
-            let gauges = [
+            Metric::indexed("board_chain_frequency_hertz", &by_chain, stats.frequency())
+                .push()
+                .await;
+            let values = [
                 (
                     "board_uart_desync_bytes_total",
-                    u64::from(stats.desync_bytes()),
+                    Value::Count(u64::from(stats.desync_bytes())),
                 ),
-                ("board_chain_chips", u64::from(stats.chips())),
+                ("board_chain_chips", Value::Count(u64::from(stats.chips()))),
                 (
                     "board_chain_present",
-                    u64::from(stats.presence().is_present()),
+                    Value::Flag(stats.presence().is_present()),
                 ),
-                (
-                    "board_chain_frequency_khz",
-                    u64::from(stats.frequency().khz()),
-                ),
-                ("board_hashrate_hps", stats.hashrate()),
-                ("board_shares_total", stats.share_count()),
+                ("board_hashrate_hps", Value::Count(stats.hashrate())),
+                ("board_shares_total", Value::Count(stats.share_count())),
             ];
-            for (name, value) in gauges {
-                Metric::indexed(name, &by_chain, Value::Uint(value))
-                    .push()
-                    .await;
+            for (name, value) in values {
+                Metric::indexed(name, &by_chain, value).push().await;
             }
             let limit = pool_slots.min(crate::consts::MAX_POOL_SLOTS);
             for slot in 0..limit {
                 Metric::indexed(
                     "board_pool_work_shares_total",
                     &[("chain", chain), ("pool", slot)],
-                    Value::Uint(stats.pool_shares(slot)),
+                    Value::Count(stats.pool_shares(slot)),
                 )
                 .push()
                 .await;
             }
         }
         let state = mining.state();
-        let running = u64::from(matches!(state, Some(MiningState::Running)));
-        Metric::with_no_labels("board_miner_running", Value::Uint(running))
+        let running = Value::Flag(matches!(state, Some(MiningState::Running)));
+        Metric::with_no_labels("board_miner_running", running)
             .push()
             .await;
         // One series per state, 1 on the current one, so a panel can
@@ -90,7 +88,7 @@ pub async fn run_miner_metrics_publisher(mining: MiningHandle, pool_slots: usize
             Metric::with_labels(
                 "board_miner_state",
                 labels,
-                Value::Uint(u64::from(state == Some(candidate))),
+                Value::Flag(state == Some(candidate)),
             )
             .push()
             .await;

@@ -30,7 +30,7 @@ use core::fmt::Write as _;
 use embedded_hal_async::i2c::SevenBitAddress;
 use ubos_core::index::{ChipAddress, HashboardIndex};
 use ubos_core::units::Temperature;
-use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value};
+use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric};
 use ubos_temperature::{Reading, TempSource};
 
 use crate::Source;
@@ -41,13 +41,11 @@ use crate::chain::chain_labels;
 /// chip reading the `chip` it measures, and every other reading the
 /// `addr` of the sensor that took it.
 ///
-/// Prometheus convention prefers base SI units, which would
-/// make `_celsius` the canonical suffix. The firmware targets the RP2040
-/// among others, a Cortex-M0+ with no FPU, so a float-valued celsius
-/// gauge would pull software floating-point into the exposition path.
-/// Integer millicelsius preserves sub-degree resolution without
-/// soft-float, and the name reflects the unit carried on the wire.
-const READING_METRIC_NAME: &str = "board_temperature_millicelsius";
+/// The series is in degrees Celsius, the base unit that the Prometheus
+/// convention asks for. The store holds the [`Temperature`] and writes it
+/// with integer math, so the exposition path needs no software floating
+/// point on a board with no FPU.
+const READING_METRIC_NAME: &str = "board_temperature_celsius";
 
 /// The `source` label of a hashboard reading.
 const HASHBOARD_SOURCE: &str = Source::Hashboard.as_str();
@@ -65,14 +63,12 @@ const CONTROL_BOARD_SOURCE: &str = "control_board";
 const PSU_SOURCE: &str = "psu";
 
 /// The ambient temperature around the board, where the board measures it.
-/// Carries no label: a board reports one ambient reading or none. Integer
-/// millicelsius for the reason [`READING_METRIC_NAME`] gives.
-pub(crate) const AMBIENT_METRIC_NAME: &str = "board_ambient_temperature_millicelsius";
+/// Carries no label: a board reports one ambient reading or none.
+pub(crate) const AMBIENT_METRIC_NAME: &str = "board_ambient_temperature_celsius";
 
 /// The temperature of the MCU die on the control board. Carries no
-/// label: a board has one MCU. Integer millicelsius for the reason
-/// [`READING_METRIC_NAME`] gives.
-pub(crate) const MCU_METRIC_NAME: &str = "board_mcu_temperature_millicelsius";
+/// label: a board has one MCU.
+pub(crate) const MCU_METRIC_NAME: &str = "board_mcu_temperature_celsius";
 
 /// Push one reading that the I2C sensor at `address` on `chain` took.
 pub(crate) fn publish_sensor_reading(
@@ -96,7 +92,6 @@ pub(crate) fn publish_sensor_reading(
 fn publish_hashboard_reading(chain: HashboardIndex, address: SevenBitAddress, value: Temperature) {
     let mut labels = reading_labels(HASHBOARD_SOURCE, chain);
     let _ = labels.push(address_label(address));
-    let value = Value::Int(i64::from(value.millicelsius()));
     Metric::with_labels(READING_METRIC_NAME, labels, value).try_push();
 }
 
@@ -106,7 +101,6 @@ fn publish_board_reading(source: &'static str, address: SevenBitAddress, value: 
     let mut labels = Labels::new();
     let _ = labels.push(reading_source_label(source));
     let _ = labels.push(address_label(address));
-    let value = Value::Int(i64::from(value.millicelsius()));
     Metric::with_labels(READING_METRIC_NAME, labels, value).try_push();
 }
 
@@ -123,7 +117,6 @@ pub(crate) fn publish_chip_reading(chain: HashboardIndex, chip: ChipAddress, val
         name: "chip",
         value: LabelValue::Short(chip_str),
     });
-    let value = Value::Int(i64::from(value.millicelsius()));
     Metric::with_labels(READING_METRIC_NAME, labels, value).try_push();
 }
 

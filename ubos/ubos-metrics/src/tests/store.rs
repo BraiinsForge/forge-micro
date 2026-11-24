@@ -22,7 +22,8 @@
 //! metric the constant does not name.
 
 use super::{KEY_CAPACITY, LONGEST_RENDERED_KEY, MetricKey};
-use crate::metrics::{Label, LabelValue, Labels, Metric, Value};
+use crate::metrics::{Label, LabelValue, Labels, Metric};
+use crate::value::Value;
 
 /// Build the key for a metric carrying the labels given, in the order
 /// given, so a test states the call `ubos-thermal` makes rather than the
@@ -40,7 +41,7 @@ fn key_for(name: &'static str, labels: &[(&'static str, &'static str)]) -> Optio
             "test labels fit MAX_LABELS"
         );
     }
-    MetricKey::from_metric(&Metric::with_labels(name, built, Value::Int(0)))
+    MetricKey::from_metric(&Metric::with_labels(name, built, Value::Count(0)))
 }
 
 /// The per-chain die-temperature spread carries two labels and the
@@ -51,7 +52,7 @@ fn the_per_chain_temperature_spread_key_fits_the_budget() {
     for stat in ["lowest", "mean", "highest"] {
         assert!(
             key_for(
-                "hashboard_chain_chip_temperature_millicelsius",
+                "hashboard_chain_chip_temperature_celsius",
                 &[("chain", "0"), ("stat", stat)],
             )
             .is_some(),
@@ -66,7 +67,7 @@ fn the_per_chain_temperature_spread_key_fits_the_budget() {
 #[test]
 fn the_longest_key_constant_matches_what_from_metric_renders() {
     let key = key_for(
-        "board_temperature_millicelsius",
+        "board_temperature_celsius",
         &[("source", "hashboard"), ("chain", "0"), ("addr", "0x48")],
     )
     .expect("the longest key must encode");

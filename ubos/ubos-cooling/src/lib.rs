@@ -81,7 +81,8 @@ use ubos_config::{Config, CoolingConfig, FanMode};
 use ubos_config::{PidTarget, Source, Statistic};
 use ubos_core::units::{FanPwm, FanRpm, Temperature};
 use ubos_logging::{error, info};
-use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value};
+use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric};
+use ubos_metrics::value::Value;
 use ubos_thermal::{Handle as ThermalHandle, TempSample};
 
 use crate::pid::TempControl;
@@ -152,7 +153,7 @@ pub fn pulses_to_rpm(pulses: u64, pulses_per_rev: u64, elapsed_us: u64) -> FanRp
 
 const METRIC_FAN_PWM: &str = "board_fan_pwm_percent";
 const METRIC_FAN_RPM: &str = "board_fan_rpm";
-const METRIC_PID_TEMPERATURE: &str = "board_pid_temperature_millicelsius";
+const METRIC_PID_TEMPERATURE: &str = "board_pid_temperature_celsius";
 const METRIC_PID_SOURCE: &str = "board_pid_source";
 
 /// Subscriber capacity for the fan watch. Every reader takes a
@@ -583,20 +584,17 @@ async fn publish_state<const N: usize>(
         pid_source: pid.map(|input| input.source),
     });
 
-    Metric::with_no_labels(METRIC_FAN_PWM, Value::Uint(u64::from(pwm.percent())))
-        .push()
-        .await;
+    Metric::with_no_labels(METRIC_FAN_PWM, pwm).push().await;
     for (label, reading) in tach_labels.iter().zip(rpms.iter()) {
-        let value = Value::Uint(u64::from(reading.rpm()));
         let metric = match *label {
-            None => Metric::with_no_labels(METRIC_FAN_RPM, value),
+            None => Metric::with_no_labels(METRIC_FAN_RPM, *reading),
             Some(name) => {
                 let mut labels = Labels::new();
                 let _ = labels.push(Label {
                     name: "fan",
                     value: LabelValue::Static(name),
                 });
-                Metric::with_labels(METRIC_FAN_RPM, labels, value)
+                Metric::with_labels(METRIC_FAN_RPM, labels, *reading)
             }
         };
         metric.push().await;
@@ -619,8 +617,7 @@ async fn publish_pid(pid: Option<PidInput>) {
                 name: "type",
                 value: LabelValue::Static(role),
             });
-            let value = Value::Int(i64::from(temp.millicelsius()));
-            Metric::with_labels(METRIC_PID_TEMPERATURE, labels, value)
+            Metric::with_labels(METRIC_PID_TEMPERATURE, labels, temp)
                 .push()
                 .await;
         }
@@ -638,7 +635,7 @@ async fn publish_pid(pid: Option<PidInput>) {
             });
             let followed =
                 pid.is_some_and(|input| (input.source, input.statistic) == (source, statistic));
-            Metric::with_labels(METRIC_PID_SOURCE, labels, Value::Uint(u64::from(followed)))
+            Metric::with_labels(METRIC_PID_SOURCE, labels, Value::Flag(followed))
                 .push()
                 .await;
         }

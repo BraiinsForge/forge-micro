@@ -112,7 +112,7 @@ use ubos_config::ThermalConfig;
 use ubos_core::units::{Temperature, Voltage};
 use ubos_logging::{error, info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage, PauseReason, PauseReasons};
-use ubos_metrics::metrics::{Metric, Value};
+use ubos_metrics::metrics::Metric;
 
 ubos_events::events! {
     dangerous_temperature(temp: Temperature)  error = "Critical temperature {} °C, mining halted",
@@ -566,8 +566,7 @@ impl Thermal {
 async fn read_ambient<A: AmbientSensor>(ambient: &mut A) -> Option<Temperature> {
     let reading = ambient.ambient().await;
     if let Some(reading) = reading {
-        let value = Value::Int(i64::from(reading.millicelsius()));
-        Metric::with_no_labels(AMBIENT_METRIC_NAME, value).try_push();
+        Metric::with_no_labels(AMBIENT_METRIC_NAME, reading).try_push();
     }
     reading
 }
@@ -660,8 +659,7 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatu
         // safety loop must not wait on the metrics, and the next tick
         // replaces it.
         if let Some(temp) = mcu.read().await {
-            let value = Value::Int(i64::from(temp.millicelsius()));
-            Metric::with_no_labels(MCU_METRIC_NAME, value).try_push();
+            Metric::with_no_labels(MCU_METRIC_NAME, temp).try_push();
         }
     }
 }
