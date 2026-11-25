@@ -3,7 +3,7 @@
 Status: implemented. Scope: the `ubos-http` accept loop and its consumers.
 `ubos-webui` and `ubos-api` share one listener on port 80 behind
 `ubos_http::PrefixRouter`. `ubos-metrics` has its own listener on port
-8081.
+8081 in a build with the `metrics` feature, as `METRICS.md` describes.
 
 The firmware HTTP servers serve several connections at once through a
 fixed pool of accept-loop workers, sized per board. This note records the

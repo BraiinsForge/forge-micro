@@ -16,6 +16,9 @@ reference-miner where compatibility costs nothing.
 | 80   | `ubos-api`     | JSON REST API (`/api/*`)                               |
 | 8081 | `ubos-metrics` | Prometheus text-format exposition at `/metrics`        |
 
+Port 8081 and `_prometheus._tcp.local.` exist only in a build with the
+`metrics` feature, as `METRICS.md` describes.
+
 Port 80 carries both surfaces behind one router. A path that starts with
 `/api/` reaches `ubos-api`. Every other path reaches `ubos-webui`.
 
@@ -335,18 +338,19 @@ ubos_mdns::declare_service!(
 );
 ```
 
-Firmware composes a `&'static [&'static ServiceEntry]` slice and passes
-it to `ubos_mdns::run_mdns`. Responder code in
+A board names its own entries to `ubos_firmware::mdns_services!`, which
+adds `PROMETHEUS_SERVICE` only in a build with the `metrics` feature,
+and passes the slice it returns to `ubos_mdns::run_mdns`. Responder code in
 `ubos-mdns/src/responder.rs` runtime-appends `board=` and `mcu=` TXT
 pairs per service. No `linkme` is used.
 
 Today the workspace advertises:
 
-| Service        | Port | Declared in                        |
-|----------------|------|------------------------------------|
-| `_http`        | 80   | `ubos-webui/src/lib.rs`            |
-| `_ubos`        | 80   | `ubos-api/src/lib.rs`              |
-| `_prometheus`  | 8081 | `ubos-metrics/src/lib.rs`          |
+| Service        | Port | Declared in                               |
+|----------------|------|-------------------------------------------|
+| `_http`        | 80   | `ubos-webui/src/lib.rs`                   |
+| `_ubos`        | 80   | `ubos-api/src/lib.rs`                     |
+| `_prometheus`  | 8081 | `ubos-metrics/src/lib.rs`, `metrics` only |
 
 Hostnames are composed per-board in each firmware's `config.rs` from
 the `MDNS_HOSTNAME_BASE` const and the last MAC byte.

@@ -3,8 +3,8 @@
 Status: implemented — the code wins. When this file and the code
 disagree, the code is right and this file needs a patch.
 
-Each firmware exposes a Prometheus text endpoint on
-`http://<board-ip>:<Metrics::PORT>/`. A Prometheus server scrapes it on
+Each firmware built with the `metrics` feature exposes a Prometheus
+text endpoint on `http://<board-ip>:<Metrics::PORT>/`. A Prometheus server scrapes it on
 an interval.
 
 ## Endpoint model
@@ -77,6 +77,50 @@ the endpoint cross-origin for the state snapshot download and sees the
 real HTTP status of an error instead of an opaque CORS failure. The
 wildcard is safe because the listener is unauthenticated, and it
 requires the browser to fetch without credentials.
+
+## The `metrics` feature
+
+Code: `ubos/ubos-firmware/src/serve.rs`, `ubos/ubos-metrics/src/lib.rs`.
+
+The cargo feature `metrics` keeps the store in a firmware image. Each
+board declares it as `metrics = ["ubos-firmware/metrics"]` and lists it
+in its default features, so every image has the store, except the
+`rp2040` image. With the store, the RAM that stays for the stack of
+that board is smaller than the stack that it uses at boot. The feature is
+temporary. It leaves the tree when the store moves to external RAM.
+
+A board with too little RAM can build without the feature. The command
+names the other default features of the board again:
+
+```sh
+cargo build --release --no-default-features --features display
+```
+
+That image has no channel, no series map, no render buffer and no
+ingest task. It does not listen on the metrics port, and it does not
+advertise `_prometheus` over mDNS. `Metric::push` and
+`Metric::try_push` return at once, so no push site has a `cfg`. A push
+site still builds its labels, so the feature saves RAM and not time.
+
+The REST API, the display, the chain table, the hashrate estimator and
+the CPU counters do not read the store. They work the same in both
+builds. The state snapshot download of the web UI reads the metrics
+port, and it records a failed collection for that section.
+
+The macros of `ubos-firmware` follow the feature, so a board source
+has no `cfg`. `serve_all!` declares the store and its listener through
+`serve_metrics_items!` and `serve_metrics_start!`, which a board never
+calls. A board spawns the ingest task with
+`spawn_metrics_ingest!` and builds its mDNS list with `mdns_services!`.
+The board budget in `MAX_METRICS`, `METRICS_RESPONSE_BYTES` and
+`metrics_http_pool` stays in both builds and has no effect without the
+feature.
+
+The `board-metrics-feature` check fails when a board manifest does not
+hold the feature in its defaults. The checks `clippy-rp2040` and
+`build-rp2040` gate the build without the store, because that is the
+default build of the rp2040. The RAM that the store costs is in the size budget
+of [BOARDS.md](BOARDS.md).
 
 ## CPU busy ratio
 

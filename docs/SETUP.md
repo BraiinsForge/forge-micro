@@ -70,7 +70,9 @@ one probe is attached, the runner selects it automatically. Export
 
 Every board drives a BM13xx hashboard via the `ubos-mining` backend
 unconditionally. The `display` feature is enabled by default on
-boards that have a display.
+boards that have a display. The `metrics` feature is enabled by default
+on every board except `rp2040` and keeps the metrics store. A board with
+too little RAM can build without it, see [METRICS.md](METRICS.md).
 
 ## Pool configuration
 

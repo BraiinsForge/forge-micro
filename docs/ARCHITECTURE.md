@@ -127,7 +127,8 @@ task that holds it.
 - **The metrics push channel is the one sanctioned shared static.**
   Any layer can push into it through `Metric::push`, and there is
   exactly one consumer. The static is private to the store of
-  `ubos-metrics`.
+  `ubos-metrics`. A build without the `metrics` feature has no channel,
+  and a push returns at once.
 - **`PauseReasons` records intent; `MiningState` records lifecycle status.**
   The manager publishes the pause mask before the miner completes a halt.
   OTA sends `OtaBegin` to the manager and then waits for `Stopped`
