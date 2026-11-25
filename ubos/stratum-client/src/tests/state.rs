@@ -20,7 +20,7 @@
 //! Tests for `StratumState`'s `MiningClientVisitor` impl.
 
 use super::*;
-use crate::metrics::PoolCountersHandle;
+use crate::metrics::{PoolCountersHandle, PoolMetricsSnapshot};
 use rusty_fork::rusty_fork_test;
 
 use crate::job_ring::JobSlot;
@@ -227,5 +227,41 @@ rusty_fork_test! {
         assert_eq!(snapshot.work_rejected, 512);
         assert_eq!(snapshot.shares_accepted, 3);
         assert_eq!(snapshot.shares_rejected, 1);
+    }
+}
+
+rusty_fork_test! {
+    #[test]
+    fn set_target_changes_only_the_difficulty() {
+        let mut target = [0u8; 32];
+        // 0xffff_0000 / 0x0007_fff8 = 8192.
+        target[24..28].copy_from_slice(&0x0007_fff8_u32.to_le_bytes());
+
+        let mut state = StratumState::new(3);
+        let before = crate::metrics::for_slot(3).expect("slot 3 in range").snapshot();
+        state.visit_session_update(SessionUpdate::SetTarget(&target));
+        let after = crate::metrics::for_slot(3).expect("slot 3 in range").snapshot();
+
+        assert_eq!(after.difficulty, 8192);
+        assert_eq!(
+            PoolMetricsSnapshot { difficulty: before.difficulty, ..after },
+            before,
+        );
+        assert_eq!(crate::metrics::for_slot(0).expect("slot 0 in range").snapshot().difficulty, 0);
+    }
+}
+
+rusty_fork_test! {
+    #[test]
+    fn clear_difficulty_zeroes_only_the_cleared_slot() {
+        let session: crate::asic_session::AsicSession<2> = crate::asic_session::AsicSession::new();
+        for slot in 0..2 {
+            crate::metrics::for_slot(slot).expect("slot in range").set_difficulty(8192);
+        }
+
+        session.pool_handle(0).clear_difficulty();
+
+        assert_eq!(crate::metrics::for_slot(0).expect("slot 0 in range").snapshot().difficulty, 0);
+        assert_eq!(crate::metrics::for_slot(1).expect("slot 1 in range").snapshot().difficulty, 8192);
     }
 }

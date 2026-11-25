@@ -223,6 +223,7 @@ pub async fn run_stratum_session<const N: usize>(
         // downstream reaches its own on-return clear and a slot parked on
         // a removed entry would stay "Alive" forever.
         handle.set_alive(false);
+        handle.clear_difficulty();
 
         let Some(entry) = config.pool_slot(slot).await else {
             // An empty primary slot means no mining at all — worth a

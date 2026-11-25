@@ -172,6 +172,9 @@ impl<const N: usize, const CHAINS: usize> PoolHandle<'_, N, CHAINS> {
                 .label(TYPE_LABEL, answer)
                 .try_push();
         }
+        metric!("pool_difficulty", Count(snapshot.difficulty))
+            .label(POOL_LABEL, self.slot)
+            .try_push();
         metric!("pool_reconnects", Count(u64::from(snapshot.reconnects)))
             .label(POOL_LABEL, self.slot)
             .try_push();
@@ -201,6 +204,14 @@ impl<const N: usize, const CHAINS: usize> PoolHandle<'_, N, CHAINS> {
     /// the dispatcher never re-dispatches a dead pool's last job.
     pub fn clear_work(&self) {
         self.session.work[self.slot].sender().clear();
+    }
+
+    /// Zero this slot's pool difficulty. Sessions call it on teardown,
+    /// because a slot that no session backs has no target.
+    pub fn clear_difficulty(&self) {
+        if let Some(metrics) = crate::metrics::for_slot(self.slot) {
+            metrics.set_difficulty(0);
+        }
     }
 
     /// Wait for the next solution routed to this slot.

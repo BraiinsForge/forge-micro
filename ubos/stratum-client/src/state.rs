@@ -35,6 +35,7 @@ use ubos_logging::trace;
 use crate::asic_session::PoolHandle;
 use crate::run::NTIME_ROLL_MAX_SECS;
 use crate::work::{MAX_EXTRANONCE_2, OutstandingWork, WorkAssignment};
+use mining_protocol::difficulty::Target;
 use mining_protocol::{MiningClientVisitor, MiningJob, SessionUpdate, SubmitResult};
 use ubos_logging::{info, warn};
 
@@ -212,9 +213,13 @@ impl MiningClientVisitor for StratumState {
     fn visit_session_update(&mut self, update: SessionUpdate<'_>) {
         match update {
             SessionUpdate::SetTarget(target) => {
-                // No state mutation: the next `MiningJob` will carry
-                // the updated target stamped by the adapter. This arm
-                // is operator visibility on the wire event only.
+                // The next `MiningJob` carries the updated target
+                // stamped by the adapter, so the job ring needs no
+                // change.
+                if let Some(metrics) = crate::metrics::for_slot(self.slot) {
+                    metrics
+                        .set_difficulty(Target::from_le_array(*target).difficulty().unwrap_or(0));
+                }
                 let target_hex = mining_protocol::hex::encode_block_hash_lower(target);
                 info!(
                     "stratum-client: pool {} set target {}...",

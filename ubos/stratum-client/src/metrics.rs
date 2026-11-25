@@ -20,11 +20,12 @@
 //! Per-pool counters, one [`PoolMetrics`] per pool slot.
 //!
 //! Every counter a pool session accumulates over its lifetime lives
-//! here: accepted and rejected shares, their work, reconnect attempts, and
-//! reachability. Session tasks write through [`PoolHandle`](crate::asic_session::PoolHandle)
-//! or, for the visitor's share counters, through the slot index
-//! `StratumState` already carries. Readers take a [`PoolMetricsSnapshot`]
-//! rather than the atomics themselves, and another crate reads through
+//! here: accepted and rejected shares, their work, the pool difficulty,
+//! reconnect attempts, and reachability. Session tasks write through
+//! [`PoolHandle`](crate::asic_session::PoolHandle) or, for the visitor's
+//! share counters, through the slot index `StratumState` already
+//! carries. Readers take a [`PoolMetricsSnapshot`] rather than the
+//! atomics themselves, and another crate reads through
 //! [`PoolCountersHandle`].
 
 use embassy_time::Duration;
@@ -43,6 +44,9 @@ pub struct PoolMetrics {
     work_accepted: AtomicU64,
     /// Sum of the `work` of the rejected submits, in diff-1 share units.
     work_rejected: AtomicU64,
+    /// Difficulty of the target the pool last sent, `0` before the first
+    /// and for a target outside the approximation.
+    difficulty: AtomicU64,
     reconnects: AtomicU32,
     /// Cleared by the first call to [`PoolMetrics::record_reconnect_attempt`];
     /// see its doc for why.
@@ -57,6 +61,7 @@ impl PoolMetrics {
             shares_rejected: AtomicU64::new(0),
             work_accepted: AtomicU64::new(0),
             work_rejected: AtomicU64::new(0),
+            difficulty: AtomicU64::new(0),
             reconnects: AtomicU32::new(0),
             first_reconnect_attempt: AtomicBool::new(true),
             alive: AtomicBool::new(false),
@@ -74,6 +79,12 @@ impl PoolMetrics {
     pub(crate) fn record_share_rejected(&self, work: u64) {
         self.shares_rejected.fetch_add(1, Ordering::Relaxed);
         self.work_rejected.fetch_add(work, Ordering::Relaxed);
+    }
+
+    /// Record the difficulty of the target the pool sent, or `0` for a
+    /// slot that no session backs.
+    pub(crate) fn set_difficulty(&self, difficulty: u64) {
+        self.difficulty.store(difficulty, Ordering::Relaxed);
     }
 
     /// Increment the reconnect counter on every call past the first.
@@ -110,6 +121,7 @@ impl PoolMetrics {
             shares_rejected: self.shares_rejected.load(Ordering::Relaxed),
             work_accepted: self.work_accepted.load(Ordering::Relaxed),
             work_rejected: self.work_rejected.load(Ordering::Relaxed),
+            difficulty: self.difficulty.load(Ordering::Relaxed),
             reconnects: self.reconnects.load(Ordering::Relaxed),
             alive: self.alive.load(Ordering::Relaxed),
         }
@@ -117,12 +129,13 @@ impl PoolMetrics {
 }
 
 /// A consistent read of one slot's counters at one point in time.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PoolMetricsSnapshot {
     pub shares_accepted: u64,
     pub shares_rejected: u64,
     pub work_accepted: u64,
     pub work_rejected: u64,
+    pub difficulty: u64,
     pub reconnects: u32,
     pub alive: bool,
 }

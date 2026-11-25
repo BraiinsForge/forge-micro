@@ -138,15 +138,17 @@ where
     .await;
     asic.set_alive(false);
     asic.clear_work();
+    asic.clear_difficulty();
     result
 }
 
 /// The session loop proper, wrapped by [`run_stratum_client`].
 ///
 /// The split exists so that every exit path, including the error ones,
-/// passes through one place that clears this pool's alive bit and work
-/// cell. Returning from here by any route leaves that bookkeeping to the
-/// wrapper, so a new `return` added inside cannot forget it.
+/// passes through one place that clears this pool's alive bit, work
+/// cell and difficulty. Returning from here by any route leaves that
+/// bookkeeping to the wrapper, so a new `return` added inside cannot
+/// forget it.
 ///
 /// The six parameters are peers: the client is the protocol adapter,
 /// the transport is the socket, the ASIC handle is where work goes, the

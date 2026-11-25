@@ -85,7 +85,7 @@ disagree, the code wins and this file needs a patch.
    │       version_bits: sol.version_bits,                               │
    │       extranonce_2: &work.extranonce_2 })                           │
    │                                                                     │
-   │   visit_session_update: log only.  visit_submit_result: counters.   │
+   │   visit_session_update: difficulty.  visit_submit_result: counters. │
    │                                                                     │
    │   ┌──────────────────────┐    ┌──────────────────────────────┐      │
    │   │ JobRing<2> rotating  │    │ WorkRing<8>  FIFO            │      │

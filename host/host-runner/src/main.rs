@@ -328,6 +328,7 @@ async fn stratum_client_task(stack: Stack<'static>, config_handle: ubos_config::
         // cancellation never cleared.
         pool.clear_work();
         pool.set_alive(false);
+        pool.clear_difficulty();
 
         let snapshot = config_handle.current().await;
         let Some(entry) = snapshot.pool.first() else {
