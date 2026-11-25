@@ -38,6 +38,19 @@ const FAHB0001: &str = concat!(
     "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff1f01",
 );
 
+/// A version 1 record of the `FACB0001` control board, with the data of
+/// the board in version 1 of its layout.
+const FACB0001: &str = concat!(
+    "4272a98aec0f8645895143420000464143423030303100000000000000000200",
+    "00000001eb63070042726169696e7320466f7267650000000000000000000000",
+    "0000000000000000466f72676520417865000000000000000000000000000000",
+    "0000000000000000ffffffffffffffffffffffffffffffffffffffffffffffff",
+    "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe8bd",
+);
+
 /// The record that `hex` spells.
 fn image(hex: &str) -> [u8; RECORD_LEN] {
     assert_eq!(hex.len(), 2 * RECORD_LEN, "the image fills a record");
@@ -111,6 +124,47 @@ fn an_eeprom_that_does_not_answer_fails_the_read() {
     let record = embassy_futures::block_on(I2cEeprom::new(0x57, &mut i2c).read_record(&mut raw));
     assert_eq!(record, Err(ReadError::I2c(ErrorKind::Other)));
     i2c.done();
+}
+
+#[test]
+fn version_1_control_board_data_parses() {
+    let raw = image(FACB0001);
+    let record = Record::parse(&raw).expect("the record parses");
+    assert_eq!(
+        ControlBoardEepromLayout::V1.parse(&record),
+        Ok(ControlBoardEeprom {
+            mac_address: [0x02, 0x00, 0x00, 0x00, 0x00, 0x01],
+            brand_color: [235, 99, 7],
+            brand_name: Some("Braiins Forge"),
+            device_name: Some("Forge Axe"),
+        })
+    );
+}
+
+#[test]
+fn a_name_that_is_empty_or_not_ascii_reads_as_none() {
+    let mut raw = image(FACB0001);
+    let reserved = offset_of!(RawRecord<LayoutV1>, layout.reserved);
+    raw[reserved + offset_of!(ControlBoardEepromV1, brand_name)] = ERASED;
+    raw[reserved + offset_of!(ControlBoardEepromV1, device_name)] = 0;
+    seal(&mut raw);
+    let record = Record::parse(&raw).expect("the record parses");
+    let data = ControlBoardEepromLayout::V1
+        .parse(&record)
+        .expect("the data parses");
+    assert_eq!((data.brand_name, data.device_name), (None, None));
+}
+
+#[test]
+fn data_after_the_control_board_data_is_rejected() {
+    let mut raw = image(FACB0001);
+    raw[offset_of!(RawRecord<LayoutV1>, layout.reserved) + size_of::<ControlBoardEepromV1>()] = 0;
+    seal(&mut raw);
+    let record = Record::parse(&raw).expect("the record parses");
+    assert_eq!(
+        ControlBoardEepromLayout::V1.parse(&record),
+        Err(Error::Reserved)
+    );
 }
 
 #[test]

@@ -35,7 +35,7 @@ use postcard_schema::Schema;
 use postcard_schema::key::hash::fnv1a64::hash_ty_path;
 use zerocopy::{FromBytes, Immutable, KnownLayout, Unaligned, transmute_ref};
 
-use crate::format::ascii_field;
+use crate::format::{ascii_field, ascii_text};
 
 #[cfg(test)]
 #[path = "tests/forge.rs"]
@@ -223,4 +223,75 @@ impl<'a> Record<'a> {
     pub fn check_erased(&self) -> Result<(), Error> {
         check_erased(self.reserved)
     }
+}
+
+/// A color as red, green and blue, one byte each.
+pub type Rgb = [u8; 3];
+
+/// The layouts of the data that a control-board record holds at the start
+/// of its reserved bytes. The descriptor of a control board names the
+/// layout that its EEPROM holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum ControlBoardEepromLayout {
+    V1,
+}
+
+impl ControlBoardEepromLayout {
+    /// The control-board data that `record` holds in this layout. The
+    /// reserved bytes after the data must be erased.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Reserved`] when the reserved bytes are too short
+    /// for the data, or a byte after the data is not erased.
+    pub fn parse<'a>(self, record: &Record<'a>) -> Result<ControlBoardEeprom<'a>, Error> {
+        match self {
+            Self::V1 => {
+                let (data, after) = ControlBoardEepromV1::ref_from_prefix(record.reserved)
+                    .map_err(|_| Error::Reserved)?;
+                check_erased(after)?;
+                let [red, green, blue, _] = data.brand_color;
+                Ok(ControlBoardEeprom {
+                    mac_address: data.mac_address,
+                    brand_color: [red, green, blue],
+                    brand_name: ascii_text(&data.brand_name).filter(|name| !name.is_empty()),
+                    device_name: ascii_text(&data.device_name).filter(|name| !name.is_empty()),
+                })
+            }
+        }
+    }
+}
+
+/// Version 1 of the control-board data. Text fields are ASCII, padded
+/// with NUL.
+#[repr(C)]
+#[derive(FromBytes, KnownLayout, Immutable, Unaligned)]
+struct ControlBoardEepromV1 {
+    mac_address: [u8; 6],
+    /// The brand color: red, green and blue, then a byte that pads it to
+    /// four bytes.
+    brand_color: [u8; 4],
+    brand_name: [u8; 32],
+    device_name: [u8; 32],
+}
+
+const _: () = assert!(
+    size_of::<ControlBoardEepromV1>() <= offset_of!(LayoutV1, crc) - offset_of!(LayoutV1, reserved),
+    "The control-board data does not fit the reserved bytes of record layout 1."
+);
+
+/// The data of a control board.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct ControlBoardEeprom<'a> {
+    /// The MAC address of the board, from the range that its maker bought.
+    pub mac_address: [u8; 6],
+    pub brand_color: Rgb,
+    /// The brand the machine ships under, or `None` when the field is
+    /// empty or not ASCII.
+    pub brand_name: Option<&'a str>,
+    /// The name of the device, or `None` when the field is empty or not
+    /// ASCII.
+    pub device_name: Option<&'a str>,
 }

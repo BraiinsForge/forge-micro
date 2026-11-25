@@ -276,12 +276,15 @@ impl<'a> HashboardEepromData<'a> {
 /// Real hardware has produced exactly that, in fields BOS fills with
 /// `0xFF` past their content and leaves without a NUL terminator.
 pub(crate) fn ascii_field(bytes: &[u8]) -> &str {
+    ascii_text(bytes).unwrap_or("INVALID")
+}
+
+/// The text of a NUL-terminated field before its first NUL, or the whole
+/// field when no terminator is present, or `None` when it is not ASCII.
+pub(crate) fn ascii_text(bytes: &[u8]) -> Option<&str> {
     let text = match bytes.iter().position(|b| *b == 0) {
         Some(nul) => &bytes[..nul],
         None => bytes,
     };
-    core::str::from_utf8(text)
-        .ok()
-        .filter(|s| s.is_ascii())
-        .unwrap_or("INVALID")
+    core::str::from_utf8(text).ok().filter(|s| s.is_ascii())
 }
