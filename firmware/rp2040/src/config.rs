@@ -125,7 +125,7 @@ pub const FEE_POOL: ubos_config::FeePool = ubos_config::fee::BRAIINS_POOL.with_o
 /// Distinct series the Prometheus exposition map holds. The map is keyed
 /// by the label-expanded series, and a series that does not fit is
 /// dropped with a warning. Must be a power of two, which the map requires.
-pub const MAX_METRICS: usize = 128;
+pub const MAX_METRICS: usize = 64;
 
 /// Bytes of the buffer one scrape is rendered into. It holds every series
 /// in the map at once, so it moves with [`MAX_METRICS`].
