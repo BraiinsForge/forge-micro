@@ -17,35 +17,23 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Pure thermal-threshold evaluator.
-//!
-//! Splits dangerous/cooldown decisions out of the embassy task so they
-//! can be unit-tested with plain values, with no embassy executor or
-//! atomics in the loop.
+//! The threshold decision, apart from the task so it tests on plain
+//! values.
 
 use ubos_core::units::Temperature;
 
-/// What the thermal task should do for the current sample.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Action {
-    /// Below `dangerous`, or above `cooldown` while halted: nothing to do.
     Ok,
-    /// Crossed `dangerous`: halt mining via `MiningHandle::halt` and
-    /// log an error. Only returned on the rising edge into the halt
-    /// state.
+    /// The rising edge into the halt only.
     EnterHalt,
-    /// Below `cooldown` while halted: resume mining via
-    /// `MiningHandle::resume` and log a recovery message.
+    /// Below `cooldown` while halted.
     Resume,
 }
 
-/// Decide what action to take given the current sample and whether the
-/// halt flag is currently set.
-///
-/// `dangerous` is the halt threshold `judge_dangerous` resolved for the
-/// source of this reading; the config layer bounds both thresholds it can
-/// be (`ThermalConfig::validate` caps them), so there is no separate
-/// ceiling here.
+/// `dangerous` is the threshold `judge_dangerous` resolved for this
+/// reading's source, and the config layer bounds both it can be, so
+/// there is no second ceiling here.
 #[must_use]
 pub fn evaluate(
     temp: Temperature,

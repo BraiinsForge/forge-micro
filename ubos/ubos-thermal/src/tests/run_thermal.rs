@@ -265,8 +265,6 @@ rusty_fork_test! {
         let mut manager_task = pin!(run_manager(&mut manager_runner, mining));
 
         let mut script = std::vec::Vec::new();
-        // First run: spend the whole tolerance budget on Unreadable, which
-        // halts on the last one.
         for _ in 0..SENSOR_FAULT_TICKS {
             script.push(Reading::Unreadable);
         }
@@ -293,7 +291,6 @@ rusty_fork_test! {
         prime(&mut thermal);
         prime(&mut manager_task);
 
-        // Drive the first run's budget.
         for _ in 0..SENSOR_FAULT_TICKS {
             tick(driver, &mut thermal, &mut manager_task);
         }
@@ -306,15 +303,12 @@ rusty_fork_test! {
             "the first run must halt exactly once"
         );
 
-        // The idle tick: releases the halt.
         tick(driver, &mut thermal, &mut manager_task);
         assert!(
             published(&mut mask).is_some_and(ubos_manager::PauseReasons::is_empty),
             "an Idle reading after a halt must release it"
         );
 
-        // The second run must not halt again before the budget is spent a
-        // second time.
         for tick_number in 1..SENSOR_FAULT_TICKS {
             tick(driver, &mut thermal, &mut manager_task);
             assert!(
@@ -322,9 +316,6 @@ rusty_fork_test! {
                 "tick {tick_number} of the second run must not halt before its own budget runs out"
             );
         }
-        // The last tick of the second budget must halt again, proving the
-        // count reset rather than carrying over remaining tolerance from
-        // before the release.
         tick(driver, &mut thermal, &mut manager_task);
         assert!(
             published(&mut mask).is_some_and(|mask| mask.contains(PauseReason::TemperatureUnreadable)),
@@ -361,8 +352,6 @@ rusty_fork_test! {
         prime(&mut thermal);
         prime(&mut manager_task);
 
-        // Tick 1: an over-threshold sample with the mask clear must trip the
-        // halt.
         tick(driver, &mut thermal, &mut manager_task);
         assert!(
             published(&mut mask).is_some_and(|mask| mask.contains(PauseReason::DangerousTemperature)),
@@ -373,21 +362,18 @@ rusty_fork_test! {
             "the loop must publish on its first tick"
         );
 
-        // Tick 2: the halt stands in the mask the manager published, so a
-        // sample still above the threshold and far above `cooldown_temp`
-        // evaluates to `Ok` and asks for nothing. This is the half that
-        // proves the loop reads the mask at all: with no halt state anywhere,
-        // this tick would trip a second time.
+        // The halt stands in the manager's mask, so a sample still over the
+        // threshold asks for nothing. A loop that did not read the mask would
+        // trip a second time here.
         tick(driver, &mut thermal, &mut manager_task);
         assert!(
             published(&mut mask).is_none(),
             "a sample taken while the halt stands must not ask for it twice"
         );
 
-        // The operator acknowledges, which is the only way out of this halt
-        // on a board whose chips are its thermometer, see `docs/MINING.md`
-        // under "Two ways out of an overheat halt". The API sends it to the
-        // manager, which clears the bit and publishes.
+        // The acknowledgement is the only way out of this halt on a board
+        // whose chips are its thermometer: see "Two ways out of an overheat
+        // halt" in `docs/MINING.md`.
         {
             // One poll, because the send completes on it and a finished
             // future must not be polled again.
@@ -403,11 +389,9 @@ rusty_fork_test! {
         );
         let _ = published(&mut mask);
 
-        // Tick 3: the same over-threshold sample must trip the halt again.
-        // This is the half that proves the read is fresh. A flag of its own set
-        // on tick 1 and never told about the acknowledgement would still
-        // read as held, and `evaluate` would answer `Ok` at any temperature
-        // for the rest of the loop's life.
+        // A flag of the loop's own, set on the first trip and never told of
+        // the acknowledgement, would still read as held here and keep the
+        // trip disarmed at any temperature.
         tick(driver, &mut thermal, &mut manager_task);
         assert!(
             published(&mut mask).is_some_and(|mask| mask.contains(PauseReason::DangerousTemperature)),

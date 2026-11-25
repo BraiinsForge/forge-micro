@@ -17,37 +17,23 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! The chains' chips as the board's thermometer.
+//! The chains' chips as the board's thermometer. The sensor reads each
+//! present chain's [`ChainPvt`] store, hands the thermal loop the
+//! hottest and the mean die across them, and every so often logs each
+//! chain's summary and publishes its voltage, so no task exists for
+//! that alone.
 //!
-//! A poll-family chain records each chip's die temperature and core
-//! voltage into a [`ChainPvt`] as the serial actor's status turns come
-//! round. This sensor reads one such store per chain for the thermal
-//! loop: it hands the loop the hottest and the mean die temperature the
-//! chains have reported, and once in a while logs each chain's summary
-//! and publishes its core voltage, so no task exists for that alone.
+//! Only present chains are read: an absent one has no chip to run a PVT
+//! block, and counting it silent would halt the board for hardware that
+//! is not there. With none present the sensor answers `Idle`; see "Chain
+//! presence" in `docs/MINING.md`. A chain that has just gone quiet is
+//! handled by [`SILENT_TICKS_BEFORE_FAULT`].
 //!
-//! A board can own more than one chain, and a machine can have more
-//! connectors than boards plugged into them, so the sensor reads only
-//! the chains the miner found present. An absent or faulted chain has no
-//! chip to run a PVT block at all, and counting it as a silent chain
-//! would halt the board for hardware that is not there. Where no chain
-//! is present at all the sensor answers `Idle`; see "Chain presence" in
-//! `docs/MINING.md`. A present chain
-//! that falls silent does not hold the sample back on the tick it goes
-//! quiet, because a sibling chain may already hold the reading that
-//! needs the trip; its own hottest die is cleared to `None` in its
-//! `ChainStats` entry the same tick, which is how the dashboard sees it.
-//! From the second silent sample on, the quiet chain's unread dies are
-//! the greater risk, and the sensor answers nothing until the chain
-//! speaks again, so the loop faults the way it does for one chain.
-//!
-//! Freshness is the chain's, not the chip's. A chip's own turn comes
-//! round once per pass, which on a long chain is minutes, so judging
-//! each chip against a clock either halts a healthy board or needs a
-//! window too wide to mean anything. What the loop must not miss is a
-//! chain going quiet altogether, and that is what this measures. The
-//! cost is that one chip falling silent while its neighbours answer
-//! leaves its last reading standing in the chain's summary.
+//! Freshness is the chain's, not the chip's. A chip's turn comes round
+//! once per pass, minutes on a long chain, so judging each chip against
+//! a clock either halts a healthy board or needs a window too wide to
+//! mean anything. The cost is that one chip falling silent among
+//! answering neighbours leaves its last reading standing.
 //!
 //! The series of a chip is the driver's to move: it hands each die to
 //! thermal when the chip answers. This sensor hands the filter of thermal
@@ -70,60 +56,46 @@ use ubos_metrics::metric;
 #[path = "tests/chain.rs"]
 mod tests;
 
-/// Longest a chain may go without a reading before it is silent.
-///
-/// Has to outlast the longest stretch in which nothing drives the chain,
-/// which is not a missed poll but the walk from a bring-up reading to the
-/// end of the tuner's frequency ramp, measured at 36 s.
+/// Longest a chain may go without a reading before it is silent. It
+/// must outlast the walk from a bring-up reading to the end of the
+/// tuner's ramp, measured at 36 s, which is the longest stretch in which
+/// nothing drives the chain.
 pub const MAX_SILENCE: Duration = Duration::from_secs(60);
 
 /// How many samples in a row a present chain may be silent before the
-/// sensor stops answering, which is what faults the thermal loop. The
-/// first silent sample still delivers a sibling chain's hot reading, so
-/// a trip already in hand is not delayed; from the second on, the quiet
-/// chain's unread dies count for more than the sibling's reading.
+/// sensor stops answering, which faults the thermal loop. The first
+/// silent sample still delivers a sibling's hot reading, so a trip
+/// already in hand is not delayed; from the second on, the quiet chain's
+/// unread dies count for more.
 pub const SILENT_TICKS_BEFORE_FAULT: u8 = 2;
 
-/// How often each chain's summary is logged and its voltage published.
 const REPORT_INTERVAL: Duration = Duration::from_secs(10);
 
-/// The thermal loop's view of a board whose chips are its thermometer,
-/// spanning every one of its `CHAINS` chains.
-///
-/// The reported values are the hottest and the mean chip across every
-/// present chain, and each present chain's own hottest chip is written
-/// into that chain's accounting, which is what the dashboard's per-chain
-/// temperature column shows. The hottest die is the one field of that
-/// accounting no other producer writes.
+/// The thermal loop's view of a board whose chips are its thermometer.
+/// Each present chain's own hottest chip is written into that chain's
+/// accounting, the one field of it no other producer writes.
 pub struct ChainTemperature<const CHIPS: usize, const CHAINS: usize> {
     pvt: &'static [ChainPvt<CHIPS>; CHAINS],
-    /// Where each chain's presence is read and its hottest die is
-    /// published. The board's table is sized to
-    /// `ubos_machine::MAX_CHAINS` rather than to this board's own
-    /// `CHAINS`, so [`Self::new`] asserts it holds enough slots to index
-    /// by chain.
+    /// Sized to `ubos_machine::MAX_CHAINS`, not this board's `CHAINS`,
+    /// so [`Self::new`] asserts it is long enough to index by chain.
     stats: ChainStatsHandle,
     /// Where the dies of every sample are submitted, so thermal filters
     /// them.
     thermal: Handle,
-    /// Where silence is measured from until something answers, so a
-    /// chain that takes its time enumerating does not arrive already
-    /// expired.
+    /// Silence is measured from here until something answers, so a slow
+    /// enumeration does not arrive already expired.
     started: Instant,
     report_ticker: Ticker,
-    /// Each chain's last answer as the previous report saw it, so a
-    /// report with nothing new to say is recognised without a second
-    /// clock.
+    /// The previous report's answer, so a report with nothing new is
+    /// recognised without a second clock.
     reported_answer: [Option<Instant>; CHAINS],
-    /// When each chain was last seen turning present, so silence is
-    /// measured from there rather than from a pre-halt timestamp a stale
-    /// `last_answer` would otherwise hold on to.
+    /// So silence is measured from here, not from a pre-halt timestamp
+    /// a stale `last_answer` holds on to.
     became_present: [Option<Instant>; CHAINS],
-    /// Each chain's presence as the previous sample saw it, so the edge
-    /// into `Present` is caught to update `became_present`.
+    /// The previous sample's presence, so the edge into `Present` is
+    /// caught.
     was_present: [bool; CHAINS],
-    /// Consecutive samples each present chain has been silent for, see
-    /// [`SILENT_TICKS_BEFORE_FAULT`].
+    /// See [`SILENT_TICKS_BEFORE_FAULT`].
     silent_ticks: [u8; CHAINS],
 }
 
@@ -156,11 +128,9 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
         }
     }
 
-    /// Whether nothing at all has arrived from `chain` for
-    /// [`MAX_SILENCE`], measured from whichever is more recent: the
-    /// chain's last answer, or the moment it was last seen turning
-    /// present. A chain that halted and came back present carries no
-    /// answer from before the halt against it.
+    /// Measured from whichever is later: the chain's last answer, or
+    /// the moment it was last seen turning present, so a chain that
+    /// halted and came back carries nothing from before against it.
     fn chain_is_silent(&self, chain: HashboardIndex, now: Instant) -> bool {
         let slot = chain.slot();
         let became_present = self.became_present[slot].unwrap_or(self.started);
@@ -171,16 +141,13 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
         now.saturating_duration_since(last) >= MAX_SILENCE
     }
 
-    /// Whether a present chain has been silent for
-    /// [`SILENT_TICKS_BEFORE_FAULT`] samples or more.
     fn stalled(&self) -> bool {
         self.silent_ticks
             .iter()
             .any(|&ticks| ticks >= SILENT_TICKS_BEFORE_FAULT)
     }
 
-    /// Record `chain` turning present so [`Self::chain_is_silent`] does
-    /// not measure it against a timestamp from before the halt.
+    /// See [`Self::chain_is_silent`].
     fn track_presence(&mut self, chain: HashboardIndex, now: Instant, present: bool) {
         let slot = chain.slot();
         if present && !self.was_present[slot] {
@@ -189,24 +156,19 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
         self.was_present[slot] = present;
     }
 
-    /// Every [`REPORT_INTERVAL`]: each present chain's core voltage as a
-    /// gauge and its summary as one log line. A summary carries the
-    /// spread rather than an average, because the chips sit in series and
-    /// the string can hold its total while sharing it badly.
+    /// Every [`REPORT_INTERVAL`], each present chain's voltage gauge and one
+    /// summary line. The summary carries the spread, not an average: the chips
+    /// sit in series, so the string can hold its total while sharing it badly.
     fn report(&mut self) {
         // Polled rather than awaited: `sample` must not block, and the
         // tick is not lost when the future is dropped.
         if poll_once(self.report_ticker.next()).is_pending() {
             return;
         }
-        // A late report takes its lateness instead of catching up: the
-        // next deadline is a full interval from now, so a sample loop
-        // that stalled cannot make this fire on several polls in a row
-        // to make up the missed ones.
+        // The next deadline is a full interval from now, so a stalled
+        // loop cannot make this fire repeatedly to catch up.
         self.report_ticker.reset();
         for chain in HashboardIndex::range(CHAINS) {
-            // An absent chain has nothing to report and never will, so it
-            // is passed over rather than warned about every interval.
             if self.stats.chain(chain).presence().is_present() {
                 self.report_chain(chain);
             }
@@ -273,8 +235,6 @@ impl<const CHIPS: usize, const CHAINS: usize> TemperatureSensor
             let present = self.stats.chain(chain).presence().is_present();
             self.track_presence(chain, now, present);
             if !present {
-                // A chain that dropped out must not keep reporting the
-                // last temperature it read while present.
                 self.stats.chain(chain).set_hottest(None);
                 self.stats.chain(chain).set_voltage(None);
                 self.silent_ticks[slot] = 0;
@@ -302,17 +262,12 @@ impl<const CHIPS: usize, const CHAINS: usize> TemperatureSensor
                     .or_else(|| Some(summary.into()));
             }
         }
-        // No chain is present, so no chip is powered: nothing here can
-        // overheat and nothing owes a reading. Why that is an idle board
-        // and not a fault: "Chain presence" in `docs/MINING.md`.
+        // Nothing is powered, so nothing owes a reading; see the module
+        // doc.
         if !any_present {
             return Reading::Idle;
         }
-        // A present chain that has just fallen silent does not hold this
-        // sample back: another chain may already hold the reading that
-        // needs the trip. Once the quiet chain stays silent, its unread
-        // dies are the greater risk, and the sensor stops answering so
-        // the loop faults the way it does for one chain.
+        // See `SILENT_TICKS_BEFORE_FAULT`.
         if self.stalled() {
             return Reading::Unreadable;
         }

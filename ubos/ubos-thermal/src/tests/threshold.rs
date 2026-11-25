@@ -26,7 +26,6 @@ use ubos_core::units::Temperature;
 const DANGEROUS: Temperature = degrees(90);
 const COOLDOWN: Temperature = degrees(45);
 
-/// A reading of `celsius` whole degrees.
 const fn degrees(celsius: i32) -> Temperature {
     Temperature::from_millicelsius(celsius * 1000)
 }

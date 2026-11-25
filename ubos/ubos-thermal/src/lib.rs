@@ -83,19 +83,12 @@ mod tests_run_thermal;
 #[path = "tests/judge.rs"]
 mod tests_judge;
 
-/// Serialises every test in this crate that reads the mock clock. They
-/// share every static `run_thermal` touches: the clock, the config
-/// watch, and `ubos-metrics`'s process-global gauge channel, which the
-/// loop pushes the chip temperature into on every measurement. Two of
-/// them running concurrently would see each other's gauge pushes and
-/// clock resets, and a chain test measuring silence against
-/// `Instant::now` would see the clock jump under it.
+/// Serialises every test that reads the mock clock: they share the
+/// clock, the config watch and the global gauge channel.
 #[cfg(test)]
 static LOOP_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// Take [`LOOP_MUTEX`] for one test. A test that panicked under it
-/// poisons it, and the next test still needs the clock, so the poison
-/// is ignored.
+/// A poisoned lock only means an earlier test panicked.
 #[cfg(test)]
 fn clock() -> std::sync::MutexGuard<'static, ()> {
     LOOP_MUTEX
@@ -178,17 +171,11 @@ impl TempSample {
         }
     }
 
-    /// Judge each kind this sample read against its own threshold, and
-    /// answer the edge of the overheat pair it crossed, if any.
-    ///
-    /// The counterpart of [`UnreadableHalt`], finding both edges of its
-    /// message pair for the same reason. It is a method and not a struct
-    /// because this halt has no state of its own: the threshold decision is
-    /// [`evaluate`]'s, and whether the halt stands is what `held` says the
-    /// manager's mask holds. Reading the mask back each tick is what makes
-    /// an operator's release real: a flag of its own would leave this loop
-    /// halted for ever after, with `evaluate` answering `Ok` at any
-    /// temperature.
+    /// The overheat edge this sample crossed, judging each kind it read
+    /// against its own threshold. A method and not a struct because this
+    /// halt has no state of its own: the decision is [`evaluate`]'s and the
+    /// mask is the manager's. Reading the mask back each tick is what makes
+    /// an operator's release real.
     fn judge_dangerous(self, config: &ThermalConfig, held: PauseReasons) -> Option<Note> {
         let halted = held.contains(PauseReason::DangerousTemperature);
         let checks = [Source::Chip, Source::Hashboard].map(|source| {
@@ -213,55 +200,40 @@ impl TempSample {
     }
 }
 
-/// What one poll of a board temperature sensor found.
-///
-/// The three answers differ in what they oblige the loop to do, which is
-/// why silence is two variants and not one.
+/// What one poll found. Silence is two variants because the two oblige
+/// the loop differently.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Reading {
-    /// A usable measurement.
     Measured(TempSample),
-    /// The sensor owes an answer and did not give one. Repeated for
+    /// The sensor owes an answer and gave none. Repeated for
     /// [`SENSOR_FAULT_TICKS`] ticks, this halts mining.
     Unreadable,
     /// Nothing the sensor watches is powered, so nothing owes a reading.
-    /// Why that is no fault: "Chain presence" in `docs/MINING.md`.
     Idle,
 }
 
-/// Board temperature sensor. [`sample`](Self::sample) returns everything
-/// one tick decides on, so no reading is cached between calls.
+/// Board temperature sensor. One [`sample`](Self::sample) returns
+/// everything a tick decides on, so nothing is cached between calls.
 #[allow(async_fn_in_trait)]
 pub trait TemperatureSensor {
-    /// Take one sample. Implementations may await on the underlying
-    /// hardware.
     async fn sample(&mut self) -> Reading;
 }
 
-/// A sensor for the ambient temperature around the board, apart from
-/// the chip sensor. Every board hands [`run_thermal`] one and
-/// [`thermal_task!`] takes no default, so every board states whether it
-/// reads an ambient temperature and cannot compile without saying so; a
-/// board without a sensor states it by handing [`NoAmbient`].
+/// The ambient temperature sensor. There is no default, so a board
+/// states that it has none by handing [`NoAmbient`].
 ///
-/// The reading is for the operator and for the metrics. Nothing in this
-/// crate decides on it: it gates no halt and drives no fan. The loop
-/// reads it on every tick, after every decision the tick makes, for the
-/// reason [`read_ambient`] gives. This paragraph is the one statement
-/// of what the reading is for; every other mention points here.
+/// The reading is for the operator and the metrics. Nothing in this
+/// crate decides on it: it gates no halt and drives no fan. This is the
+/// one statement of that; every other mention points here.
 #[allow(async_fn_in_trait)]
 pub trait AmbientSensor {
-    /// The ambient temperature, or `None` when the read failed.
-    ///
-    /// The wait is the implementor's to bound. The loop awaits this call
-    /// unbounded, and a sensor that never answers ends the ticks, and
-    /// with them every judgement the chip sensor feeds. A sensor read
-    /// over a link to another controller answers `None` after a
-    /// timeout of its own rather than waiting on the link.
+    /// `None` when the read failed. The wait is the implementor's to
+    /// bound: the loop awaits this unbounded, so a sensor that never
+    /// answers ends the ticks and every judgement they carry.
     async fn ambient(&mut self) -> Option<Temperature>;
 }
 
-/// The ambient temperature sensor of a board that has none: the reading stays `None`.
+/// The ambient sensor of a board that has none.
 pub struct NoAmbient;
 
 impl AmbientSensor for NoAmbient {
@@ -270,21 +242,16 @@ impl AmbientSensor for NoAmbient {
     }
 }
 
-/// The thermometer on the MCU die, which measures the control board.
-/// Every board hands [`run_thermal`] one, for the reason
-/// [`AmbientSensor`] gives, and a board whose MCU has none hands
-/// [`NoMcu`]. The reading feeds its reading series and nothing else: no
-/// control loop reads it.
+/// The thermometer on the MCU die, which measures the control board. A board
+/// whose MCU has none hands [`NoMcu`]. The reading feeds its series and no
+/// control loop.
 #[allow(async_fn_in_trait)]
 pub trait McuTemperatureSensor {
-    /// Read the current MCU die temperature, or `None` if the reading
-    /// failed. Implementations may await on the underlying hardware
-    /// conversion.
+    /// `None` if the reading failed.
     async fn read(&mut self) -> Option<Temperature>;
 }
 
-/// The MCU sensor of a board whose MCU has no thermometer: the reading
-/// stays `None`, so its series is never written.
+/// Reads `None`, so its series is never written.
 pub struct NoMcu;
 
 impl McuTemperatureSensor for NoMcu {
@@ -297,7 +264,6 @@ impl McuTemperatureSensor for NoMcu {
 /// today's consumers without enlarging a watch further.
 const WATCH_CAPACITY: usize = 4;
 
-/// Records that the firmware took the thermal handle.
 static TAKEN: ubos_core::take_once::TakeOnce = ubos_core::take_once::TakeOnce::new("thermal");
 
 /// Depth of the input channel. [`run_thermal`] drains it at every await
@@ -414,51 +380,39 @@ impl Handle {
     }
 }
 
-/// Consecutive [`Reading::Unreadable`] answers tolerated before
-/// declaring the bus dead. At a 1 Hz sample interval this is 5 seconds,
-/// long enough to ride out a transient I2C glitch but short enough to
-/// react if the bus has gone permanently silent (stuck SDA, dead chip,
-/// broken cable). On fault the loop halts mining until a reading clears
-/// it. The fan follows the filtered sample, which empties when the window
-/// of the filter ends.
+/// Consecutive [`Reading::Unreadable`] answers tolerated before the bus is
+/// declared dead: long enough to ride out a transient glitch, short enough to
+/// react to a stuck line. On fault the loop halts mining until a reading
+/// clears it. The fan follows the filtered sample, which empties when the
+/// window of the filter ends.
 ///
-/// [`Reading::Idle`] does not count against this budget and resets it. A
-/// board with nothing powered is not a board with a broken sensor.
+/// [`Reading::Idle`] does not count and resets the budget.
 pub const SENSOR_FAULT_TICKS: u32 = 5;
 
 /// Consecutive [`Reading::Unreadable`] answers, and the halt this loop
 /// owes the manager once they run past [`SENSOR_FAULT_TICKS`].
 ///
-/// The count is the budget and nothing more. Whether the halt is held
-/// is the manager's mask to say, read back the same way the overheat
-/// halt is, so no copy of it lives here to fall out of step. The message
-/// pair is asymmetric — only the sender of
-/// [`ManagerMessage::TemperatureUnreadable`] may retract it, and it
-/// must — so both edges are found here, by [`miss`](Self::miss) and
-/// [`clear`](Self::clear), rather than one of them at a call site.
+/// The count is the budget and nothing more: whether the halt is held is
+/// the manager's mask to say, so no copy of it lives here. Only this loop
+/// may retract its own message, and must, so both edges are found here
+/// rather than one of them at a call site.
 #[derive(Default)]
 struct UnreadableHalt {
     ticks: u32,
 }
 
 impl UnreadableHalt {
-    /// Count one unreadable answer. Answers the count once the budget
-    /// is spent, and `None` inside it, so the one call says both how
-    /// far the silence has run and whether the loop still rides it out.
+    /// Count one unreadable answer: the misses once the budget is spent,
+    /// `None` while it is not.
     fn miss(&mut self) -> Option<u32> {
         self.ticks = self.ticks.saturating_add(1);
         (self.ticks >= SENSOR_FAULT_TICKS).then_some(self.ticks)
     }
 
-    /// Reset the count, and answer the misses a halt held in `held` had
-    /// counted, which is the caller's cue to release it. `None` when
-    /// there was no halt to release.
-    ///
-    /// Called both when a reading returns and when the board goes idle,
-    /// because either one ends the condition that halted mining. The idle
-    /// case is the one that matters, for the reason `docs/MINING.md`
-    /// gives under "Chain presence": a halt that waited for a reading to
-    /// release it would never release at all.
+    /// Reset the count and answer the misses a held halt had counted,
+    /// which is the cue to release it. Called on a reading and on an
+    /// idle board alike: a halt that waited for a reading to release it
+    /// would never release on a board with nothing powered.
     fn clear(&mut self, held: PauseReasons) -> Option<u32> {
         let misses = core::mem::take(&mut self.ticks);
         held.contains(PauseReason::TemperatureUnreadable)
@@ -466,29 +420,23 @@ impl UnreadableHalt {
     }
 }
 
-/// An edge one tick crossed, which the manager has to hear about. Each
-/// variant is one message, and the loop sends it and logs the edge, so
-/// the decision that found it stays a plain function.
+/// An edge the manager has to hear about. The loop sends and logs it,
+/// so the decision that found it stays a plain function.
 #[derive(Debug, PartialEq, Eq)]
 enum Note {
-    /// The miss budget is spent and no halt is held yet. Carries the
-    /// misses counted.
+    /// The budget is spent and no halt is held; carries the misses.
     Unreadable(u32),
-    /// A reading returned under the unreadable halt. Carries the misses
-    /// the halt had counted.
+    /// A reading returned under the halt; carries the misses.
     Recovered(u32),
-    /// The board went idle under the unreadable halt.
     Idle,
-    /// A reading crossed the dangerous threshold of its kind.
     Dangerous(Temperature),
-    /// Every kind read cooled below the cooldown threshold while the
-    /// overheat halt was held. Carries the hottest die where one was
-    /// read, and the hottest hashboard reading otherwise.
+    /// Every kind read cooled below the cooldown threshold under the halt.
+    /// Carries the hottest die where one was read, and the hottest
+    /// hashboard reading otherwise.
     Cooled(Temperature),
 }
 
 impl Note {
-    /// Tell the manager, and log the edge.
     async fn report(self, manager_handle: ManagerHandle) {
         let message = match self {
             Self::Unreadable(ticks) => {
@@ -523,13 +471,11 @@ impl Note {
     }
 }
 
-/// What a tick decided from the sensor's answer, for the loop to act on.
 #[derive(Debug, PartialEq, Eq)]
 struct Step {
     /// The edge of the unreadable pair this tick crossed, if any.
     unreadable: Option<Note>,
-    /// The edge of the overheat pair this tick crossed, if any. Only a
-    /// measurement can cross one, and it can cross both pairs' at once.
+    /// Only a measurement crosses one, and it can cross both at once.
     dangerous: Option<Note>,
 }
 
@@ -540,11 +486,9 @@ struct Thermal {
 }
 
 impl Thermal {
-    /// Decide one tick from the sensor's answer: count or clear the
-    /// miss budget, find the halts and releases the answer calls for
-    /// against the halts `held` says the manager holds. It performs nothing: the loop reads the mask, polls the
-    /// sensor, and acts on the step, so this is a plain function of its
-    /// arguments and the previous tick.
+    /// Decide one tick from the sensor's answer against the halts `held` says
+    /// the manager holds. It performs nothing, so it is a plain function of
+    /// its arguments and the previous tick.
     fn judge(&mut self, reading: Reading, config: &ThermalConfig, held: PauseReasons) -> Step {
         match reading {
             Reading::Measured(temps) => Step {
@@ -628,12 +572,10 @@ fn take(reading: TempReading, temperatures: &mut Temperatures, tick: Instant) {
     temperatures.update(reading, tick);
 }
 
-/// Read the ambient temperature and take it as a submitted reading. It
-/// gates nothing, so it is read after every decision a tick makes and
-/// never before one: a sensor that takes its time answering must not hold
-/// up the sample the halt turns on, nor the halt itself. Every tick reads
-/// it, including one that measured no chip temperature, because the chip
-/// sensor's silence says nothing about this sensor.
+/// Read the ambient temperature and take it as a submitted reading. It gates
+/// nothing, so it is read after every decision a tick makes: a slow sensor
+/// must not hold up the sample the halt turns on. Every tick reads it, since
+/// the chip sensor's silence says nothing about this one.
 async fn read_ambient<A: AmbientSensor>(
     ambient: &mut A,
     temperatures: &mut Temperatures,
@@ -653,25 +595,14 @@ async fn read_ambient<A: AmbientSensor>(
 
 /// Run the thermal monitoring loop forever.
 ///
-/// Spawned once per board firmware. `sensor` is the board-specific
-/// temperature sensor driver and `ambient` its ambient temperature
-/// sensor, [`NoAmbient`] where it has none. `mcu` is the thermometer on
-/// the MCU die, [`NoMcu`] where the MCU has none, and the loop pushes its
-/// reading to the metrics on each tick. `_runner` is the right to run
-/// this loop, which is the one that publishes the temperatures. It is borrowed
-/// mutably, so one runner runs one loop at a time, and `main` gives it to
-/// one task. `manager_handle` takes the two
-/// message pairs this loop sends, and is also where it reads both halts
-/// back from: the manager's mask is the only copy of that state, so an
-/// operator who clears a thermal halt cannot leave this loop believing
-/// it is still halted and the trip disarmed. A send returns before the
-/// manager applies it, so a read-back on the same tick could still show
-/// the old mask; the manager's turn is over long before the next tick,
-/// and a duplicate message moves no bit, see `ubos_manager::Handle::send`.
-///
-/// The manager is the sole caller of `MiningHandle::halt`/`resume`.
-/// Thermal tuning is read from `config` and refreshed whenever that
-/// config publishes a new value.
+/// `mcu` is the MCU die thermometer, whose reading goes to the metrics on each
+/// tick. `_runner` is borrowed mutably, so one runner runs one loop at a time.
+/// `manager_handle` takes the two message pairs this loop sends and is where
+/// it reads both halts back from: the manager's mask is the only copy of that
+/// state, so an operator who clears a halt cannot leave this loop believing
+/// the trip is still disarmed. A read-back on the same tick as a send can
+/// still show the old mask, but the manager's turn is over long before the
+/// next tick and a duplicate message moves no bit.
 pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatureSensor>(
     mut sensor: S,
     mut ambient: A,
@@ -742,21 +673,16 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatu
         }
         read_ambient(&mut ambient, &mut temperatures, now).await;
         temperatures.publish_ambient(now, &WATCHES);
-        // Read last, after the sample the cooling loop turns on has gone
-        // out. The gauge is dropped on a full metrics channel, because this
-        // safety loop must not wait on the metrics, and the next tick
-        // replaces it.
+        // Read last, after the sample the cooling loop turns on has gone out,
+        // and dropped on a full channel: this safety loop must not wait on the
+        // metrics.
         if let Some(temp) = draining(mcu.read(), &mut temperatures, now).await {
             metric!("mcu_temperature_celsius", temp).try_push();
         }
     }
 }
 
-/// Task shell around [`run_thermal`], which polls the temperature
-/// sensors and publishes the temperatures. Takes the board's sensor
-/// type, an I2C sensor array on most boards, and its ambient temperature sensor type,
-/// [`NoAmbient`] on a board without one, and its MCU thermometer type,
-/// [`NoMcu`] on an MCU without one. Neither
+/// Task shell around [`run_thermal`]. Neither the ambient nor the MCU sensor
 /// type has a default, for the reason [`AmbientSensor`] gives.
 #[macro_export]
 macro_rules! thermal_task {
