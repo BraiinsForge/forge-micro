@@ -19,9 +19,12 @@
 
 //! Coverage for the key budget: every metric the tree renders must fit
 //! [`super::KEY_CAPACITY`], which is not checked at compile time for a
-//! metric the constant does not name.
+//! metric the constant does not name. Coverage too for the slot a full
+//! map gives to a new series.
 
-use super::{KEY_CAPACITY, LONGEST_RENDERED_KEY, MetricKey};
+use embassy_time::{Duration, block_for};
+
+use super::{KEY_CAPACITY, LONGEST_RENDERED_KEY, MetricKey, StoredValue, upsert_metric};
 use crate::metrics::{Label, LabelValue, Labels, Metric};
 use crate::value::Value;
 
@@ -83,4 +86,36 @@ fn a_key_past_the_budget_is_refused() {
         "this_name_is_deliberately_longer_than_the_key_capacity_allows_for_any_metric_at_all";
     assert!(name.len() > KEY_CAPACITY);
     assert!(key_for(name, &[("label", OVERLONG)]).is_none());
+}
+
+type Map = heapless::index_map::FnvIndexMap<MetricKey, StoredValue, 2>;
+
+fn upsert(map: &mut Map, name: &'static str, ttl: Duration) {
+    upsert_metric(map, &Metric::with_no_labels(name, Value::Count(0)).ttl(ttl));
+}
+
+fn holds(map: &Map, name: &str) -> bool {
+    map.keys().any(|key| key.0.as_str() == name)
+}
+
+/// A full map drops its expired series, so a stopped publisher does not
+/// keep a slot that a live series needs.
+#[test]
+fn a_full_map_gives_the_slot_of_an_expired_series_to_a_new_one() {
+    let mut map = Map::new();
+    upsert(&mut map, "stopped", Duration::from_secs(1));
+    upsert(&mut map, "live", Duration::from_secs(3_600));
+    block_for(Duration::from_millis(1_100));
+    upsert(&mut map, "new", Duration::from_secs(3_600));
+    assert!(holds(&map, "new") && holds(&map, "live") && !holds(&map, "stopped"));
+}
+
+/// A full map of live series keeps them and drops the new one.
+#[test]
+fn a_full_map_of_live_series_refuses_a_new_one() {
+    let mut map = Map::new();
+    upsert(&mut map, "first", Duration::from_secs(3_600));
+    upsert(&mut map, "second", Duration::from_secs(3_600));
+    upsert(&mut map, "third", Duration::from_secs(3_600));
+    assert!(holds(&map, "first") && holds(&map, "second") && !holds(&map, "third"));
 }

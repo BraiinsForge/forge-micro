@@ -25,6 +25,7 @@
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
+use embassy_time::Instant;
 use ubos_logging::warn;
 
 use crate::consts::Metrics;
@@ -224,6 +225,8 @@ pub async fn run_ingest<const MAX: usize, const BODY: usize>(
 }
 
 /// Upsert a metric into the map, sorting its labels into a canonical key.
+/// A full map first drops the expired series, so a series whose publisher
+/// stopped does not keep a slot that a live series needs.
 fn upsert_metric<const MAX: usize>(
     map: &mut heapless::index_map::FnvIndexMap<MetricKey, StoredValue, MAX>,
     metric: &Metric,
@@ -239,6 +242,11 @@ fn upsert_metric<const MAX: usize>(
         value: metric.value(),
         expiry: metric.expiry(),
     };
+    let Err((key, stored)) = map.insert(key, stored) else {
+        return;
+    };
+    let now_ms = Instant::now().as_millis();
+    map.retain(|_, held| !held.expiry.is_some_and(|expiry| expiry.is_expired(now_ms)));
     if map.insert(key, stored).is_err() {
         warn!("metrics map full, dropping metric");
     }
