@@ -24,6 +24,7 @@
 use ubos_temperature::{SensorDescriptor, TempSource};
 
 use super::*;
+use crate::control_board::CONTROL_BOARD_FORGE_AXE;
 
 /// What each channel of `sensor` measures.
 fn sources(sensor: &SensorDescriptor) -> [Option<TempSource>; 5] {
@@ -58,5 +59,9 @@ fn every_machine_has_a_threshold_for_each_kind_it_reads() {
     assert!(kinds_match_sensors(&MINIMINER_BMM_ADAPTER));
     assert!(kinds_match_sensors(&MINIMINER_ESP32S3));
     assert!(kinds_match_sensors(&HASHNODE));
-    assert!(kinds_match_sensors(&FORGE_AXE));
+    assert!(kinds_match_sensors(&MachineDescriptor::forge_axe(
+        CONTROL_BOARD_FORGE_AXE,
+        ubos_asic::FORGE_AXE_HASHBOARD,
+        FORGE_AXE_PSU,
+    )));
 }

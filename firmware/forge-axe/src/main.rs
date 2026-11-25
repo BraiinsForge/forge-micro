@@ -67,11 +67,11 @@ use ubos_cooling::emc2302_1;
 use ubos_display::sh1106::{Rotation, Sh1106};
 use ubos_eeprom::forge::RECORD_LEN;
 use ubos_eeprom::i2c::I2cEeprom;
-use ubos_machine::MachineDescriptor;
 use ubos_machine::forge_axe::{
-    FORGE_AXE_MAX_SENSORS, ForgeAxeEeprom, forge_axe_control_board, forge_axe_hashboard,
-    forge_axe_psu,
+    FORGE_AXE_EVENT_LOG_CAPACITY, FORGE_AXE_HTTP_POOL_SIZES, FORGE_AXE_MAX_SENSORS, ForgeAxeEeprom,
+    forge_axe_control_board, forge_axe_hashboard, forge_axe_psu,
 };
+use ubos_machine::{ControlBoardDescriptor, MachineDescriptor};
 use ubos_psu::ForgeAxePsuDescriptor;
 use ubos_rp::i2c;
 use ubos_rp::rgb::Ws2812Ring;
@@ -99,9 +99,8 @@ static OTA_TARGET: StaticCell<
 /// startup code does not zero, so the ring survives a warm reset; the validity
 /// header in `RetainedRing` discards it after a cold boot leaves garbage.
 #[unsafe(link_section = ".uninit")]
-static mut EVENT_LOG_BACKING: ubos_events::RetainedRing<
-    { config::MACHINE.control_board.event_log_capacity },
-> = ubos_events::RetainedRing::new();
+static mut EVENT_LOG_BACKING: ubos_events::RetainedRing<{ FORGE_AXE_EVENT_LOG_CAPACITY }> =
+    ubos_events::RetainedRing::new();
 
 defmt::timestamp!("{=u64:iso8601s}", ubos_net::wall_clock_secs());
 
@@ -145,12 +144,16 @@ const MDNS_SERVICES: &[&ubos_mdns::ServiceEntry] = &[
 ];
 
 #[embassy_executor::task]
-async fn mdns_task(stack: embassy_net::Stack<'static>, hostname: &'static str) -> ! {
+async fn mdns_task(
+    stack: embassy_net::Stack<'static>,
+    hostname: &'static str,
+    control_board: ControlBoardDescriptor,
+) -> ! {
     ubos_mdns::run_mdns(
         stack,
         hostname,
-        config::MACHINE.control_board.name,
-        config::MACHINE.control_board.platform.name,
+        control_board.name,
+        control_board.platform.name,
         MDNS_SERVICES,
     )
     .await
@@ -207,7 +210,7 @@ ubos_core::reset_task!(cortex_m::peripheral::SCB::sys_reset());
 ubos_api::sync_credentials_task!();
 
 ubos_firmware::serve_all!(
-    config::MACHINE.control_board.http_pool_sizes,
+    FORGE_AXE_HTTP_POOL_SIZES,
     &config::MINING_INFO,
     &config::BOUNDS,
     config::MAX_METRICS,
@@ -569,10 +572,9 @@ async fn boot(spawner: Spawner) {
     let phy_int = Input::new(hw.phy_int, Pull::Up);
     let phy_reset = Output::new(hw.phy_reset, Level::High);
 
-    let mac_addr = runners.net.publish_mac(
-        config::MACHINE.control_board.mac_family,
-        &ubos_rp::boot::chip_id(),
-    );
+    let mac_addr = runners
+        .net
+        .publish_mac(machine.control_board.mac_family, &ubos_rp::boot::chip_id());
     static STATE: StaticCell<State<8, 8>> = StaticCell::new();
     let state = STATE.init(State::<8, 8>::new());
     let (device, runner) = ubos_rp::boot::wiznet_or_reset(
@@ -601,8 +603,8 @@ async fn boot(spawner: Spawner) {
     const STACK_SOCKETS: usize = 24;
     ubos_net::assert_stack_sockets!(
         STACK_SOCKETS,
-        config::MACHINE.control_board.http_pool_sizes.http,
-        config::MACHINE.control_board.http_pool_sizes.metrics,
+        FORGE_AXE_HTTP_POOL_SIZES.http,
+        FORGE_AXE_HTTP_POOL_SIZES.metrics,
     );
     static RESOURCES: StaticCell<StackResources<STACK_SOCKETS>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(
@@ -619,7 +621,11 @@ async fn boot(spawner: Spawner) {
 
     spawner.spawn(unwrap!(ntp_sync_task(stack, runners.net)));
 
-    spawner.spawn(unwrap!(mdns_task(stack, mdns_hostname)));
+    spawner.spawn(unwrap!(mdns_task(
+        stack,
+        mdns_hostname,
+        machine.control_board
+    )));
 
     spawner.spawn(unwrap!(miner_metrics_task(handles.mining)));
 
@@ -652,5 +658,5 @@ async fn boot(spawner: Spawner) {
         handles.config
     )));
 
-    serve_all(spawner, stack, handles, config::MACHINE.control_board.name).await;
+    serve_all(spawner, stack, handles, machine.control_board.name).await;
 }

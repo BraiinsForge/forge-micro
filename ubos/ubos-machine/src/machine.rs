@@ -28,8 +28,8 @@ use ubos_temperature::tmp102::Tmp102;
 use ubos_temperature::{SensorDescriptor, TempSource};
 
 use crate::control_board::{
-    CONTROL_BOARD_BMM_ADAPTER, CONTROL_BOARD_ESP32S3, CONTROL_BOARD_FORGE_AXE,
-    CONTROL_BOARD_HASHNODE, CONTROL_BOARD_RP2040, CONTROL_BOARD_RP2350, ControlBoardDescriptor,
+    CONTROL_BOARD_BMM_ADAPTER, CONTROL_BOARD_ESP32S3, CONTROL_BOARD_HASHNODE, CONTROL_BOARD_RP2040,
+    CONTROL_BOARD_RP2350, ControlBoardDescriptor,
 };
 
 /// The most chains one machine drives, re-exported from the crate that
@@ -209,21 +209,6 @@ pub(crate) const FORGE_AXE_PSU: ForgeAxePsuDescriptor = ForgeAxePsuDescriptor {
         local: TempSource::Psu,
     })],
 };
-
-/// The Forge Axe: four BM1370 in one parallel voltage domain on an
-/// integrated RP2350B control board, with a TPS53647 multiphase VRM.
-pub const FORGE_AXE: MachineDescriptor<ForgeAxePsuDescriptor> = MachineDescriptor {
-    model: "Forge Axe",
-    control_board: CONTROL_BOARD_FORGE_AXE,
-    hashboard: ubos_asic::FORGE_AXE_HASHBOARD,
-    chains: 1,
-    psu: FORGE_AXE_PSU,
-    psu_temp: FORGE_AXE_PSU.temp,
-};
-const _: () = assert!(
-    FORGE_AXE.chains <= MAX_CHAINS,
-    "the Forge Axe has more chains than MAX_CHAINS"
-);
 
 #[cfg(test)]
 #[path = "tests/machine.rs"]

@@ -29,12 +29,10 @@
 //! drawn under, because a hardware file does not follow a software
 //! rename; renaming the schematic is a hardware decision.
 
-pub use ubos_machine::FORGE_AXE as MACHINE;
-
 /// How many hashboard chains this board drives. Every array sized over
 /// the chains takes its length from here, so a machine that gains a
 /// chain fails to build until each is wired.
-pub const CHAINS: usize = MACHINE.chains;
+pub const CHAINS: usize = ubos_machine::forge_axe::FORGE_AXE_CHAINS;
 
 use embassy_rp::Peri;
 use embassy_rp::peripherals::{
@@ -130,7 +128,10 @@ pub struct Board {
 /// single-domain BM1370 Forge Axe. Every crate that needs board
 /// facts takes this explicitly rather than selecting a board behind a
 /// cargo feature.
-pub const BOARD: &ubos_asic::HashboardDescriptor = &MACHINE.hashboard;
+// TODO: the tasks drive the chips by this one descriptor at build time, so
+// this needs a refactor before an EEPROM can name a hashboard of another
+// chip, such as the BM1373.
+pub const BOARD: &ubos_asic::HashboardDescriptor = &ubos_asic::FORGE_AXE_HASHBOARD;
 
 /// The Bitmain chip model this board's hashboard carries; injected into
 /// the mining actor as the concrete chain driver.

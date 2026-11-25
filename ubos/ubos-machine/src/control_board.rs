@@ -21,6 +21,7 @@
 
 use ubos_eeprom::forge::ControlBoardEepromLayout;
 
+use crate::forge_axe::{FORGE_AXE_EVENT_LOG_CAPACITY, FORGE_AXE_HTTP_POOL_SIZES};
 use crate::platform::{ESP32S3, PlatformDescriptor, RP2040, RP2350};
 
 /// The sizes of the two HTTP worker pools of a board. Each size is the
@@ -164,10 +165,7 @@ pub const CONTROL_BOARD_FORGE_AXE: ControlBoardDescriptor = ControlBoardDescript
     name: "Forge Axe",
     platform: RP2350,
     mac_family: 0x08,
-    http_pool_sizes: HttpPoolSizes {
-        http: 8,
-        metrics: 5,
-    },
-    event_log_capacity: 128,
+    http_pool_sizes: FORGE_AXE_HTTP_POOL_SIZES,
+    event_log_capacity: FORGE_AXE_EVENT_LOG_CAPACITY,
     eeprom_layout: Some(ControlBoardEepromLayout::V1),
 };

@@ -18,7 +18,8 @@
 // shall be considered distinct from the grant above.
 
 //! The Forge Axe boards, by the `hw_version` that their EEPROMs carry,
-//! and the machine they compose.
+//! the machine they compose, and the sizes that the firmware fixes at
+//! build time for whichever boards those are.
 //!
 //! Each lookup takes the record of its board and gives the descriptor that
 //! the record names, with no I/O of its own, so a firmware only reads the
@@ -33,9 +34,29 @@ use ubos_eeprom::forge::{self, ControlBoardEeprom, HardwareType, Record};
 use ubos_psu::ForgeAxePsuDescriptor;
 use ubos_temperature::SensorDescriptor;
 
-use crate::control_board::{CONTROL_BOARD_FORGE_AXE, ControlBoardDescriptor};
+use crate::control_board::{CONTROL_BOARD_FORGE_AXE, ControlBoardDescriptor, HttpPoolSizes};
 use crate::front_panel::{FRONT_PANEL_FORGE_AXE, FrontPanelDescriptor};
-use crate::machine::{FORGE_AXE_PSU, MachineDescriptor};
+use crate::machine::{FORGE_AXE_PSU, MAX_CHAINS, MachineDescriptor};
+
+/// How many hashboard chains a Forge Axe drives.
+pub const FORGE_AXE_CHAINS: usize = 1;
+const _: () = assert!(
+    FORGE_AXE_CHAINS <= MAX_CHAINS,
+    "the Forge Axe has more chains than MAX_CHAINS"
+);
+
+/// The HTTP worker pools of a Forge Axe.
+// NOTE: every control board that the lookup gives takes these sizes,
+// because the firmware fixes its pools at build time.
+pub const FORGE_AXE_HTTP_POOL_SIZES: HttpPoolSizes = HttpPoolSizes {
+    http: 8,
+    metrics: 5,
+};
+
+/// Capacity of the retained event-log ring of a Forge Axe.
+// NOTE: every control board that the lookup gives takes this capacity,
+// because the firmware sizes the ring at build time.
+pub const FORGE_AXE_EVENT_LOG_CAPACITY: usize = 128;
 
 /// The I2C addresses of the Forge EEPROMs of a Forge Axe, one on each
 /// board.
@@ -57,9 +78,9 @@ impl ForgeAxeEeprom {
 /// Returns a [`BoardError`] when `record` is not of a hashboard, names no
 /// known hashboard, or holds data in its reserved bytes.
 // NOTE: each hashboard here differs from `FORGE_AXE_HASHBOARD` only in its
-// sensors, because the firmware drives the chips by the descriptor of
-// `FORGE_AXE` at build time and takes only the sensors from the hashboard
-// that its EEPROM names.
+// sensors, because the firmware drives the chips by `FORGE_AXE_HASHBOARD`
+// at build time and takes only the sensors from the hashboard that its
+// EEPROM names.
 pub fn forge_axe_hashboard<'a>(record: &Record<'a>) -> Result<HashboardDescriptor, BoardError<'a>> {
     let hashboard = match hw_version(record, HardwareType::Hashboard)? {
         "FAHB0001" => ubos_asic::FORGE_AXE_HASHBOARD,
@@ -169,7 +190,7 @@ impl MachineDescriptor<ForgeAxePsuDescriptor> {
             model: "Forge Axe",
             control_board,
             hashboard,
-            chains: 1,
+            chains: FORGE_AXE_CHAINS,
             psu,
             psu_temp: psu.temp,
         }
