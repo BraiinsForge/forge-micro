@@ -124,8 +124,10 @@ task that holds it.
   message vocabulary is in `ubos-manager/src/message.rs`.
 - **The API talks only to handles.** No handler reads another crate's
   atomics or statics.
-- **The metrics push channel is the one sanctioned `pub static`.**
-  Any layer can push and there is exactly one consumer.
+- **The metrics push channel is the one sanctioned shared static.**
+  Any layer can push into it through `Metric::push`, and there is
+  exactly one consumer. The static is private to the store of
+  `ubos-metrics`.
 - **`PauseReasons` records intent; `MiningState` records lifecycle status.**
   The manager publishes the pause mask before the miner completes a halt.
   OTA sends `OtaBegin` to the manager and then waits for `Stopped`
