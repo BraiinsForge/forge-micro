@@ -70,7 +70,9 @@ fn publish_hashboard_reading(chain: HashboardIndex, address: SevenBitAddress, va
         .try_push();
 }
 
-/// Push one chip's reading under its address on the hashboard `chain`.
+/// Push one chip's reading under its index on the hashboard `chain`. The
+/// index is the position of the address, so the lone chip of a chain of
+/// one, which its driver reaches by broadcast, is chip zero.
 ///
 /// TODO: A board that read one chip both through a sensor diode and over
 /// its chain would write this series from two places, each overwriting the
@@ -78,6 +80,6 @@ fn publish_hashboard_reading(chain: HashboardIndex, address: SevenBitAddress, va
 fn publish_chip_reading(chain: HashboardIndex, chip: ChipAddress, value: Temperature) {
     metric!(CHIP_TEMPERATURE, value)
         .label(HASHBOARD_LABEL, chain)
-        .label("chip_addr", chip)
+        .label("chip_addr", chip.slot())
         .try_push();
 }
