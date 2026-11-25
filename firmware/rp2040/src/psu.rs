@@ -19,10 +19,7 @@
 
 //! BMM101 PSU integration over the shared I2C1 bus.
 //!
-//! Owns the static cells for the shared `BmmPsu` state and the PSU
-//! handle, both of which `ubos_psu::bmm_psu!` writes. The bus mutex is
-//! owned by `main`, so another consumer takes its own `I2cDevice` from
-//! the same mutex rather than one of these.
+//! Backend architecture: `../../../docs/MINING.md`.
 
 use ubos_rp::i2c::{Bus, Device};
 

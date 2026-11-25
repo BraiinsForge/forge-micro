@@ -224,6 +224,10 @@ macro_rules! metrics_statics {
 /// [`PrometheusMetricsService`], so the exposition always reflects the
 /// latest pushed values without a drain step on the serve path.
 ///
+/// It is also the only reader of the metrics channel, so a board spawns
+/// it before every task that pushes: a pusher that waits for room and
+/// starts first blocks once the channel fills.
+///
 /// [`PrometheusMetricsService`]: crate::metrics::PrometheusMetricsService
 pub async fn run_ingest<const MAX: usize, const BODY: usize>(
     statics: &'static MetricsStatics<MAX, BODY>,

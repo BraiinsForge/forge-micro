@@ -20,18 +20,12 @@
 //! Board constants and peripheral extraction for the Forge Axe, an
 //! RP2350B with a W5500 driving a four-chip single-domain BM1370
 //! hashboard and a TPS53647-based `ForgeAxePsu`.
-//! `Board::take` consumes the RP2350 `Peripherals` once and returns
-//! every singleton the board's schematic claims, keeping pin
-//! assignments in one place rather than scattered through `main`.
 //!
 //! Pin source: `BRAIINS_AXE.kicad_sch` rev 1.00 and the `HASHNODEx4`
 //! to FORGE AXE firmware GPIO diff. That file keeps the name it was
 //! drawn under, because a hardware file does not follow a software
 //! rename; renaming the schematic is a hardware decision.
 
-/// How many hashboard chains this board drives. Every array sized over
-/// the chains takes its length from here, so a machine that gains a
-/// chain fails to build until each is wired.
 pub const CHAINS: usize = ubos_machine::forge_axe::FORGE_AXE_CHAINS;
 
 use embassy_rp::Peri;
@@ -44,7 +38,6 @@ use embassy_rp::peripherals::{
 use embassy_rp::peripherals::{DMA_CH2, PIN_15, PIN_26, PIN_27, PIN_28, PIN_29, SPI1};
 use embassy_time::Duration;
 
-/// Every peripheral singleton the board consumes, extracted in one place.
 pub struct Board {
     pub watchdog: Peri<'static, WATCHDOG>,
     /// Status LEDs, assumed active-low like the Hashnode GPIO6 LED: each
@@ -93,8 +86,6 @@ pub struct Board {
     pub rgb_data: Peri<'static, PIN_45>,
     /// DMA channel feeding the WS2812 PIO FIFO.
     pub rgb_dma: Peri<'static, DMA_CH3>,
-    /// FLASH peripheral for the on-board QSPI; ubos-config persists the
-    /// runtime config record in the last two sectors of this device.
     pub flash: Peri<'static, FLASH>,
     // TODO: The final board switches the display supplies. GPIO46 is
     // 3V3_OUT_EN and GPIO47 is 3V3_OUT_OCS.
@@ -119,22 +110,18 @@ pub struct Board {
     #[cfg(feature = "display")]
     pub display_tx_dma: Peri<'static, DMA_CH2>,
     pub core1: Peri<'static, CORE1>,
-    /// Hardware TRNG peripheral. Used at boot to seed the session
-    /// CSPRNG in `ubos_api`.
+    /// Drawn once at boot; see `ubos_rp::boot::seeds_from_trng`.
     pub trng: Peri<'static, TRNG>,
 }
 
-/// The board descriptor this firmware targets: the four-chip
-/// single-domain BM1370 Forge Axe. Every crate that needs board
-/// facts takes this explicitly rather than selecting a board behind a
-/// cargo feature.
+/// The board descriptor this firmware targets: the four-chip single-domain
+/// BM1370 Forge Axe.
 // TODO: the tasks drive the chips by this one descriptor at build time, so
 // this needs a refactor before an EEPROM can name a hashboard of another
 // chip, such as the BM1373.
 pub const BOARD: &ubos_asic::HashboardDescriptor = &ubos_asic::FORGE_AXE_HASHBOARD;
 
-/// The Bitmain chip model this board's hashboard carries; injected into
-/// the mining actor as the concrete chain driver.
+/// Injected into the mining actor as the concrete chain driver.
 pub const CHIP: ubos_asic::Chip = ubos_asic::Chip::Bm1370;
 
 /// The tuners this board runs. The miner builds them, and [`BOUNDS`]
@@ -149,7 +136,6 @@ pub const BOUNDS: ubos_config::MiningBounds = BOARD.bounds(
     None,
 );
 
-/// Static mining capability metadata, built from [`BOARD`].
 pub const MINING_INFO: ubos_config::MiningInfo =
     BOARD.mining_info(&BOUNDS, ubos_config::DefaultTuning::Fixed);
 
@@ -158,18 +144,16 @@ pub const MINING_INFO: ubos_config::MiningInfo =
 /// `DEVFEE_*` overrides.
 pub const FEE_POOL: ubos_config::FeePool = ubos_config::fee::BRAIINS_POOL.with_overrides();
 
-/// Distinct series the Prometheus exposition map holds. The map is keyed
-/// by the label-expanded series, and a series that does not fit is
-/// dropped with a warning. Must be a power of two, which the map requires.
+/// Distinct series this board's exposition map holds; see
+/// [`ubos_metrics::metrics::MetricsStatics`] for what the number buys and
+/// what it must be.
 pub const MAX_METRICS: usize = 128;
 
-/// Bytes of the buffer one scrape is rendered into. It holds every series
-/// in the map at once, so it moves with [`MAX_METRICS`].
 pub const METRICS_RESPONSE_BYTES: usize = MAX_METRICS * ubos_metrics::metrics::METRIC_LINE_BYTES;
 
 impl Board {
-    /// DNS-safe base hostname for mDNS. See `ubos_mdns::compose_hostname`
-    /// for the per-unit suffix and RFC 6762 §9 conflict-resolution semantics.
+    /// See `ubos_mdns::compose_hostname` for the per-unit suffix and the
+    /// RFC 6762 §9 conflict-resolution semantics.
     pub const MDNS_HOSTNAME_BASE: &str = "forge-axe";
 
     pub fn take(peripherals: embassy_rp::Peripherals) -> Self {
@@ -240,40 +224,27 @@ impl Watchdog {
 
 pub struct Core1;
 impl Core1 {
-    /// Stack size for the Core 1 executor, sized for the ubos-mining backend.
     pub const STACK_BYTES: usize = 32_768;
 }
 
-/// Monotonic firmware version reported over the OTA API.
-///
-/// Sourced from the `UBOS_FW_VERSION` environment variable at build time,
-/// defaulting to `1` when unset. `embassy-boot` stores no version metadata
-/// in flash, so this const is the only version the running image exposes;
-/// the OTA endpoint surfaces it as `running_version`.
+/// `embassy-boot` stores no version metadata in flash, so this const is the
+/// only version the running image exposes.
 pub const FIRMWARE_VERSION: u32 = match option_env!("UBOS_FW_VERSION") {
-    // `parse` is not const; the helper in ubos-ota folds the decimal digits
-    // at compile time so the value is fixed with no runtime cost.
     Some(raw) => ubos_ota::parse_version(raw),
     None => 1,
 };
 
-/// On-board QSPI flash parameters for the ubos-config record store.
-///
-/// `SIZE` is the 2 MiB driver window exposed to the flash HAL; the physical
-/// device is larger but only the lower 2 MiB is mapped by this driver
-/// instance. `CONFIG_RANGE` claims the final two 4 KiB erase sectors of
-/// that window. The application binary must not grow past the start of the
-/// range — the linker script does not enforce this today, so a binary
-/// creeping past ~2040 KiB will silently overwrite the config region.
+/// `SIZE` is the 2 MiB window this driver instance maps of a larger physical
+/// device, and `CONFIG_RANGE` claims its final two 4 KiB erase sectors. The
+/// linker script does not enforce that boundary, so an application binary
+/// grown past the start of the range silently overwrites the config region.
 pub struct Flash;
 impl Flash {
     pub const SIZE: usize = 2 * 1024 * 1024;
     pub const CONFIG_RANGE: core::ops::Range<u32> = 0x001F_E000..0x0020_0000;
 }
 
-/// OTA upload limit, reported through `OtaTarget::max_image_bytes`. Equals
-/// the bootloader ACTIVE slot in `memory.x` (952 KiB): an image larger than
-/// this could never swap into ACTIVE, so the handler rejects it up front.
+/// The ACTIVE slot in `memory.x`: a larger image could never swap in.
 pub struct Ota;
 impl Ota {
     pub const MAX_IMAGE_BYTES: u64 = 952 * 1024;

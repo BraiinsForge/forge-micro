@@ -17,14 +17,7 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Firmware entry point for the W6100-EVB-Pico2 (RP2350 + W6100) with the
-//! ubos-mining backend.
-//!
-//! Initialises SPI at 33 MHz, brings the W6100 up via `embassy-net-wiznet`,
-//! starts the embassy-net stack with DHCP, and spawns the watchdog, LED
-//! blink, ethernet runner, NTP sync, and ubos-mining mining tasks before
-//! entering the HTTP server loop. Built with `cargo build` from this
-//! crate inside `nix develop .#arm`.
+//! Firmware entry point for the W6100-EVB-Pico2 (RP2350 + W6100).
 //!
 //! Board docs: `../../../docs/OVERVIEW.md`
 //! Wiring/build: `../../../docs/SETUP.md`
@@ -80,10 +73,8 @@ static OTA_TARGET: StaticCell<
     ubos_ota::RpOtaTarget<{ config::Flash::SIZE }, PARK_POLL_DELAY_CYCLES>,
 > = StaticCell::new();
 
-/// Backing storage for the user-facing event ring, owned here so its size
-/// follows this board's `EVENT_LOG_CAPACITY`. Placed in `.uninit`, which the
-/// startup code does not zero, so the ring survives a warm reset; the validity
-/// header in `RetainedRing` discards it after a cold boot leaves garbage.
+/// `.uninit` is not zeroed by the startup code, so the ring survives a warm
+/// reset.
 #[unsafe(link_section = ".uninit")]
 static mut EVENT_LOG_BACKING: ubos_events::RetainedRing<
     { config::MACHINE.control_board.event_log_capacity },
@@ -148,12 +139,6 @@ ubos_thermal::thermal_task!(
 
 ubos_manager::manager_task!();
 
-/// Storage backend type the [`config_task`] hands to
-/// [`ubos_config::run`]. The chain is
-/// `shared blocking Flash → SharedBlockingFlash → SyncFlash → FlashStorage`.
-/// The one [`Flash`] driver lives in the `'static` mutex the OTA updater
-/// also partitions, so the config store and OTA share the single FLASH
-/// peripheral.
 type BoardConfigStorage =
     FlashStorage<SyncFlash<ubos_ota::SharedBlockingFlash<{ config::Flash::SIZE }>>>;
 
@@ -198,31 +183,18 @@ ubos_firmware::serve_all!(
 
 ubos_net::network_control_task!();
 
-/// Parallel stratum session slots this board runs — the operator's
-/// three plus the fee slot the build ships; this board has the RAM
-/// for a session task per slot. A board with less RAM runs fewer and
-/// gives the fee its last slot (see rp2040).
+/// The operator's slots plus the fee slot the build ships: this board
+/// has the RAM for a session task per slot.
 pub(crate) const POOL_SLOTS: usize = ubos_config::POOL_SLOTS;
 
-/// The fee pool this board runs, at its last session slot. `None` on
-/// an off build, so the source reads the same in both states.
+/// `None` on an off build, so the source reads the same in both states.
 pub(crate) const FEE_SLOT: Option<ubos_config::FeeSlot> =
     ubos_config::FeeSlot::last_of(config::FEE_POOL, POOL_SLOTS);
 
-/// Shared ASIC session: the bridge between the per-slot stratum sessions and
-/// the BM1362 serial worker. One instance per binary; referenced by every
-/// stratum client task and the mining serial task.
 static ASIC_SESSION: ubos_firmware::AsicSession<POOL_SLOTS> = ubos_firmware::AsicSession::new();
 
-/// The core-1 park of this firmware. The serial workers join it and the
-/// flash writers request it, so both sides meet at the same counters.
 static PARK: ubos_mining::Park = ubos_mining::Park::new();
 
-/// Board task shell around the shared stratum session loop, spawned once per
-/// pool slot. The loop body lives in `ubos-firmware`; the
-/// `#[embassy_executor::task]` shell stays per board because the attribute
-/// expands a typed task pool sized by this board's `POOL_SLOTS`, and it
-/// rejects the generic function a shared shell would have to be.
 #[embassy_executor::task(pool_size = POOL_SLOTS)]
 async fn stratum_client_task(
     stack: embassy_net::Stack<'static>,
@@ -255,20 +227,11 @@ async fn boot(spawner: Spawner) {
     let peripherals = embassy_rp::init(embassy_rp::config::Config::default());
     let hw = config::Board::take(peripherals);
 
-    // Every handle is taken here, once, and each task gets the ones it
-    // writes through and reads. The listeners take them together.
     let (runners, handles) = ubos_firmware::Handles::take();
 
-    // Safety: called once at boot before any task runs. EVENT_LOG_BACKING lives
-    // in .uninit, so the startup code does not zero it and a warm reset
-    // preserves its contents.
+    // Safety: called once at boot, before any task that records an event runs.
     ubos_firmware::events::install(unsafe { &mut *core::ptr::addr_of_mut!(EVENT_LOG_BACKING) });
 
-    // Build the single blocking FLASH driver and place it in a `'static`
-    // mutex shared by the config store and the OTA updater. Both the
-    // `SharedBlockingFlash` config backend and the OTA `BlockingPartition`s
-    // borrow this one mutex, so the one FLASH peripheral serves both
-    // consumers; the mutex serialises individual flash ops between them.
     static SHARED_FLASH: StaticCell<ubos_ota::SharedFlashMutex<{ config::Flash::SIZE }>> =
         StaticCell::new();
     let shared_flash: &'static ubos_ota::SharedFlashMutex<{ config::Flash::SIZE }> = SHARED_FLASH
@@ -282,14 +245,9 @@ async fn boot(spawner: Spawner) {
 
     ubos_rp::capture_reset_diag();
 
-    // Log which image booted, so an OTA swap is observable on the defmt
-    // console: the new version appears here after a successful update.
     info!("boot: firmware v{}", config::FIRMWARE_VERSION);
 
-    // Confirm the running image to the bootloader before core 1 starts and
-    // while flash is quiescent. A prior `Swap` state means the bootloader
-    // just swapped in an OTA image; marking it booted stops a revert on the
-    // next reset. The flash op pauses core 1, but core 1 is not up yet.
+    // Runs before core 1 starts: the flash op pauses the other core.
     ubos_ota::mark_booted(shared_flash);
 
     let ota_target = OTA_TARGET.init(ubos_ota::OtaEngine::new(
@@ -299,11 +257,6 @@ async fn boot(spawner: Spawner) {
         config::Ota::MAX_IMAGE_BYTES,
     ));
 
-    // BufferedUart must be constructed on the core that polls it, which the
-    // macro does inside `spawn_core1`. This board drives core 1 through
-    // `run_cortex_m_executor::<1, _>` so the poll/wfe loop accumulates idle
-    // ticks into `IDLE_TICKS[1]`, letting `run_cpu_load::<2>()` publish a real
-    // busy ratio for this core instead of a constant 1.0.
     ubos_rp::spawn_miner_core1!(
         core1 = hw.core1,
         stack = CORE1_STACK,
@@ -322,10 +275,8 @@ async fn boot(spawner: Spawner) {
         },
     );
 
-    // The ingest task is the only reader of the metrics channel and it
-    // waits on nothing else, so it runs before every task that pushes.
-    // A pusher that waits for room and starts first blocks once the
-    // channel fills.
+    // Before every pusher, for the reason `ubos_metrics::metrics::run_ingest`
+    // gives.
     spawner.spawn(unwrap!(metrics_ingest_task()));
 
     spawner.spawn(unwrap!(watchdog_task(ubos_rp::BoardWatchdog::new(
@@ -337,25 +288,15 @@ async fn boot(spawner: Spawner) {
     let led = Output::new(hw.led, Level::Low);
     spawner.spawn(unwrap!(led_blink_task(led)));
 
-    // Hashboard plug-detect input on GPIO3, pulled up. `boot` returns once the
-    // listeners are spawned, and dropping the input would release the pad
-    // and clear the pull-up, so the binding is leaked: the pad keeps its
-    // configuration for the firmware's lifetime and nothing else claims it.
+    // Leaked to keep the pad's pull-up; see `firmware/rp2040/src/main.rs`.
     core::mem::forget(Input::new(hw.hb_plug, Pull::Up));
 
-    // BMM101 hashboard PSU on I2C1: shared bus, PSU heartbeat, power
-    // stats, and the miner bring-up task all run on core 0 so the I2C
-    // bus mutex can stay NoopRawMutex.
     {
         static I2C1_BUS: StaticCell<i2c::Bus> = StaticCell::new();
         let i2c = I2c::new_async(hw.i2c, hw.scl, hw.sda, Irqs, I2cConfig::default());
         let bus: &'static i2c::Bus = I2C1_BUS.init(Mutex::new(i2c));
 
-        // Read the hashboard EEPROM once, before powering anything up, so
-        // its identity is in the log even if bring-up later fails. The
-        // parsed serial (or `None` on a failed read) is published for
-        // `GET /api/system/info`; this board has one hashboard, so the
-        // published array holds a single slot.
+        // Before anything is powered; see `HashboardEeprom::log_identity`.
         if let Some(address) = config::BOARD.eeprom_i2c_address {
             let mut device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
             let serial = ubos_eeprom::i2c::I2cEeprom::new(address, &mut device)
@@ -374,7 +315,6 @@ async fn boot(spawner: Spawner) {
             handles.config
         )));
 
-        // Temperature and fan monitor via shared I2C bus.
         let hashboard_temp =
             ubos_thermal::SensorArray::new(config::MACHINE.sensors(), handles.thermal, || {
                 embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus)
@@ -445,13 +385,8 @@ async fn boot(spawner: Spawner) {
         )
         .await;
 
-    // Socket-set capacity for the embassy-net stack. Seventeen sockets
-    // are held continuously: DHCPv4, DNS, the stratum client, the mDNS
-    // responder, 8 HTTP listener sockets on :80, and 5 metrics listener
-    // sockets on :8081. NTP opens a transient UDP socket every 60 s, and
-    // closed TCP connections linger in TIME_WAIT until smoltcp reaps
-    // them. 24 provides headroom for concurrent connections and
-    // TIME_WAIT, and holds more of it than it did before the merge.
+    // For the slack above the asserted minimum, see
+    // `firmware/rp2040/src/main.rs`.
     const STACK_SOCKETS: usize = 24;
     ubos_net::assert_stack_sockets!(
         STACK_SOCKETS,
@@ -479,8 +414,8 @@ async fn boot(spawner: Spawner) {
     spawner.spawn(unwrap!(miner_metrics_task(handles.mining)));
     spawner.spawn(unwrap!(pool_weights_task(handles.config)));
 
-    // SH1106 OLED on SPI1: reset pulse, then async TX-only SPI with DMA.
-    // The reset pin is moved into display_task so it stays driven high for the display's lifetime.
+    // The reset pin moves into `display_task` so it stays driven high for the
+    // display's lifetime.
     #[cfg(feature = "display")]
     let (reset, display) = {
         let rst = {
@@ -521,7 +456,6 @@ async fn boot(spawner: Spawner) {
     let config = net::wait_for_config(stack, runners.net).await;
     info!("ip address: {:?}", config.address.address());
 
-    // Core 1 hosts serial_task (ubos-mining backend); see spawn_core1 above.
     for slot in 0..POOL_SLOTS {
         spawner.spawn(unwrap!(stratum_client_task(
             stack,
@@ -533,12 +467,9 @@ async fn boot(spawner: Spawner) {
     }
 
     // Register the OTA target before spawning the REST API workers so the
-    // OTA endpoints are available from the first request. The &'static mut
-    // binding was established early in boot, before spawn_core1.
+    // OTA endpoints are available from the first request.
     ubos_api::register_ota_target(ota_target).await;
 
-    // Reclaim abandoned chunk-ack OTA sessions so a client that vanishes
-    // mid-upload does not strand the board with mining stopped.
     spawner.spawn(unwrap!(ota_watchdog_task(handles.manager)));
     spawner.spawn(unwrap!(network_control_task(
         stack,

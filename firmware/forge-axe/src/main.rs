@@ -18,15 +18,8 @@
 // shall be considered distinct from the grant above.
 
 //! Firmware entry point for the Forge Axe, an RP2350B with a W5500
-//! ethernet controller, the ubos-mining backend driving a four-chip
-//! single-domain BM1370 hashboard, and a TPS53647-based
-//! `ForgeAxePsu` power stage.
-//!
-//! Initialises SPI at 33 MHz, brings the W5500 up via `embassy-net-wiznet`,
-//! starts the embassy-net stack with DHCP, and spawns the watchdog, LED
-//! blink, ethernet runner, NTP sync, and ubos-mining mining tasks
-//! before entering the HTTP server loop. Built with `cargo build` from
-//! this crate inside `nix develop .#arm`.
+//! ethernet controller, a four-chip single-domain BM1370 hashboard, and a
+//! TPS53647-based `ForgeAxePsu` power stage.
 //!
 //! Board docs: `../../../docs/STRUCTURE.md`
 //! Wiring/build: `../../../docs/SETUP.md`
@@ -94,10 +87,8 @@ static OTA_TARGET: StaticCell<
     ubos_ota::RpOtaTarget<{ config::Flash::SIZE }, PARK_POLL_DELAY_CYCLES>,
 > = StaticCell::new();
 
-/// Backing storage for the user-facing event ring, owned here so its size
-/// follows this board's `EVENT_LOG_CAPACITY`. Placed in `.uninit`, which the
-/// startup code does not zero, so the ring survives a warm reset; the validity
-/// header in `RetainedRing` discards it after a cold boot leaves garbage.
+/// `.uninit` is not zeroed by the startup code, so the ring survives a warm
+/// reset.
 #[unsafe(link_section = ".uninit")]
 static mut EVENT_LOG_BACKING: ubos_events::RetainedRing<{ FORGE_AXE_EVENT_LOG_CAPACITY }> =
     ubos_events::RetainedRing::new();
@@ -171,12 +162,6 @@ ubos_thermal::thermal_task!(
 
 ubos_manager::manager_task!();
 
-/// Storage backend type the [`config_task`] hands to
-/// [`ubos_config::run`]. The chain is
-/// `shared blocking Flash → SharedBlockingFlash → SyncFlash → FlashStorage`.
-/// The one [`Flash`] driver lives in the `'static` mutex the OTA updater
-/// also partitions, so the config store and OTA share the single FLASH
-/// peripheral.
 type BoardConfigStorage =
     FlashStorage<SyncFlash<ubos_ota::SharedBlockingFlash<{ config::Flash::SIZE }>>>;
 
@@ -219,31 +204,18 @@ ubos_firmware::serve_all!(
 
 ubos_net::network_control_task!();
 
-/// Parallel stratum session slots this board runs — the operator's
-/// three plus the fee slot the build ships; this board has the RAM
-/// for a session task per slot. A board with less RAM runs fewer and
-/// gives the fee its last slot (see rp2040).
+/// The operator's slots plus the fee slot the build ships: this board
+/// has the RAM for a session task per slot.
 pub(crate) const POOL_SLOTS: usize = ubos_config::POOL_SLOTS;
 
-/// The fee pool this board runs, at its last session slot. `None` on
-/// an off build, so the source reads the same in both states.
+/// `None` on an off build, so the source reads the same in both states.
 pub(crate) const FEE_SLOT: Option<ubos_config::FeeSlot> =
     ubos_config::FeeSlot::last_of(config::FEE_POOL, POOL_SLOTS);
 
-/// Shared ASIC session: the bridge between the per-slot stratum sessions and
-/// the BM1370 serial worker. One instance per binary; referenced by every
-/// stratum client task and the mining serial task.
 static ASIC_SESSION: ubos_firmware::AsicSession<POOL_SLOTS> = ubos_firmware::AsicSession::new();
 
-/// The core-1 park of this firmware. The serial workers join it and the
-/// flash writers request it, so both sides meet at the same counters.
 static PARK: ubos_mining::Park = ubos_mining::Park::new();
 
-/// Board task shell around the shared stratum session loop, spawned once per
-/// pool slot. The loop body lives in `ubos-firmware`; the
-/// `#[embassy_executor::task]` shell stays per board because the attribute
-/// expands a typed task pool sized by this board's `POOL_SLOTS`, and it
-/// rejects the generic function a shared shell would have to be.
 #[embassy_executor::task(pool_size = POOL_SLOTS)]
 async fn stratum_client_task(
     stack: embassy_net::Stack<'static>,
@@ -359,24 +331,14 @@ fn publish_name(name: &str, publish: fn(ubos_api::HwString)) {
 // statement position there, so the ordering is unavoidable.
 #[allow(clippy::too_many_lines, clippy::items_after_statements)]
 async fn boot(spawner: Spawner) {
-    // --- 1. Core peripherals — always ----------------------------------------
     let peripherals = embassy_rp::init(embassy_rp::config::Config::default());
     let hw = config::Board::take(peripherals);
 
-    // Every handle is taken here, once, and each task gets the ones it
-    // writes through and reads. The listeners take them together.
     let (runners, handles) = ubos_firmware::Handles::take();
 
-    // Safety: called once at boot before any task runs. EVENT_LOG_BACKING lives
-    // in .uninit, so the startup code does not zero it and a warm reset
-    // preserves its contents.
+    // Safety: called once at boot, before any task that records an event runs.
     ubos_firmware::events::install(unsafe { &mut *core::ptr::addr_of_mut!(EVENT_LOG_BACKING) });
 
-    // Build the single blocking FLASH driver and place it in a `'static`
-    // mutex shared by the config store and the OTA updater. Both the
-    // `SharedBlockingFlash` config backend and the OTA `BlockingPartition`s
-    // borrow this one mutex, so the one FLASH peripheral serves both
-    // consumers; the mutex serialises individual flash ops between them.
     static SHARED_FLASH: StaticCell<ubos_ota::SharedFlashMutex<{ config::Flash::SIZE }>> =
         StaticCell::new();
     let shared_flash: &'static ubos_ota::SharedFlashMutex<{ config::Flash::SIZE }> = SHARED_FLASH
@@ -390,14 +352,9 @@ async fn boot(spawner: Spawner) {
 
     ubos_rp::capture_reset_diag();
 
-    // Log which image booted, so an OTA swap is observable on the defmt
-    // console: the new version appears here after a successful update.
     info!("boot: firmware v{}", config::FIRMWARE_VERSION);
 
-    // Confirm the running image to the bootloader before core 1 starts and
-    // while flash is quiescent. A prior `Swap` state means the bootloader
-    // just swapped in an OTA image; marking it booted stops a revert on the
-    // next reset. The flash op pauses core 1, but core 1 is not up yet.
+    // Runs before core 1 starts: the flash op pauses the other core.
     ubos_ota::mark_booted(shared_flash);
 
     let ota_target = OTA_TARGET.init(ubos_ota::OtaEngine::new(
@@ -407,24 +364,12 @@ async fn boot(spawner: Spawner) {
         config::Ota::MAX_IMAGE_BYTES,
     ));
 
-    // --- 2. Core1 + serial_task ------------------------------------------------
-    // Pin the ubos-mining serial worker to core 1 so embassy-net on core 0
-    // stays responsive. BufferedUart must be constructed on the core that
-    // polls it — `init_buffers` unmasks the UART IRQ on the calling core's
-    // NVIC, and the async write path pends the same IRQ to drain the SW TX
-    // ring buffer into the HW FIFO. RP2350's Cortex-M33 has per-core NVICs,
-    // so an unmask on one core and a pend on the other land on different
-    // controllers and the FIFO is never written.
     ubos_rp::spawn_miner_core1!(
         core1 = hw.core1,
         stack = CORE1_STACK,
         irqs = Irqs,
         uart = (hw.uart, hw.uart_tx, hw.uart_rx),
         run = |miner_serial| {
-            // Drive core 1 through `run_cortex_m_executor::<1, _>` so the
-            // poll/wfe loop accumulates idle ticks into `IDLE_TICKS[1]`,
-            // letting `run_cpu_load::<2>()` publish a real busy ratio for
-            // this core instead of a constant 1.0.
             ubos_metrics::cpu_load::run_cortex_m_executor::<1, _>(|core1_spawner: Spawner| {
                 core1_spawner.spawn(unwrap!(mining::serial_task(
                     &mining::CHAINS[0],
@@ -437,11 +382,8 @@ async fn boot(spawner: Spawner) {
         },
     );
 
-    // --- 3. Watchdog, metrics ingest + LED — always ---------------------------
-    // The ingest task is the only reader of the metrics channel and it
-    // waits on nothing else, so it runs before every task that pushes.
-    // A pusher that waits for room and starts first blocks once the
-    // channel fills.
+    // Before every pusher, for the reason `ubos_metrics::metrics::run_ingest`
+    // gives.
     spawner.spawn(unwrap!(metrics_ingest_task()));
 
     spawner.spawn(unwrap!(watchdog_task(ubos_rp::BoardWatchdog::new(
@@ -460,13 +402,6 @@ async fn boot(spawner: Spawner) {
     core::mem::forget(Output::new(hw.led_red2, Level::High));
     core::mem::forget(Output::new(hw.led_green2, Level::High));
 
-    // --- 4. Handle refs — always (compiled even when gated tasks are off) -----
-    // I2C1 bus + PSU + mining + sensors + fans.
-    // The TPS53647 rail is gated by PWR_EN (GPIO33, ENABLE pin) plus the
-    // OPERATION on-bit. The BoardPsu owns that pin; only the PSU task
-    // drives it, on the miner task's commands: high during bring-up, and
-    // low again when mining halts, so an idle board never holds the chip
-    // powered in reset.
     use embassy_rp::i2c::{Config as I2cConfig, I2c};
 
     static I2C1_BUS: StaticCell<i2c::Bus> = StaticCell::new();
@@ -503,7 +438,6 @@ async fn boot(spawner: Spawner) {
         handles.config
     )));
 
-    // Temperature and fan monitor via shared I2C bus.
     let hashboard_temp =
         ubos_thermal::SensorArray::new(machine.sensors(), handles.thermal, || I2cDevice::new(bus));
     // Both fan connectors hang off the EMC2302-1 on the same bus.
@@ -545,21 +479,17 @@ async fn boot(spawner: Spawner) {
     ));
     spawner.spawn(unwrap!(rgb::rgb_task(status_ring, rgb::COLOR)));
 
-    // --- 7. Config — always ---------------------------------------------------
     let config_storage = FlashStorage::new(
         SyncFlash(ubos_ota::SharedBlockingFlash::new(shared_flash, &PARK)),
         config::Flash::CONFIG_RANGE,
     );
     spawner.spawn(unwrap!(config_task(runners.config, config_storage, None)));
 
-    // --- 8. Board health tasks — always (no net/psu deps) ---------------------
     spawner.spawn(unwrap!(cpu_load_task()));
 
-    // --- 9. Display — feature-gated on the cargo `display` feature -----------
-    // Positioned before the network block so the display comes up early.
-    // SH1106 OLED on SPI1: reset pulse, then async TX-only SPI with DMA.
-    // The reset pin moves into display_task so it stays driven high for
-    // the display's lifetime.
+    // Placed before the network block so the display comes up early. The reset
+    // pin moves into `display_task` so it stays driven high for the display's
+    // lifetime.
     #[cfg(feature = "display")]
     let (reset, display) = {
         let rst = {
@@ -596,7 +526,6 @@ async fn boot(spawner: Spawner) {
         handles.net
     )));
 
-    // --- 10. Network -----------------------------------------------------------
     let mut spi_config = SpiConfig::default();
     spi_config.frequency = config::Spi::FREQUENCY;
     let spi = Spi::new(
@@ -641,9 +570,8 @@ async fn boot(spawner: Spawner) {
         )
         .await;
 
-    // 16 was one short of even a single pool generation; 24 matches the
-    // rp2350 board running the same pool sizes. The assert is shared so
-    // every board gets the same smoltcp socket-exhaustion guarantee.
+    // For the slack above the asserted minimum, see
+    // `firmware/rp2040/src/main.rs`.
     const STACK_SOCKETS: usize = 24;
     ubos_net::assert_stack_sockets!(
         STACK_SOCKETS,
@@ -677,7 +605,6 @@ async fn boot(spawner: Spawner) {
     let config = net::wait_for_config(stack, runners.net).await;
     info!("ip address: {:?}", config.address.address());
 
-    // Core 1 hosts serial_task (ubos-mining backend); see spawn_core1 above.
     for slot in 0..POOL_SLOTS {
         spawner.spawn(unwrap!(stratum_client_task(
             stack,
@@ -693,8 +620,6 @@ async fn boot(spawner: Spawner) {
     // binding was established early in boot, before spawn_core1.
     ubos_api::register_ota_target(ota_target).await;
 
-    // Reclaim abandoned chunk-ack OTA sessions so a client that vanishes
-    // mid-upload does not strand the board with mining stopped.
     spawner.spawn(unwrap!(ota_watchdog_task(handles.manager)));
     spawner.spawn(unwrap!(network_control_task(
         stack,

@@ -19,20 +19,18 @@
 
 use std::env;
 
-/// Build script for the bootloader image.
-///
-/// The board build script does not fit here: a bootloader links its
-/// arguments with `rustc-link-arg-bins`, takes `--nmagic`, and reaches
-/// defmt only behind a cargo feature.
+/// `ubos_build::cortex_m_board` does not fit a bootloader: this one links its
+/// arguments with `rustc-link-arg-bins`, takes `--nmagic`, and reaches defmt
+/// only behind a cargo feature.
 fn main() {
     ubos_build::copy_memory_x();
     println!("cargo:rerun-if-changed=build.rs");
 
     println!("cargo:rustc-link-arg-bins=--nmagic");
     println!("cargo:rustc-link-arg-bins=-Tlink.x");
-    // link-rp.x (from embassy-rp) places the `.boot2` section at
-    // ORIGIN(BOOT2). The bootloader uses this so the RP2040 bootrom can
-    // find and verify the second-stage loader before handing off control.
+    // link-rp.x places the `.boot2` section at ORIGIN(BOOT2), where the RP2040
+    // bootrom looks for the second-stage loader whose CRC32 it verifies before
+    // handing off control.
     println!("cargo:rustc-link-arg-bins=-Tlink-rp.x");
     if env::var("CARGO_FEATURE_DEFMT").is_ok() {
         println!("cargo:rustc-link-arg-bins=-Tdefmt.x");

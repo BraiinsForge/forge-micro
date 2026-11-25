@@ -17,17 +17,11 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! BM1370 chip-side wiring: hashboard reset pin and the two long-running
-//! tasks the ubos-mining backend needs.
+//! This board's hashboard reset pin. The tasks it feeds are documented
+//! at `ubos_mining::serial_task!` and `ubos_mining::miner_task!`.
 //!
-//! `serial_task` owns the UART and drives the board's single entry in
-//! [`CHAINS`] for the lifetime of the firmware; `miner_task` runs the
-//! bring-up / teardown state machine in `ubos_mining::Miner::run`. Neither
-//! ever returns under normal operation: there is no SIGINT on bare metal,
-//! so `Handle::stop` is never raised and `ubos_mining::Miner::run` parks
-//! inside its bring-up loop.
+//! Backend architecture: `../../../docs/MINING.md`.
 
-/// The board's single hashboard chain.
 pub static CHAINS: [ubos_mining::serial::Serial; crate::config::CHAINS] =
     ubos_mining::serial::Serial::table();
 
@@ -40,8 +34,6 @@ ubos_mining::serial_task!(
     scheduler = ubos_mining::scheduler::FeeScheduler::new(crate::config::FEE_POOL.permille)
 );
 
-/// The reset line is one push-pull output with no timings, so the shared
-/// newtype drives it.
 pub type BoardResetPin = ubos_mining::reset::OutputResetPin<embassy_rp::gpio::Output<'static>>;
 
 ubos_mining::miner_task!(

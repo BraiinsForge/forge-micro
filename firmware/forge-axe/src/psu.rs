@@ -19,12 +19,9 @@
 
 //! Forge Axe PSU integration over the shared I2C1 bus.
 //!
-//! Wraps the shared TPS53647 `PMBus` driver in [`GatedPsu`], which owns
-//! the `PWR_EN` (TPS53647 ENABLE) GPIO and the `VR_RDY` power-good
-//! input. The TPS requires both the ENABLE pin and the `OPERATION`
-//! on-bit, so `GatedPsu` also drives the inner driver's `OPERATION`
-//! write. The bus mutex is owned by `main` so other I2C consumers can
-//! take additional `I2cDevice` handles from the same mutex.
+//! The TPS53647 needs both the ENABLE pin and the `OPERATION` on-bit, so
+//! [`GatedPsu`] owns `PWR_EN` and the `VR_RDY` power-good input and drives
+//! the inner driver's `OPERATION` write.
 
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_rp::gpio::{Input, Output};
@@ -34,7 +31,6 @@ use ubos_psu::{
 };
 use ubos_rp::i2c::{Bus, Device};
 
-/// The shared TPS53647 `PMBus` driver instantiated for this board's bus.
 type InnerPsu = ForgeAxePsu<Device>;
 
 /// Board power stage: the TPS53647 driver gated by `PWR_EN` with a
@@ -45,9 +41,8 @@ static SHARED: StaticCell<ForgeAxeShared<Device>> = StaticCell::new();
 static DRIVER: StaticCell<BoardPsu> = StaticCell::new();
 static PSU: StaticCell<PowerSupply<BoardPsu>> = StaticCell::new();
 
-/// How long after raising the enable pins and setting `OPERATION` before
-/// sampling `VR_RDY`. Covers the soft-start ramp; the exact timing is a
-/// hardware-validation item.
+/// Covers the soft-start ramp between raising the enable pins and sampling
+/// `VR_RDY`.
 const VR_RDY_SETTLE: embassy_time::Duration = embassy_time::Duration::from_millis(10);
 
 /// Construct the `BoardPsu` over an `I2cDevice` carved from `bus`,

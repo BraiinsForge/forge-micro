@@ -17,11 +17,7 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! RP2350 bootloader using `embassy-boot-rp`.
-//!
-//! Initialises the flash peripheral via `WatchdogFlash`, reads the partition
-//! offsets baked into the linker symbols from `memory.x`, and chains to the
-//! ACTIVE partition.  Control never returns from `load()`.
+//! RP2350 bootloader. The swap sequence is `rp_bootloader::boot`.
 
 #![no_std]
 #![no_main]

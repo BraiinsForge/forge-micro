@@ -17,14 +17,9 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-/// Build script that configures linker scripts and error handling.
-///
-/// For RP2040 with embassy-boot, we need memory.x on the linker search path,
-/// plus link.x and defmt.x. The link-rp.x script (from embassy-rp) is omitted
-/// because it only places the `.boot2` section into the `BOOT2` memory region;
-/// the application lives in the ACTIVE partition at 0x10021000, has no BOOT2
-/// region, and the `boot2-none` cargo feature suppresses the symbol so the
-/// script's section is empty. The bootloader carries boot2.
+/// No `link-rp.x`: it only places `.boot2` into the `BOOT2` region, and this
+/// application links into the ACTIVE partition, which has none. The
+/// bootloader carries boot2.
 fn main() {
     ubos_build::cortex_m_board();
     ubos_build::open_board_build_id();

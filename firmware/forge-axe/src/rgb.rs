@@ -19,23 +19,21 @@
 
 //! Breathing status color on the 16-LED ARGB ring.
 //!
-//! The ring hangs off the ARGB header: data on GPIO6 (the `DISP_SDA`
-//! net doubles as ARGB data), 5 V from the header. A `PIO1` state
-//! machine clocks the WS2812 stream via the embassy-rp driver. The
-//! breathing loop and its math live in `ubos_led::rgb`; this board only
-//! fixes the ring's shape and its color.
+//! The ring hangs off the ARGB header: data on GPIO6, where the `DISP_SDA`
+//! net doubles as ARGB data, and 5 V from the header. The breathing loop
+//! and its math are `ubos_led::rgb`; this board fixes only the ring's shape
+//! and its color.
 
 use embassy_rp::peripherals::PIO1;
 use smart_leds::RGB8;
 use ubos_rp::rgb::Ws2812Ring;
 
-/// Number of LEDs on the ring.
 pub const LED_COUNT: usize = 16;
 
 /// The ring's state machine on `PIO1`.
 pub const STATE_MACHINE: usize = 0;
 
-/// WS2812 driver instantiated for this board: PIO1 SM0, GRB order.
+/// GRB byte order, as the ring's WS2812 chips expect.
 pub type Ring = Ws2812Ring<'static, PIO1, STATE_MACHINE, LED_COUNT>;
 
 /// Braiins Forge orange.

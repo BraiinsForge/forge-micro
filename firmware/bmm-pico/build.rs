@@ -17,14 +17,9 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-/// Build script that configures linker scripts and error handling.
-///
-/// For RP2350, we need memory.x copied to the linker search path plus link.x
-/// and defmt.x linker scripts. Embassy-rp is built with `imagedef-none`, and
-/// this application links into the ACTIVE partition rather than offset 0, so
-/// it emits no image-def of its own. The reused `rp2350-bootloader` owns the
-/// offset-0 image-def block the bootrom inspects and chains to ACTIVE.
-/// link-rp.x (which defines `.boot2`) is not needed for RP2350.
+/// `embassy-rp` is built with `imagedef-none` because this application links
+/// into the ACTIVE partition rather than offset 0, where the reused
+/// `rp2350-bootloader` owns the image-def block the bootrom inspects.
 fn main() {
     ubos_build::cortex_m_board();
     ubos_build::open_board_build_id();

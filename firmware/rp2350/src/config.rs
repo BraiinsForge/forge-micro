@@ -18,18 +18,12 @@
 // shall be considered distinct from the grant above.
 
 //! Board constants and peripheral extraction for the W6100-EVB-Pico2
-//! (RP2350) running the ubos-mining backend. `Board::take` consumes the RP2350
-//! `Peripherals` once and returns every singleton the board's schematic
-//! claims, keeping pin assignments in one place rather than scattered
-//! through `main`.
+//! (RP2350).
 //!
 //! Wiring/pinout: `../../../docs/SETUP.md`
 
 pub use ubos_machine::MINIMINER_RP2350 as MACHINE;
 
-/// How many hashboard chains this board drives. Every array sized over
-/// the chains takes its length from here, so a machine that gains a
-/// chain fails to build until each is wired.
 pub const CHAINS: usize = MACHINE.chains;
 
 use embassy_rp::Peri;
@@ -42,7 +36,6 @@ use embassy_rp::peripherals::{
 use embassy_rp::peripherals::{DMA_CH2, PIN_10, PIN_11, PIN_12, PIN_13, PIN_14, SPI1};
 use embassy_time::Duration;
 
-/// Every peripheral singleton the board consumes, extracted in one place.
 pub struct Board {
     pub watchdog: Peri<'static, WATCHDOG>,
     pub led: Peri<'static, PIN_25>,
@@ -67,14 +60,10 @@ pub struct Board {
     pub hb_rst: Peri<'static, PIN_2>,
     /// Hashboard plug-detect line (input, pull-up).
     pub hb_plug: Peri<'static, PIN_3>,
-    /// Fan PWM output (25 kHz via `PWM_SLICE4` channel A).
     pub fan_pwm_slice: Peri<'static, PWM_SLICE4>,
     pub fan_pwm_pin: Peri<'static, PIN_8>,
-    /// Fan tachometer input (rising-edge counter via `PWM_SLICE7`).
     pub fan_tach_slice: Peri<'static, PWM_SLICE7>,
     pub fan_tach_pin: Peri<'static, PIN_15>,
-    /// FLASH peripheral for the on-board QSPI; ubos-config persists the
-    /// runtime config record in the last two sectors of this device.
     pub flash: Peri<'static, FLASH>,
     #[cfg(feature = "display")]
     pub display_spi: Peri<'static, SPI1>,
@@ -91,19 +80,14 @@ pub struct Board {
     #[cfg(feature = "display")]
     pub display_tx_dma: Peri<'static, DMA_CH2>,
     pub core1: Peri<'static, CORE1>,
-    /// Hardware TRNG peripheral. Used at boot to seed the session
-    /// CSPRNG in `ubos_api`. RP2350-specific; the RP2040 has no
-    /// equivalent and seeds from `RoscRng` instead.
+    /// Drawn once at boot; see `ubos_rp::boot::seeds_from_trng`.
     pub trng: Peri<'static, TRNG>,
 }
 
 /// The board descriptor this firmware targets: the 4-chip BM1362 BMM101.
-/// Every crate that needs board facts takes this explicitly rather than
-/// selecting a board behind a cargo feature.
 pub const BOARD: &ubos_asic::HashboardDescriptor = &MACHINE.hashboard;
 
-/// The Bitmain chip model this board's hashboard carries; injected into
-/// the mining actor as the concrete chain driver.
+/// Injected into the mining actor as the concrete chain driver.
 pub const CHIP: ubos_asic::Chip = ubos_asic::Chip::Bm1362;
 
 /// The tuners this board runs. The miner builds them, and [`BOUNDS`]
@@ -117,7 +101,6 @@ pub const BOUNDS: ubos_config::MiningBounds = BOARD.bounds(
     Some(ubos_machine::MINIMINER_INPUT_POWER),
 );
 
-/// Static mining capability metadata, built from [`BOARD`].
 pub const MINING_INFO: ubos_config::MiningInfo =
     BOARD.mining_info(&BOUNDS, ubos_config::DefaultTuning::Fixed);
 
@@ -126,18 +109,16 @@ pub const MINING_INFO: ubos_config::MiningInfo =
 /// `DEVFEE_*` overrides.
 pub const FEE_POOL: ubos_config::FeePool = ubos_config::fee::BRAIINS_POOL.with_overrides();
 
-/// Distinct series the Prometheus exposition map holds. The map is keyed
-/// by the label-expanded series, and a series that does not fit is
-/// dropped with a warning. Must be a power of two, which the map requires.
+/// Distinct series this board's exposition map holds; see
+/// [`ubos_metrics::metrics::MetricsStatics`] for what the number buys and
+/// what it must be.
 pub const MAX_METRICS: usize = 128;
 
-/// Bytes of the buffer one scrape is rendered into. It holds every series
-/// in the map at once, so it moves with [`MAX_METRICS`].
 pub const METRICS_RESPONSE_BYTES: usize = MAX_METRICS * ubos_metrics::metrics::METRIC_LINE_BYTES;
 
 impl Board {
-    /// DNS-safe base hostname for mDNS. See `ubos_mdns::compose_hostname`
-    /// for the per-unit suffix and RFC 6762 §9 conflict-resolution semantics.
+    /// See `ubos_mdns::compose_hostname` for the per-unit suffix and the
+    /// RFC 6762 §9 conflict-resolution semantics.
     pub const MDNS_HOSTNAME_BASE: &str = "rp2350";
 
     pub fn take(peripherals: embassy_rp::Peripherals) -> Self {
@@ -204,9 +185,8 @@ impl Watchdog {
     pub const TIMEOUT: Duration = Duration::from_secs(2);
 }
 
-/// Fan PWM and tachometer parameters. Default `clk_sys` on the RP2350 is
-/// 150 MHz, so `(PWM_TOP + 1) × divider = 6000` cycles per period puts
-/// the PWM frequency at exactly 25 kHz (the Intel 4-wire fan spec).
+/// 6000 cycles per period at the RP2350's 150 MHz default `clk_sys` put the
+/// fan PWM at exactly 25 kHz.
 pub struct Fan;
 impl Fan {
     pub const PWM_TOP: u16 = 5999;
@@ -215,42 +195,27 @@ impl Fan {
 
 pub struct Core1;
 impl Core1 {
-    /// Stack for the Core 1 executor, which runs only the ubos-mining
-    /// BM1362 serial worker: the `BufferedUart` driver frames, the
-    /// `ASIC_SESSION` critical sections, and `defmt` formatting on the
-    /// send/receive path. 32 KiB is a generous default, not a measured
-    /// high-water mark; trimming it safely would need on-target stack
-    /// painting to find the true peak.
+    /// Core 1 runs only the chip-serial worker. 32 KiB is a generous default
+    /// rather than a measured high-water mark.
     pub const STACK_BYTES: usize = 32_768;
 }
 
-/// Monotonic firmware version reported over the OTA API.
-///
-/// Sourced from the `UBOS_FW_VERSION` environment variable at build time,
-/// defaulting to `1` when unset. `embassy-boot` stores no version metadata
-/// in flash, so this const is the only version the running image exposes;
-/// the OTA endpoint surfaces it as `running_version`.
+/// `embassy-boot` stores no version metadata in flash, so this const is the
+/// only version the running image exposes.
 pub const FIRMWARE_VERSION: u32 = match option_env!("UBOS_FW_VERSION") {
-    // `parse` is not const; the helper in ubos-ota folds the decimal digits
-    // at compile time so the value is fixed with no runtime cost.
     Some(raw) => ubos_ota::parse_version(raw),
     None => 1,
 };
 
-/// On-board QSPI flash parameters for the ubos-config record store.
-///
-/// `SIZE` covers the full 2 MiB physical flash; the `CONFIG_RANGE`
-/// claims the final two 4 KiB erase sectors at the end of flash,
-/// matching the CONFIG region in the partitioned memory layout.
+/// `SIZE` covers the full 2 MiB physical flash, and `CONFIG_RANGE` claims its
+/// final two 4 KiB erase sectors, the CONFIG region of the memory layout.
 pub struct Flash;
 impl Flash {
     pub const SIZE: usize = 2 * 1024 * 1024;
     pub const CONFIG_RANGE: core::ops::Range<u32> = 0x001F_E000..0x0020_0000;
 }
 
-/// OTA upload limit, reported through `OtaTarget::max_image_bytes`. Equals
-/// the bootloader ACTIVE slot in `memory.x` (952 KiB): an image larger than
-/// this could never swap into ACTIVE, so the handler rejects it up front.
+/// The ACTIVE slot in `memory.x`: a larger image could never swap in.
 pub struct Ota;
 impl Ota {
     pub const MAX_IMAGE_BYTES: u64 = 952 * 1024;

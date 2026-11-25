@@ -17,12 +17,8 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-/// Build script that configures linker scripts and error handling.
-///
-/// For RP2350, we need memory.x copied to the linker search path plus link.x
-/// and defmt.x linker scripts. The `IMAGE_DEF` block is provided by
-/// embassy-rp's default secure-exe imagedef instead of a BOOT2 section,
-/// so link-rp.x (which defines the .boot2 section) is not needed here.
+/// No `link-rp.x`: the `IMAGE_DEF` block comes from `embassy-rp`'s default
+/// secure-exe imagedef rather than from a `.boot2` section.
 fn main() {
     ubos_build::cortex_m_board();
     ubos_build::open_board_build_id();

@@ -23,7 +23,10 @@
 /// responsive. The macro builds the `BufferedUart` and wraps it in
 /// [`MinerUart`](crate::uart::MinerUart), then hands the value to the board's
 /// executor body. `BufferedUart` must be constructed on the core that polls
-/// it, which is why the whole thing runs inside `spawn_core1`.
+/// it, which is why the whole thing runs inside `spawn_core1`. Both RP cores
+/// have their own NVIC, so an `init_buffers` unmask on one core and the write
+/// path's pend on the other land on different controllers and the HW FIFO is
+/// never written.
 ///
 /// The `run` arm chooses which executor drives core 1:
 /// `run_cortex_m_executor::<1, _>` accumulates idle ticks for the busy-ratio

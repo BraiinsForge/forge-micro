@@ -19,11 +19,8 @@
 
 use std::env;
 
-/// Build script for the bootloader image.
-///
-/// The board build script does not fit here: a bootloader links its
-/// arguments with `rustc-link-arg-bins`, takes `--nmagic`, and reaches
-/// defmt only behind a cargo feature.
+/// For why this is not `ubos_build::cortex_m_board`, see
+/// `firmware/rp2040-bootloader/build.rs`.
 fn main() {
     ubos_build::copy_memory_x();
     println!("cargo:rerun-if-changed=build.rs");
