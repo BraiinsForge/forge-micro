@@ -20,7 +20,7 @@
 //! Per-pool counters, one [`PoolMetrics`] per pool slot.
 //!
 //! Every counter a pool session accumulates over its lifetime lives
-//! here: accepted and rejected shares, reconnect attempts, and
+//! here: accepted and rejected shares, their work, reconnect attempts, and
 //! reachability. Session tasks write through [`PoolHandle`](crate::asic_session::PoolHandle)
 //! or, for the visitor's share counters, through the slot index
 //! `StratumState` already carries. Readers take a [`PoolMetricsSnapshot`]
@@ -39,6 +39,10 @@ pub(crate) const PUSH_PERIOD: Duration = Duration::from_secs(2);
 pub struct PoolMetrics {
     shares_accepted: AtomicU64,
     shares_rejected: AtomicU64,
+    /// Sum of the `work` of the accepted submits, in diff-1 share units.
+    work_accepted: AtomicU64,
+    /// Sum of the `work` of the rejected submits, in diff-1 share units.
+    work_rejected: AtomicU64,
     reconnects: AtomicU32,
     /// Cleared by the first call to [`PoolMetrics::record_reconnect_attempt`];
     /// see its doc for why.
@@ -51,21 +55,25 @@ impl PoolMetrics {
         Self {
             shares_accepted: AtomicU64::new(0),
             shares_rejected: AtomicU64::new(0),
+            work_accepted: AtomicU64::new(0),
+            work_rejected: AtomicU64::new(0),
             reconnects: AtomicU32::new(0),
             first_reconnect_attempt: AtomicBool::new(true),
             alive: AtomicBool::new(false),
         }
     }
 
-    /// Record `count` shares the pool accepted.
-    pub(crate) fn record_shares_accepted(&self, count: u32) {
+    /// Record `count` shares the pool accepted, worth `work` in all.
+    pub(crate) fn record_shares_accepted(&self, count: u32, work: u64) {
         self.shares_accepted
             .fetch_add(u64::from(count), Ordering::Relaxed);
+        self.work_accepted.fetch_add(work, Ordering::Relaxed);
     }
 
-    /// Record one share the pool rejected.
-    pub(crate) fn record_share_rejected(&self) {
+    /// Record one share the pool rejected, worth `work`.
+    pub(crate) fn record_share_rejected(&self, work: u64) {
         self.shares_rejected.fetch_add(1, Ordering::Relaxed);
+        self.work_rejected.fetch_add(work, Ordering::Relaxed);
     }
 
     /// Increment the reconnect counter on every call past the first.
@@ -100,6 +108,8 @@ impl PoolMetrics {
         PoolMetricsSnapshot {
             shares_accepted: self.shares_accepted.load(Ordering::Relaxed),
             shares_rejected: self.shares_rejected.load(Ordering::Relaxed),
+            work_accepted: self.work_accepted.load(Ordering::Relaxed),
+            work_rejected: self.work_rejected.load(Ordering::Relaxed),
             reconnects: self.reconnects.load(Ordering::Relaxed),
             alive: self.alive.load(Ordering::Relaxed),
         }
@@ -111,6 +121,8 @@ impl PoolMetrics {
 pub struct PoolMetricsSnapshot {
     pub shares_accepted: u64,
     pub shares_rejected: u64,
+    pub work_accepted: u64,
+    pub work_rejected: u64,
     pub reconnects: u32,
     pub alive: bool,
 }

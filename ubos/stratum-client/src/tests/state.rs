@@ -200,12 +200,32 @@ rusty_fork_test! {
 
         pools[2].set_alive(true);
         pools[7].set_alive(true);
-        pools[1].record_shares_accepted(3);
-        pools[5].record_shares_accepted(4);
-        pools[5].record_share_rejected();
+        pools[1].record_shares_accepted(3, 30);
+        pools[5].record_shares_accepted(4, 40);
+        pools[5].record_share_rejected(5);
 
         assert_eq!(handle.pool_alive_bitmap(), 0b1000_0100);
         assert_eq!(handle.shares_accepted(), 7);
         assert_eq!(handle.shares_rejected(), 1);
+    }
+}
+
+rusty_fork_test! {
+    #[test]
+    fn results_add_their_work_to_the_matching_sum() {
+        let mut state = StratumState::new(2);
+        state.visit_submit_result(SubmitResult::Accepted { count: 1, work: 1024 });
+        state.visit_submit_result(SubmitResult::Accepted { count: 2, work: 3000 });
+        state.visit_submit_result(SubmitResult::Rejected {
+            error_code: None,
+            error_message: None,
+            work: 512,
+        });
+
+        let snapshot = crate::metrics::for_slot(2).expect("slot 2 in range").snapshot();
+        assert_eq!(snapshot.work_accepted, 4024);
+        assert_eq!(snapshot.work_rejected, 512);
+        assert_eq!(snapshot.shares_accepted, 3);
+        assert_eq!(snapshot.shares_rejected, 1);
     }
 }

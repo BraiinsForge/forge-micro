@@ -190,7 +190,7 @@ impl MiningClientVisitor for StratumState {
                     self.slot, count, work,
                 );
                 if let Some(metrics) = crate::metrics::for_slot(self.slot) {
-                    metrics.record_shares_accepted(count);
+                    metrics.record_shares_accepted(count, work);
                 }
             }
             SubmitResult::Rejected {
@@ -203,7 +203,7 @@ impl MiningClientVisitor for StratumState {
                     self.slot, error_code, error_message, work,
                 );
                 if let Some(metrics) = crate::metrics::for_slot(self.slot) {
-                    metrics.record_share_rejected();
+                    metrics.record_share_rejected(work);
                 }
             }
         }

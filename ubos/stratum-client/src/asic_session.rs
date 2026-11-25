@@ -152,18 +152,22 @@ impl<const N: usize, const CHAINS: usize> PoolHandle<'_, N, CHAINS> {
         crate::metrics::for_slot(self.slot).map(crate::metrics::PoolMetrics::snapshot)
     }
 
-    /// Push the slot's three counters, labelled `pool="<slot>"`, and
+    /// Push the slot's counters, labelled `pool="<slot>"`, and
     /// return the snapshot pushed. A full channel drops the sample rather
     /// than waiting, so the session future holds no metric across an
     /// await; [`Self::push_counters_periodically`] replaces a dropped one.
     pub(crate) fn push_counters(&self) -> Option<PoolMetricsSnapshot> {
         let snapshot = self.counters()?;
-        // Both series count submits, told apart by the answer of the pool.
-        for (answer, submits) in [
-            ("accepted", snapshot.shares_accepted),
-            ("rejected", snapshot.shares_rejected),
+        // Each series pair is told apart by the answer of the pool.
+        for (answer, submits, work) in [
+            ("accepted", snapshot.shares_accepted, snapshot.work_accepted),
+            ("rejected", snapshot.shares_rejected, snapshot.work_rejected),
         ] {
             metric!("pool_submits", Count(submits))
+                .label(POOL_LABEL, self.slot)
+                .label(TYPE_LABEL, answer)
+                .try_push();
+            metric!("pool_shares", Count(work))
                 .label(POOL_LABEL, self.slot)
                 .label(TYPE_LABEL, answer)
                 .try_push();

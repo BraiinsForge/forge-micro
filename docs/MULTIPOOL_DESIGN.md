@@ -349,13 +349,15 @@ carried the weights are retired.
 Shares and stats are attributed to their pool slot in both the
 prometheus exposition and the logs:
 
-- `stratum-client` counts accepted shares, rejected shares, and
-  reconnect attempts in per-slot arrays sized by
+- `stratum-client` counts accepted shares, rejected shares, their
+  work, and reconnect attempts in per-slot arrays sized by
   `POOL_INDEX_SPACE = 8` (the alive-bitmap index space). The
   existing metric names carry a `pool` label — one series per
   configured slot, pushed by the session of that slot:
   `pool_submits{pool="0",type="accepted"}`,
   `pool_submits{pool="0",type="rejected"}`,
+  `pool_shares{pool="0",type="accepted"}`,
+  `pool_shares{pool="0",type="rejected"}`,
   `pool_reconnects{pool="0"}`. No unlabelled
   duplicates are emitted; the REST `system_info` totals sum the
   arrays in code, so its schema is unchanged.
