@@ -31,6 +31,10 @@ use ubos_core::units::{Current, FanPwm, FanRpm, Frequency, Power, Temperature, V
 
 use crate::value::{Count, Flag, Ratio, Value};
 
+#[cfg(test)]
+#[path = "tests/name.rs"]
+mod tests;
+
 /// The suffix of a temperature series.
 const CELSIUS: &str = "_celsius";
 /// The suffix of a voltage series.
