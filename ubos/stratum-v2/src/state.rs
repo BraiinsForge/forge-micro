@@ -135,7 +135,8 @@ impl V2SessionState {
         self.extranonce_prefix[..prefix_len].copy_from_slice(prefix);
         {
             let target_hex = mining_protocol::hex::encode_block_hash_lower(&self.target);
-            let diff = mining_protocol::difficulty::approx_string(&self.target);
+            let diff =
+                mining_protocol::difficulty::Target::from_le_array(self.target).approx_string();
             let mut prefix_hex = [0u8; MAX_EXTRANONCE_PREFIX * 2];
             let prefix_hex_len = prefix_len * 2;
             let prefix_hex_ok = mining_protocol::hex::encode_lower_to_slice(
@@ -170,7 +171,8 @@ impl V2SessionState {
             .copy_from_slice(set_target.max_target.to_le_bytes());
         {
             let target_hex = mining_protocol::hex::encode_block_hash_lower(&self.target);
-            let diff = mining_protocol::difficulty::approx_string(&self.target);
+            let diff =
+                mining_protocol::difficulty::Target::from_le_array(self.target).approx_string();
             info!(
                 "stratum-v2: set-target channel={} target={}... diff={}",
                 set_target.channel_id,

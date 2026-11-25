@@ -262,7 +262,10 @@ impl MiningClient for StratumV1Client<'_> {
             .push_str(wire_borrow)
             .map_err(|_| Error::Adapter)?;
 
-        let pool_difficulty = mining_protocol::difficulty::approx_value(&self.session.target);
+        let pool_difficulty =
+            mining_protocol::difficulty::Target::from_le_array(self.session.target)
+                .difficulty()
+                .unwrap_or(0);
         let submit_id = self
             .session
             .pending
