@@ -24,7 +24,8 @@ zopfli = { version = "0.8", default-features = false, features = ["std", "gzip"]
 # the page budget.
 serde_json = "1"
 # Used by `build.rs` to encode the brand's `icon.png` into the `data:`
-# URI each page carries. Host-side like the two above.
+# URI each page carries. Host-side like the two above. It is held at
+# 0.22, the release edge-http asks for, so the lock carries one base64.
 base64 = "0.22"
 
 [dependencies]
