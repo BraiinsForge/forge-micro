@@ -102,7 +102,13 @@ rec {
   # rust-src for -Z build-std, the espressif cross-gcc for the
   # secp256k1-sys C build script, and -mlongcalls so its memset/memcpy
   # can be reached from text sections beyond the xtensa call8 range.
+  # The switch tables setting repeats the one in
+  # firmware/esp32s3/.cargo/config.toml, which says why the board needs
+  # it. Crane runs cargo from the workspace root, where that file is out
+  # of cargo's discovery path, so the value is stated here for the image
+  # and the gates to build the layout the board's own config builds.
   espCrossEnv = {
+    ESP_HAL_CONFIG_PLACE_SWITCH_TABLES_IN_RAM = "false";
     RUST_SRC_PATH = "${espToolchain}/lib/rustlib/src/rust/library";
     CC_xtensa_esp32s3_none_elf = "${xtensaEspToolchain}/bin/xtensa-esp32s3-elf-gcc";
     CFLAGS_xtensa_esp32s3_none_elf = "-mlongcalls";
