@@ -19,11 +19,6 @@
 
 //! Build-script support shared by the board crates.
 //!
-//! A build script cannot reach another crate's code without a build
-//! dependency, which is why every board carried its own copy of the
-//! linker wiring until this crate existed. Each function here is called
-//! from a board's `build.rs` and writes cargo directives to stdout.
-//!
 //! Cargo runs a build script with the crate's manifest directory as the
 //! working directory, so a relative path here resolves against the board.
 //! That is what lets the file copy live in a library at all:
@@ -66,17 +61,15 @@ pub fn cortex_m_board() {
 /// than the one its HAL would supply.
 ///
 /// A caller that emits any other `rerun-if-changed` directive must name
-/// `build.rs` as well. The first such directive replaces cargo's default
-/// of re-running on any change in the package, so from then on the script
-/// re-runs only for the paths it names.
+/// `build.rs` as well, because the first such directive replaces cargo's
+/// default of re-running on any change in the package.
 ///
 /// # Panics
 ///
-/// Panics when `OUT_DIR` is unset or the copy fails. Both are cargo's side
-/// of the contract, so a failure here is a broken build environment rather
-/// than anything the board can handle.
+/// Panics when `OUT_DIR` is unset or the copy fails, both of which are
+/// cargo's side of the contract rather than anything the board can
+/// handle.
 pub fn copy_memory_x() {
-    // Cargo always sets OUT_DIR for build scripts, and OUT_DIR is writable.
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("BUG: OUT_DIR not set by cargo"));
     fs::copy(MEMORY_X, out_dir.join(MEMORY_X)).expect("BUG: failed to copy memory.x to OUT_DIR");
     println!("cargo:rustc-link-search={}", out_dir.display());
@@ -99,12 +92,12 @@ const OPEN_SOURCE_DIRS: [&str; 6] = ["brand", "firmware", "host", "micro-sv2", "
 ///
 /// Call it from the board's `build.rs`. Every board crate sits two levels
 /// below the root of this tree, so the source directories resolve from the
-/// crate directory, and a crate at another depth would name absent paths.
+/// crate directory and a crate at another depth would name absent paths.
 ///
 /// # Panics
 ///
-/// Panics when `CARGO_MANIFEST_DIR` is unset, which cargo guarantees for a
-/// build script it runs.
+/// When `CARGO_MANIFEST_DIR` is unset, which cargo guarantees for a build
+/// script it runs.
 pub fn open_board_build_id() {
     let dir =
         std::env::var("CARGO_MANIFEST_DIR").expect("BUG: CARGO_MANIFEST_DIR not set by cargo");
@@ -113,22 +106,16 @@ pub fn open_board_build_id() {
     build_id(&sources);
 }
 
-/// Stamp a build id into the `BUILD_ID` variable that the boot banner, the
-/// REST API and the package name read.
+/// Stamp a build id into the `BUILD_ID` variable the boot banner, the REST
+/// API and the package name read: the tip of the whole checkout and the
+/// UTC time this script last ran, `<hash>[-dirty]-<yymmddHHMMSS>`. The tip
+/// is the superproject's when the tree is a submodule of one, because that
+/// commit names every source the build used.
 ///
-/// The id is the tip of the whole checkout and the UTC time this script
-/// last ran: `<hash>[-dirty]-<yymmddHHMMSS>`. The tip is the superproject
-/// when the tree is a submodule of one, because that commit names every
-/// source the build used, and the dirty marker is read there, where a
-/// changed submodule shows too. The time keeps two builds of one commit
-/// apart. When [`BUILD_ID_ENV`] is set, it is the whole id.
-///
-/// Cargo re-runs a build script only for the inputs it names, so a build
-/// with nothing changed compiles nothing. An edit to a shared crate
-/// relinks the board without touching the board's own sources, so the
-/// caller names every directory whose sources reach the image, and the
-/// stamp moves when a source moves. A commit moves the tip without
-/// touching a source, so the log of the tip's `HEAD` is named too.
+/// Cargo re-runs a build script only for the inputs it names, so `sources`
+/// must name every directory whose sources reach the image, and the log of
+/// the tip's `HEAD` is named too because a commit moves the tip without
+/// touching a source.
 pub fn build_id<P: AsRef<Path>>(sources: &[P]) {
     println!("cargo:rerun-if-env-changed={BUILD_ID_ENV}");
     if let Ok(id) = std::env::var(BUILD_ID_ENV)
@@ -196,10 +183,8 @@ fn run(dir: Option<&Path>, cmd: &str, args: &[&str]) -> Option<String> {
 /// Install this build script as the linker's error-handling script, and
 /// serve that role when the linker calls back into it.
 ///
-/// The linker passes the failure kind and the symbol as arguments, so the
-/// re-entered binary translates the two undefined symbols a missing linker
-/// script produces into an explanation, then exits before cargo reads any
-/// directive from it.
+/// The linker passes the failure kind and the symbol as arguments, and
+/// the re-entered binary exits before cargo reads any directive from it.
 fn linker_be_nice() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() > 2 {

@@ -17,16 +17,12 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! hwmon-based fan controller. Drives PID-modulated PWM via
-//! `ubos_cooling::run_cooling` fed by the BMM101 LM75A array.
+//! hwmon-based fan controller feeding `ubos_cooling::run_cooling`.
 //!
-//! Ported from the BOS hwmon fan controller. The kernel
-//! `pwm-fan` driver wraps a raw PWM with an hwmon device, so there is
-//! no `pwmchipN/export` dance: each fan exposes a single 0..255
-//! `pwm1` attribute and the controller just walks
-//! `/sys/devices/platform/` for entries whose `name` file contains
-//! `pwmfan`. RPM feedback (`fan{1..9}_input`) from the upstream is
-//! omitted.
+//! The kernel `pwm-fan` driver wraps a raw PWM in an hwmon device, so a
+//! fan is found by walking `/sys/devices/platform/` for a `name` of
+//! `pwmfan` and driven through that device's single `pwm1` attribute.
+//! RPM feedback is not read here.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -36,43 +32,35 @@ use ubos_cooling::{FanOutput, TachReader};
 use ubos_core::units::{FanPwm, FanRpm};
 use ubos_thermal::Handle as ThermalHandle;
 
-/// Root of the platform-device tree the kernel exposes for hwmon
-/// drivers. Hardcoded — same as the upstream constant.
 const PLATFORM_DEV_PATH: &str = "/sys/devices/platform";
 
 /// Device-tree binding name the `pwm-fan` driver registers under.
 const PWMFAN_DRIVER_NAME: &str = "pwmfan";
 
-/// PWM input file every `pwm-fan` instance exposes. Always `pwm1`
-/// because each `pwm-fan` instance drives a single PWM and hwmon
-/// numbers PWM/fan attributes from 1.
+/// Always `pwm1`, because a `pwm-fan` instance drives one PWM and hwmon
+/// numbers its attributes from 1.
 const PWM_FILE: &str = "pwm1";
 
-/// Bounded-depth recursive search ceiling. `pwmfan` typically appears
-/// at depth 1 or 2 under `/sys/devices/platform/`; six is generous
-/// without ever risking a runaway walk on an unfamiliar tree.
+/// A `pwmfan` device sits at depth 1 or 2 under the platform tree, so
+/// this leaves headroom without risking a runaway walk.
 const MAX_SEARCH_DEPTH: usize = 6;
 
 /// Full-scale value of the hwmon PWM attribute.
 const MAX_PWM_VALUE: u8 = 255;
 
-/// Floor below which `set_speed` refuses to go. The kernel's
-/// `pwm-fan` RPM sampling diverges hard near zero, and on inverted
-/// PWM hardware writing `0` is interpreted as "full speed" rather
-/// than "stopped". Keeping a small base PWM sidesteps both. Lifted
-/// straight from the upstream comment.
+/// On inverted PWM hardware a written `0` means full speed rather than
+/// stopped, and the kernel's `pwm-fan` RPM sampling diverges near zero,
+/// so `set_speed` holds a small base PWM instead.
 const MIN_PWM_VALUE: u8 = 15;
 
-/// Owns one writable `pwm1` path per detected fan.
 pub struct FanHwmonController {
     pwm_paths: Vec<PathBuf>,
 }
 
 impl FanHwmonController {
-    /// Walk `/sys/devices/platform/` for `pwm-fan` instances and
-    /// collect their `pwm1` paths. Returns `None` if the platform
-    /// tree is missing (e.g. dev-host TAP build) or no `pwmfan`
-    /// device is present — caller decides whether to spawn the task.
+    /// Returns `None` when the platform tree is absent or carries no
+    /// `pwmfan` device, leaving the caller to decide whether to spawn
+    /// the cooling task.
     pub fn open() -> Option<Self> {
         let root = Path::new(PLATFORM_DEV_PATH);
         if !root.exists() {
@@ -103,15 +91,13 @@ impl FanHwmonController {
         Some(Self { pwm_paths })
     }
 
-    /// Write 100% to every detected fan. Called as a safe-high
-    /// fallback when no temperature source is available, so the
-    /// chassis cools rather than coasts on the kernel default.
+    /// The safe-high fallback when no temperature source opened, so the
+    /// chassis cools rather than coasting on the kernel default.
     pub fn park_at_full_speed(&self) {
         self.set_speed(100);
     }
 
     fn set_speed(&self, percent: u8) {
-        // Map 0..100 to 0..255 with the upstream MIN_PWM_VALUE floor.
         let percent = u32::from(percent.min(100));
         let scaled = (u32::from(MAX_PWM_VALUE) * percent + 50) / 100;
         let pwm_value = u8::try_from(scaled)
@@ -129,11 +115,8 @@ impl FanHwmonController {
     }
 }
 
-/// Recursive walker mirroring `SysFsPath::enumerate_platform_devices`
-/// from the upstream `ii-sysfs` crate, sized down to `std::fs` so we
-/// don't take a dependency on `walkdir` for one call site. Returns the
-/// parent directory of every `name` file whose contents trim to
-/// [`PWMFAN_DRIVER_NAME`].
+/// Returns the parent directory of every `name` file whose contents trim
+/// to [`PWMFAN_DRIVER_NAME`].
 fn find_pwmfan_devices(dir: &Path, depth: usize) -> Vec<PathBuf> {
     let mut devices = Vec::new();
     if depth > MAX_SEARCH_DEPTH {
@@ -143,8 +126,8 @@ fn find_pwmfan_devices(dir: &Path, depth: usize) -> Vec<PathBuf> {
         return devices;
     };
     for entry in entries.flatten() {
-        // sysfs sprays symlinks (subsystem, driver, ...) that loop back
-        // up the tree; following them would diverge the walk.
+        // sysfs symlinks loop back up the tree, so following one would
+        // diverge the walk.
         let Ok(file_type) = entry.file_type() else {
             continue;
         };
@@ -169,8 +152,8 @@ impl FanOutput for FanHwmonController {
     }
 }
 
-/// Tachometer stub. The host runner omits RPM feedback (see module
-/// doc), so it reports zero and the cooling loop publishes PWM only.
+/// Reports no fans, because this runner reads no RPM feedback. See the
+/// module doc.
 struct NoTach;
 
 impl TachReader<0> for NoTach {
@@ -181,8 +164,6 @@ impl TachReader<0> for NoTach {
     }
 }
 
-/// PID-driven fan loop. Spawned by main once both the fan controller
-/// and the LM75A sensor array have opened.
 #[embassy_executor::task]
 pub async fn pid_fan_task(
     controller: FanHwmonController,

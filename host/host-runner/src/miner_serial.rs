@@ -17,13 +17,11 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Brings up the ubos-mining BM1362 serial actor against a Linux tty.
+//! Brings up the ubos-mining serial actor against a Linux tty.
 //!
-//! Opens `/dev/ttySTM1` at the chip's reset baud rate and runs the
-//! actor's server loop on the serial port. Failure to open the device
-//! parks the task instead of crashing the runner so the rest of the
-//! tasks (network, stratum, metrics) keep working when no hashboard is
-//! wired in.
+//! A device that will not open parks the task instead of crashing the
+//! runner, so the network, stratum and metrics tasks keep working with
+//! no hashboard wired in.
 
 use embassy_time::{Duration, Timer};
 use embedded_serial_unix::Serial;
@@ -33,9 +31,9 @@ use ubos_mining::consts::INITIAL_BAUDRATE;
 use crate::ASIC_SESSION;
 use crate::config::{CHIP, MINER_SERIAL_PATH};
 
-/// The runner's single hashboard chain. The count is a literal because the
-/// runner has no machine descriptor to read it from: it drives one serial
-/// device, named by `MINER_SERIAL_PATH`, and stands for no product.
+/// The count is a literal because the runner has no machine descriptor to
+/// read it from: it drives the one serial device `MINER_SERIAL_PATH` names
+/// and stands for no product.
 pub static CHAINS: [ubos_mining::serial::Serial; 1] = ubos_mining::serial::Serial::table();
 
 #[embassy_executor::task]
@@ -52,9 +50,8 @@ pub async fn miner_serial_task(park: &'static ubos_mining::Park) -> ! {
         }
     };
     info!("host-runner: miner serial bringup on {MINER_SERIAL_PATH}");
-    // Single-slot session, so the ratio scheduler degenerates to
-    // always serving slot 0 when it has work. `new`'s fallback
-    // default already weights slot 0, so no reweight is needed.
+    // One slot, so the scheduler always serves slot 0 when it has work
+    // and `new`'s fallback default needs no reweight.
     let scheduler = ubos_mining::scheduler::RatioScheduler::new();
     match CHAINS[0]
         .run(
@@ -71,10 +68,9 @@ pub async fn miner_serial_task(park: &'static ubos_mining::Park) -> ! {
         Ok(()) => info!("host-runner: miner serial actor terminated cleanly"),
         Err(kind) => error!("host-runner: miner serial actor exited: {kind:?}"),
     }
-    // Park: the serial line is gone (EOF, IO error) or the actor was
-    // told to stop. Re-opening would need fresh peripheral state which
-    // the host doesn't have a clean trigger for here, so the rest of
-    // the runner keeps running while this task idles.
+    // Re-opening would need fresh peripheral state that the host has no
+    // clean trigger for, so the task idles here and the rest of the
+    // runner keeps going.
     loop {
         Timer::after(Duration::from_secs(60)).await;
     }

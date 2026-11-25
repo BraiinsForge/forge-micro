@@ -19,8 +19,6 @@
 
 //! Host-runner mining hardware configuration.
 
-/// Path to the serial interface connected to the hashboard.
 pub const MINER_SERIAL_PATH: &str = "/dev/ttySTM1";
 
-/// Chip model populated on the simulated hashboard.
 pub const CHIP: ubos_asic::Chip = ubos_asic::Chip::Bm1362;

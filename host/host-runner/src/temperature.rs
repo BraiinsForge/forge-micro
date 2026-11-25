@@ -17,7 +17,7 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! BMM101 hashboard temperature sensor array.
+//! BMM101 hashboard temperature sensor array over Linux i2c-dev.
 //!
 //! Reads the four LM75A board sensors via Linux i2c-dev; the
 //! controller exposes the maximum across all sensors so a single hot
@@ -42,10 +42,9 @@ pub struct HashboardTemperature {
 }
 
 impl HashboardTemperature {
-    /// Open a handle to the PSU I2C bus for each of the four LM75A
-    /// sensors. Bus path comes from `UBOS_I2C_BUS`, defaulting to
-    /// `/dev/i2c-0`. Returns `None` if the env var is set but empty
-    /// or the bus cannot be opened. Each reading goes to `thermal`.
+    /// Opens a handle per sensor to the bus the PSU uses. Returns `None`
+    /// if `UBOS_I2C_BUS` is set but empty, or the bus cannot be opened.
+    /// Each reading goes to `thermal`.
     pub fn open(thermal: ThermalHandle) -> Option<Self> {
         let env_path = std::env::var(I2C_BUS_ENV);
         let path = env_path.as_deref().unwrap_or("/dev/i2c-0");
@@ -92,13 +91,11 @@ impl TemperatureSensor for HashboardTemperature {
                 }
             }
         }
-        // Every sensor here is an LM75A on the hashboard, and the board
-        // carries no die sensor, so the hashboard readings are the ones
-        // this board reports.
+        // Every sensor here is a hashboard LM75A and the board carries no
+        // die sensor, so the hashboard readings are the ones it reports.
         //
-        // Never idle: these sensors sit on the board's own I2C bus and
-        // answer whether or not the hashboard rail is up, so silence is
-        // always a fault.
+        // These sensors answer whether or not the hashboard rail is up,
+        // so silence is always a fault and never an idle board.
         hashboard.map_or(Reading::Unreadable, |acc| {
             Reading::Measured(TempSample {
                 chip: None,

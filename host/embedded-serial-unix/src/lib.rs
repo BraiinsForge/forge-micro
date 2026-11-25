@@ -19,15 +19,10 @@
 
 //! Async serial driver for Linux character devices.
 //!
-//! Opens `/dev/tty*` or any tty-like character device in 8N1 raw mode
-//! at a caller-supplied baud rate, then exposes async I/O via the
-//! `embedded-io-async` traits. [`serial_baudrate::BaudRate`] lets the
-//! handle retune the line, with the change applying to both directions
-//! because it acts on the underlying tty.
-//!
-//! The shape mirrors `embassy-net-afpacket`: open a non-blocking fd,
-//! wrap it in `async_io::Async`, and let the async-io reactor handle
-//! readiness so the calling task parks instead of busy-waiting.
+//! The fd is non-blocking and wrapped in `async_io::Async`, so a waiting
+//! task parks instead of busy-polling. A retune through
+//! [`serial_baudrate::BaudRate`] acts on the underlying tty, so it
+//! applies to both directions.
 
 #![warn(missing_docs)]
 // libc FFI: every `as` cast below is bounded by the kernel ABI.
@@ -44,9 +39,8 @@ use std::os::unix::io::{AsRawFd, RawFd};
 
 use async_io::Async;
 
-/// Owned file descriptor that closes on drop. Read and write take
-/// `&self` because `libc::read`/`libc::write` do not require
-/// Rust-level exclusive access.
+/// Read and write take `&self`, because `libc::read` and `libc::write`
+/// need no Rust-level exclusive access.
 struct Fd(RawFd);
 
 impl Fd {
@@ -86,8 +80,8 @@ impl Drop for Fd {
     }
 }
 
-/// Map a numeric baud rate to the kernel's `Bxxxx` `speed_t` constant.
-/// Returns `InvalidInput` for any rate not in the standard table.
+/// Returns `InvalidInput` for any rate outside the kernel's `Bxxxx`
+/// table.
 fn baud_to_speed(baud: u32) -> io::Result<libc::speed_t> {
     let speed = match baud {
         50 => libc::B50,
@@ -150,9 +144,8 @@ fn configure(fd: RawFd, baud: u32) -> io::Result<()> {
     Ok(())
 }
 
-/// Apply only the baud rate to an already-configured fd. Reads the
-/// current termios first so the rest of the line settings are
-/// preserved.
+/// Reads the current termios first, so the rest of the line settings
+/// survive the change.
 fn apply_baud(fd: RawFd, baud: u32) -> io::Result<()> {
     let speed = baud_to_speed(baud)?;
     let mut termios: libc::termios = unsafe { std::mem::zeroed() };
@@ -171,8 +164,7 @@ fn apply_baud(fd: RawFd, baud: u32) -> io::Result<()> {
     Ok(())
 }
 
-/// Duplex handle over a Linux serial device. Construct with
-/// [`Serial::open`].
+/// Duplex handle over a Linux serial device.
 pub struct Serial {
     inner: Async<Fd>,
 }
@@ -202,9 +194,8 @@ impl Serial {
     }
 }
 
-/// Map a tty `io::Error` to the public [`embedded_io::ErrorKind`] domain.
-/// Logs the real error so a `Other` return still surfaces enough detail
-/// for debugging, while callers route on the kind taxonomy.
+/// Logs the real error, because the [`embedded_io::ErrorKind`] it
+/// returns keeps nothing but the taxonomy.
 fn map_set_baud_err(error: &io::Error, baud: u32) -> embedded_io::ErrorKind {
     log::error!("set_baudrate({baud}) failed: {error}");
     if error.kind() == io::ErrorKind::InvalidInput {
@@ -236,9 +227,8 @@ impl embedded_io_async::Write for Serial {
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
-        // Kernel TX buffers drain on their own. `tcdrain` would block
-        // until the UART hardware empties; not worth a synchronous
-        // syscall in an async path.
+        // Kernel TX buffers drain on their own, and `tcdrain` would block
+        // the async path until the UART hardware empties.
         Ok(())
     }
 }

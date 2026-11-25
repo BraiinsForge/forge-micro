@@ -24,9 +24,9 @@
 //! every other task reads the handle that [`absent`] returns instead.
 //!
 //! The host harness is not one of the boards and has no
-//! `MachineDescriptor`; it initializes from `BmmPsuDescriptor::DEFAULT`,
-//! the same const the miniminer machines wrap, so it cannot drift
-//! from the firmware.
+//! `MachineDescriptor`, so it initializes from
+//! `BmmPsuDescriptor::DEFAULT`, the same const the miniminer machines
+//! wrap, and cannot drift from the firmware.
 
 use embedded_i2c_unix::I2c as HostI2c;
 use log::{error, info};
@@ -44,8 +44,6 @@ static SHARED: StaticCell<BmmShared<HostI2c>> = StaticCell::new();
 static DRIVER: StaticCell<HostPsu> = StaticCell::new();
 static PSU: StaticCell<PowerSupply<HostPsu>> = StaticCell::new();
 
-/// Open the I2C bus from `UBOS_I2C_BUS`, stand up the PSU state, and
-/// return the `PowerSupply` over the driver.
 /// Returns `None` if the env var is unset/empty or the bus cannot be
 /// opened.
 pub fn open() -> Option<&'static PowerSupply<HostPsu>> {

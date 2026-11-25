@@ -45,9 +45,8 @@ const I2C_M_RD: u16 = 0x0001;
 /// `libc::Ioctl` is `c_ulong` on glibc and `c_int` on musl, so use the
 /// type alias rather than a fixed integer width.
 const I2C_RDWR: libc::Ioctl = 0x0707;
-/// Maximum number of `Operation`s per `transaction()` call. The
-/// Linux kernel enforces its own per-driver bound; eight covers
-/// every real-world transfer the BMM101 PSU drivers issue.
+/// Eight covers every transfer the BMM101 PSU drivers issue, and the
+/// kernel enforces its own per-driver bound besides.
 const MAX_MSGS: usize = 8;
 
 #[repr(C)]
@@ -64,7 +63,6 @@ struct I2cRdwrIoctlData {
     nmsgs: u32,
 }
 
-/// Owned file descriptor that closes on drop.
 struct Fd(RawFd);
 
 impl AsRawFd for Fd {
@@ -87,10 +85,6 @@ pub struct I2c {
 
 impl I2c {
     /// Opens an I2C bus character device.
-    ///
-    /// The fd is opened without `O_NONBLOCK`; `I2C_RDWR` ioctls block
-    /// briefly enough that wrapping the fd in an async reactor would
-    /// only add overhead.
     ///
     /// # Errors
     /// Returns the underlying `open(2)` error if the path does
@@ -193,9 +187,8 @@ impl embedded_hal_async::i2c::I2c for I2c {
             nmsgs: operations.len() as u32,
         };
 
-        // We execute the ioctl synchronously. In a host testing environment,
-        // blocking the embassy executor for the duration of a local I2C
-        // transaction (~1ms) is perfectly fine and avoids the epoll EPERM trap.
+        // Synchronous, which also avoids the epoll EPERM trap. The module
+        // doc has why blocking the executor here costs nothing.
         let result = unsafe {
             libc::ioctl(
                 self.fd.as_raw_fd(),

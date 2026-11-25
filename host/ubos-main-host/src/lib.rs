@@ -17,4 +17,4 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Empty stub for the planned TUN/TAP integration harness.
+//! Stub crate for a TUN/TAP integration harness.

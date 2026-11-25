@@ -17,28 +17,17 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! `embassy-net` driver that uses a Linux `AF_PACKET`/`SOCK_RAW` socket bound
-//! to an existing network interface. It lets a host-side embassy-net stack
-//! send and receive raw Ethernet frames on a real NIC, the way the firmware
-//! talks to its on-chip MAC.
+//! `embassy-net` driver over a Linux `AF_PACKET`/`SOCK_RAW` socket bound
+//! to an existing interface, so a host-side stack sends and receives raw
+//! Ethernet frames on a real NIC.
 //!
-//! The shape mirrors `embassy-net-tuntap`: open an fd, query MTU, wrap in
-//! `async_io::Async`, and implement `embassy_net_driver::Driver`. The
-//! difference is that the link-layer is provided by the host kernel
-//! instead of a synthetic TAP. Two modes are exposed: `new` reports the
-//! interface's real MAC (read via `SIOCGIFHWADDR`); `with_synthetic_mac`
-//! takes a caller-supplied MAC and puts the NIC in promiscuous mode so
-//! frames addressed to that synthetic MAC actually reach the driver.
-//!
-//! Caveat: the kernel keeps processing ingress frames on the same
-//! interface in parallel with this driver. Point it at a NIC where the
-//! kernel has no IPv4 configured (e.g. `ip addr flush dev …`) or use a
-//! veth pair if you need to coexist with the host stack on the same wire.
+//! The host kernel keeps processing ingress frames on that interface in
+//! parallel with this driver, so point it at a NIC with no IPv4
+//! configured, or at one end of a veth pair.
 
 #![warn(missing_docs)]
-// FFI glue: every `as` cast below is intentional and bounded by the
-// kernel ABI. Listing the lints once at module scope keeps the call
-// sites readable.
+// libc FFI: every `as` cast below is bounded by the kernel ABI.
+// Module-scope allow keeps the call sites readable.
 #![allow(
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
@@ -54,15 +43,13 @@ use async_io::Async;
 use embassy_net_driver::{Capabilities, Driver, HardwareAddress, LinkState};
 use log::info;
 
-/// Length of an Ethernet header. smoltcp counts L2 in its MTU, so this gets
-/// added to the IP MTU returned by `SIOCGIFMTU` before being reported as
-/// `Capabilities::max_transmission_unit`.
+/// smoltcp counts L2 in its MTU, so this is added to the IP MTU that
+/// `SIOCGIFMTU` returns.
 const ETHERNET_HEADER_LEN: usize = 14;
 
-/// Generic interface request structure used by the SIOC* ioctls. The C union
-/// in `<net/if.h>` has multiple members; here it is represented as a
-/// 24-byte buffer that is large enough to hold any of the variants we use
-/// (`ifr_ifindex`, `ifr_mtu`, `ifr_hwaddr`).
+/// The C union in `<net/if.h>` is a 24-byte buffer here, which holds any
+/// of the `ifr_ifindex`, `ifr_mtu` and `ifr_hwaddr` variants this crate
+/// uses.
 #[repr(C)]
 struct Ifreq {
     name: [libc::c_char; libc::IF_NAMESIZE],
@@ -88,16 +75,10 @@ impl Ifreq {
     }
 }
 
-/// Run one `ioctl` against `fd` and turn its `-1` into an `io::Error`.
-///
-/// The only place this crate calls the raw `libc` entry point, so every
-/// interface query goes through the same errno capture. `request` is
-/// both the input and the output: the kernel writes its answer back into
-/// the same struct.
-///
-/// The receiver would be the file descriptor, which is a bare
-/// `libc::c_int` that `std` declares, so no inherent `impl` here can
-/// take it.
+/// `request` is both the input and the output: the kernel writes its
+/// answer back into the same struct. A free function rather than a
+/// method, because the receiver would be the file descriptor, a bare
+/// `libc::c_int` that `std` declares.
 fn ioctl(fd: libc::c_int, command: libc::c_ulong, request: &mut Ifreq) -> io::Result<()> {
     let result = unsafe { libc::ioctl(fd, command as _, std::ptr::from_mut(request)) };
     if result == -1 {
@@ -123,9 +104,8 @@ impl AsRawFd for AfPacket {
 }
 
 impl AfPacket {
-    /// Open a non-blocking `AF_PACKET`/`SOCK_RAW` socket and bind it to the
-    /// named interface, reporting the interface's real MAC. Requires
-    /// `CAP_NET_RAW` (run as root or set the capability on the binary).
+    /// Open a non-blocking raw socket bound to `name`, reporting that
+    /// interface's real MAC. Requires `CAP_NET_RAW`.
     ///
     /// # Errors
     ///
@@ -135,10 +115,9 @@ impl AfPacket {
         Self::open(name, None)
     }
 
-    /// Like [`Self::new`], but reports the supplied `hwaddr` to the embassy
-    /// stack instead of the kernel's interface MAC. The NIC is put in
-    /// promiscuous mode for the lifetime of the socket so frames addressed
-    /// to the synthetic MAC actually reach this driver.
+    /// Like [`Self::new`], but reports `hwaddr` to the embassy stack
+    /// instead of the kernel's interface MAC, and puts the NIC in
+    /// promiscuous mode for the lifetime of the socket.
     ///
     /// # Errors
     ///
@@ -176,8 +155,7 @@ impl AfPacket {
     ) -> io::Result<(usize, [u8; 6])> {
         let mut index_request = Ifreq::new(name)?;
         ioctl(fd, libc::SIOCGIFINDEX, &mut index_request)?;
-        // SAFETY: SIOCGIFINDEX writes an `int` into the first 4 bytes of
-        // the union, which is exactly what we read back here.
+        // SIOCGIFINDEX writes an `int` into the first 4 bytes of the union.
         let ifindex = i32::from_ne_bytes(
             index_request.data[..4]
                 .try_into()
@@ -204,9 +182,8 @@ impl AfPacket {
         } else {
             let mut hw_request = Ifreq::new(name)?;
             ioctl(fd, libc::SIOCGIFHWADDR, &mut hw_request)?;
-            // SIOCGIFHWADDR fills the union with `struct sockaddr`.
-            // Layout is `u16 sa_family` followed by 14 bytes of
-            // `sa_data`; the MAC sits in the first 6 bytes of `sa_data`.
+            // SIOCGIFHWADDR fills the union with a `struct sockaddr`, so
+            // the MAC starts two bytes in, past `sa_family`.
             let mut addr = [0u8; 6];
             addr.copy_from_slice(&hw_request.data[2..8]);
             addr
@@ -232,10 +209,6 @@ impl AfPacket {
             return Err(io::Error::last_os_error());
         }
 
-        // A synthetic MAC needs the NIC in promiscuous mode; otherwise
-        // hardware filtering drops frames addressed to it. The kernel
-        // reference-counts membership and restores the previous state when
-        // the socket is closed.
         if override_hwaddr.is_some() {
             enable_promisc(fd, ifindex)?;
         }
@@ -244,19 +217,10 @@ impl AfPacket {
     }
 }
 
-/// Add the socket to the interface's promiscuous multicast membership.
-///
-/// The board this stands in for owns its interface outright, and its
-/// stack answers for a MAC the host kernel does not have. Without
-/// promiscuous mode the NIC drops every frame addressed to that MAC
-/// before the socket sees it, so the stack would come up and then hear
-/// nothing.
-///
-/// Membership is refcounted by the kernel and dropped with the socket,
-/// so this does not have to be undone.
-///
-/// The receiver would be the file descriptor, a bare `libc::c_int` that
-/// `std` declares, so no inherent `impl` here can take it.
+/// The stack answers for a MAC the host kernel does not have, and the NIC
+/// drops every frame addressed to it before the socket sees it unless the
+/// interface is promiscuous. The kernel refcounts the membership and drops
+/// it with the socket, so this never has to be undone.
 fn enable_promisc(fd: libc::c_int, ifindex: libc::c_int) -> io::Result<()> {
     let request = libc::packet_mreq {
         mr_ifindex: ifindex,
@@ -321,16 +285,15 @@ impl Write for AfPacket {
     }
 }
 
-/// Async wrapper around an `AfPacket` socket. Implements
-/// `embassy_net_driver::Driver` so it can plug into `embassy_net::new`
-/// like any other link-layer driver.
+/// Async wrapper around an [`AfPacket`] socket, which is what
+/// `embassy_net::new` takes.
 pub struct AfPacketDevice {
     device: Async<AfPacket>,
 }
 
 impl AfPacketDevice {
-    /// Open the underlying raw socket and prepare it for async use. The
-    /// embassy stack will see the interface's real MAC.
+    /// Opens the raw socket for async use, with the embassy stack seeing
+    /// the interface's real MAC.
     ///
     /// # Errors
     ///
@@ -343,8 +306,7 @@ impl AfPacketDevice {
     }
 
     /// Like [`Self::new`], but uses the supplied locally-administered MAC
-    /// instead of the kernel's interface MAC, and enables promiscuous mode
-    /// on the NIC so frames addressed to the synthetic MAC are delivered.
+    /// and enables promiscuous mode on the NIC.
     ///
     /// # Errors
     ///
@@ -412,7 +374,6 @@ impl Driver for AfPacketDevice {
     }
 }
 
-/// Receive-side token holding one frame read from the raw socket.
 #[doc(hidden)]
 pub struct RxToken {
     buffer: Vec<u8>,
@@ -427,8 +388,6 @@ impl embassy_net_driver::RxToken for RxToken {
     }
 }
 
-/// Transmit-side token. Borrows the underlying socket and writes the frame
-/// produced by smoltcp once the callback fills the buffer.
 #[doc(hidden)]
 pub struct TxToken<'a> {
     device: &'a mut Async<AfPacket>,

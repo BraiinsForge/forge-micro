@@ -17,12 +17,9 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! CPU-side mock of an ASIC, talking to `stratum-client` through
-//! `AsicSession`.
+//! CPU-side mock of an ASIC, driving `AsicSession` in place of a chain.
 //!
-//! Polls the work cell, hashes a chunk of nonces, pushes solutions
-//! back. Used as the host-runner fallback when no BM1362 hashboard is
-//! available.
+//! The fallback the runner spawns when no hashboard is wired.
 
 use embassy_futures::yield_now;
 use stratum_client::{AsicSession, Solution};
@@ -35,19 +32,16 @@ use header::build_header;
 mod tests;
 
 mod hash {
-    //! SHA-256d primitive and hash-vs-target comparison.
-
     use sha2::{Digest, Sha256};
 
-    /// Compute `sha256(sha256(input))`.
     #[must_use]
     pub fn sha256d(input: &[u8]) -> [u8; 32] {
         let first = Sha256::digest(input);
         Sha256::digest(first).into()
     }
 
-    /// Return `true` when `hash` (256-bit little-endian) is less than
-    /// or equal to `target`. Exact byte-by-byte compare from MSB down.
+    /// Both values are 256-bit little-endian, so the compare walks down
+    /// from the last byte and returns on the first difference.
     #[must_use]
     pub fn hash_meets_target(hash: &[u8; 32], target: &[u8; 32]) -> bool {
         for index in (0..32).rev() {
@@ -63,20 +57,14 @@ mod hash {
 }
 
 mod header {
-    //! 80-byte Bitcoin block-header builder.
-    //!
-    //! All inputs come from a `WorkAssignment` already in canonical
-    //! byte order — the V1 prev-hash word swap and any other protocol
-    //! quirks landed at the adapter boundary, so this is a memcpy
-    //! sequence with no per-protocol branches.
+    //! A `WorkAssignment` arrives in canonical byte order, with the V1
+    //! prev-hash word swap already done at the adapter boundary, so the
+    //! header is a memcpy sequence with no per-protocol branch.
 
     use stratum_client::WorkAssignment;
 
-    /// Block-header byte length.
     pub const HEADER_BYTES: usize = 80;
 
-    /// Materialise the 80-byte block header for `work` with `nonce`
-    /// stamped at byte offset 76.
     #[must_use]
     pub fn build_header(work: &WorkAssignment, nonce: u32) -> [u8; HEADER_BYTES] {
         let mut header = [0u8; HEADER_BYTES];
@@ -90,33 +78,20 @@ mod header {
     }
 }
 
-/// Number of nonces hashed before the loop yields and re-checks
-/// for a fresh `WorkAssignment`. Sized so a Cortex-M0+ takes
-/// roughly tens of milliseconds per chunk — enough to amortise the
-/// poll overhead, short enough that work changes propagate
-/// promptly. 256 happens to match what `stratum-client` settled on.
+/// Nonces hashed before the loop yields and re-checks for fresh work.
+/// Long enough to amortise the poll, short enough that a work change
+/// propagates promptly.
 pub const HASHES_PER_CHUNK: u32 = 256;
 
-/// Run the CPU-mock ASIC forever.
-///
-/// The function never returns: it awaits initial work, scans
-/// nonces in chunks, restarts whenever the `Watch` reports a new
-/// `WorkAssignment`, and submits solutions through the
-/// `AsicSession::solutions` channel.
-///
 /// # Panics
 ///
-/// Panics if the `AsicSession`'s work `Watch` has no free
-/// receiver slot. With the default `AsicSession::new()` and a
-/// single CPU mock that won't happen; misuse from the firmware
-/// (e.g. multiple consumers on the same `AsicSession`) is the only
-/// way to trigger it.
+/// Panics when the work `Watch` has no free receiver slot, which only
+/// happens if a second consumer was attached to the same `AsicSession`.
 pub async fn run_asic_cpu(asic: &'static AsicSession) -> ! {
     let mut receiver = asic
         .work_receiver(0)
         .expect("BUG: AsicSession Watch must have a free receiver slot");
 
-    // Block until the host publishes the first WorkAssignment.
     let mut current = receiver.changed().await;
     let mut nonce: u32 = 0;
 
@@ -141,7 +116,7 @@ pub async fn run_asic_cpu(asic: &'static AsicSession) -> ! {
             }
             nonce = nonce.wrapping_add(1);
             if nonce == 0 {
-                // Wrapped — done with this work, wait for new.
+                // The nonce space is exhausted for this work.
                 current = receiver.changed().await;
                 break;
             }

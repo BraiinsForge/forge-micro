@@ -19,9 +19,8 @@
 
 //! Linux gpiocdev backend for `ubos_mining::reset::ResetPin`.
 //!
-//! Resolves the line by name (matching upstream's gpiocdev convention)
-//! so the deployment host's gpiochip + offset don't need to be
-//! hardcoded.
+//! The line is resolved by name, so the deployment host's gpiochip and
+//! offset do not have to be hardcoded.
 
 use std::io;
 

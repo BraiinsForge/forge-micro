@@ -71,14 +71,11 @@ mod temperature;
 
 use hosted_network::HostDevice;
 
-// Seventeen sockets are held continuously: DHCPv4, DNS, the stratum
-// client, the mDNS responder, 8 HTTP listener sockets on :80, and 5
-// metrics listener sockets on :8081. NTP opens a transient UDP socket,
-// and closed TCP connections linger in TIME_WAIT until smoltcp reaps
-// them. 24 provides headroom for concurrent connections and TIME_WAIT,
-// matching the firmware boards. This crate calls `assert_stack_sockets!`
-// nowhere, so nothing checks the value against the pools below; it is
-// held level with the boards by hand.
+// Seventeen sockets are held continuously: DHCPv4, DNS, stratum, mDNS,
+// 8 HTTP listeners and 5 metrics listeners, and the rest is headroom for
+// the transient NTP socket and for TIME_WAIT. This crate calls
+// `assert_stack_sockets!` nowhere, so nothing checks the value against
+// the pools below and it is held level with the boards by hand.
 const SOCKET_COUNT: usize = 24;
 const BOARD_NAME: &str = "host-runner";
 
@@ -95,23 +92,19 @@ pub const BOUNDS: ubos_config::MiningBounds = BOARD.bounds(
 pub const MINING_INFO: ubos_config::MiningInfo =
     BOARD.mining_info(&BOUNDS, ubos_config::DefaultTuning::Fixed);
 
-/// Concurrent TCP connections the HTTP server (:80) accepts. It serves
-/// the web UI and the REST API behind one router, and matches the depth
-/// the RP2350 boards run.
+/// Matches the HTTP connection depth the boards run.
 const HTTP_POOL: usize = 8;
-/// Concurrent TCP connections the Prometheus metrics server (:8081)
-/// accepts. Matches the metrics pool the RP2350 boards run so a scrape
-/// fan-in is served concurrently.
+/// Matches the metrics pool the boards run, so a scrape fan-in is served
+/// concurrently.
 const METRICS_HTTP_POOL: usize = 5;
 
-/// Exposition sizing for the host runner. A host has the RAM, so it
-/// takes the larger of the two shapes the boards use and never drops a
-/// series the firmware would have kept.
+/// Exposition sizing for the host runner. A host has the RAM, so it takes
+/// the larger of the two shapes the boards use and never drops a series
+/// the firmware would have kept.
 const MAX_METRICS: usize = 128;
 const METRICS_RESPONSE_BYTES: usize = MAX_METRICS * ubos_metrics::metrics::METRIC_LINE_BYTES;
 
-/// The web UI and the REST API behind one prefix, which is what the one
-/// pool below serves.
+/// The web UI and the REST API behind one prefix.
 type HttpService = ubos_http::PrefixRouter<ubos_api::RestApiService, ubos_webui::DashboardService>;
 
 /// The exposition handler, sized to the statics it serves.
@@ -130,16 +123,12 @@ static RESOURCES: StaticCell<StackResources<SOCKET_COUNT>> = StaticCell::new();
 /// no one requests it.
 static PARK: ubos_mining::Park = ubos_mining::Park::new();
 
-/// Heap-allocated secp256k1 context for the SV2 noise handshake.
-/// The host has no SRAM ceiling, so the firmware's preallocated
-/// `AllPreallocated` buffer is replaced with the standard
-/// allocating context.
+/// The host has no SRAM ceiling, so the SV2 noise handshake takes the
+/// standard allocating secp256k1 context rather than the firmware's
+/// preallocated one.
 static SECP_CTX: StaticCell<ii_sv2::security::CryptoCtx<ii_sv2::security::secp256k1::All>> =
     StaticCell::new();
 
-/// Adapter from `rand`'s `OsRng` onto the `ii_sv2::security::Rng`
-/// trait the V2 noise handshake takes. Wraps the upstream `RngCore`
-/// implementation without holding any state of its own.
 struct HostSv2Rng(OsRng);
 
 impl ii_sv2::security::Rng for HostSv2Rng {
@@ -148,17 +137,12 @@ impl ii_sv2::security::Rng for HostSv2Rng {
     }
 }
 
-/// Shared work / solution rendezvous between the stratum-client
-/// task and whichever ASIC driver is active (ubos-mining BM1362 actor or
-/// in-process CPU mock). Deliberately single-slot (`AsicSession<1>` via
-/// the default): the host runner exercises one protocol session at a
-/// time, so it has no use for the firmware's per-pool slots.
+/// Single-slot by default, because the runner exercises one protocol
+/// session at a time and has no use for the firmware's per-pool slots.
 pub static ASIC_SESSION: AsicSession = AsicSession::new();
 
-/// TCP transport source for one pool entry. Owns the stack handle and
-/// host/port, borrows the task's static socket buffers; rebuilt per
-/// config-snapshot iteration alongside the protocol client. Mirrors
-/// the connector in `ubos-firmware/src/stratum.rs`.
+/// TCP transport for one pool entry. It borrows the task's static socket
+/// buffers, so it is rebuilt per config snapshot alongside the client.
 struct TcpConnector<'a> {
     stack: Stack<'static>,
     host: &'a str,
@@ -187,8 +171,6 @@ impl PoolConnector for TcpConnector<'_> {
     }
 }
 
-/// Log a session failure, preserving the distinct connect-failed and
-/// session-error lines the pre-connector code emitted.
 fn log_session_error(error: &SessionError<net::StratumConnectError>) {
     match error {
         SessionError::Connect(error) => warn!("stratum-client: connect failed: {error:?}"),
@@ -264,7 +246,6 @@ async fn serve_http_task(
     }
 }
 
-/// Keeps the credential store in sync with config changes at runtime.
 #[embassy_executor::task]
 async fn sync_credentials_task(config_handle: ubos_config::Handle) -> ! {
     ubos_api::run_sync_credentials(config_handle).await
@@ -315,19 +296,13 @@ async fn config_task(mut config_runner: ubos_config::Runner, storage: FileStorag
     .await
 }
 
-/// CPU-side ASIC mock; spawned when no BM1362 hashboard is wired.
-/// Consumes work from `ASIC_SESSION` and pushes solutions back.
 #[embassy_executor::task]
 async fn asic_cpu_task() -> ! {
     cpu_mock::run_asic_cpu(&ASIC_SESSION).await
 }
 
-/// Stratum client task. Reads the current pool config on each loop
-/// iteration, opens a TCP connection, and runs either the SV1 or SV2
-/// trait-based mining loop against `ASIC_SESSION`. Reconnects with
-/// `RECONNECT_DELAY` between attempts. Mirrors the firmware shape so
-/// the SV1/SV2 switch and the DNS path stay identical across host and
-/// bare-metal.
+/// Mirrors the firmware session loop, so the SV1/SV2 switch and the DNS
+/// path stay identical across host and board.
 #[embassy_executor::task]
 #[allow(clippy::too_many_lines)]
 async fn stratum_client_task(stack: Stack<'static>, config_handle: ubos_config::Handle) -> ! {
@@ -338,8 +313,8 @@ async fn stratum_client_task(stack: Stack<'static>, config_handle: ubos_config::
     let rx_buffer = TCP_RX.take();
     let tx_buffer = TCP_TX.take();
 
-    // SV2 secp context — initialised once even if the first pool entry
-    // is Sv1, so a runtime protocol switch needs no late allocation.
+    // Initialised even when the first pool entry is Sv1, so a runtime
+    // protocol switch needs no late allocation.
     let secp_ctx = SECP_CTX.init(ii_sv2::security::CryptoCtx::new());
 
     let mut config_generation = config_handle.subscribe_generation();
@@ -348,10 +323,9 @@ async fn stratum_client_task(stack: Stack<'static>, config_handle: ubos_config::
     let pool = ASIC_SESSION.pool_handle(0);
 
     loop {
-        // Teardown boundary, mirroring the firmware session loop: never
-        // leave a previous session's job in the work cell while no
+        // Never leave a previous session's job in the work cell while no
         // session backs it, and drop the alive bit that a config-change
-        // cancellation of `run_stratum_client` never cleared.
+        // cancellation never cleared.
         pool.clear_work();
         pool.set_alive(false);
 
@@ -418,9 +392,8 @@ async fn stratum_client_task(stack: Stack<'static>, config_handle: ubos_config::
                 }
             };
 
-            // Same backoff split as the firmware session loop: a pool
-            // rejection does not fix itself, so retry it on the longer
-            // cadence instead of the transport one.
+            // A pool rejection does not fix itself, so it retries on the
+            // longer cadence instead of the transport one.
             let delay = match &result {
                 Err(error) => {
                     log_session_error(error);
@@ -466,8 +439,6 @@ async fn pool_weights_task(config_handle: ubos_config::Handle) -> ! {
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    // Every handle is taken here, once, and each task gets the ones it
-    // writes through and reads.
     let (mining_runner, mining_handle) = ubos_mining::Handle::take();
     let (thermal_runner, thermal_handle) = ubos_thermal::Handle::take();
     let (cooling_runner, cooling_handle) = ubos_cooling::Handle::take();
@@ -476,13 +447,10 @@ fn main() {
     let (config_runner, config_handle) = ubos_config::Handle::take();
     let stratum_handle = stratum_client::PoolCountersHandle::take();
 
-    // SIGINT signals `ubos_mining::Handle::stop` so the BM1362 driver tears the
-    // chip down cleanly (when the ubos-mining path is active), then exits
-    // the process unconditionally. Without the explicit `exit`,
-    // the embassy executor would keep running the network /
-    // stratum / CPU-mock tasks indefinitely — none of them watch
-    // `ubos_mining::Handle::stop`. The teardown vs. exit is racy on purpose;
-    // this is a developer tool, not a production controller.
+    // Only the miner watches `ubos_mining::Handle::stop`, so without the
+    // explicit exit the executor would keep running the network, stratum
+    // and CPU-mock tasks forever. The teardown and the exit race on
+    // purpose: this is a developer tool, not a production controller.
     ctrlc::set_handler(move || {
         info!("host-runner: SIGINT received, signalling miner stop");
         mining_handle.stop();
@@ -526,17 +494,14 @@ fn main() {
                 .map_or_else(|| std::path::PathBuf::from(".ubos-config"), Into::into),
         );
         spawner.spawn(config_task(config_runner, config_storage).expect("BUG: config_task token"));
-        // Spawned unconditionally because the manager drains its
-        // command channel independent of any hardware: the HTTP server
-        // below issues `manager.assert/clear` for the pause/resume
-        // endpoints regardless of fan or LM75A presence, so the
-        // channel must always have a consumer.
+        // The pause and resume endpoints send the manager a message
+        // whatever the fan and sensor presence, so the command channel
+        // must always have a consumer.
         spawner.spawn(
             manager_task(manager_runner, mining_handle)
                 .expect("BUG: manager_task token"),
         );
-        // Seed the session CSPRNG before the HTTP server task can handle
-        // any request, matching the firmware boards' boot-time ordering.
+        // Seeded before the HTTP server task can handle any request.
         let mut csprng_seed = [0u8; 32];
         OsRng.fill_bytes(&mut csprng_seed);
         ubos_auth::csprng::seed_csprng(csprng_seed);
@@ -548,7 +513,7 @@ fn main() {
         // async, so `block_on` drives the infallible bind to match the
         // firmware's boot-time ordering. This block and the metrics one
         // below hand-expand `serve_http_pool!`, which assumes an async
-        // context; keep them in sync if that macro changes.
+        // context, so keep all three in step.
         static HTTP_TCP_BUFFERS: ConstStaticCell<
             edge_nal_embassy::TcpBuffers<
                 HTTP_POOL,
@@ -604,7 +569,6 @@ fn main() {
                 .expect("BUG: network_control_task token"),
         );
 
-        // Prometheus metrics on :8081.
         static METRICS_TCP_BUFFERS: ConstStaticCell<
             edge_nal_embassy::TcpBuffers<
                 METRICS_HTTP_POOL,

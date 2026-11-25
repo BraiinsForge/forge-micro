@@ -17,15 +17,9 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Unit tests for the CPU-mock ASIC primitives.
-
 use super::*;
 use stratum_client::WorkAssignment;
 
-/// Hash one nonce and report whether it meets the target.
-///
-/// Lets tests cover the inner loop without spinning the asynchronous
-/// machinery.
 #[must_use]
 fn nonce_meets_target(work: &WorkAssignment, nonce: u32) -> bool {
     let header = build_header(work, nonce);
@@ -48,7 +42,6 @@ fn fixture(target: [u8; 32]) -> WorkAssignment {
 
 #[test]
 fn hash_meets_max_target_for_any_nonce() {
-    // `target = 0xFF..FF` is the most permissive — every hash wins.
     let work = fixture([0xFFu8; 32]);
     assert!(nonce_meets_target(&work, 0));
     assert!(nonce_meets_target(&work, 0x1234_5678));
@@ -56,7 +49,6 @@ fn hash_meets_max_target_for_any_nonce() {
 
 #[test]
 fn hash_misses_zero_target() {
-    // Zero target is unreachable.
     let work = fixture([0u8; 32]);
     assert!(!nonce_meets_target(&work, 0));
     assert!(!nonce_meets_target(&work, 1));
