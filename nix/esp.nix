@@ -102,11 +102,11 @@ rec {
   # espressif/crosstool-NG release.
   xtensaEspToolchain = pkgs.stdenv.mkDerivation {
     pname = "xtensa-esp-elf";
-    version = "15.2.0_20250920";
+    version = "16.2.0_20261109";
 
     src = pkgs.fetchurl {
-      url = "https://github.com/espressif/crosstool-NG/releases/download/esp-15.2.0_20250920/xtensa-esp-elf-15.2.0_20250920-x86_64-linux-gnu.tar.xz";
-      hash = "sha256-49d60UVEgUUnu+ei0PeexFkqTiM5LFHHOIwOaGtqaXc=";
+      url = "https://github.com/espressif/crosstool-NG/releases/download/esp-16.2.0_20261109/xtensa-esp-elf-16.2.0_20261109-x86_64-linux-gnu.tar.xz";
+      hash = "sha256-CFCY0C1Wx7LIlCzLPJNLYQrbV6pbaH4/wfxOJrjy/kA=";
     };
 
     nativeBuildInputs = [ pkgs.autoPatchelfHook ];
