@@ -33,7 +33,9 @@ pub trait HashboardEeprom {
     async fn read(&mut self, buf: &mut [u8]) -> Result<(), Self::Error>;
 
     /// Read the whole EEPROM once, log the identity it carries, and
-    /// return the parsed serial number.
+    /// return the parsed serial number. A board calls it before it
+    /// powers anything, so the identity is in the log even if bring-up
+    /// later fails.
     ///
     /// A read or parse failure only warns: descriptors stay compile-time
     /// per `docs/MACHINE.md`, so the EEPROM is a traceability and
