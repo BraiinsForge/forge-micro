@@ -242,10 +242,13 @@ whichever slot runs it, so a query reads the same on every board.
 | `pool_work_shares{hashboard,pool}` | difficulty-1 chip shares, by the slot that got the work |
 | `pool_submits{pool,type="accepted"}` | submits the pool accepted |
 | `pool_submits{pool,type="rejected"}` | submits the pool rejected |
+| `pool_shares{pool,type="accepted"}` | work of the submits the pool accepted |
+| `pool_shares{pool,type="rejected"}` | work of the submits the pool rejected |
+| `pool_difficulty{pool}` | difficulty of the target the pool sent |
 | `pool_reconnects{pool}` | connection attempts after the first |
 
 The first series is the one the scheduler feeds back, so it is the
-split the board delivered. The other three are the pool's view of the
+split the board delivered. The others are the pool's view of the
 same work.
 
 The share each pool gets of the work, as a fraction, over the board's

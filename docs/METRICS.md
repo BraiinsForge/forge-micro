@@ -368,17 +368,30 @@ A board runs one stratum session for each configured pool slot. Every
 series here carries the slot in a label, `pool="0"`, `pool="1"`, and
 more.
 
-The session of a slot pushes three counters. It pushes them at each
+The session of a slot pushes six series. It pushes them at each
 reconnect attempt, after each pool message that moved a counter, and
 every 2 s while the slot has a pool, through connect and backoff too.
 A slot that has never had a pool in the config has no session, so it
-has none of these three series. A slot whose pool is removed keeps
-pushing its last counts every 2 s.
+has none of these six series. A slot whose pool is removed keeps
+pushing its last counts every 2 s, and its difficulty as `0`.
 
 - `pool_submits{pool=...,type="accepted"}` — submits that the pool
   accepted.
 - `pool_submits{pool=...,type="rejected"}` — submits that the pool
   rejected.
+- `pool_shares{pool=...,type="accepted"}` — the sum of the work of the
+  accepted submits, in the unit below.
+- `pool_shares{pool=...,type="rejected"}` — the sum of the work of the
+  rejected submits, in the unit below. A Stratum V2 pool names no work in
+  its error, so the sum counts the difficulty of the channel target when
+  the error arrives.
+- `pool_difficulty{pool=...}` — difficulty of the target that the pool
+  last sent. It is a whole-number approximation of that target: `0` below
+  difficulty 1 and when the target is too hard for it. The Stratum V2 log
+  shows the same figure, and the Stratum V1 log shows the figure that the
+  pool sent. A target change pushes it at once. The series shows `0`
+  until the first target, and again from the end of each session until
+  the first target of the next session.
 - `pool_reconnects{pool=...}` — reconnect attempts.
 
 The miner metrics task pushes one more series, and no stratum session
