@@ -272,7 +272,8 @@ fn main() -> ! {
 
 /// Read the EEPROMs and return the machine descriptor composed of the
 /// boards they specify, and the MAC address of the control board when its
-/// EEPROM holds a valid one.
+/// EEPROM holds a valid one. Publishes the brand and device names that
+/// the control-board EEPROM holds.
 async fn read_machine(
     bus: &'static i2c::Bus,
 ) -> Option<(
@@ -317,9 +318,16 @@ async fn read_machine(
     });
     // TODO: the LED ring shows the brand color of the control-board data.
     let (control_board, control_board_eeprom) = control_board?;
+    let (hashboard, psu) = (hashboard?, psu?);
+    if let Some(brand) = control_board_eeprom.and_then(|eeprom| eeprom.brand_name) {
+        publish_name(brand, ubos_api::publish_brand_name);
+    }
+    if let Some(device) = control_board_eeprom.and_then(|eeprom| eeprom.device_name) {
+        publish_name(device, ubos_api::publish_product_name);
+    }
     let mac = control_board_eeprom.and_then(|eeprom| parse_mac(eeprom.mac_address));
     Some((
-        MachineDescriptor::forge_axe(control_board, hashboard?, psu?),
+        MachineDescriptor::forge_axe(control_board, hashboard, psu),
         mac,
     ))
 }
@@ -336,6 +344,13 @@ fn parse_mac(mac_address: [u8; 6]) -> Option<EthernetAddress> {
         return None;
     }
     Some(mac)
+}
+
+/// Publish `name` with `publish`.
+fn publish_name(name: &str, publish: fn(ubos_api::HwString)) {
+    let name = &name[..name.floor_char_boundary(ubos_api::HW_STRING_LEN)];
+    // The cut above makes the name fit, so the conversion cannot fail.
+    publish(unwrap!(ubos_api::HwString::try_from(name)));
 }
 
 #[embassy_executor::task]
