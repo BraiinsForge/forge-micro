@@ -121,11 +121,8 @@ ubos_net::ntp_sync_task!();
 
 ubos_api::ota_watchdog_task!();
 
-const MDNS_SERVICES: &[&ubos_mdns::ServiceEntry] = &[
-    &ubos_webui::WEBUI_SERVICE,
-    &ubos_api::REST_API_SERVICE,
-    &ubos_metrics::PROMETHEUS_SERVICE,
-];
+const MDNS_SERVICES: &[&ubos_mdns::ServiceEntry] =
+    ubos_firmware::mdns_services![&ubos_webui::WEBUI_SERVICE, &ubos_api::REST_API_SERVICE];
 
 #[embassy_executor::task]
 async fn mdns_task(stack: embassy_net::Stack<'static>, hostname: &'static str) -> ! {
@@ -304,7 +301,7 @@ async fn boot(spawner: Spawner) {
 
     // Before every pusher, for the reason `ubos_metrics::metrics::run_ingest`
     // gives.
-    spawner.spawn(unwrap!(metrics_ingest_task()));
+    ubos_firmware::spawn_metrics_ingest!(spawner);
 
     spawner.spawn(unwrap!(watchdog_task(ubos_rp::BoardWatchdog::new(
         Watchdog::new(hw.watchdog),
