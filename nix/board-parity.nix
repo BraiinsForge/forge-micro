@@ -71,6 +71,12 @@ let
   # the two halves cannot come to disagree on what a comment is.
   commentLine = "^[[:space:]]*//";
 
+  # The cargo feature that keeps the metrics store in a board image, and
+  # the one line that may define it in a board manifest: the forward to
+  # the feature ubos-firmware selects its listener macros by.
+  metricsFeature = "metrics";
+  metricsForward = [ "ubos-firmware/metrics" ];
+
   # The board crates of one tree: every directory under its `firmware/`
   # less `exclude`. Both gates below take their boards from here rather
   # than from a list written out, because an explicit list is what lets
@@ -201,6 +207,43 @@ in
           exit 1
         fi
         echo "board-skeleton-parity: ${toString (builtins.length boards)} boards checked"
+        touch $out
+      ''
+    );
+
+  # Every board keeps the metrics store by default. A board manifest
+  # that lost the feature, or dropped it from its defaults, builds an
+  # image with no store and no scrape endpoint, and every other check
+  # passes on that image. `exclude` names the crates that are no board,
+  # and a board that has to ship without the store.
+  boardMetricsFeature =
+    {
+      root,
+      exclude ? [ ],
+    }:
+    let
+      features =
+        board:
+        (builtins.fromTOML (builtins.readFile (root + "/firmware/${board}/Cargo.toml"))).features or { };
+      keepsStore =
+        board:
+        builtins.elem metricsFeature ((features board).default or [ ])
+        && ((features board).${metricsFeature} or [ ]) == metricsForward;
+      failing = lib.filter (board: !keepsStore board) (boardsOf root exclude);
+      report = board: ''
+        echo "ERROR: firmware/${board}/Cargo.toml does not keep the metrics store by default." >&2
+        echo "       Its [features] section must hold these two lines:" >&2
+        echo '         default = [..., "${metricsFeature}"]' >&2
+        echo '         ${metricsFeature} = ${builtins.toJSON metricsForward}' >&2
+        echo "       A board without them has no scrape endpoint, and no other check fails." >&2
+      '';
+    in
+    pkgs.runCommand "board-metrics-feature" { } (
+      lib.concatMapStrings report failing
+      + lib.optionalString (failing != [ ]) ''
+        exit 1
+      ''
+      + ''
         touch $out
       ''
     );

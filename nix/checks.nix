@@ -847,6 +847,21 @@ hostClippyChecks
     };
   };
 
+  # Every board keeps the metrics store by default; see
+  # `boardMetricsFeature` in nix/board-parity.nix. The bootloader crates
+  # push no metric and have no feature to hold. The rp2040 ships without
+  # the store, because with it the stack left in RAM is smaller than the
+  # stack the board uses at boot, and the overflow faults the board.
+  board-metrics-feature = boardParity.boardMetricsFeature {
+    inherit root;
+    exclude = [
+      "esp32s3-bootloader"
+      "rp2040"
+      "rp2040-bootloader"
+      "rp2350-bootloader"
+    ];
+  };
+
   # The ESP bootloader is the one crate with no cargo config, because it
   # builds through the esp shell's own configuration rather than a runner
   # of its own.
