@@ -46,5 +46,8 @@ pub mod cpu_load;
 mod freshness;
 pub mod hashrate;
 pub mod metrics;
+mod name;
 mod store;
 pub mod value;
+
+pub use name::{Name, Unit};

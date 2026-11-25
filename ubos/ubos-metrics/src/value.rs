@@ -156,3 +156,29 @@ value_from_unit!(
     FanRpm,
     Ratio,
 );
+
+/// A number with no unit, such as a counter.
+///
+/// A push site wraps its integer in it, so the site states that the
+/// number counts something.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Count(pub u64);
+
+/// A condition that holds or does not.
+///
+/// A push site wraps its `bool` in it, so the site states that the
+/// series reads 1 or 0.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Flag(pub bool);
+
+impl From<Count> for Value {
+    fn from(count: Count) -> Self {
+        Self::Count(count.0)
+    }
+}
+
+impl From<Flag> for Value {
+    fn from(flag: Flag) -> Self {
+        Self::Flag(flag.0)
+    }
+}
