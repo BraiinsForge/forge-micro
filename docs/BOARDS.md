@@ -158,6 +158,23 @@ states, so their rows hold in both states.
 | rp2350    | 567 / 2048 KiB | ~406 / 512 KiB (79%, est.) | comfortable; ~106 KiB free     |
 | esp32s3   | 826 / 8192 KiB | 284 / 320 KiB DRAM (89%) | tight; ~36 KiB DRAM free. Holds 64 series, because the 128-series map and its buffer leave less than the 24 KiB boot stack floor |
 
+The metrics store costs the RAM below. Each number is the difference
+between two release builds of one tree, with the `metrics` feature on
+and off, measured on 2026-11-24 for the esp32s3 and on 2026-11-26 for
+the rp2040. RAM is the sum of `.data`, `.bss` and
+`.uninit`, or `.noinit` on the esp32s3. Flash is the sum of `.text` and
+`.rodata`. The number holds the map, the render buffer, the channel,
+the listener sockets and the task futures of the listener pool.
+[METRICS.md](METRICS.md) describes the feature.
+
+| Board   | Series | RAM with the store | RAM without | Store RAM | Store flash |
+|---------|--------|--------------------|-------------|-----------|-------------|
+| esp32s3 | 64     | 292.2 KiB          | 256.9 KiB   | 35.3 KiB  | 13.2 KiB    |
+| rp2040  | 64     | 240.6 KiB          | 213.9 KiB   | 26.7 KiB  | 9.1 KiB     |
+
+Reproduce the column without the store with the build command of
+[METRICS.md](METRICS.md) and the size command of that board.
+
 Reproduce the esp32s3 numbers with the commands below. The workspace
 puts its build output at the root, so the size tool is pointed there and
 not at the crate directory. DRAM sums `.data`, `.bss` and `.noinit`, the
