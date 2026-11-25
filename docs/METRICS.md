@@ -25,19 +25,49 @@ map and the response buffer. `serve_all!` sizes it from the
 `config.rs`. The `run_ingest` task is the only writer of the map. It
 drains the channel and upserts by name and label set. On each TCP
 connection, the exposition service reads the map. It
-renders the full map and a fixed set of derived metrics (uptime,
-request count, NTP sync state) in Prometheus exposition format 0.0.4.
+renders every series that has not expired and a fixed set of derived
+metrics (uptime, request count, NTP sync state) in Prometheus
+exposition format 0.0.4.
 
-Every push is one sample of one value, and it carries the time of the
-push. A sample says nothing about the value between two pushes, so no
-series holds a value and no series is a state. Each publisher therefore
-pushes on a ticker. A push on a change is one more sample, not a
-replacement for the ticker.
+Every push of a measured series is one sample of one value, and it
+carries the time of the push. A sample says nothing about the value
+between two pushes, so a measured series holds no value and is no
+state. Each publisher of a measured series therefore pushes on a
+ticker. A push on a change is one more sample, not a replacement for
+the ticker. A constant series is the exception, see "Expiry".
 
 The stored time is monotonic milliseconds since boot. The exposition
 adds the NTP epoch offset at scrape time and renders an absolute
-Unix-epoch timestamp. If NTP has not synced, the exposition omits the
-timestamp and Prometheus stamps the sample at scrape time.
+Unix-epoch timestamp. The exposition omits the timestamp of a constant
+series, and of every series while NTP has not synced. Prometheus then
+stamps the sample at scrape time.
+
+### Expiry
+
+A series leaves the exposition when its publisher stops pushing it. The
+render hides a series when the age of its sample is more than its TTL.
+The age is the monotonic time now minus the time of the sample. The map
+keeps the entry until a push finds the map full. That push removes every
+expired entry first. The expiry does not depend on NTP, so it works
+before the first sync.
+
+A measured series has a TTL. A series without its own TTL uses
+`Metrics::DEFAULT_TTL`, which is 180 seconds. This is three times the
+slowest push interval of 60 seconds, so two lost samples in a row do
+not remove a series. A publisher with its own rate calls
+`Metric::ttl` with its push interval times `Metrics::TTL_INTERVALS`.
+`Metric::ttl` rounds up to whole seconds.
+
+A constant series never expires and has no timestamp. Prometheus stamps
+it at scrape time. Call `Metric::constant` to make one, and push it
+with `push`, so the channel never drops it. The last call of `ttl` and
+`constant` wins.
+
+Prometheus does not mark a sample stale when it has an explicit
+timestamp and then disappears. The series stays visible until five
+minutes after its last timestamp. A TTL below five minutes does not
+shorten this. The TTL matters for a series before the first NTP sync,
+for a reader that is not Prometheus, and for the size of the exposition.
 
 Every response, including 404 and 405, carries
 `Access-Control-Allow-Origin: *` so the dashboard on port 80 can read
@@ -136,9 +166,9 @@ fifth is the temperature the cooling PID follows, under "Cooling PID".
   measured no chip temperature and one that published no reading at
   all. The gauge is pushed on every tick whose read returns a value.
   If the channel is full, the push drops that sample. A tick whose
-  sensor answers nothing leaves the last written value in place. It
-  carries no label, because a board reports one ambient reading or
-  none.
+  sensor answers nothing writes nothing, so the gauge leaves the
+  exposition when its TTL passes. It carries no label, because a board
+  reports one ambient reading or none.
 - `board_temperature_celsius` is every reading that a sensor takes.
   `ubos_thermal::array::SensorArray` pushes the readings of its sensors
   on every tick, and `ubos_thermal::ChainTemperature` pushes the reading
@@ -157,13 +187,13 @@ What the ambient reading is and is not for is stated once, on
 `ubos_thermal::run_thermal` still reads it. See "Two ways out of an
 overheat halt" in `docs/MINING.md`.
 
-No gauge marks a held value. A gauge keeps what was last written to it,
-so a consumer that must tell a held value from a fresh one reads
-`/api/system/temperature` instead, which reports `null` for a kind the
-last sample did not read. The ambient gauge can
-also run ahead of the watch: a tick that publishes no reading still
-writes the gauge, so the two carry different ambient values until the
-next tick that publishes.
+No gauge marks a held value. A gauge keeps what was last written to it
+until its TTL passes, so a consumer that must tell a held value from a
+fresh one reads `/api/system/temperature` instead, which reports `null`
+for a kind the last sample did not read. The ambient gauge can also run
+ahead of the watch: a tick that publishes no reading still writes the
+gauge, so the two carry different ambient values until the next tick
+that publishes.
 
 ### Reading series
 
@@ -224,8 +254,9 @@ cooling loop:
   the other three read 0.
 
 If the fan mode is fixed, or a failsafe holds the fan at full, the PID
-does not run. Then every `board_pid_source` series reads 0, and both
-`board_pid_temperature_celsius` series keep the last written value.
+does not run. Then every `board_pid_source` series reads 0, and the PID
+pushes no `board_pid_temperature_celsius` series, so both leave the
+exposition when their TTL passes.
 
 ## Per-pool series
 
