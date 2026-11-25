@@ -805,6 +805,7 @@ fn dispatch_response<V: MiningClientVisitor>(
                 SubmitResult::Rejected {
                     error_code,
                     error_message,
+                    work: pool_difficulty,
                 }
             };
             visitor.visit_submit_result(result);

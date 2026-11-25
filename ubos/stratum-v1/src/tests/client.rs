@@ -78,6 +78,8 @@ fn configure_request_uses_bip310_parameters() {
 struct RecordingVisitor {
     new_jobs: u32,
     submit_results: u32,
+    accepted_work: Vec<u64>,
+    rejected_work: Vec<u64>,
     session_updates: u32,
     last_target: Option<[u8; 32]>,
     last_version_mask: Option<u32>,
@@ -93,8 +95,12 @@ impl MiningClientVisitor for RecordingVisitor {
         self.last_job_version = Some(job.version);
         self.last_extranonce_2_size = Some(job.extranonce_2_size);
     }
-    fn visit_submit_result(&mut self, _result: SubmitResult<'_>) {
+    fn visit_submit_result(&mut self, result: SubmitResult<'_>) {
         self.submit_results += 1;
+        match result {
+            SubmitResult::Accepted { work, .. } => self.accepted_work.push(work),
+            SubmitResult::Rejected { work, .. } => self.rejected_work.push(work),
+        }
     }
     fn visit_session_update(&mut self, update: SessionUpdate<'_>) {
         self.session_updates += 1;
@@ -371,6 +377,58 @@ async fn submit_encodes_mining_submit_with_wire_job_id() {
     );
     assert!(bytes.contains("\"aabbccdd\""), "extranonce_2 hex: {bytes}");
     assert!(bytes.contains("\"deadbeef\""), "nonce hex: {bytes}");
+}
+
+/// Queue one submit at pool difficulty 1024, flush it, and answer it
+/// with `reply`, which is built from the submit id.
+async fn answer_submit(reply: fn(u32) -> std::string::String) -> RecordingVisitor {
+    let config = test_config();
+    let mut client = StratumV1Client::new(&config);
+    let _ = pump_one(
+        &mut client,
+        br#"{"id":null,"method":"mining.set_difficulty","params":[1024]}"#,
+    )
+    .await;
+    let subscribe_id = client.register_pending(PendingRequestKind::Subscribe);
+    let subscribe_payload = std::format!(
+        r#"{{"id":{subscribe_id},"result":[[["mining.notify","abc"]],"deadbeef",4],"error":null}}"#,
+    );
+    let _ = pump_one(&mut client, subscribe_payload.as_bytes()).await;
+    let _ = pump_one(&mut client, build_notify_line(false).as_bytes()).await;
+
+    let share = Share {
+        id: JobId(0),
+        nonce: 1,
+        ntime: 1,
+        version_bits: 0,
+        extranonce_2: &[0, 0, 0, 0],
+    };
+    client.submit(&share).expect("submit queues");
+    let (a, _b) = tokio::io::duplex(4096);
+    let mut a_io = FromTokio::new(a);
+    assert_eq!(
+        client.drive(&mut a_io).await,
+        Ok(DriveEvent::OutboundFlushed)
+    );
+    pump_one(&mut client, reply(subscribe_id + 1).as_bytes()).await
+}
+
+#[tokio::test]
+async fn accepted_submit_carries_the_pool_difficulty_as_work() {
+    let visitor =
+        answer_submit(|id| std::format!(r#"{{"id":{id},"result":true,"error":null}}"#)).await;
+    assert_eq!(visitor.accepted_work, [1024]);
+    assert!(visitor.rejected_work.is_empty());
+}
+
+#[tokio::test]
+async fn rejected_submit_carries_the_pool_difficulty_as_work() {
+    let visitor = answer_submit(|id| {
+        std::format!(r#"{{"id":{id},"result":null,"error":[23,"Low difficulty share",null]}}"#)
+    })
+    .await;
+    assert_eq!(visitor.rejected_work, [1024]);
+    assert!(visitor.accepted_work.is_empty());
 }
 
 #[tokio::test]

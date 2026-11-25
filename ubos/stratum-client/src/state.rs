@@ -196,10 +196,11 @@ impl MiningClientVisitor for StratumState {
             SubmitResult::Rejected {
                 error_code,
                 error_message,
+                work,
             } => {
                 warn!(
-                    "stratum-client: pool {} share rejected code={:?} message={:?}",
-                    self.slot, error_code, error_message,
+                    "stratum-client: pool {} share rejected code={:?} message={:?} work={}",
+                    self.slot, error_code, error_message, work,
                 );
                 if let Some(metrics) = crate::metrics::for_slot(self.slot) {
                     metrics.record_share_rejected();

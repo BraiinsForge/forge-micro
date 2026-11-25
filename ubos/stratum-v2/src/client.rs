@@ -681,7 +681,10 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
                 handle_submit_success(&success, visitor);
             }
             MiningMessages::SubmitSharesError(error) => {
-                handle_submit_error(&error, visitor);
+                let work = mining_protocol::difficulty::Target::from_le_array(session.target)
+                    .difficulty()
+                    .unwrap_or(0);
+                handle_submit_error(&error, work, visitor);
             }
             // Client-side echoes; the pool never sends these to
             // a miner. Silently drop.
@@ -716,8 +719,14 @@ fn handle_submit_success<V: MiningClientVisitor>(success: &SubmitSharesSuccess, 
 /// `SubmitSharesError` carries a string code per the SV2 spec, such
 /// as `stale-share` or `invalid-job-id`. It surfaces as
 /// `error_message`; `error_code` stays `None` because the trait's
-/// numeric code is a V1 concept with no V2 counterpart.
-fn handle_submit_error<V: MiningClientVisitor>(error: &SubmitSharesError<'_>, visitor: &mut V) {
+/// numeric code is a V1 concept with no V2 counterpart. The rejected
+/// `work` is the difficulty of the channel target, because the error
+/// names only the sequence number.
+fn handle_submit_error<V: MiningClientVisitor>(
+    error: &SubmitSharesError<'_>,
+    work: u64,
+    visitor: &mut V,
+) {
     let code_bytes = error.error_code.as_bytes();
     warn!(
         "stratum-v2: submit-shares-error channel={} seq={} code={}",
@@ -729,6 +738,7 @@ fn handle_submit_error<V: MiningClientVisitor>(error: &SubmitSharesError<'_>, vi
     visitor.visit_submit_result(SubmitResult::Rejected {
         error_code: None,
         error_message,
+        work,
     });
 }
 

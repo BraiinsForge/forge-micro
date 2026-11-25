@@ -147,8 +147,14 @@ pub enum RecordedUpdate {
 /// Recorded `SubmitResult` for assertion in tests.
 #[derive(Debug, Clone)]
 pub enum RecordedSubmitResult {
-    Accepted { count: u32, work: u64 },
-    Rejected { error_message: Option<String> },
+    Accepted {
+        count: u32,
+        work: u64,
+    },
+    Rejected {
+        error_message: Option<String>,
+        work: u64,
+    },
 }
 
 /// Recorded `MiningJob` as an owned copy of the borrowed fields.
@@ -182,8 +188,13 @@ impl MiningClientVisitor for RecordingVisitor {
             SubmitResult::Accepted { count, work } => {
                 RecordedSubmitResult::Accepted { count, work }
             }
-            SubmitResult::Rejected { error_message, .. } => RecordedSubmitResult::Rejected {
+            SubmitResult::Rejected {
+                error_message,
+                work,
+                ..
+            } => RecordedSubmitResult::Rejected {
                 error_message: error_message.map(str::to_owned),
+                work,
             },
         };
         self.submit_results.push(recorded);

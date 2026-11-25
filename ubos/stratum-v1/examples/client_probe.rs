@@ -79,8 +79,11 @@ impl MiningClientVisitor for PrintVisitor {
             SubmitResult::Rejected {
                 error_code,
                 error_message,
+                work,
             } => {
-                println!("[submit-result] rejected code={error_code:?} message={error_message:?}");
+                println!(
+                    "[submit-result] rejected code={error_code:?} message={error_message:?} work={work}"
+                );
             }
         }
     }

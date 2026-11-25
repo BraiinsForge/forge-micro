@@ -66,7 +66,10 @@ pub enum SessionUpdate<'a> {
 /// reports both a count and a pool-credited share-weight sum.
 /// `count` is `1` per V1 response and whatever the V2 pool
 /// acknowledged; `work` is in diff-1-share units — the pool difficulty
-/// at submit time for V1, SV2's `new_shares_sum` for V2.
+/// at submit time for V1, SV2's `new_shares_sum` for V2. V1 fills `0`
+/// when `Target::difficulty` has no number for the target. A rejected
+/// V2 submit carries the difficulty of the channel target when the
+/// error arrives, because the error names only the sequence number.
 #[derive(Debug, Clone, Copy)]
 pub enum SubmitResult<'a> {
     Accepted {
@@ -76,5 +79,6 @@ pub enum SubmitResult<'a> {
     Rejected {
         error_code: Option<u32>,
         error_message: Option<&'a str>,
+        work: u64,
     },
 }

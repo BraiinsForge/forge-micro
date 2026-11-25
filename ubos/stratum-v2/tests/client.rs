@@ -924,7 +924,14 @@ async fn submit_shares_error_fires_rejected_result() {
         "SubmitSharesError must fire exactly one submit_result callback",
     );
     match &visitor.submit_results[0] {
-        RecordedSubmitResult::Rejected { error_message } => {
+        RecordedSubmitResult::Rejected {
+            error_message,
+            work,
+        } => {
+            assert_eq!(
+                *work, 0,
+                "FAKE_TARGET is below difficulty 1, so the rejected submit counts no work",
+            );
             assert_eq!(
                 error_message.as_deref(),
                 Some(SubmitSharesError::STALE_SHARE),
