@@ -3,6 +3,10 @@ resolver = "3"
 members = ["crypto", "framing", "messages", "security", "types", "ii-sv2"]
 
 [workspace.dependencies]
+# secp256k1 is held at 0.31. Release 0.33 takes the context out of every
+# signing and verifying call and keeps one global context in its place,
+# so the move rewrites each call in crypto and security and is a change
+# of its own, which UBOS-312 tracks.
 secp256k1        = { version = "0.31",   default-features = false }
 sha2             = { version = "0.11",   default-features = false }
 hkdf             = { version = "0.13",   default-features = false }
