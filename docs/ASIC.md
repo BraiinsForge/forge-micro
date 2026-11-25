@@ -63,6 +63,10 @@ over a `Transport` (`write_all` / `flush` / `read` / `set_baud` /
   one turn per 480 ms of polling, and the miner asks for the sweep right after
   `configure` so the thermal loop has a reading before the ramp. Both
   default to no-ops for a family whose chips carry no sensors.
+  A driver that reads a die temperature also hands it to
+  `ubos_thermal::Handle::submit_chip` when the chip answers, and thermal
+  writes the series of that chip from it. A driver that leaves the call
+  out writes no chip series.
   On a board whose chips are its only thermometer,
   `ubos_thermal::ChainTemperature` is the `TemperatureSensor` over those
   stores, one per chain. It reports the hottest and the mean die

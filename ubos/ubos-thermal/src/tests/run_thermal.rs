@@ -154,6 +154,16 @@ fn settle<F: Future>(thermal: &mut Pin<&mut F>) {
     }
 }
 
+/// Poll `thermal` far enough to take a backlog of twice the depth of the
+/// input channel. The loop yields after each input, so an input costs a
+/// poll, and one that waited on the full channel costs a second.
+fn settle_backlog<F: Future>(thermal: &mut Pin<&mut F>) {
+    let mut cx = Context::from_waker(Waker::noop());
+    for _ in 0..4 * super::INPUT_DEPTH {
+        let _ = thermal.as_mut().poll(&mut cx);
+    }
+}
+
 /// Poll `thermal` to its first park, with no clock advance.
 ///
 /// `run_thermal`'s setup — reading the config, building the `Ticker` —
@@ -452,6 +462,7 @@ rusty_fork_test! {
         prime(&mut thermal);
         prime(&mut manager_task);
         tick(driver, &mut thermal, &mut manager_task);
+        settle_backlog(&mut thermal);
         assert!(DONE.load(portable_atomic::Ordering::SeqCst));
         assert!(
             super::INPUT.try_receive().is_err(),
@@ -602,5 +613,95 @@ rusty_fork_test! {
         assert_eq!(thermal_handle.ambient(), None);
         tick(driver, &mut thermal, &mut manager_task);
         assert_eq!(thermal_handle.ambient(), Some(Temperature::from_celsius(25)));
+    }
+}
+
+rusty_fork_test! {
+    #[test]
+    fn a_chip_that_a_driver_submits_is_taken_while_the_loop_waits() {
+        let _clock = clock();
+        let driver = MockDriver::get();
+        driver.reset();
+        let (mut manager_runner, manager) = ManagerHandle::take();
+        let (_mining_runner, mining) = ubos_mining::Handle::take();
+        let (mut thermal_runner, thermal_handle) = crate::Handle::take();
+        let (mut config_runner, config) = ubos_config::Handle::take();
+        let store = StoreDir::new();
+        let mut config_task = pin!(run_config(&store, &mut config_runner));
+        settle(&mut config_task);
+        let mut manager_task = pin!(run_manager(&mut manager_runner, mining));
+        // The script is empty, so a tick that fired would panic.
+        let mut thermal = pin!(run_thermal(
+            ScriptedSensor::new([]),
+            NoAmbient,
+            NoMcu,
+            &mut thermal_runner,
+            manager,
+            config
+        ));
+        prime(&mut thermal);
+        prime(&mut manager_task);
+        // A driver submits more chips than the channel holds and never
+        // waits: the ones past the depth are dropped.
+        let chain = ubos_core::index::HashboardIndex(0);
+        let chip = ubos_core::index::ChipAddress::One(0);
+        for _ in 0..2 * super::INPUT_DEPTH {
+            thermal_handle.submit_chip(chain, chip, Temperature::from_celsius(70));
+        }
+        assert!(super::INPUT.is_full());
+        settle_backlog(&mut thermal);
+        assert!(
+            super::INPUT.try_receive().is_err(),
+            "the loop takes the chips between two ticks"
+        );
+    }
+}
+
+/// An ambient sensor that never answers, so the loop stays in its read.
+struct SilentAir;
+
+impl AmbientSensor for SilentAir {
+    async fn ambient(&mut self) -> Option<Temperature> {
+        core::future::pending().await
+    }
+}
+
+rusty_fork_test! {
+    #[test]
+    fn a_chip_that_a_driver_submits_is_taken_while_the_ambient_sensor_reads() {
+        let _clock = clock();
+        let driver = MockDriver::get();
+        driver.reset();
+        let (mut manager_runner, manager) = ManagerHandle::take();
+        let (_mining_runner, mining) = ubos_mining::Handle::take();
+        let (mut thermal_runner, thermal_handle) = crate::Handle::take();
+        let (mut config_runner, config) = ubos_config::Handle::take();
+        let store = StoreDir::new();
+        let mut config_task = pin!(run_config(&store, &mut config_runner));
+        settle(&mut config_task);
+        let mut manager_task = pin!(run_manager(&mut manager_runner, mining));
+        let mut thermal = pin!(run_thermal(
+            ScriptedSensor::new([Reading::Idle]),
+            SilentAir,
+            NoMcu,
+            &mut thermal_runner,
+            manager,
+            config
+        ));
+        prime(&mut thermal);
+        prime(&mut manager_task);
+        // The tick ends its sample and parks in the ambient read.
+        tick(driver, &mut thermal, &mut manager_task);
+        let chain = ubos_core::index::HashboardIndex(0);
+        let chip = ubos_core::index::ChipAddress::One(0);
+        for _ in 0..2 * super::INPUT_DEPTH {
+            thermal_handle.submit_chip(chain, chip, Temperature::from_celsius(70));
+        }
+        assert!(super::INPUT.is_full());
+        settle_backlog(&mut thermal);
+        assert!(
+            super::INPUT.try_receive().is_err(),
+            "the loop takes the chips while the ambient sensor reads"
+        );
     }
 }

@@ -35,8 +35,9 @@
 //! on an unpowered board is no fault is under "Chain presence" in
 //! `docs/MINING.md`.
 //!
-//! A source hands each reading to the task through [`Handle::submit`].
-//! The task writes the series of that reading in `metrics`, filters the
+//! A source hands each reading to the task through [`Handle::submit`],
+//! and the driver of a chain hands over the die of a chip through
+//! [`Handle::submit_chip`] when the chip answers. The task writes the series of that reading in `metrics`, filters the
 //! readings by kind, and publishes the filtered temperatures once on each
 //! tick. The API reads them through [`Handle::filtered`] and
 //! [`Handle::ambient`]. Cooling subscribes to the one temperature that
@@ -128,12 +129,14 @@ use crate::threshold::{Action, evaluate};
 use core::convert::Infallible;
 
 use embassy_futures::select::{Either, select};
+use embassy_futures::yield_now;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::watch::Receiver;
 use embassy_time::{Duration, Instant, Ticker};
 use ubos_config::Handle as ConfigHandle;
 use ubos_config::{PidTarget, ThermalConfig};
+use ubos_core::index::{ChipAddress, HashboardIndex};
 use ubos_core::units::Temperature;
 use ubos_logging::{error, info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage, PauseReason, PauseReasons};
@@ -297,10 +300,11 @@ const WATCH_CAPACITY: usize = 4;
 /// Records that the firmware took the thermal handle.
 static TAKEN: ubos_core::take_once::TakeOnce = ubos_core::take_once::TakeOnce::new("thermal");
 
-/// Depth of the input channel. A source awaits when it is full, and
-/// [`run_thermal`] drains it while the source runs, so the depth only
-/// bounds how far a source runs ahead of the loop.
-const INPUT_DEPTH: usize = 16;
+/// Depth of the input channel. [`run_thermal`] drains it at every await
+/// of its loop, so the depth holds what the drivers submit between two
+/// polls of the thermal task. A chip that finds it full is dropped, see
+/// [`Handle::submit_chip`].
+const INPUT_DEPTH: usize = 64;
 
 /// What a source hands to thermal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -308,10 +312,10 @@ enum Submitted {
     /// The reading of one sensor. It gets a series of its own and goes
     /// into the filter of its kind.
     Reading(TempReading),
-    /// The reading of one chip of a chain, handed in when the chip
-    /// answers. It gets a series of its own, and the filter takes the
-    /// dies of the chain from [`Submitted::Dies`].
-    Series(TempReading),
+    /// The die of one chip of a chain, handed in by the driver when the
+    /// chip answers. It gets a series of its own, and the filter takes
+    /// the dies of the chain from [`Submitted::Dies`].
+    Chip(TempReading),
     /// The hottest and the mean die of the chains of one tick. It goes
     /// into the chip filter, because a chip answers once in a pass and
     /// the filter needs the dies of every tick.
@@ -392,10 +396,14 @@ impl Handle {
         INPUT.send(Submitted::Reading(reading)).await;
     }
 
-    /// Hand the new reading of one chip of a chain to thermal, for its
-    /// series. Waits while the input channel is full.
-    pub(crate) async fn submit_series(&self, reading: TempReading) {
-        INPUT.send(Submitted::Series(reading)).await;
+    /// Hand the die temperature that `chip` of `chain` just reported to
+    /// thermal, which writes its series. The driver of the chain calls
+    /// this from its serial actor, so it returns at once: a reading that
+    /// finds the input channel full is dropped, and the chip submits
+    /// again on its next turn.
+    pub fn submit_chip(&self, chain: HashboardIndex, chip: ChipAddress, value: Temperature) {
+        let source = TempSource::chip(chain, chip);
+        let _ = INPUT.try_send(Submitted::Chip(TempReading { source, value }));
     }
 
     /// Hand the hottest and the mean die of the chains of this tick to
@@ -574,11 +582,30 @@ impl Thermal {
 }
 
 /// Take everything that a source submits as input of the tick at
-/// `tick`, and never return. A source awaits on a full channel, so this
-/// runs beside the source and not after it.
+/// `tick`, and never return. A sensor awaits on a full channel and a
+/// driver submits a chip at any moment, so this runs beside every await
+/// of the loop, through [`draining`]. It yields after each input, so
+/// the ingest task drains the metrics channel while a backlog of chips is
+/// written.
 async fn drain_input(temperatures: &mut Temperatures, tick: Instant) -> Infallible {
     loop {
         take_submitted(INPUT.receive().await, temperatures, tick);
+        yield_now().await;
+    }
+}
+
+/// Await `work` and answer what it gives, taking the input of the tick
+/// at `tick` for as long as it runs. A chain driver submits its chips
+/// faster than the channel is deep while the loop waits on a sensor or on
+/// the manager, so every await of the loop goes through here.
+async fn draining<T>(
+    work: impl Future<Output = T>,
+    temperatures: &mut Temperatures,
+    tick: Instant,
+) -> T {
+    match select(work, drain_input(temperatures, tick)).await {
+        Either::First(output) => output,
+        Either::Second(never) => match never {},
     }
 }
 
@@ -587,7 +614,7 @@ async fn drain_input(temperatures: &mut Temperatures, tick: Instant) -> Infallib
 fn take_submitted(submitted: Submitted, temperatures: &mut Temperatures, tick: Instant) {
     match submitted {
         Submitted::Reading(reading) => take(reading, temperatures, tick),
-        Submitted::Series(reading) => publish_reading(reading),
+        Submitted::Chip(reading) => publish_reading(reading),
         Submitted::Dies(dies) => temperatures.update_dies(dies, tick),
     }
 }
@@ -612,7 +639,7 @@ async fn read_ambient<A: AmbientSensor>(
     temperatures: &mut Temperatures,
     tick: Instant,
 ) {
-    if let Some(value) = ambient.ambient().await {
+    if let Some(value) = draining(ambient.ambient(), temperatures, tick).await {
         take(
             TempReading {
                 source: TempSource::Ambient,
@@ -669,7 +696,7 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatu
     info!("thermal: started");
 
     loop {
-        ticker.next().await;
+        draining(ticker.next(), &mut temperatures, prev_tick).await;
         if let Some(updated) = config_subscription.try_changed() {
             let new_thermal = updated.thermal;
             if new_thermal.sample_interval_ms != config.sample_interval_ms {
@@ -693,14 +720,16 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatu
         }
         prev_tick = now;
 
-        // The sensor submits readings while it samples, so they are
-        // drained in step with it, and what it left behind afterwards.
-        let reading = match select(sensor.sample(), drain_input(&mut temperatures, now)).await {
-            Either::First(reading) => reading,
-            Either::Second(never) => match never {},
-        };
-        while let Ok(submitted) = INPUT.try_receive() {
+        let reading = draining(sensor.sample(), &mut temperatures, now).await;
+        // The sample left its last readings queued, and this tick publishes
+        // them. The count is taken once, so chips that keep arriving wait
+        // for the drain of the next await and the judgement starts on time.
+        for _ in 0..INPUT.len() {
+            let Ok(submitted) = INPUT.try_receive() else {
+                break;
+            };
             take_submitted(submitted, &mut temperatures, now);
+            yield_now().await;
         }
         // The readings carry the time of this tick, so the filters are
         // read at that time and hold every reading of this tick, however
@@ -709,7 +738,7 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatu
         temperatures.publish_pid(now, pid_target, &WATCHES);
         let step = thermal.judge(reading, &config, manager_handle.pause_reasons());
         for note in [step.unreadable, step.dangerous].into_iter().flatten() {
-            note.report(manager_handle).await;
+            draining(note.report(manager_handle), &mut temperatures, now).await;
         }
         read_ambient(&mut ambient, &mut temperatures, now).await;
         temperatures.publish_ambient(now, &WATCHES);
@@ -717,7 +746,7 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatu
         // out. The gauge is dropped on a full metrics channel, because this
         // safety loop must not wait on the metrics, and the next tick
         // replaces it.
-        if let Some(temp) = mcu.read().await {
+        if let Some(temp) = draining(mcu.read(), &mut temperatures, now).await {
             metric!("mcu_temperature_celsius", temp).try_push();
         }
     }

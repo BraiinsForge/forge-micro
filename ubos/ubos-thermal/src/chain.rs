@@ -49,23 +49,22 @@
 //! cost is that one chip falling silent while its neighbours answer
 //! leaves its last reading standing in the chain's summary.
 //!
-//! The series of a chip moves when the chip answers: each new reading is
-//! submitted once, on the sample after it arrived. The filter of thermal
-//! takes the hottest and the mean die of the chains on every sample
-//! instead, because a chip that answers once in a pass would leave its
-//! window between two turns.
+//! The series of a chip is the driver's to move: it hands each die to
+//! thermal when the chip answers. This sensor hands the filter of thermal
+//! the hottest and the mean die of the chains on every sample, because a
+//! chip that answers once in a pass would leave its window between two
+//! turns.
 
 use crate::{Accumulator, Handle, Reading, TempSample, TemperatureSensor};
-use embassy_futures::{poll_once, yield_now};
+use embassy_futures::poll_once;
 use embassy_time::{Duration, Instant, Ticker};
 use ubos_asic::ChainPvt;
-use ubos_core::index::{ChipAddress, HashboardIndex};
+use ubos_core::index::HashboardIndex;
 use ubos_core::units::Voltage;
 use ubos_logging::{debug, warn};
 use ubos_metrics::catalog::HASHBOARD_LABEL;
 use ubos_metrics::chain::ChainStatsHandle;
 use ubos_metrics::metric;
-use ubos_temperature::{Reading as TempReading, TempSource};
 
 #[cfg(test)]
 #[path = "tests/chain.rs"]
@@ -104,8 +103,8 @@ pub struct ChainTemperature<const CHIPS: usize, const CHAINS: usize> {
     /// `CHAINS`, so [`Self::new`] asserts it holds enough slots to index
     /// by chain.
     stats: ChainStatsHandle,
-    /// Where the new reading of each chip and the dies of every sample
-    /// are submitted, so thermal writes the series and filters the dies.
+    /// Where the dies of every sample are submitted, so thermal filters
+    /// them.
     thermal: Handle,
     /// Where silence is measured from until something answers, so a
     /// chain that takes its time enumerating does not arrive already
@@ -194,7 +193,7 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
     /// gauge and its summary as one log line. A summary carries the
     /// spread rather than an average, because the chips sit in series and
     /// the string can hold its total while sharing it badly.
-    async fn report(&mut self) {
+    fn report(&mut self) {
         // Polled rather than awaited: `sample` must not block, and the
         // tick is not lost when the future is dropped.
         if poll_once(self.report_ticker.next()).is_pending() {
@@ -209,7 +208,7 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
             // An absent chain has nothing to report and never will, so it
             // is passed over rather than warned about every interval.
             if self.stats.chain(chain).presence().is_present() {
-                self.report_chain(chain).await;
+                self.report_chain(chain);
             }
         }
     }
@@ -227,13 +226,8 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
         Some(voltage.total)
     }
 
-    /// One present chain's voltage gauge, die temperatures and log lines.
-    ///
-    /// It yields after each chip's reading and again after the summary, so
-    /// the ingest task drains the metrics channel while the report runs.
-    /// The series of one chain can outnumber the slots of the channel, and
-    /// a report pushed in one burst would lose the same tail every time.
-    async fn report_chain(&mut self, chain: HashboardIndex) {
+    /// One present chain's voltage gauge and log lines.
+    fn report_chain(&mut self, chain: HashboardIndex) {
         let slot = chain.slot();
         let answered = self.pvt[slot].last_answer();
         if answered == self.reported_answer[slot] {
@@ -244,22 +238,11 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
             return;
         }
         self.reported_answer[slot] = answered;
-        for chip in ChipAddress::range(CHIPS) {
-            let Some(value) = self.pvt[slot].temperature(chip) else {
-                continue;
-            };
-            let source = TempSource::chip(chain, chip);
-            self.thermal
-                .submit_series(TempReading { source, value })
-                .await;
-            yield_now().await;
-        }
         if let Some(temperature) = self.pvt[slot].temperature_summary() {
             debug!(
                 "chain {} pvt: {} chips report {} to {} °C, mean {} °C",
                 chain, temperature.chips, temperature.lowest, temperature.highest, temperature.mean
             );
-            yield_now().await;
         }
         let Some(voltage) = self.pvt[slot].voltage_summary() else {
             warn!("chain {} pvt: no chip has reported a voltage", chain);
@@ -281,7 +264,7 @@ impl<const CHIPS: usize, const CHAINS: usize> TemperatureSensor
     for ChainTemperature<CHIPS, CHAINS>
 {
     async fn sample(&mut self) -> Reading {
-        self.report().await;
+        self.report();
         let now = Instant::now();
         let mut chips: Option<Accumulator> = None;
         let mut any_present = false;
@@ -336,9 +319,9 @@ impl<const CHIPS: usize, const CHAINS: usize> TemperatureSensor
         let Some(dies) = chips.map(Accumulator::stats) else {
             return Reading::Unreadable;
         };
-        // A stalled chain stops every chain handing over its dies, so the
-        // filter of thermal empties and the readings of a sibling cannot
-        // stand in for the dies that nothing reads.
+        // A stalled chain stops the dies of every chain, so the filter of
+        // thermal empties and the readings of a sibling cannot stand in
+        // for the dies that nothing reads.
         self.thermal.submit_dies(dies).await;
         // The chips are the board's thermometer, so they both gate the
         // halt and drive the fans; the reading comes from the die itself,

@@ -20,6 +20,7 @@
 use super::*;
 use crate::{TempSample, TempStats, clock, measured};
 use portable_atomic::AtomicU8;
+use ubos_core::index::ChipAddress;
 use ubos_core::units::{Temperature, Voltage};
 use ubos_metrics::chain::ChainPresence;
 use ubos_metrics::chain::ChainStats;
@@ -369,8 +370,8 @@ fn a_sample_submits_the_dies_of_the_chains() {
             mean: Temperature::from_millicelsius(mean),
         })
     };
-    // The report has not come due, so a sample hands over the dies and
-    // nothing else.
+    // The chips are the driver's to submit, so a sample hands over the
+    // dies and nothing else.
     assert_eq!(submitted(), std::vec![dies(55_000, 47_500)]);
     pvt[0].record(
         ChipAddress::One(2),
