@@ -50,7 +50,6 @@ fn datasheet_example() {
     );
 }
 
-/// The valid maximum converts; above it and zero read 0.
 #[test]
 fn count_past_the_valid_maximum_reads_stopped() {
     assert_eq!(
@@ -88,8 +87,8 @@ fn range_multipliers() {
     }
 }
 
-/// Fan Configuration 1 resets to 2Bh: UDT 011, EDG 01, the power-on
-/// range and ENAG off. Setting a range changes RNG only.
+// Fan Configuration 1 resets to 2Bh: UDT 011, EDG 01, the power-on
+// range and ENAG off. Setting a range changes RNG only.
 #[test]
 fn range_in_fan_configuration_1() {
     let power_on = FanConfig1::from_bits(0x2B);

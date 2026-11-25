@@ -96,9 +96,6 @@ fn pid_freeze_dampens_integral() {
 use super::pid::{TempControl, exponential_smoother, half_time_decay};
 use ubos_core::units::{FanPwm, Temperature};
 
-/// Match the BOS decay reference: lambda for a 30 s
-/// half-decay is ~0.9772, and the smoother crosses 0.5 between
-/// `decay_time - 1` and `decay_time + 1`.
 #[test]
 fn smoother_half_decay_matches_bos() {
     const EPS: f64 = 0.001;
@@ -108,10 +105,6 @@ fn smoother_half_decay_matches_bos() {
     assert!(exponential_smoother(1.0, 0.0, 30.0, 31.0) < 0.5);
 }
 
-/// Match the BOS iterate reference: stepping the smoother
-/// in small increments matches a single step over the same total
-/// duration. Proves the per-step path used by `PidController::update`
-/// is consistent with the algebraic one-shot form.
 #[test]
 fn smoother_iterative_matches_one_shot() {
     const EPS: f64 = 0.005;
@@ -130,7 +123,6 @@ fn smoother_iterative_matches_one_shot() {
     assert!((iterative - one_shot).abs() < EPS);
 }
 
-/// A reading of `celsius` whole degrees.
 fn degrees(celsius: i32) -> Temperature {
     Temperature::from_millicelsius(celsius * 1000)
 }

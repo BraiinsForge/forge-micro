@@ -21,18 +21,11 @@
 
 use super::{Duration, MIN_STALE_TIMEOUT, STALE_INTERVAL_MULTIPLIER, stale_timeout};
 
-/// `thermal.sample_interval_ms` is validated over `100..=60_000`; the
-/// fastest configured rate scales to well below [`MIN_STALE_TIMEOUT`],
-/// so the floor applies.
 #[test]
 fn floor_applies_at_min_sample_interval() {
     assert_eq!(stale_timeout(100), MIN_STALE_TIMEOUT);
 }
 
-/// A sample interval large enough that the scaled value clears the floor
-/// yields exactly `sample_interval * STALE_INTERVAL_MULTIPLIER`, both at
-/// an ordinary interval and at the slowest interval
-/// `thermal.sample_interval_ms` validation permits.
 #[test]
 fn scales_by_multiplier_above_the_floor() {
     // Pin the multiplier and the resulting timeouts to concrete literals.

@@ -91,42 +91,27 @@ use crate::pid::TempControl;
 
 type CSMutex = CriticalSectionRawMutex;
 
-/// Board-supplied fan PWM sink. Boards translate the [`FanPwm`] duty
-/// cycle to whatever counter top their PWM peripheral uses.
-///
-/// `set_pwm` is async for the reason [`TachReader::read_rpms`] is: a board
-/// whose fan controller sits behind a bus has to await the write. Unlike the
-/// tach read, the write carries the duty itself, so one that never returns
-/// stalls [`run_cooling`] with its failsafes.
+/// Board-supplied fan PWM sink. `set_pwm` is async for the reason
+/// [`TachReader::read_rpms`] is; unlike the tach read, the write carries
+/// the duty itself, so one that never returns stalls [`run_cooling`] with
+/// its failsafes.
 #[allow(async_fn_in_trait)]
 pub trait FanOutput {
     async fn set_pwm(&mut self, pwm: FanPwm);
 }
 
-/// Board-supplied tachometer reader for `N` fans. `run_cooling` calls
-/// `read_rpms` once at startup and once per [`CONTROL_INTERVAL`] tick, so the
-/// measurement window is nominally a fixed interval rather than the variable
-/// gap between loop wakes; a burst of thermal readings can delay a tach sample
-/// past one tick, and drops it only if thermal publishes faster than the loop
-/// services events, which the validated 100 ms sample-interval floor precludes.
-/// The implementation returns the speed of each fan measured since the previous
-/// call.
+/// Board-supplied tachometer reader for `N` fans, returning each fan's
+/// speed since the previous call. Called once per `CONTROL_INTERVAL`,
+/// so the measurement window is nominally that interval rather than the
+/// variable gap between loop wakes.
 ///
-/// `LABELS[i]` is the `fan` label attached to fan `i`'s `fan_rpm`
-/// series. `None` publishes that series with no label, which single-fan
-/// boards use to keep the historical unlabeled metric.
+/// `LABELS[i]` is fan `i`'s `fan` label; `None` keeps the unlabelled
+/// series a single-fan board has always published.
 ///
-/// `read_rpms` is async for the same reason
-/// [`ubos_thermal::TemperatureSensor::sample`] is: a board whose tach lives
-/// behind a bus has to await the transfer, and a synchronous signature would
-/// force it to poll on a task of its own and park each sample in a static for
-/// this loop to pick up. A board counting edges in hardware never awaits, so
-/// the keyword costs it nothing.
-///
-/// An implementation that can block must bound itself. This loop has no
-/// supervision of its own, but it commands the fan before it calls `read_rpms`,
-/// so a read that never returns stalls the RPM and not the duty; the RPM is
-/// telemetry and is worth no risk to the duty.
+/// Async so a tach behind a bus can await its transfer. An
+/// implementation that can block must bound itself, though the loop
+/// commands the fan before it reads, so a read that never returns stalls
+/// the telemetry and not the duty.
 #[allow(async_fn_in_trait)]
 pub trait TachReader<const N: usize> {
     const LABELS: [Option<&'static str>; N];
@@ -136,14 +121,9 @@ pub trait TachReader<const N: usize> {
 const SECONDS_PER_MINUTE: u64 = 60;
 const MICROS_PER_SECOND: u64 = 1_000_000;
 
-/// Convert tachometer pulses counted over `elapsed_us` into RPM.
-///
-/// Every edge-counting [`TachReader`] ends in this formula: the pulses seen
-/// in one measurement window, divided by the pulses one revolution emits,
-/// scaled from the window length to a minute. A zero window reports 0 rather
-/// than dividing by it, which is what the first read after construction may
-/// see, and so does a zero `pulses_per_rev`, which no real fan has. A result
-/// past `u32::MAX` saturates.
+/// Pulses counted over `elapsed_us` as RPM. A zero window, which the
+/// first read can see, and a zero `pulses_per_rev` both report 0 rather
+/// than dividing; a result past `u32::MAX` saturates.
 #[must_use]
 pub fn pulses_to_rpm(pulses: u64, pulses_per_rev: u64, elapsed_us: u64) -> FanRpm {
     let rpm = (pulses * SECONDS_PER_MINUTE * MICROS_PER_SECOND)
@@ -153,46 +133,30 @@ pub fn pulses_to_rpm(pulses: u64, pulses_per_rev: u64, elapsed_us: u64) -> FanRp
     FanRpm::from_rpm(u32::try_from(rpm).unwrap_or(u32::MAX))
 }
 
-/// Subscriber capacity for the fan watch. Every reader takes a
-/// point-in-time snapshot via [`Handle::current`]; none subscribe, so a
-/// single slot suffices.
+/// Every reader takes a snapshot through [`Handle::current`]; none
+/// subscribe.
 const WATCH_CAPACITY: usize = 1;
 
-/// Fan telemetry published by [`run_cooling`], the sole writer.
-///
-/// [`Handle::current`] returns `None` until the first control tick, and
-/// forever on boards that never spawn the cooling task; consumers render
-/// the fan line only once a value is present.
+/// Fan telemetry; [`run_cooling`] is the sole writer.
 #[derive(Clone, Copy)]
 pub struct FanState {
-    /// PWM duty the cooling loop last commanded.
     pub pwm: FanPwm,
-    /// Fastest tachometer reading from the last control tick. The tach is
-    /// sampled only on the control tick, never on a thermal-reading wake, so
-    /// a value republished on a thermal wake repeats the previous tick's
-    /// sample. The display shows one fan line; on multi-fan boards this is
-    /// the busiest fan.
+    /// The fastest fan at the last control tick, which is the only wake
+    /// that samples the tach, so a thermal wake republishes that sample.
     pub rpm: FanRpm,
     /// The kind of reading the PID follows. `None` under
     /// [`FanMode::Fixed`] and while a failsafe holds the fan at full.
     pub pid_source: Option<Source>,
 }
 
-/// State watch carrying the published [`FanState`]. Single writer is
-/// [`run_cooling`]; readers obtain a snapshot through [`Handle::current`].
 type FanWatch = Watch<CSMutex, FanState, WATCH_CAPACITY>;
 
-/// The fan telemetry the firmware's one cooling task publishes.
 static STATE_WATCH: FanWatch = Watch::new();
 
-/// Records that the firmware took the fan telemetry handle.
 static TAKEN: ubos_core::take_once::TakeOnce = ubos_core::take_once::TakeOnce::new("cooling");
 
-/// Consumer-side handle for fan telemetry.
-///
-/// The handle holds no data: its methods are the only way to the private
-/// statics of this module. A firmware takes it once and passes a copy to
-/// each task that uses it.
+/// Consumer-side handle. It holds no data: a firmware takes it once and
+/// passes a copy to each task that uses it.
 #[derive(Clone, Copy)]
 pub struct Handle(());
 
@@ -204,7 +168,6 @@ pub struct Runner(());
 
 #[allow(clippy::unused_self)]
 impl Runner {
-    /// Publish the fan state, which only the fan task writes.
     pub(crate) fn publish(&self, state: FanState) {
         STATE_WATCH.sender().send(state);
     }
@@ -220,35 +183,26 @@ impl Handle {
         (Runner(()), Self(()))
     }
 
-    /// Most recently published fan telemetry, or `None` before the first
-    /// control tick and on boards without a cooling task.
+    /// `None` before the first control tick and on a board with no
+    /// cooling task.
     #[must_use]
     pub fn current(&self) -> Option<FanState> {
         STATE_WATCH.try_get()
     }
 }
 
-/// Duty the fan holds under [`FanMode::Fixed`]. The configured percent
-/// flows straight through, so a fixed 0 stops the fan: the floor in
-/// [`ubos_config::PidConfig::min_fan_pwm`] bounds PID output only.
+/// The configured percent flows straight through, so a fixed 0 stops
+/// the fan: [`ubos_config::PidConfig::min_fan_pwm`] bounds PID output
+/// only.
 fn fixed_pwm(config: &CoolingConfig) -> FanPwm {
     FanPwm::from_percent(config.fixed_fan_pwm)
 }
 
-/// Fold a published cooling config into the controller.
-///
-/// A mode or gains change rebuilds it. Under new gains the accumulated
-/// integral describes a loop that no longer exists, and a mode change
-/// brackets a stretch of fixed duty the PID was not driving the fan through.
-/// The mode test does not separate the two directions: only the return to
-/// auto has stale integral to discard, but a controller nothing is reading
-/// costs nothing to rebuild, so entering fixed mode rebuilds it too.
-/// Anything else only moves the setpoint, which is idempotent, so it needs
-/// no comparison of its own. The fixed duty needs no controller state at
-/// all; the control tick in [`run_cooling`] is what carries it to the fan.
-///
-/// The config watch publishes on any config change, so an unchanged cooling
-/// section returns before logging and leaves an unrelated update silent here.
+/// Fold a published cooling config into the controller. A mode or gains
+/// change rebuilds it, since the accumulated integral describes a loop
+/// that no longer exists; anything else only moves the setpoint, which
+/// is idempotent. An unchanged cooling section returns before logging,
+/// so an unrelated config update is silent here.
 fn refresh_control(control: &mut TempControl, old: &CoolingConfig, new: &CoolingConfig) {
     if new == old {
         return;
@@ -262,10 +216,8 @@ fn refresh_control(control: &mut TempControl, old: &CoolingConfig, new: &Cooling
     log_cooling("cooling: updated", new);
 }
 
-/// Log the whole cooling state on one line. Printing the resulting state
-/// rather than naming the field that moved keeps the call sites free of the
-/// branching a per-field message would need, and answers the question an
-/// operator reading the log actually has.
+/// Log the whole resulting state, not the field that moved: it is what
+/// an operator reading the log wants, and it needs no branching.
 fn log_cooling(prefix: &str, config: &CoolingConfig) {
     info!(
         "{} (mode={}, target={} {} {}°C, floor={}%, fixed={}%)",
@@ -279,43 +231,29 @@ fn log_cooling(prefix: &str, config: &CoolingConfig) {
     );
 }
 
-/// Cadence at which the cooling loop wakes independently of the thermal
-/// subsystem: it reads the tachometer, republishes telemetry so the
-/// display and metrics stay fresh while thermal is quiet, and enforces the
-/// staleness failsafe below. Kept short so the failsafe is evaluated often;
-/// the detection latency is dominated by `stale_timeout`, the larger of
-/// `MIN_STALE_TIMEOUT` and a multiple of the thermal sample interval, and
-/// this interval only bounds the extra delay before a lapsed `stale_timeout`
-/// is noticed.
+/// Cadence at which the loop wakes independently of the thermal task:
+/// it reads the tach, republishes telemetry and checks the staleness
+/// failsafe. Short, so it adds little to the detection latency that
+/// [`stale_timeout`] dominates.
 const CONTROL_INTERVAL: Duration = Duration::from_secs(1);
 
-/// Multiplier on the thermal sample interval before the thermal subsystem
-/// is judged stalled. A live thermal task publishes the PID temperature
-/// on every tick, with `None` when no sensor answered inside its window,
-/// so the window only has to outlast scheduling jitter and a late tick.
-/// A tick is late by as long as its sample runs, and a sensor array
-/// waits out a read timeout for each sensor that does not answer.
-///
-/// TODO: The value is the margin of the time when thermal withheld a
-/// reading for several ticks. A lower one needs the longest sample of a
-/// board measured first, because a false stall runs the fan at full.
+/// Multiplier on the thermal sample interval before the thermal subsystem is
+/// judged stalled. A live thermal task publishes on every tick, so the window
+/// only has to outlast a late tick, and a tick is late by as long as its
+/// sample runs: a sensor array waits out a read timeout for each sensor that
+/// does not answer. A false stall runs the fan at full.
 const STALE_INTERVAL_MULTIPLIER: u32 = 7;
 
-/// Floor for the staleness window, so a fast thermal sample rate cannot
-/// shrink it to where ordinary scheduling jitter trips a false failsafe.
+/// Floor for the staleness window, so a fast sample rate cannot shrink it into
+/// scheduling jitter.
 const MIN_STALE_TIMEOUT: Duration = Duration::from_secs(3);
 
-/// Window of thermal silence after which the subsystem is treated as
-/// stalled and the fan forced to full. It is the larger of the multiplied
-/// thermal sample interval and `MIN_STALE_TIMEOUT`, so a fast sample rate
-/// floors it at `MIN_STALE_TIMEOUT` while a slow one scales it up; a wedged
-/// thermal task runs at most this long plus one `CONTROL_INTERVAL` before the
-/// failsafe trips, since the staleness check runs only on the control tick.
-/// Across that window the fan is held at the configured `min_fan_pwm` floor,
-/// or at the fixed duty in `FanMode::Fixed`, which the failsafe overrides with
-/// full once the window elapses. A board that configures either to 0 therefore
-/// gets no airflow until the window closes; the timeout, not the commanded
-/// duty, is what bounds that exposure.
+/// Thermal silence after which the task is stalled and the fan forced
+/// to full: the larger of the multiplied sample interval and
+/// [`MIN_STALE_TIMEOUT`]. A wedged task runs at most this plus one
+/// [`CONTROL_INTERVAL`], since the check runs on the control tick. Across
+/// that window the fan holds the configured floor or fixed duty, so a
+/// board that configures either to 0 gets no airflow until it closes.
 fn stale_timeout(thermal_sample_interval_ms: u32) -> Duration {
     let scaled = Duration::from_millis(
         u64::from(thermal_sample_interval_ms) * u64::from(STALE_INTERVAL_MULTIPLIER),
@@ -323,44 +261,33 @@ fn stale_timeout(thermal_sample_interval_ms: u32) -> Duration {
     scaled.max(MIN_STALE_TIMEOUT)
 }
 
-/// Why the fan is held at full, when it is. A hold overrides the PID
-/// and the fixed duty alike, so a low fixed duty costs hashrate rather
-/// than the board.
+/// Why the fan is held at full. A hold overrides the PID and the fixed
+/// duty alike, so a low fixed duty costs hashrate, not the board.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Hold {
-    /// The duty follows the PID, or the fixed setting.
     None,
-    /// The last thermal reading carried no measurement. Full until one
-    /// does: the fan parks rather than following a value never
-    /// measured, and the control tick does not hand a fixed duty or the
-    /// floor back to the fan in between two such readings, which would
-    /// cycle it.
+    /// The last reading carried no measurement, so the fan parks at full
+    /// rather than following a value never measured. The control tick
+    /// hands nothing back in between, which would cycle it.
     NoMeasurement,
-    /// No thermal reading inside the stale window. The thermal task is
-    /// wedged and the PID can no longer be trusted, so full until a
-    /// reading arrives.
+    /// No reading inside the stale window, so the PID can no longer be
+    /// trusted.
     Stalled,
 }
 
-/// What one step of the decision reports: the duty to command, and the
-/// transition to log if this step made one.
 #[derive(Debug, PartialEq, Eq)]
 struct Step {
     pwm: FanPwm,
     note: Option<Note>,
 }
 
-/// A transition of [`Hold::Stalled`], which the loop logs once on entry
-/// and once on exit.
+/// A [`Hold::Stalled`] transition, logged once each way.
 #[derive(Debug, PartialEq, Eq)]
 enum Note {
-    /// The stale window elapsed with no thermal reading; carries the
-    /// silence measured.
+    /// Carries the silence measured.
     Stalled(Duration),
-    /// A thermal reading arrived after a stall, whether or not it
-    /// carried a measurement: one without still clears the stall,
-    /// because the task is alive to have sent it. The fan need not have
-    /// left full.
+    /// A reading arrived after a stall. One carrying no measurement
+    /// still clears it: the task is alive to have sent it.
     Recovered,
 }
 
@@ -374,17 +301,15 @@ struct PidInput {
     target: Temperature,
 }
 
-/// The fan decision, apart from the hardware and the clock. The loop
-/// selects an event, hands it to the method the event names with the
-/// time it happened, and acts on the [`Step`] that comes back. Nothing
+/// The fan decision, apart from the hardware and the clock. Nothing
 /// here awaits, so every transition is a plain call a test can drive.
 struct Cooling {
     config: CoolingConfig,
     control: TempControl,
     stale: Duration,
     hold: Hold,
-    /// The duty last commanded. A control tick in auto raises it to the
-    /// floor and otherwise leaves it, so it must survive between steps.
+    /// Survives between steps: a control tick in auto raises it to the
+    /// floor and otherwise leaves it.
     pwm: FanPwm,
     last_reading: Instant,
     /// What the PID followed on the last measurement.
@@ -392,11 +317,9 @@ struct Cooling {
 }
 
 impl Cooling {
-    /// Start from `config` at `now`: the fan at the configured floor, or
-    /// at the fixed duty when the operator has taken the fan off the PID.
-    /// Either percent flows straight through `from_percent` with no
-    /// special case, so a configured 0 yields a stopped fan by
-    /// construction, held until the first reading.
+    /// Start at the configured floor, or at the fixed duty. Either
+    /// percent flows straight through, so a configured 0 holds the fan
+    /// stopped until the first reading.
     fn new(config: &Config, now: Instant) -> Self {
         let cooling = config.cooling.clone();
         let pwm = match cooling.mode {
@@ -421,8 +344,6 @@ impl Cooling {
         self.pid_input.filter(|_| driving)
     }
 
-    /// Fold a published config in: the cooling section into the
-    /// controller, the thermal sample interval into the stale window.
     fn reconfigure(&mut self, updated: &Config) {
         refresh_control(&mut self.control, &self.config, &updated.cooling);
         // The first reading of another kind would reach the input smoother
@@ -434,32 +355,22 @@ impl Cooling {
         self.stale = stale_timeout(updated.thermal.sample_interval_ms);
     }
 
-    /// The temperature that the PID follows arrived from thermal at
-    /// `now`. Thermal selects it by the target, so `None` means that no
-    /// reading of the target's kind is inside the window of the thermal
-    /// filter, and the one value answers both whether thermal measured
-    /// and what it measured. A fixed duty ignores the value, and a `None`
-    /// holds it at full as it holds the PID.
+    /// The temperature the PID follows arrived from thermal at `now`. `None`
+    /// means no reading of the target's kind is inside the window of the
+    /// thermal filter, and it holds a fixed duty at full as it holds the PID.
     ///
-    /// The reading names the kind and the statistic that thermal selected
-    /// it by. Thermal and this loop take a config change on their own
-    /// schedules, so a reading can answer a target that this loop has
-    /// already left. Such a reading shows that thermal runs and steers
-    /// nothing: the duty stands until the next reading, because the value
-    /// of another kind would reach the PID as its input.
+    /// The reading names the kind and the statistic thermal selected it by.
+    /// Thermal and this loop take a config change on their own schedules, so a
+    /// reading can answer a target this loop has already left. The duty then
+    /// stands until the next reading, because a value of another kind would
+    /// reach the PID as its input.
     ///
-    /// A run of readings with no measurement skips `control.update()`
-    /// each time, so the smoother and ring buffer keep the last good
-    /// sample across that run. The derivative term on the first reading
-    /// that carries one is then computed against a pre-run value;
-    /// acceptable because the fan parks at full on every reading of the
-    /// run, so that stale derivative never drives the fan. The input
-    /// smoother is the exception: the first measurement after any hold
-    /// restarts it, because a stale input would drive the fan on every
-    /// tick until the smoother caught up. This covers
-    /// that run only; a thermal silence shorter than the stale window
-    /// triggers no graduated response: the control tick merely resamples
-    /// the tach and republishes telemetry until the window elapses.
+    /// A run of readings without a measurement skips the PID update, so the
+    /// first reading after the run computes its derivative against a pre-run
+    /// value. That is safe because the fan parks at full across the whole run,
+    /// so the stale derivative never drives it. The input smoother restarts
+    /// after any hold, because a stale input would drive the fan on every tick
+    /// until the smoother caught up.
     fn on_reading(&mut self, reading: PidTemperature, now: Instant) -> Step {
         self.last_reading = now;
         let note = (self.hold == Hold::Stalled).then_some(Note::Recovered);
@@ -523,20 +434,15 @@ impl Cooling {
         self.hold = Hold::None;
     }
 
-    /// The control tick fired at `now`, independent of the thermal task.
-    /// If that task has gone silent past the stale window it is wedged
-    /// and the PID can no longer be trusted, so fail safe to full.
+    /// The control tick, independent of the thermal task: full when that
+    /// task has gone silent past the stale window.
     ///
-    /// Otherwise fixed mode has no other cadence: thermal readings do
-    /// not change the duty, so this tick is what carries a new fixed
-    /// duty to the fan, within one `CONTROL_INTERVAL` of the config
-    /// update. Auto raises the fan to the floor instead, which is what
-    /// the transition out of fixed needs: the PID commands nothing until
-    /// the next thermal reading, so a fixed duty below the floor, 0
-    /// included, would otherwise hold the fan for a whole sample
-    /// interval after the operator left fixed mode. The PID clamps its
-    /// own output to that same floor, so this only bites inside that
-    /// window, and it raises the duty rather than lowering it.
+    /// Otherwise this tick is fixed mode's only cadence, so a new fixed
+    /// duty reaches the fan within one [`CONTROL_INTERVAL`]. In auto it
+    /// raises the fan to the floor instead, which is what the transition
+    /// out of fixed needs: the PID commands nothing until the next
+    /// reading, so a low fixed duty would otherwise hold for a whole
+    /// sample interval after the operator left fixed mode.
     fn on_tick(&mut self, now: Instant) -> Step {
         let silence = now.duration_since(self.last_reading);
         if silence >= self.stale {
@@ -563,11 +469,10 @@ impl Cooling {
     }
 }
 
-/// Publish the [`FanState`] plus per-fan metrics for the given tachometer
-/// readings. The caller commands the fan itself and samples the tachometer on
-/// the control tick, then passes the most recent readings here, so a
-/// thermal-driven wake republishes fresh PWM with the last sampled RPM rather
-/// than re-reading the counter over a short, uneven window.
+/// Publish the [`FanState`] and the per-fan metrics. The caller passes
+/// the most recent tach readings, so a thermal wake republishes fresh
+/// PWM with the last sample instead of reading the counter over a short,
+/// uneven window.
 async fn publish_state<const N: usize>(
     runner: &Runner,
     pwm: FanPwm,
@@ -629,31 +534,12 @@ async fn publish_pid(pid: Option<PidInput>) {
 
 /// Run the cooling loop forever.
 ///
-/// The loop runs on its own [`CONTROL_INTERVAL`] tick and treats the
-/// thermal subsystem as an input that may go stale rather than the clock
-/// that drives it: each iteration `select`s between the next thermal
-/// reading and the control tick. A fresh reading advances the PID, or
-/// forces full fan when it carries no PID temperature, and resets the
-/// staleness clock; a
-/// control tick that finds no reading for [`stale_timeout`] forces the fan
-/// to 100%, so a thermal task wedged in a hung I2C read can never
-/// leave the board uncooled. Either wake republishes telemetry, and in
-/// auto the fan starts at the configured floor, held at `min_fan_pwm`
-/// until the first reading, so the display shows fan state from boot
-/// rather than a blank line.
-///
-/// Under [`FanMode::Fixed`] the thermal reading no longer sets the duty:
-/// the fan holds [`CoolingConfig::fixed_fan_pwm`], refreshed on each control
-/// tick so a duty change lands within one [`CONTROL_INTERVAL`] whatever the
-/// thermal cadence. Both failsafes still apply — a reading with no PID
-/// temperature and a lapsed staleness window force full in either mode —
-/// and the mining halt on the thermal config's dangerous thresholds is
-/// unaffected, so a low fixed duty costs hashrate rather than the board.
-///
-/// Cooling tuning is read from `config` and refreshed between samples: a
-/// target-only change adjusts the setpoint in place, a PID-gains or mode
-/// change rebuilds the controller. This task is the sole writer of the fan
-/// watch, through `runner`.
+/// The loop runs on its own `CONTROL_INTERVAL` tick and treats the
+/// thermal task as an input that may go stale rather than the clock that
+/// drives it, selecting between the next reading and the tick. That is
+/// what keeps a thermal task wedged in a hung bus read from leaving the
+/// board uncooled: see `Hold` for the two failsafes, which apply in
+/// both fan modes.
 pub async fn run_cooling<F, T, const N: usize>(
     mut fan: F,
     mut tach: T,
@@ -670,12 +556,9 @@ where
 
     let tach_labels = T::LABELS;
 
-    // Command the starting duty and publish immediately so the display
-    // shows fan state from boot.
+    // Published at once, so the display shows fan state from boot.
     fan.set_pwm(cooling.pwm).await;
 
-    // Sample the tach once up front so boot telemetry is not a blank line; the
-    // control tick refreshes it every CONTROL_INTERVAL thereafter.
     let mut last_rpms = tach.read_rpms().await;
     publish_state(runner, cooling.pwm, None, &last_rpms, &tach_labels).await;
     log_cooling("cooling: started", &cooling.config);
@@ -701,17 +584,13 @@ where
             Some(Note::Recovered) => info!("cooling: thermal task recovered after stall"),
             None => {}
         }
-        // Command the fan before the tach read: read_rpms can await a bus
-        // transfer that never completes, and this tick's duty, the
-        // staleness failsafe included, must not wait on it.
+        // The fan is commanded first: `read_rpms` can await a transfer
+        // that never completes, and the duty must not wait on it.
         // TODO: Is it safe to await this write with no timeout? Currently
         // there is no continuous watchdog.
         fan.set_pwm(step.pwm).await;
-        // Sample the tach once per control tick, so the edge count has a
-        // nominally fixed CONTROL_INTERVAL window independent of the
-        // thermal-reading cadence: delayed, not skipped, if thermal
-        // readings monopolize the select. A thermal wake republishes the
-        // fresh duty with the last sampled RPM.
+        // Once per control tick, so the edge count has a fixed window;
+        // see `TachReader`.
         if let Either::Second(()) = event {
             last_rpms = tach.read_rpms().await;
         }
@@ -726,8 +605,7 @@ where
     }
 }
 
-/// Task shell around [`run_cooling`], the fan PID loop. Takes the
-/// board's fan output and tachometer reader types.
+/// Task shell around [`run_cooling`].
 #[macro_export]
 macro_rules! cooling_task {
     ($fan:ty, $tach:ty) => {

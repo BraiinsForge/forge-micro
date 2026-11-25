@@ -78,13 +78,7 @@ rusty_fork_test! {
         let mut ingest = pin!(ubos_metrics::metrics::run_ingest(&METRICS_STATICS));
 
         drive!(cooling, ingest);
-        // Behavior 0: the fan comes up on the PID floor before any reading is
-        // acted on, so a board in auto mode never runs the fan below the floor
-        // while the PID has nothing to act on. Asserted on the first command
-        // rather than on the watch: the seeded reading settles the PID on the
-        // same floor, so the published value cannot tell the two apart, while
-        // the boot publish precedes the thermal subscription and the fixed arm
-        // would show here as the default 50% duty.
+        // Asserted on the first command, not the watch: see `RecordingFan`.
         assert_eq!(
             boot_command.get(),
             Some(floor_pwm),
@@ -98,8 +92,6 @@ rusty_fork_test! {
              fan on the min_fan_pwm floor"
         );
 
-        // Behavior 1: thermal silence past `stale_timeout`, with only control
-        // ticks arriving, forces the fan to full.
         driver.advance(stale);
         drive!(cooling, ingest);
         let stalled_state = rig.fan.current().expect("published");
@@ -109,8 +101,6 @@ rusty_fork_test! {
             "thermal silence past stale_timeout must force the fan to full"
         );
 
-        // Behavior 2: a fresh reading ends the stall hold
-        // and hands the PWM back to the PID.
         publish_reading(&rig, &mut runners.thermal, driver, moderate_reading(false), || drive!(cooling, ingest));
         let recovered_state = rig.fan.current().expect("published");
         assert_eq!(
@@ -119,9 +109,8 @@ rusty_fork_test! {
              resume PID control, which drives the PWM down to the min_fan_pwm floor"
         );
 
-        // Behavior 3: silence one control tick short of the window must not
-        // force full. This pins the `silence >= stale` boundary from below, so
-        // the failsafe cannot fire one tick early.
+        // Pins the `silence >= stale` boundary from below, so the failsafe
+        // cannot fire one tick early.
         let short_silence = stale - CONTROL_INTERVAL;
         driver.advance(short_silence);
         drive!(cooling, ingest);
@@ -132,9 +121,8 @@ rusty_fork_test! {
              PID control still holds the PWM at the min_fan_pwm floor"
         );
 
-        // Behavior 4: a reading with no measurement forces the fan to full on its
-        // own, independent of the staleness latch, which is already clear at
-        // this point.
+        // The staleness latch is clear here, so the fault reading alone
+        // forces full.
         publish_reading(&rig, &mut runners.thermal, driver, moderate_reading(true), || drive!(cooling, ingest));
         let fault_state = rig.fan.current().expect("published");
         assert_eq!(

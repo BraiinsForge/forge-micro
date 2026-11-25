@@ -54,27 +54,21 @@ use ubos_thermal::{
 
 use crate::{FanOutput, Handle, Runner, TachReader};
 
-/// The handles one test takes, as a board takes them in `main`.
+/// The handles a board takes in `main`. They are taken once, so each test
+/// runs in a process of its own.
 pub(crate) struct Rig {
-    /// The fan handle `run_cooling` publishes through.
     pub(crate) fan: Handle,
-    /// The thermal handle `run_cooling` reads and `run_thermal` publishes to.
     pub(crate) thermal: ThermalHandle,
-    /// The manager handle `run_thermal` reports to. Nothing runs the manager.
+    /// Nothing runs the manager.
     pub(crate) manager: ManagerHandle,
-    /// The config handle that both tasks read, and the config task writes.
     pub(crate) config: ConfigHandle,
-    /// The directory of the config store, removed when the rig drops.
     dir: std::path::PathBuf,
 }
 
-/// The runners of the tasks a test runs, which each need a mutable borrow.
+/// Apart from [`Rig`], because each task borrows its runner mutably.
 pub(crate) struct Runners {
-    /// The runner of `run_cooling`.
     pub(crate) fan: Runner,
-    /// The runner of `run_thermal`.
     pub(crate) thermal: ThermalRunner,
-    /// The runner of the config task.
     pub(crate) config: ConfigRunner,
 }
 
@@ -185,8 +179,7 @@ const MAX_METRICS: usize = 64;
 /// Bytes of the exposition buffer, which no test renders into.
 const METRICS_RESPONSE_BYTES: usize = 4096;
 
-/// The metrics map and exposition buffer `run_ingest` writes into. Each
-/// test has a process of its own, so it has a store of its own.
+/// Each test has a process of its own, so it has a store of its own.
 pub(crate) static METRICS_STATICS: ubos_metrics::metrics::MetricsStatics<
     MAX_METRICS,
     METRICS_RESPONSE_BYTES,
@@ -205,12 +198,11 @@ pub(crate) fn settle<F: Future>(future: &mut Pin<&mut F>) {
     }
 }
 
-/// Publish `reading` as the sensor task does: a `run_thermal` that starts
-/// now, sees one sample interval pass on the mock clock and samples once.
+/// Publish `reading` through a `run_thermal` that starts now, sees one
+/// sample interval pass on the mock clock and samples once.
 ///
-/// The task is new for each reading, so the ticks of a long silence before
-/// it are not owed to it. `rest` polls the tasks that react, and the clock
-/// has moved by one sample interval when it runs.
+/// A new task per reading owes no ticks for a long silence before it.
+/// `rest` polls the tasks that react, after the clock has moved.
 pub(crate) fn publish_reading(
     rig: &Rig,
     runner: &mut ThermalRunner,
@@ -297,11 +289,9 @@ pub(crate) fn moderate_reading(no_reading: bool) -> Option<TempReading> {
     (!no_reading).then_some(reading)
 }
 
-/// Polls the tasks of a test up to [`POLL_BUDGET`] times, enough for the
-/// awaits triggered by the last clock advance or published reading to
-/// settle. None of the futures completes, because each task is `-> !`, so
-/// only their side effects on the handles matter. Each argument is a
-/// pinned future that the caller keeps for the next phase.
+/// Polls each pinned future [`POLL_BUDGET`] times, enough for the awaits
+/// the last clock advance or published reading triggered to settle. Each
+/// task is `-> !`, so only its side effects on the handles matter.
 macro_rules! drive {
     ($($future:expr),+ $(,)?) => {{
         let mut cx = core::task::Context::from_waker(core::task::Waker::noop());
