@@ -71,6 +71,21 @@ let
   # the two halves cannot come to disagree on what a comment is.
   commentLine = "^[[:space:]]*//";
 
+  # The board crates of one tree: every directory under its `firmware/`
+  # less `exclude`. Both gates below take their boards from here rather
+  # than from a list written out, because an explicit list is what lets
+  # the next board arrive ungated.
+  boardsOf =
+    root: exclude:
+    let
+      entries = builtins.readDir (root + "/firmware");
+    in
+    lib.naturalSort (
+      lib.filter (name: entries.${name} == "directory" && !(builtins.elem name exclude)) (
+        builtins.attrNames entries
+      )
+    );
+
   # An awk program over one board's sources. It prints `file:line name`
   # for every task the crate declares itself.
   #
@@ -102,11 +117,8 @@ let
 in
 {
   # Emit the check for one tree. `root` is that tree's own root, and the
-  # board list is every directory under its `firmware/` less `exclude`,
-  # rather than a list written out here: an explicit list is what lets
-  # the next board arrive ungated, which is the failure this gate
-  # exists to stop. `holders` maps a board name to the tasks that are
-  # genuinely its own.
+  # board list is `boardsOf` it. `holders` maps a board name to the tasks
+  # that are genuinely its own.
   boardSkeletonParity =
     {
       root,
@@ -115,12 +127,7 @@ in
     }:
     let
       firmwareDir = root + "/firmware";
-      entries = builtins.readDir firmwareDir;
-      boards = lib.naturalSort (
-        lib.filter (name: entries.${name} == "directory" && !(builtins.elem name exclude)) (
-          builtins.attrNames entries
-        )
-      );
+      boards = boardsOf root exclude;
       boardCall =
         board:
         "check_board ${board} '${lib.concatStringsSep " " (fleetShells ++ (holders.${board} or [ ]))}'\n";
