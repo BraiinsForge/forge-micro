@@ -28,8 +28,10 @@
 use core::fmt::Write as _;
 
 use embedded_hal_async::i2c::SevenBitAddress;
+use ubos_config::thermal::BOUNDS;
 use ubos_core::index::{ChipAddress, HashboardIndex};
 use ubos_core::units::Temperature;
+use ubos_metrics::consts::Metrics;
 use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric};
 use ubos_temperature::{Reading, TempSource};
 
@@ -46,6 +48,14 @@ use crate::chain::chain_labels;
 /// with integer math, so the exposition path needs no software floating
 /// point on a board with no FPU.
 const READING_METRIC_NAME: &str = "board_temperature_celsius";
+
+/// The default TTL of a metric is a multiple of the slowest push
+/// interval. A sample interval above it would let a series expire between
+/// two pushes, so the bound of the config must stay within it.
+const _: () = assert!(
+    *BOUNDS.sample_interval_ms.end() as u128 <= Metrics::SLOWEST_PUSH_INTERVAL.as_millis() as u128,
+    "the thermal sample interval bound exceeds Metrics::SLOWEST_PUSH_INTERVAL"
+);
 
 /// The `source` label of a hashboard reading.
 const HASHBOARD_SOURCE: &str = Source::Hashboard.as_str();
