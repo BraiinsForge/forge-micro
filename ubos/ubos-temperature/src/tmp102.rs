@@ -19,10 +19,8 @@
 
 //! TMP102 I2C temperature sensor driver.
 //!
-//! Reads the 12-bit two's-complement temperature register at 0x00 and
-//! converts to millicelsius. The TMP102 powers on in continuous-conversion
-//! mode at 4 Hz with 12-bit resolution; no configuration write is needed
-//! for a simple read-only use.
+//! The part powers on in continuous-conversion mode at 4 Hz with 12-bit
+//! resolution, so a read-only user needs no configuration write.
 
 use embedded_hal_async::i2c::{I2c, SevenBitAddress};
 use ubos_core::index::HashboardIndex;
@@ -34,15 +32,13 @@ use crate::{Readings, TempSource, add_source};
 #[path = "tests/tmp102.rs"]
 mod tests;
 
-/// Temperature register pointer. POR value selects this register, so a
-/// plain two-byte read without a preceding pointer write also works if the
-/// pointer register has not been changed.
+/// Power-on reset selects this register, so a plain two-byte read also
+/// works while nothing has moved the pointer.
 const REG_TEMPERATURE: u8 = 0x00;
 
-/// Datasheet supported range. The TMP102 measures −40..125 °C; the accepted
-/// window adds 15 °C below and 25 °C above to catch bus glitches that decode
-/// to plausible but impossible temperatures without rejecting valid
-/// near-limit readings.
+/// The part measures −40..125 °C. The window is wider on both sides, so a
+/// bus glitch that decodes to an impossible temperature is caught and a
+/// valid near-limit reading is not.
 const MIN_TEMPERATURE: Temperature = Temperature::from_millicelsius(-55_000);
 const MAX_TEMPERATURE: Temperature = Temperature::from_millicelsius(150_000);
 
@@ -50,12 +46,8 @@ const MAX_TEMPERATURE: Temperature = Temperature::from_millicelsius(150_000);
 const MILLICELSIUS_NUMERATOR: i32 = 125;
 const MILLICELSIUS_DENOMINATOR: i32 = 2;
 
-/// One TMP102 on the I2C bus: its address and what it measures. The bus
-/// is passed in on each read so multiple sensors can share a `&mut I`
-/// without each owning a copy.
 #[derive(Clone, Copy)]
 pub struct Tmp102 {
-    /// The sensor's 7-bit I2C address.
     pub(crate) address: SevenBitAddress,
     /// What the sensor's own channel measures.
     pub(crate) local: TempSource,
@@ -89,10 +81,6 @@ impl Tmp102 {
         self.local
     }
 
-    /// Read the temperature register.
-    ///
-    /// Returns `Err` on a bus error or when the decoded value is outside
-    /// the datasheet operating range.
     pub async fn read_temperature<I, E>(&self, i2c: &mut I) -> Result<Temperature, Error<E>>
     where
         I: I2c<Error = E>,
@@ -117,12 +105,9 @@ impl Tmp102 {
     }
 }
 
-/// Error returned by [`Tmp102::read_temperature`].
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error<E> {
-    /// I2C bus error.
     I2c(E),
-    /// Decoded value is outside the datasheet operating range.
     OutOfRange(Temperature),
 }
 
@@ -130,12 +115,9 @@ pub enum Error<E> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct RawTmp102(pub(crate) [u8; 2]);
 
-/// The TMP102 stores the 12-bit value left-justified in a 16-bit word.
-/// The arithmetic right-shift by 4 sign-extends the twos-complement value
-/// while discarding the four padding bits in bits 3:0 (which the datasheet
-/// states as zero in 12-bit mode). LSB = 0.0625 °C = 62.5 m°C; multiply
-/// by 125 and divide by 2 stays in i32 with no intermediate overflow across
-/// the full ±128 °C datasheet range.
+/// The 12-bit value sits left-justified in the 16-bit word, so the
+/// arithmetic shift sign-extends it and discards the four padding bits,
+/// which are zero in 12-bit mode.
 impl From<RawTmp102> for Temperature {
     fn from(raw: RawTmp102) -> Self {
         let raw12 = i16::from_be_bytes(raw.0) >> 4;

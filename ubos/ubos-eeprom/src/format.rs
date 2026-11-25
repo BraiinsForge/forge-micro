@@ -18,15 +18,12 @@
 // shall be considered distinct from the grant above.
 
 //! Braiins hashboard EEPROM wire format, byte-for-byte compatible with
-//! BOS's braiinsminer layout so hashboards already factory-programmed
-//! by that tooling parse unchanged here. 256 bytes total: a 192-byte
-//! `BoardInfoSection` followed by a 64-byte
-//! `FirmwareInfoSection`, each self-contained with its own magic and
-//! CRC-16/CCITT.
+//! the factory layout, so a hashboard already factory-programmed
+//! parses unchanged here. The board section is followed by the
+//! firmware section, each with its own magic and CRC-16/CCITT.
 //!
-//! Parsing borrows `&str` fields directly out of the raw buffer rather
-//! than copying into owned strings — the caller already owns the buffer
-//! for as long as it needs the parsed data.
+//! The parsed `&str` fields borrow out of the raw buffer, which the
+//! caller already owns for as long as it needs the parsed data.
 
 use core::mem::size_of;
 
@@ -39,7 +36,6 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 #[path = "tests/format.rs"]
 mod tests;
 
-/// Total EEPROM size in bytes: [`BOARD_INFO_LEN`] + [`FIRMWARE_INFO_LEN`].
 pub const EEPROM_LEN: usize = BOARD_INFO_LEN + FIRMWARE_INFO_LEN;
 
 const BOARD_INFO_LEN: usize = 192;
@@ -49,10 +45,9 @@ const VERSION_0: u8 = 0x00;
 const MILLIVOLTS_PER_CENTIVOLT: u32 = 10;
 const MILLIWATTS_PER_WATT: u32 = 1000;
 
-/// Wire layout of `BoardInfoSection`, matching field order exactly.
-/// Every field is byte-aligned (plain `u8`/`[u8; N]`, or zerocopy's
-/// alignment-1 [`U16`]/[`U32`]), so `#[repr(C)]` alone pins the layout
-/// to declaration order with no padding.
+/// Wire layout of `BoardInfoSection`. Every field has alignment 1, so
+/// `#[repr(C)]` alone pins the layout to declaration order with no
+/// padding.
 #[repr(C)]
 #[derive(FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, Clone, Copy)]
 struct RawBoardInfo {
@@ -194,23 +189,18 @@ pub struct HashboardEepromData<'a> {
 }
 
 impl<'a> HashboardEepromData<'a> {
-    /// Parse and fully validate a raw EEPROM dump. Checks both magics,
-    /// the version byte, both sections' CRC-16/CCITT, and that both
-    /// reserved regions are still `0xFF`, in that order — matching
-    /// BOS's validation order so a captured dump either parses or fails
-    /// the same way in both codebases.
+    /// Parse and fully validate a raw EEPROM dump. The checks run in
+    /// the factory tooling's order, so a captured dump either parses or
+    /// fails the same way in both.
     ///
     /// # Errors
     ///
-    /// Returns the specific [`Error`] variant for whichever check above
-    /// fails first.
+    /// Returns the [`Error`] variant of whichever check fails first.
     ///
     /// # Panics
     ///
-    /// Never: [`RawBoardInfo`] and [`RawFirmwareInfo`] are sized to
-    /// exactly `BOARD_INFO_LEN`/`FIRMWARE_INFO_LEN` at compile time, and
-    /// `raw` is split into slices of those exact lengths, so the
-    /// `ref_from_bytes` calls below can't actually fail.
+    /// Never. Both raw structures are size-checked at compile time and
+    /// `raw` is split into slices of exactly those lengths.
     pub fn parse(raw: &'a [u8; EEPROM_LEN]) -> Result<Self, Error> {
         let (board_bytes, firmware_bytes) = raw.split_at(BOARD_INFO_LEN);
         let board = RawBoardInfo::ref_from_bytes(board_bytes).expect("BUG: size checked above");
@@ -268,13 +258,12 @@ impl<'a> HashboardEepromData<'a> {
     }
 }
 
-/// Slice a NUL-terminated text field down to the text before the first
-/// NUL, or keep the whole field when no terminator is present. Falls
-/// back to `"INVALID"` on anything that isn't valid ASCII, matching
-/// BOS's own `StringText` helper: a single garbled text field does not
-/// invalidate a record whose magic, version, and CRC all checked out.
-/// Real hardware has produced exactly that, in fields BOS fills with
-/// `0xFF` past their content and leaves without a NUL terminator.
+/// A field runs to its first NUL, or to its end where the factory padded
+/// with `0xFF` and left no terminator, which real hardware has produced.
+///
+/// Anything that is not ASCII falls back to `"INVALID"`, as the factory
+/// tooling does, so one garbled field does not void a record whose
+/// magic, version and CRC all checked out.
 pub(crate) fn ascii_field(bytes: &[u8]) -> &str {
     ascii_text(bytes).unwrap_or("INVALID")
 }

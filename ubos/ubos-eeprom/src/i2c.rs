@@ -17,11 +17,10 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! I2C-backed [`HashboardEeprom`]. Targets the M24C02-class serial
-//! EEPROMs BOS uses: 256 bytes, 16-byte write pages, but reads are not
-//! page-limited, so the whole chip comes back in one transaction. A
-//! future 1-Wire chip would live in its own sibling module implementing
-//! the same trait.
+//! I2C-backed [`HashboardEeprom`] for the M24C02-class serial EEPROMs
+//! the factory layout uses. Their write pages are 16 bytes but reads
+//! are not page limited, so the whole chip comes back in one
+//! transaction.
 
 use embedded_hal_async::i2c::I2c;
 
@@ -32,10 +31,9 @@ use crate::forge::{RECORD_LEN, ReadError, Record};
 #[path = "tests/i2c.rs"]
 mod tests;
 
-/// One EEPROM chip on the I2C bus, address fixed at construction and
-/// the bus borrowed for as long as the reader is in scope — a one-shot
-/// boot-time read has no need for the `'static`-shared-mutex plumbing
-/// `ubos_psu`'s long-running drivers use.
+/// One EEPROM chip on the I2C bus. The bus is borrowed for as long as the
+/// reader is in scope, because a one-shot boot-time read needs none of the
+/// `'static` shared-mutex plumbing a long-running driver does.
 pub struct I2cEeprom<'bus, I> {
     address: u8,
     bus: &'bus mut I,

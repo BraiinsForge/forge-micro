@@ -19,15 +19,11 @@
 
 //! TMP461 (TMP451-compatible) dual-channel I2C temperature sensor driver.
 //!
-//! Reads the remote-diode channel to measure the die temperature of an
-//! attached ASIC and the local channel for on-package ambient. The device
-//! powers on in continuous-conversion mode; the active measurement range is
-//! read from the Configuration register on each sample so the high-byte
-//! decode matches the chip's mode.
+//! The remote-diode channel measures the die temperature of an attached
+//! ASIC and the local channel the on-package ambient. The active
+//! measurement range is read from the Configuration register on every
+//! sample, because it decides how the high byte decodes.
 //!
-//! The high byte decodes per the TMP451/461 spec: 2's-complement degrees in
-//! standard range, or unsigned with a −64 °C offset in extended range. The
-//! low byte's upper nibble carries the 1/16 °C fraction (always positive).
 //! Ideality correction and offset calibration are not applied.
 
 use embedded_hal_async::i2c::{I2c, SevenBitAddress};
@@ -40,8 +36,7 @@ use crate::{Readings, TempSource, add_source};
 #[path = "tests/tmp461.rs"]
 mod tests;
 
-/// Status register (read-only). Reports ADC state and the remote-diode
-/// connection fault.
+/// Reports the ADC state and the remote-diode connection fault.
 const REG_STATUS: u8 = 0x02;
 /// `OPEN` bit in the status register: 1 = remote diode open-circuit.
 const STATUS_OPEN: u8 = 1 << 2;
@@ -51,27 +46,19 @@ const REG_CONFIG: u8 = 0x03;
 const CONFIG_EXTENDED_RANGE: u8 = 1 << 2;
 /// Value the remote channel returns for a shorted diode (datasheet).
 const SHORT_CIRCUIT: Temperature = Temperature::from_millicelsius(-64_000);
-/// Full-scale standard-range rail (high=0x7F, low=0xF0): 127.9375 °C. An
-/// unbiased or floating remote diode rails here; it is the high-side
-/// counterpart to the −64 °C short rail and is not a trustworthy die
-/// reading.
+/// Full-scale rail in standard range. An unbiased or floating remote diode
+/// rails here, so the value is a channel fault and not a die reading.
 const SATURATED: Temperature = Temperature::from_millicelsius(127_937);
-/// Full-scale extended-range rail (high=0xFF, low=0xF0): 191.9375 °C.
-/// Same meaning as `SATURATED` but for the extended range
-/// where a floating diode reaches 0xFF rather than 0x7F.
+/// The extended-range counterpart of `SATURATED`.
 const SATURATED_EXTENDED: Temperature = Temperature::from_millicelsius(191_937);
-/// Remote temperature high byte.
 const REG_REMOTE_HIGH: u8 = 0x01;
-/// Remote temperature low byte: bits 7:4 are the 1/16 °C fraction.
 const REG_REMOTE_LOW: u8 = 0x10;
-/// Local temperature high byte.
 const REG_LOCAL_HIGH: u8 = 0x00;
-/// Local temperature low byte: bits 7:4 are the 1/16 °C fraction.
 const REG_LOCAL_LOW: u8 = 0x15;
 
-/// Valid range for the remote channel in standard mode. The datasheet
-/// reports 0..127 °C; 160 °C gives headroom for transient bus glitches
-/// without rejecting valid near-limit readings.
+/// Valid range for the remote channel in standard mode. The part reports
+/// 0..127 °C, and the headroom above that keeps a valid near-limit reading
+/// out of the out-of-range path.
 const REMOTE_MIN: Temperature = Temperature::from_millicelsius(0);
 const REMOTE_MAX: Temperature = Temperature::from_millicelsius(160_000);
 
@@ -84,7 +71,6 @@ const LOCAL_MAX: Temperature = Temperature::from_millicelsius(160_000);
 
 /// Degrees-Celsius offset applied to the unsigned high byte in extended range.
 const EXTENDED_RANGE_OFFSET_C: i32 = 64;
-/// Millicelsius per whole degree.
 const MILLICELSIUS_PER_DEGREE: i32 = 1000;
 /// The low byte's upper nibble (bits 7:4) carries the fractional part.
 const FRACTION_SHIFT: u32 = 4;
@@ -92,12 +78,8 @@ const FRACTION_SHIFT: u32 = 4;
 const FRACTION_STEP_NUMERATOR: i32 = 625;
 const FRACTION_STEP_DENOMINATOR: i32 = 10;
 
-/// One TMP461 on the I2C bus: its address and what each of its two
-/// channels measures. The bus is passed in on each read so multiple
-/// devices can share a `&mut I`.
 #[derive(Clone, Copy)]
 pub struct Tmp461 {
-    /// The sensor's 7-bit I2C address.
     pub(crate) address: SevenBitAddress,
     /// What the local channel, the sensor's own package, measures.
     pub(crate) local: TempSource,
@@ -132,27 +114,18 @@ impl Tmp461 {
         self.remote
     }
 
-    /// Read both channels, each as what its field names, or as the fault
-    /// that kept it from a reading.
     pub async fn read_temperatures<I: I2c>(&self, i2c: &mut I) -> Readings<I::Error> {
         let local = add_source(self.local, self.read_local_temperature(i2c).await);
         let remote = add_source(self.remote, self.read_remote_temperature(i2c).await);
         [local, remote].into_iter().collect()
     }
 
-    /// Read the remote-diode channel.
-    ///
-    /// The remote diode is intended to be the ASIC die; this is the
-    /// authoritative thermal reading for die-temperature protection.
-    ///
-    /// Returns `Err` on a bus error or when the decoded value is outside
-    /// the standard operating range.
+    /// The remote diode is intended to be the ASIC die, so this is the
+    /// authoritative reading for die-temperature protection.
     pub async fn read_remote_temperature<I, E>(&self, i2c: &mut I) -> Result<Temperature, Error<E>>
     where
         I: I2c<Error = E>,
     {
-        // The OPEN status bit flags an open/unconnected remote diode — the
-        // expected state when the ASIC it senses is unpowered.
         let status = read_byte(i2c, self.address, REG_STATUS).await?;
         if status & STATUS_OPEN != 0 {
             return Err(Error::OpenCircuit);
@@ -177,10 +150,8 @@ impl Tmp461 {
             low,
             temperature,
         );
-        // A shorted remote diode reads exactly −64 °C; an unbiased/floating
-        // one rails to full scale. Both are channel-fault rails, not real
-        // die temperatures. The saturation rail depends on the active range:
-        // standard tops at 127.9375 °C, extended at 191.9375 °C.
+        // Both rails are channel faults rather than temperatures, and which
+        // saturation rail applies depends on the active range.
         if temperature == SHORT_CIRCUIT {
             return Err(Error::ShortCircuit);
         }
@@ -198,8 +169,6 @@ impl Tmp461 {
         Ok(temperature)
     }
 
-    /// Read the Configuration register and return whether extended range is
-    /// active.
     async fn read_extended_range<I, E>(&self, i2c: &mut I) -> Result<bool, Error<E>>
     where
         I: I2c<Error = E>,
@@ -208,12 +177,6 @@ impl Tmp461 {
         Ok(config & CONFIG_EXTENDED_RANGE != 0)
     }
 
-    /// Read the local (on-package) channel.
-    ///
-    /// Useful for ambient context alongside the remote die reading.
-    ///
-    /// Returns `Err` on a bus error or when the decoded value is outside
-    /// the standard operating range.
     pub async fn read_local_temperature<I, E>(&self, i2c: &mut I) -> Result<Temperature, Error<E>>
     where
         I: I2c<Error = E>,
@@ -227,9 +190,8 @@ impl Tmp461 {
             extended,
         }
         .into();
-        // The local channel on a working sensor never rails to the remote-diode
-        // sentinel values. Reaching them indicates a defective TMP461 package.
-        // The saturation rail depends on the active range.
+        // A working sensor never rails the local channel to a remote-diode
+        // sentinel, so reaching one means a defective package.
         if temperature == SHORT_CIRCUIT {
             #[cfg(feature = "defmt")]
             ubos_logging::warn!(
@@ -258,24 +220,20 @@ impl Tmp461 {
     }
 }
 
-/// Error returned by [`Tmp461`] read operations.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error<E> {
-    /// I2C bus error.
     I2c(E),
-    /// Remote diode open-circuit (the `OPEN` status bit is set). Expected
-    /// when the sensed ASIC is unpowered.
+    /// Remote diode open-circuit, which is the expected state while the
+    /// sensed ASIC is unpowered.
     OpenCircuit,
-    /// Remote diode shorted (the channel reads −64 °C).
+    /// Remote diode shorted, reported as the `SHORT_CIRCUIT` rail.
     ShortCircuit,
-    /// Remote channel railed to full scale (127.9375 °C) — an unbiased or
-    /// floating diode, not a real die temperature.
+    /// Channel railed to full scale, which an unbiased or floating diode
+    /// does.
     Saturated,
-    /// Decoded value is outside the standard operating range.
     OutOfRange(Temperature),
 }
 
-/// Read a single register byte from `address` at `register`.
 async fn read_byte<I, E>(i2c: &mut I, address: u8, register: u8) -> Result<u8, Error<E>>
 where
     I: I2c<Error = E>,
@@ -297,17 +255,14 @@ pub(crate) struct RawTmp461 {
 }
 
 /// In standard range the high byte is 2's-complement degrees; in extended
-/// range it is unsigned with a −64 °C offset. The low byte's upper nibble
-/// (bits 7:4) is the fractional part in 1/16 °C steps (62.5 m°C each),
-/// always added as a positive quantity. Using `625 / 10` for the fractional
-/// step keeps the result in integer millicelsius with no floats.
+/// range it is unsigned with a −64 °C offset. The low byte's fraction is
+/// always added as a positive quantity.
 impl From<RawTmp461> for Temperature {
     fn from(raw: RawTmp461) -> Self {
         let degrees = if raw.extended {
             i32::from(raw.high) - EXTENDED_RANGE_OFFSET_C
         } else {
-            // Standard range encodes the high byte as 2's-complement degrees;
-            // reinterpret the bits rather than a value-changing cast.
+            // Reinterpret the bits rather than take a value-changing cast.
             i32::from(i8::from_ne_bytes([raw.high]))
         };
         Self::from_millicelsius(

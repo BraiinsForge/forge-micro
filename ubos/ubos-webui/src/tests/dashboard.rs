@@ -19,17 +19,13 @@
 
 //! Tests for the dashboard asset pipeline.
 //!
-//! The HTTP handler itself is not exercised here (host-runner has no
-//! edge-http server harness yet). Until then, the invariants the
-//! handler relies on — each payload is a real gzip stream that
-//! decompresses to well-formed HTML carrying the app's API surface —
-//! are unit-tested below. The Vite build inlines all JS and CSS into
-//! one HTML file per page, so the anchors are chosen from string
-//! literals that survive terser minification (API paths, form
-//! attributes) rather than from mangled identifiers or scoped classes.
+//! The HTTP handler itself is not exercised here; what is tested is the
+//! invariant it relies on, that each payload is a real gzip stream which
+//! decompresses to well-formed HTML carrying the app's API surface. The
+//! anchors are string literals that survive minification, never mangled
+//! identifiers or scoped classes.
 
-// The crate is `#![no_std]`; opt back into std for the test harness so
-// we can allocate format strings and decompress.
+// The crate is `#![no_std]`, and the harness needs allocation.
 extern crate std;
 
 use std::io::Read;
@@ -48,7 +44,6 @@ const BRAND_TOKENS: [&str; 4] = [
 /// from the same `brand.json` it stamped the pages with.
 const BRAND_NAME: &str = include_str!(concat!(env!("OUT_DIR"), "/brand-name"));
 
-/// Decompress a gzipped asset into a UTF-8 string.
 fn decompress(gz: &[u8]) -> String {
     let mut html = String::new();
     flate2::read::GzDecoder::new(gz)
@@ -57,9 +52,6 @@ fn decompress(gz: &[u8]) -> String {
     html
 }
 
-/// Decompressed payload must look like real HTML at both ends. Catches
-/// a build.rs regression that emits the wrong file or truncates the
-/// stream.
 #[test]
 fn index_payload_is_well_formed_html() {
     let html = decompress(crate::INDEX_HTML_GZ);
@@ -74,13 +66,10 @@ fn index_payload_is_well_formed_html() {
     );
 }
 
-/// Brand markers must be gone from the embedded page: the bundler's
-/// `define` step and the HTML template replace the source identifiers
-/// with the stamp tokens, and build.rs replaces the tokens with the
-/// brand. A leftover of either kind means one of the two steps did not
-/// run.
 #[test]
 fn index_payload_has_no_unsubstituted_build_markers() {
+    // A source identifier left behind means the bundler did not
+    // substitute; a stamp token left behind means `build.rs` did not.
     let html = decompress(crate::INDEX_HTML_GZ);
     assert!(!html.contains("__BRAND_NAME__"), "brand name not injected");
     for token in BRAND_TOKENS {
@@ -92,9 +81,6 @@ fn index_payload_has_no_unsubstituted_build_markers() {
     );
 }
 
-/// Each API surface the SPA depends on must be present as a string
-/// literal in the inlined bundle. SWC does not mangle string
-/// literals, so these anchors stay stable across minifier upgrades.
 #[test]
 fn index_payload_contains_api_surface() {
     let html = decompress(crate::INDEX_HTML_GZ);
@@ -110,33 +96,33 @@ fn index_payload_contains_api_surface() {
     );
 }
 
-/// The Sv2 authority key is edited inside the pool URL, not in a field
-/// of its own, so the URL placeholder is what tells the operator the
-/// key belongs there. Both literals survive minification.
-///
-/// The second anchor is the old rejection message, not the word
-/// `base64` on its own: Basic auth encodes its credentials that way,
-/// so the bare word lives in the bundle for reasons of its own.
 #[test]
 fn index_payload_advertises_the_pubkey_in_the_pool_url() {
     let html = decompress(crate::INDEX_HTML_GZ);
+    // The key is edited inside the pool URL rather than in a field of its
+    // own, so the placeholder is what tells the operator it belongs there.
     assert!(
         html.contains("stratum2+tcp://host:port/pubkey"),
         "pool URL placeholder does not advertise the pubkey path"
     );
+    // The anchor is the old rejection message, not the word `base64`:
+    // Basic auth encodes its credentials that way, so the bare word lives
+    // in the bundle for reasons of its own.
     assert!(
         !html.contains("32 bytes of base64"),
         "stale base64 pubkey rejection message still present"
     );
 }
 
-/// Logout must ship as a navigation form, not a JS-driven anchor, so
-/// the browser follows the `302` to `/login` in one browser-paced
-/// request. Preact compiles the markup to `jsx('form', { action:
-/// '/logout', method: 'post' })`, so the payload carries the form's
-/// `action`/`method` as prop literals rather than HTML attributes.
+// Logout ships as a navigation form, not a JS-driven anchor, so the
+// browser follows the `302` to `/login` in one browser-paced request.
+// Preact compiles the markup to `jsx('form', { action: '/logout', method:
+// 'post' })`, so the payload carries the form's `action` and `method` as
+// prop literals rather than HTML attributes.
 #[test]
 fn index_payload_logout_is_post_form() {
+    // Preact compiles the markup to a `jsx` call, so the form's action
+    // and method ship as prop literals and not as HTML attributes.
     let html = decompress(crate::INDEX_HTML_GZ);
     assert!(
         html.contains(r#"action:"/logout""#),
@@ -145,13 +131,10 @@ fn index_payload_logout_is_post_form() {
     assert!(html.contains(r#""post""#), "logout form does not POST");
 }
 
-/// Upper bound on the gzipped dashboard payload. The Preact runtime
-/// plus the compiled dashboard/config/events components sit above the
-/// vanilla hand-written UI, so the budget is larger here; it still
-/// guards against a minifier no-op or an accidental ship of
-/// uncompressed bytes. Bump deliberately when adding features.
 #[test]
 fn index_payload_size_within_budget() {
+    // The bound guards against a minifier no-op or an accidental ship of
+    // uncompressed bytes.
     const MAX_GZ_BYTES: usize = 28 * 1024;
     assert!(
         crate::INDEX_HTML_GZ.len() <= MAX_GZ_BYTES,
@@ -161,11 +144,6 @@ fn index_payload_size_within_budget() {
     );
 }
 
-/// `INDEX_HTML_GZ` must contain a non-empty gzip stream that
-/// decompresses, so a build.rs change that emits an empty buffer or a
-/// non-gzip payload fails here rather than in the browser with a
-/// `Content-Encoding: gzip` decode error. The guard is a successful
-/// round-trip to the doctype rather than a magic-number check.
 #[test]
 fn index_asset_is_non_empty_gzip() {
     assert!(!crate::INDEX_HTML_GZ.is_empty(), "empty gzip stream");
@@ -175,11 +153,10 @@ fn index_asset_is_non_empty_gzip() {
     );
 }
 
-/// The login page is framework-free (no Preact runtime), so it stays
-/// small: shell checks plus a tight size bound that a regression
-/// re-introducing the runtime here would trip.
 #[test]
 fn login_payload_is_well_formed_and_within_budget() {
+    // The login page carries no framework, so a regression that pulls the
+    // runtime back into it trips this bound.
     const MAX_GZ_BYTES: usize = 4 * 1024;
     let html = decompress(crate::LOGIN_HTML_GZ);
     assert!(html.starts_with("<!DOCTYPE html>"));

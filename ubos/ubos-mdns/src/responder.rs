@@ -19,18 +19,10 @@
 
 //! mDNS responder advertising the board hostname and its DNS-SD services.
 //!
-//! Delegates the RFC 6762 probe phase from §8.1, the announcement phase from
-//! §8.3, and query-response handling to `edge-mdns`. We provide:
-//! - A: `<hostname>.local.` → DHCP-assigned IPv4
-//! - PTR/SRV/TXT for each entry in the `services` slice the caller passes
-//!   to [`run_mdns`]. Each entry is a `&ServiceEntry` declared by the crate
-//!   that owns the port via [`declare_service!`](crate::declare_service).
-//!   Two runtime TXT entries — `board=<board_name>` and `mcu=<mcu_name>` —
-//!   are appended to every service's TXT record by the responder.
-//!
-//! The responder reads `stack.config_v4()` on every loop iteration, so a
-//! DHCP renewal with a new lease becomes visible on the next socket-error
-//! restart.
+//! `edge-mdns` runs the RFC 6762 §8.1 probe phase, the §8.3 announcement
+//! phase and query-response handling. This module supplies the A record
+//! for `<hostname>.local.` and the PTR, SRV and TXT records for every
+//! entry the caller passes to [`run_mdns`].
 
 use core::convert::Infallible;
 use core::fmt::Write;
@@ -58,45 +50,32 @@ use crate::registry::ServiceEntry;
 #[path = "tests/responder.rs"]
 mod tests;
 
-/// Transport protocol used by every service the responder advertises.
+/// A [`ServiceEntry`] declares no protocol, so every advertisement is TCP.
 const TCP_PROTOCOL: &str = "_tcp";
-/// A record TTL in seconds. RFC 6762 §10 recommends 120 s for volatile
-/// addresses such as DHCP leases.
+/// RFC 6762 §10 recommends 120 s for volatile addresses such as DHCP leases.
 const TTL_SECS: u32 = 120;
-/// Seconds to wait before retrying after a bind or run error.
 const RETRY_DELAY_SECS: u64 = 5;
-/// Buffer size for mDNS datagrams. RFC 6762 §17 caps mDNS messages at
-/// the interface UDP payload max.
+/// RFC 6762 §17 caps mDNS messages at the interface UDP payload max.
 const BUFFER_SIZE: usize = 1472;
-/// Packet-metadata slots per direction for the mDNS UDP socket.
 const METADATA_SLOTS: usize = 4;
-/// Sockets in the UDP pool. One is sufficient because the responder
-/// holds a single socket for the lifetime of each run attempt.
+/// The responder holds a single socket for the lifetime of each run attempt.
 const SOCKET_POOL_SIZE: usize = 1;
-/// Maximum number of services that the responder can announce in a
-/// single run. Eight entries occupy at most a few hundred bytes of
-/// stack and leave room for all planned service crates without
-/// revisiting this constant.
+/// Bound on the services one run advertises. The per-run TXT storage and
+/// the answer-record vector are stack-allocated for it.
 const MAX_SERVICES: usize = 8;
-/// Maximum number of TXT key-value pairs per service entry, including
-/// the two runtime-appended `board=` and `mcu=` pairs. Four static
-/// pairs plus two runtime pairs is sufficient for any service planned
-/// in this workspace.
+/// TXT key-value pairs per service, the runtime `board=` and `mcu=` pairs
+/// included, so a [`ServiceEntry`] may declare at most this minus two.
 const MAX_TXT_PAIRS: usize = 6;
 
-/// `edge_mdns::io::Mdns::new` takes a `&Signal` to wake the responder
-/// for unsolicited re-announces. We never signal it; address changes
-/// are picked up via the socket-error restart loop in `run_mdns`. The
-/// static still has to exist because the constructor needs a reference
-/// it can borrow for the responder's lifetime.
+/// Nothing signals this: an address change is picked up by the
+/// socket-error restart loop in [`run_mdns`] instead. The static exists
+/// because `edge_mdns::io::Mdns::new` borrows a `&Signal` for the
+/// responder's lifetime.
 static MDNS_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
-/// Scratch buffer for incoming mDNS datagrams handed to `edge-mdns`.
 static RECV_BUFFER: VecBufAccess<CriticalSectionRawMutex, { BUFFER_SIZE }> = VecBufAccess::new();
-/// Scratch buffer for outgoing mDNS datagrams built by `edge-mdns`.
 static SEND_BUFFER: VecBufAccess<CriticalSectionRawMutex, { BUFFER_SIZE }> = VecBufAccess::new();
 
-/// Pool of raw UDP socket buffers consumed by `edge-nal-embassy`.
 static UDP_BUFFERS: ConstStaticCell<
     UdpBuffers<{ SOCKET_POOL_SIZE }, { BUFFER_SIZE }, { BUFFER_SIZE }, { METADATA_SLOTS }>,
 > = ConstStaticCell::new(UdpBuffers::new());
@@ -104,15 +83,9 @@ static UDP_BUFFERS: ConstStaticCell<
 /// A counter-based RNG used only for the 0-250 ms probe-jitter delay.
 ///
 /// RFC 6762 §8.1 requires a random delay before sending probes to reduce
-/// multicast collisions. Cryptographic quality is not required; a simple
-/// LCG seeded from boot time plus the per-board hostname is sufficient
-/// and avoids pulling in an entropy source on the no-std target.
-/// `compose_hostname` folds one MAC byte into the hostname. On the
-/// boards whose MAC is derived per unit that byte differs between
-/// same-family boards, so they seed distinct LCGs even when their boot
-/// ticks line up. On boards with a const family MAC the byte is shared,
-/// so same-family units rely instead on differing boot ticks and the
-/// `edge-mdns` conflict-resolution path.
+/// multicast collisions. Cryptographic quality is not required, so an LCG
+/// seeded from boot time plus the per-board hostname avoids pulling an
+/// entropy source into the no-std target.
 struct CounterRng(u64);
 
 impl CounterRng {
@@ -120,8 +93,8 @@ impl CounterRng {
     ///
     /// The hostname seeds the high half of the LCG state through a
     /// FNV-1a fold; the boot tick seeds the low half. Boards with
-    /// distinct hostnames (and so distinct MAC suffixes) start the
-    /// LCG at different points even when they boot simultaneously.
+    /// distinct hostnames start the LCG at different points even when
+    /// they boot simultaneously.
     fn new(hostname: &str) -> Self {
         const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
         const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
@@ -131,7 +104,9 @@ impl CounterRng {
             hash = hash.wrapping_mul(FNV_PRIME);
         }
         let ticks = Instant::now().as_ticks();
-        // rotate_left(32) spreads the lower-bits-dominant tick count into the high half so identical-boot-time boards still pick different probe jitter.
+        // rotate_left(32) spreads the lower-bits-dominant tick count into
+        // the high half, so boards that boot at the same instant still pick
+        // different probe jitter.
         Self(hash ^ ticks.rotate_left(32))
     }
 }
@@ -144,9 +119,8 @@ impl TryRng for CounterRng {
             .0
             .wrapping_mul(6_364_136_223_846_793_005)
             .wrapping_add(1_442_695_040_888_963_407);
-        // Returns the high 32 bits of the 64-bit LCG state; the explicit
-        // narrowing cast drops the low half by construction, not by
-        // accident.
+        // The narrowing cast drops the low half of the LCG state by
+        // construction, not by accident.
         Ok((self.0 >> 32) as u32)
     }
 
@@ -166,16 +140,12 @@ impl TryRng for CounterRng {
 }
 
 /// `HostAnswers` adapter visiting every service in `services` against a
-/// shared `host`. Adding another `_…._tcp` advert means adding an entry to
-/// the registry that the caller builds; the responder loop and call sites do
-/// not change.
+/// shared `host`.
 ///
-/// Each visited [`ServiceAnswers`] re-emits the host's A record (AAAA is
-/// skipped because `Host::ipv6` is `UNSPECIFIED`), so an A query response
-/// includes one copy per service. Receivers collapse duplicate records with
-/// the same name, type, and rdata into a single cache entry per RFC 6762 §10
-/// (cache management); stripping them on our side would require
-/// reimplementing `Service::visit_answers`.
+/// Each visited [`ServiceAnswers`] re-emits the host's A record, so an A
+/// query response carries one copy per service. RFC 6762 §10 has receivers
+/// collapse duplicate records into a single cache entry, and stripping them
+/// here would mean reimplementing `Service::visit_answers`.
 struct ServicesAnswers<'a> {
     host: &'a Host<'a>,
     services: &'a [Service<'a>],
@@ -194,31 +164,22 @@ impl HostAnswers for ServicesAnswers<'_> {
     }
 }
 
-/// Build the TXT key-value pairs for a registry entry by zipping the
-/// entry's parallel key/value slices and appending the runtime
-/// `board=` and `mcu=` pairs.
+/// Build the TXT key-value pairs for a registry entry, appending the
+/// runtime `board=` and `mcu=` pairs.
 ///
-/// Returns a `heapless::Vec` capped at [`MAX_TXT_PAIRS`].
-/// Two slots are reserved for the runtime `board=` and `mcu=` entries,
-/// leaving `MAX_TXT_PAIRS - 2` = 4 slots for static keys. Panics if
-/// the registry entry exceeds that budget; `declare_service!` data is
-/// static so the panic is deterministic on first call rather than a
-/// runtime-data-dependent failure. Every caller in the workspace
-/// currently provides 1 static key.
+/// Panics if the entry declares more static keys than [`MAX_TXT_PAIRS`]
+/// leaves once those two are reserved. `declare_service!` data is static,
+/// so the panic fires on the first call rather than on some later input.
 fn build_txt_pairs<'a>(
     entry: &'a ServiceEntry,
     board_name: &'a str,
     mcu_name: &'a str,
 ) -> Vec<(&'a str, &'a str), { MAX_TXT_PAIRS }> {
-    // Static keys must leave room for the two runtime entries appended
-    // below. Overflow is a declare_service! bug; the assert surfaces it
-    // before .take() would silently truncate.
     let mut pairs: Vec<(&str, &str), { MAX_TXT_PAIRS }> = Vec::new();
-    // Parallel slices: a length mismatch would let zip() silently drop
-    // trailing entries on the longer slice, advertising fewer TXT pairs
-    // than the caller wrote in declare_service!. The debug_assert
-    // surfaces the inconsistency in tests without spending flash on a
-    // release-build panic for what is a compile-time-static bug.
+    // A length mismatch would let zip() drop the trailing entries of the
+    // longer slice, advertising fewer pairs than declare_service! names.
+    // The mismatch is static, so a debug assertion catches it in tests
+    // without spending release flash on a panic.
     debug_assert_eq!(
         entry.txt_keys.len(),
         entry.txt_values.len(),
@@ -235,14 +196,10 @@ fn build_txt_pairs<'a>(
         .zip(entry.txt_values.iter())
         .take(static_cap)
     {
-        // take(static_cap) bounds the iterator to at most static_cap entries,
-        // which is MAX_TXT_PAIRS - 2, so pairs always has capacity for each push.
         pairs
             .push((key, value))
             .expect("BUG: pairs sized for MAX_TXT_PAIRS entries; take(static_cap) bounds iteration to static_cap = MAX_TXT_PAIRS - 2");
     }
-    // The assert above proves entry.txt_keys.len() <= static_cap = MAX_TXT_PAIRS - 2,
-    // leaving exactly two free slots for the board= and mcu= runtime entries.
     pairs
         .push(("board", board_name))
         .expect("BUG: pairs has capacity for board= entry; static-key assert proves at most MAX_TXT_PAIRS - 2 entries were pushed");
@@ -252,10 +209,6 @@ fn build_txt_pairs<'a>(
     pairs
 }
 
-/// Build an `edge_mdns::Service` from a registry entry.
-///
-/// `txt_storage` is a reference to the already-built TXT pairs for
-/// this entry; it must outlive the returned `Service`.
 fn build_service<'a>(
     entry: &'a ServiceEntry,
     hostname: &'a str,
@@ -276,25 +229,19 @@ fn build_service<'a>(
 /// Announce `<hostname>.local.` plus every entry in `services` via mDNS.
 ///
 /// `hostname` is the DNS-safe per-unit label used in the A and SRV
-/// records. `board_name` and `mcu_name` are the human-readable board
-/// and MCU identifiers appended to every service's TXT record as
-/// `board=<board_name>` and `mcu=<mcu_name>`. `services` is the list
-/// of advertisements composed by the firmware; the responder iterates
-/// it on every loop pass to build the SRV and TXT records.
+/// records. `board_name` and `mcu_name` reach every service's TXT record
+/// as `board=<board_name>` and `mcu=<mcu_name>`.
 ///
-/// Each iteration reads the stack's current IPv4 config; if no lease
-/// is held the loop sleeps for [`RETRY_DELAY_SECS`]
-/// seconds and tries again. On any socket or protocol error the same
-/// delay applies, so an address change after a DHCP renewal is picked
-/// up on the next restart without requiring a reboot.
+/// Each iteration reads the stack's current IPv4 config afresh and waits
+/// [`RETRY_DELAY_SECS`] when there is no lease or the responder returns
+/// an error, so a DHCP renewal that changes the address is picked up on
+/// the next restart and needs no reboot.
 ///
 /// # Panics
 ///
-/// Panics if `services.len()` exceeds [`MAX_SERVICES`]:
-/// the per-service `txt_storage` and the `built` answer-record vec are
-/// sized for that bound. Callers wire `services` from a `static` slice
-/// determined at firmware link time, so this is a firmware bug, not a
-/// runtime input.
+/// Panics if `services.len()` exceeds [`MAX_SERVICES`]. Callers wire
+/// `services` from a `static` slice fixed at firmware link time, so that
+/// is a firmware bug and not a runtime input.
 pub async fn run_mdns(
     stack: Stack<'static>,
     hostname: &'static str,
@@ -317,13 +264,11 @@ pub async fn run_mdns(
             octets[0], octets[1], octets[2], octets[3]
         );
 
-        // Build TXT storage for each caller-supplied entry on the stack.
-        // The Vec elements live for the duration of `bind_and_run`;
-        // `build_service` borrows slices into these Vecs.
+        // The elements must outlive `bind_and_run`, because the services
+        // built below borrow slices into them.
         let mut txt_storage: Vec<Vec<(&str, &str), { MAX_TXT_PAIRS }>, { MAX_SERVICES }> =
             Vec::new();
         for entry in services {
-            // `services` is bounded to MAX_SERVICES by the caller's static slice.
             txt_storage
                 .push(build_txt_pairs(entry, board_name, mcu_name))
                 .expect("BUG: txt_storage sized for MAX_SERVICES entries; services slice must not exceed MAX_SERVICES");
@@ -331,8 +276,6 @@ pub async fn run_mdns(
 
         let mut built: Vec<Service<'_>, { MAX_SERVICES }> = Vec::new();
         for (entry, txt) in services.iter().zip(txt_storage.iter()) {
-            // zip() produces at most services.len() pairs, which is bounded
-            // to MAX_SERVICES by the same invariant as txt_storage above.
             built
                 .push(build_service(entry, hostname, txt.as_slice()))
                 .expect("BUG: built sized for MAX_SERVICES entries; services slice must not exceed MAX_SERVICES");
@@ -346,8 +289,6 @@ pub async fn run_mdns(
     }
 }
 
-/// Bind the UDP socket, build the host record, and run the edge-mdns
-/// responder over the caller's service list until it returns an error.
 async fn bind_and_run(
     udp: &Udp<'_>,
     host_ipv4: Ipv4Addr,
@@ -357,6 +298,7 @@ async fn bind_and_run(
     let host = Host {
         hostname,
         ipv4: host_ipv4,
+        // The AAAA record is skipped because this address is unspecified.
         ipv6: Ipv6Addr::UNSPECIFIED,
         ttl: Ttl::from_secs(TTL_SECS),
     };
@@ -390,10 +332,9 @@ const HOSTNAME_SUFFIX_LEN: usize = 3;
 
 /// Compile-time guard: `CAP` must be at least `BASE_LEN + HOSTNAME_SUFFIX_LEN`.
 ///
-/// Evaluated by referencing `AssertCap::<CAP, BASE_LEN>::OK` in the
-/// caller. The associated const triggers a compile-time assertion
-/// rather than a runtime panic, so a future enlargement of
-/// `MDNS_HOSTNAME_BASE` surfaces at build time rather than at boot.
+/// Referencing `AssertCap::<CAP, BASE_LEN>::OK` evaluates the assertion
+/// at build time, so an enlarged `MDNS_HOSTNAME_BASE` fails the build
+/// instead of panicking at boot.
 struct AssertCap<const CAP: usize, const BASE_LEN: usize>;
 
 impl<const CAP: usize, const BASE_LEN: usize> AssertCap<CAP, BASE_LEN> {
@@ -407,26 +348,20 @@ impl<const CAP: usize, const BASE_LEN: usize> AssertCap<CAP, BASE_LEN> {
 /// `&'static str`.
 ///
 /// `cell` must be initialised exactly once for the lifetime of the
-/// firmware; callers reuse the returned slice as the mDNS hostname.
-/// `CAP` must be at least `base.len() + HOSTNAME_SUFFIX_LEN`;
-/// `BASE_LEN` must equal `base.len()` so the const assertion turns a
-/// future enlargement of `base` into a build failure rather than a
-/// boot-time panic.
+/// firmware. `BASE_LEN` must equal `base.len()`, which is what lets
+/// `AssertCap` prove at build time that `CAP` leaves room.
 ///
-/// `base` is hardcoded per board family. Callers pass the low MAC byte
-/// as `suffix`: on boards whose MAC is derived per unit it differs
-/// between units, so same-family units get distinct hostnames; on
-/// boards with a const family MAC it is `MAC_ADDR[5]`, a per-family
-/// constant, so same-family units share the hostname across every
-/// advertised service and rely on RFC 6762 §9 conflict-resolution
-/// renames every boot. `Board::NAME` is human-readable and contains
+/// Callers pass the low MAC byte as `suffix`: where the MAC is derived
+/// per unit the hostname is unique, and where it is a const family MAC
+/// the units of one family share a hostname and rely on RFC 6762 §9
+/// conflict-resolution renames every boot. `Board::NAME` contains
 /// spaces, so it cannot be used as a DNS label.
 ///
 /// # Panics
 ///
-/// Panics if `BASE_LEN` does not equal `base.len()`. Callers pass
-/// `BASE_LEN` as a `const` derived from the same `base` symbol, so
-/// this only fires when a caller hand-writes an inconsistent literal.
+/// Panics if `BASE_LEN` does not equal `base.len()`. Callers derive
+/// `BASE_LEN` from the same `base` symbol, so this fires only on a
+/// hand-written literal.
 pub fn compose_hostname<const CAP: usize, const BASE_LEN: usize>(
     base: &'static str,
     suffix: u8,
@@ -440,8 +375,6 @@ pub fn compose_hostname<const CAP: usize, const BASE_LEN: usize>(
         "BUG: BASE_LEN const generic must equal base.len()",
     );
     let mut buffer: heapless::String<CAP> = heapless::String::new();
-    // `AssertCap` above proves `CAP >= BASE_LEN + HOSTNAME_SUFFIX_LEN`,
-    // so writing `<base>-<suffix:02x>` always fits.
     write!(&mut buffer, "{base}-{suffix:02x}")
         .expect("BUG: mDNS hostname does not fit in the buffer");
     cell.init(buffer).as_str()
@@ -450,23 +383,14 @@ pub fn compose_hostname<const CAP: usize, const BASE_LEN: usize>(
 /// Compose a hostname, preferring an operator-configured value over the
 /// `<base>-<suffix:02x>` default.
 ///
-/// When `configured` is empty, this function delegates entirely to
-/// [`compose_hostname`], treating the empty string as the "use
-/// build-time default" sentinel. Callers that want to honour every
-/// valid operator hostname must ensure `CAP` is at least as large as
-/// the hostname capacity accepted by the config layer; the config layer
-/// currently caps hostnames at 32 bytes, so `CAP >= 32` prevents silent
-/// fallback for any operator-supplied value. When `configured` does not
-/// fit in the buffer (i.e. `configured.len() > CAP`), the function
-/// silently falls back to the composed `<base>-<suffix:02x>` default —
-/// it does not return an error, it does not truncate.
+/// An empty `configured` is the sentinel for the build-time default. A
+/// value too long for `CAP` falls back to that default instead of
+/// truncating or failing, so `CAP` must be at least `HOSTNAME_MAX` of
+/// `ubos-config` for every operator hostname to survive.
 ///
-/// DNS-label charset validity of `configured` is assumed: the config
-/// layer validates the input before it reaches this function, so no
-/// re-validation is performed here.
-///
-/// `cell` must be initialised exactly once for the lifetime of the
-/// firmware, the same constraint as [`compose_hostname`].
+/// The config layer validates the DNS-label charset, so `configured` is
+/// not re-checked here. `cell` carries the same constraint as in
+/// [`compose_hostname`].
 pub fn compose_hostname_configured<const CAP: usize, const BASE_LEN: usize>(
     configured: &str,
     base: &'static str,

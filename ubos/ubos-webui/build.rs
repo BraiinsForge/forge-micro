@@ -19,40 +19,30 @@
 
 //! Pre-compress the Preact dashboard and login pages for the firmware.
 //!
-//! The frontend is a Preact + Rsbuild project under `web/` with two HTML
-//! entries (`index.html`, `login.html`). `rsbuild build` emits one
-//! self-contained, minified HTML file per entry (all JS and CSS
-//! inlined). This script obtains those two files and gzips each into
-//! `OUT_DIR/<name>.html.gz`, which `src/lib.rs` embeds via
-//! `include_bytes!` and `dashboard.rs` serves with `Content-Encoding:
-//! gzip`, so first paint costs no runtime compression on the MCU.
-//! Gzip rather than Brotli: browsers only advertise `br` in
-//! `Accept-Encoding` over HTTPS and on `localhost`, and the board is
-//! reached over plain HTTP by IP, so a Brotli response would never be
-//! requested. Zopfli is an exhaustive DEFLATE encoder whose output is
-//! a standard gzip stream a few percent smaller than flate2 level 9;
-//! build time does not matter here, embedded bytes do.
+//! `rsbuild build` emits one self-contained, minified HTML file per
+//! entry. This script stamps those files and gzips each into
+//! `OUT_DIR/<name>.html.gz` for `src/lib.rs` to embed, so first paint
+//! costs no runtime compression on the MCU.
+//!
+//! Gzip rather than Brotli: a browser advertises `br` only over HTTPS
+//! and on `localhost`, and the board is reached over plain HTTP by IP,
+//! so a Brotli response would never be requested. Zopfli emits a
+//! standard gzip stream a few percent smaller than flate2 at level 9,
+//! and build time does not matter here where embedded bytes do.
 //!
 //! Two ways to obtain the built pages:
-//!   * If `UBOS_WEBUI_DIST` is set, read `<dist>/index.html` and
-//!     `<dist>/login.html`. The flake checks and the dev shells set
-//!     this to a hermetic `buildNpmPackage` derivation output; the
-//!     header of `nix/shells.nix` says why the shells do.
-//!   * Otherwise run `npm run build` in the crate directory and read
-//!     the resulting `dist/`. This is the path for a build outside
-//!     every shell that sets the variable, with Node on PATH.
+//!   * `UBOS_WEBUI_DIST` names a prebuilt dist. The flake checks and the
+//!     dev shells set it to a hermetic `buildNpmPackage` derivation
+//!     output; the header of `nix/shells.nix` says why the shells do.
+//!   * Otherwise `npm run build` runs in the crate directory, which is
+//!     the path for a build outside every shell that sets the variable.
 //!
-//! The brand is stamped here, not in the bundle, so the built dist is
-//! the same for every board and is cached across them. Each
-//! board declares one brand directory as `UBOS_BRAND` in its own
-//! `.cargo/config.toml`, and a nix build passes the same value from
-//! `nix/brands.nix`; this script reads `brand.json` from it, replaces
-//! the brand tokens the bundle carries, gzips the directory's
-//! `logo.svg` for the handler to serve at `/logo.svg`, and encodes its
-//! `icon.png` into the `data:` URI each page links. So one built dist
-//! serves every brand, and a firmware embeds the brand of the board it
-//! was built for. `brand/README.md` documents the file and the rules a
-//! new brand must obey.
+//! The brand is stamped here rather than built into the bundle:
+//! `rsbuild.config.ts` emits one token per value and this script replaces
+//! them. So one built dist is cached across every board and serves every
+//! brand, while the pages a firmware embeds carry the brand of the board
+//! it was built for. `brand/README.md` documents the brand file and the
+//! rules a new brand must obey.
 
 use std::env;
 use std::fs;
@@ -61,12 +51,11 @@ use std::process::Command;
 
 use std::num::NonZeroU64;
 
-/// Zopfli iteration count. The upstream binary's `--i1000` setting for
-/// maximum compression; gains flatten well before this, and the inputs
-/// are small enough that build time stays in seconds.
+/// Matches the upstream binary's maximum-compression setting. Gains
+/// flatten well before it and the inputs are small, so the cost is
+/// seconds of build time.
 const ZOPFLI_ITERATIONS: u64 = 1000;
 
-/// Gzip `bytes` with Zopfli at maximum effort and write to `dest`.
 fn gzip_to(bytes: &[u8], dest: &Path) {
     let options = zopfli::Options {
         iteration_count: NonZeroU64::new(ZOPFLI_ITERATIONS).expect("BUG: iteration count is zero"),
@@ -88,11 +77,9 @@ const ACCENT_HI_TOKEN: &str = "@UBOS_BRAND_ACCENT_HI@";
 const ACCENT_TEXT_TOKEN: &str = "@UBOS_BRAND_ACCENT_TEXT@";
 const ICON_TOKEN: &str = "@UBOS_BRAND_ICON@";
 
-/// The built pages, each beside the tokens it must carry. Both pages
-/// carry the whole brand. A page
-/// that is missing a token it names was built from a config that no
-/// longer matches this script, so that is a bug rather than a page to
-/// ship unstamped.
+/// The built pages, each beside the tokens it must carry. A page missing
+/// a token it names was built from a config that no longer matches this
+/// script, which is a bug rather than a page to ship unstamped.
 const PAGES: [(&str, &[&str]); 2] = [
     (
         "index",
@@ -159,12 +146,10 @@ fn stamp(html: &str, brand: &Brand, icon: &str) -> String {
 
 /// The brand's tab icon as a `data:` URI.
 ///
-/// The icon rides inside the page rather than being served from a path
-/// of its own. A board answers as many requests at once as its HTTP
-/// pool is deep, the smallest pool is two, and a page that links an
-/// icon by path costs a third request on every load. A browser that is
-/// offered no icon asks for `/favicon.ico` by itself, so leaving the
-/// link out costs that request too. Only a `data:` URI costs none.
+/// A board answers as many requests at once as its HTTP pool is deep,
+/// the smallest pool is two, and an icon linked by path costs a third
+/// request on every page load. A browser offered no icon asks for
+/// `/favicon.ico` by itself, so only a `data:` URI costs nothing.
 fn icon_data_uri(dir: &Path) -> String {
     use base64::Engine as _;
 
@@ -178,7 +163,6 @@ fn icon_data_uri(dir: &Path) -> String {
 /// first when `node_modules` is absent so a fresh checkout builds
 /// without a manual `npm ci`.
 fn run_web_build(manifest_dir: &Path) {
-    // The second of the two ways the module doc names.
     if !manifest_dir.join("node_modules").exists() {
         run_npm(manifest_dir, &["ci"]);
     }
@@ -200,7 +184,6 @@ fn run_npm(manifest_dir: &Path, args: &[&str]) {
 }
 
 fn main() {
-    // OUT_DIR is set by cargo for every build script invocation.
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("BUG: OUT_DIR unset by cargo"));
     let manifest_dir =
         PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("BUG: CARGO_MANIFEST_DIR unset"));
@@ -214,8 +197,6 @@ fn main() {
     let brand = read_brand(&brand_dir);
     let icon = icon_data_uri(&brand_dir);
 
-    // Locate the built pages: a prebuilt hermetic dist wins; otherwise
-    // build it here with Rsbuild.
     let dist_dir = if let Some(dir) = env::var_os("UBOS_WEBUI_DIST") {
         PathBuf::from(dir)
     } else {
@@ -237,15 +218,14 @@ fn main() {
         gzip_to(html.as_bytes(), &out_dir.join(format!("{name}.html.gz")));
     }
 
-    // The wordmark is a standalone `/logo.svg` asset (referenced by an
-    // `<img>`, not inlined in the bundle), so it does not pass through
-    // the bundler. Gzip it here too, so the handler can serve it with
-    // `Content-Encoding: gzip` instead of the raw SVG.
-    // The resolved brand name, for the page tests. They assert that each
-    // page carries it, which is what proves the tokens were replaced with
-    // the brand rather than merely removed.
+    // The page tests assert that each page carries the resolved brand
+    // name, which is what proves the tokens were replaced with the brand
+    // rather than merely removed.
     fs::write(out_dir.join("brand-name"), &brand.name).expect("BUG: write brand name");
 
+    // The wordmark is referenced by an `<img>` and never passes through
+    // the bundler, so it is gzipped here for the handler to serve with
+    // `Content-Encoding: gzip`.
     let logo_path = brand_dir.join("logo.svg");
     let logo = fs::read(&logo_path).unwrap_or_else(|_| panic!("BUG: read {}", logo_path.display()));
     gzip_to(&logo, &out_dir.join("logo.svg.gz"));

@@ -18,9 +18,8 @@
 // shall be considered distinct from the grant above.
 
 //! Board-temperature hardware drivers and the descriptor types a board
-//! uses to declare its sensor topology. The LM75A, TMP102, TMP461 and
-//! TMP464 drivers live in sibling modules, and [`Sensor::read_temperatures`]
-//! takes the [`Readings`] of whichever of them a descriptor names.
+//! uses to declare its sensor topology. [`Sensor::read_temperatures`]
+//! takes the [`Readings`] of whichever driver a descriptor names.
 //! `ubos-thermal` folds those readings, owns the sensor trait and the
 //! sample loop, and writes every metric; nothing here decides or
 //! publishes anything.
@@ -44,9 +43,7 @@ use crate::tmp102::Tmp102;
 use crate::tmp461::Tmp461;
 use crate::tmp464::Tmp464;
 
-/// One sensor of the board's topology, supplied by the board as const
-/// data: the part's driver, which carries its I2C address and what each of
-/// its channels measures.
+/// One sensor's board topology, supplied by the board as const data.
 #[derive(Clone, Copy)]
 pub enum SensorDescriptor {
     Lm75a(Lm75a),
@@ -56,7 +53,6 @@ pub enum SensorDescriptor {
 }
 
 impl SensorDescriptor {
-    /// The sensor's 7-bit I2C address.
     #[must_use]
     pub const fn address(&self) -> SevenBitAddress {
         match self {
@@ -68,31 +64,27 @@ impl SensorDescriptor {
     }
 }
 
-/// One sensor on the board: the descriptor of its part and the bus device
-/// it is read through. Each sensor owns its device, so a device that
-/// serialises a shared bus, such as embassy's `I2cDevice`, lets every
-/// sensor be read on its own.
+/// Each sensor owns its bus device, so a device that serialises a shared
+/// bus, such as embassy's `I2cDevice`, lets every sensor be read on its
+/// own.
 pub struct Sensor<Bus> {
     descriptor: &'static SensorDescriptor,
     bus: Bus,
 }
 
 impl<Bus: I2c> Sensor<Bus> {
-    /// The sensor `descriptor` names, read through `bus`.
     #[must_use]
     pub const fn new(descriptor: &'static SensorDescriptor, bus: Bus) -> Self {
         Self { descriptor, bus }
     }
 
-    /// The descriptor of the sensor's part.
     #[must_use]
     pub const fn descriptor(&self) -> &'static SensorDescriptor {
         self.descriptor
     }
 
-    /// Read every channel of the sensor through its driver, which tags
-    /// each channel's reading, or the fault that kept it from one, with
-    /// the source that the channel measures.
+    /// Read every channel, each tagged with what it measures, or with the
+    /// fault that kept it from a reading.
     pub async fn read_temperatures(&mut self) -> Readings<Bus::Error> {
         match self.descriptor {
             SensorDescriptor::Lm75a(driver) => driver.read_temperatures(&mut self.bus).await,
@@ -124,37 +116,29 @@ pub enum TempSource {
     },
     /// The air around the board.
     Ambient,
-    /// The control board.
     ControlBoard,
-    /// The power supply.
     Psu,
 }
 
 impl TempSource {
-    /// The hashboard on `chain`, as the I2C sensor at `address`
-    /// reads it.
     #[must_use]
     pub const fn hashboard(chain: HashboardIndex, address: SevenBitAddress) -> Self {
         Self::Hashboard { chain, address }
     }
 
-    /// The die of the chip `chip` on `chain`.
     #[must_use]
     pub const fn chip(chain: HashboardIndex, chip: ChipAddress) -> Self {
         Self::Chip { chain, chip }
     }
 }
 
-/// One temperature a sensor measured, and what it measured. Every sensor
-/// yields the same shape, whichever driver and channel it came from.
+/// The same shape from every driver and channel.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Reading {
     pub source: TempSource,
     pub value: Temperature,
 }
 
-/// The reading of `source` that `result` holds, or the fault that kept
-/// `source` from one.
 pub(crate) fn add_source<E, F: Into<SensorFault<E>>>(
     source: TempSource,
     result: Result<Temperature, F>,
@@ -168,7 +152,7 @@ pub(crate) fn add_source<E, F: Into<SensorFault<E>>>(
 }
 
 /// Why a channel gave no reading, normalised across every driver's
-/// `Error` enum, which each map in via `From`.
+/// `Error` enum.
 #[derive(Debug, PartialEq, Eq)]
 pub enum SensorFault<E> {
     I2c(E),
@@ -219,17 +203,14 @@ impl<E> From<tmp464::Error<E>> for SensorFault<E> {
     }
 }
 
-/// A channel that gave no reading: what the channel measures, and why.
 #[derive(Debug, PartialEq, Eq)]
 pub struct ReadingError<E> {
     pub source: TempSource,
     pub fault: SensorFault<E>,
 }
 
-/// The most readings one sensor yields: a TMP464's local channel and
-/// its remote channels.
+/// A TMP464's local channel and its remote channels.
 pub const MAX_READINGS: usize = 5;
 
-/// The outcome of every channel of one sensor: its reading, or the fault
-/// that kept it from one. The caller decides what a fault means.
+/// The caller decides what a fault means.
 pub type Readings<E> = Vec<Result<Reading, ReadingError<E>>, MAX_READINGS>;

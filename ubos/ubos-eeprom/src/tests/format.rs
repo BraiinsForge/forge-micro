@@ -21,10 +21,9 @@ use core::mem::offset_of;
 
 use super::*;
 
-/// Build a valid 256-byte EEPROM dump: `"BMM101 P00"` product name, a
-/// four-chip BM1362 BMM101 hashboard's worth of fields, and both
-/// sections' CRC-16/CCITT correctly filled in. Individual tests corrupt
-/// one field of the result to exercise a specific validation failure.
+/// Build a valid dump with every field populated and both CRCs filled
+/// in. Each test corrupts one field of it to reach a single validation
+/// failure.
 fn valid_dump() -> [u8; EEPROM_LEN] {
     let mut board = RawBoardInfo {
         magic: MAGIC,
@@ -66,9 +65,8 @@ fn valid_dump() -> [u8; EEPROM_LEN] {
     raw
 }
 
-/// Right-pad `text` with a NUL terminator, leaving the rest of the
-/// field `0xFF` — matching the erased-EEPROM filler BOS leaves past a
-/// field's content.
+// Terminate `text` with a NUL and fill the rest with `0xFF`, which is
+// what the factory leaves past a field's content.
 fn text<const N: usize>(text: &[u8]) -> [u8; N] {
     let mut field = [0xFFu8; N];
     field[..text.len()].copy_from_slice(text);
@@ -78,9 +76,8 @@ fn text<const N: usize>(text: &[u8]) -> [u8; N] {
     field
 }
 
-/// Recompute and store `BoardInfoSection`'s CRC over the current
-/// contents of `raw[..BOARD_INFO_LEN]`, for tests that corrupt a board
-/// field other than the CRC itself and need the CRC to still match.
+/// Restore the board CRC for a test that corrupts some other board field
+/// and still needs the CRC to match.
 fn refresh_board_crc(raw: &mut [u8; EEPROM_LEN]) {
     let crc = Crc::<u16>::new(&CRC_16_IBM_3740);
     let board_crc = crc.checksum(&raw[..BOARD_INFO_LEN - 2]);
@@ -167,9 +164,7 @@ fn rejects_corrupted_reserved_bytes() {
 #[test]
 fn non_ascii_text_field_falls_back_to_invalid_but_still_parses() {
     let mut raw = valid_dump();
-    // 0xC3 alone is not valid UTF-8, and even if it were, is not ASCII.
-    // A CRC-verified record with one garbled text field is not
-    // hypothetical: real hardware has produced exactly this.
+    // 0xC3 alone is neither valid UTF-8 nor ASCII.
     raw[offset_of!(RawBoardInfo, product_name)] = 0xC3;
     refresh_board_crc(&mut raw);
 
@@ -181,7 +176,6 @@ fn non_ascii_text_field_falls_back_to_invalid_but_still_parses() {
 #[test]
 fn unterminated_field_uses_full_width() {
     let mut raw = valid_dump();
-    // Fill the whole 10-byte asic_bin field with no NUL terminator.
     let asic_bin = offset_of!(RawBoardInfo, asic_bin);
     raw[asic_bin..asic_bin + 10].copy_from_slice(b"ABCDEFGHIJ");
     refresh_board_crc(&mut raw);

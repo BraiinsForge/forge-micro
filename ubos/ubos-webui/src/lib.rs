@@ -25,19 +25,16 @@
 //! `_http._tcp` via `WEBUI_SERVICE`.
 #![no_std]
 
-/// Gzipped dashboard payload. Built from the Preact project's `index`
-/// entry by the crate's `build.rs` (Vite single-file build, then
-/// Zopfli gzip).
+/// Gzipped dashboard payload, built by `build.rs` from the Preact
+/// project's `index` entry.
 pub const INDEX_HTML_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/index.html.gz"));
 
-/// Gzipped login-page payload. Built from the Preact project's `login`
-/// entry by the crate's `build.rs` (Vite single-file build, then
-/// Zopfli gzip).
+/// Gzipped login-page payload, built by `build.rs` from the Preact
+/// project's `login` entry.
 pub const LOGIN_HTML_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/login.html.gz"));
 
-/// Gzipped wordmark SVG served at `/logo.svg`. Compressed by the
-/// crate's `build.rs` from `logo.svg` in the brand directory the tree
-/// declares as `UBOS_BRAND`, and served with `Content-Encoding: gzip`.
+/// Gzipped wordmark SVG served at `/logo.svg`, taken from the brand
+/// directory the tree declares as `UBOS_BRAND`.
 pub const LOGO_SVG_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/logo.svg.gz"));
 
 ubos_mdns::declare_service!(
@@ -54,11 +51,9 @@ pub use dashboard::{DashboardService, seed_webui_credentials};
 
 #[cfg(test)]
 mod test_time_stubs {
-    // `ubos_auth::session` and `ubos_auth::csrf` call
-    // `embassy_time::Instant::now()` transitively via `DashboardService::handle`.
-    // `embassy-time-driver` declares the hook as `extern "Rust"`; no
-    // hardware driver is linked into the host test binary, so satisfy
-    // the linker with stubs that return a fixed tick of zero.
+    // `DashboardService::handle` reaches `embassy_time::Instant::now()`
+    // through `ubos_auth`, and no hardware time driver is linked into the
+    // host test binary, so these stubs satisfy the linker.
     #[allow(clippy::no_mangle_with_rust_abi)]
     #[unsafe(no_mangle)]
     fn _embassy_time_now() -> u64 {
@@ -68,7 +63,6 @@ mod test_time_stubs {
     #[allow(clippy::no_mangle_with_rust_abi)]
     #[unsafe(no_mangle)]
     fn _embassy_time_schedule_wake(_at: u64, _waker: &core::task::Waker) {
-        // No scheduler in the host binary; test paths do not block on
-        // timers so leaving this empty is safe.
+        // No test path blocks on a timer, so there is nothing to wake.
     }
 }

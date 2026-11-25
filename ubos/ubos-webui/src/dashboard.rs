@@ -19,32 +19,23 @@
 
 //! Dashboard service and HTTP handler for the firmware web UI.
 //!
-//! Owns only the web-UI surface; the JSON `/api/*` surface is handled by
-//! `ubos-api` behind the router that shares the listener.
+//! The transport loop and request parsing live in `ubos-http`, and the
+//! JSON `/api/*` surface in `ubos-api` behind the router that shares the
+//! listener. This module owns the handler dispatch and the response
+//! streaming through `edge-http`'s `Connection` state machine.
 //!
-//! - `GET /` returns the inlined HTML dashboard. The page is fully
-//!   static — every time-varying field is filled in client-side via
-//!   same-origin fetches against the API surface. Hash-routed SPA
-//!   with a top nav bar, three single-axis charts for hashrate,
-//!   temperature, and input/output power, a right-side telemetry
-//!   panel led by a Link status card, and a configuration form view.
-//! - `HEAD /` mirrors `GET /` but returns no body. The dashboard
-//!   uses it to refresh the single-use CSRF token between mutating
-//!   requests without re-downloading the compressed HTML asset.
-//! - `GET /login`, `POST /login`, `POST /logout` drive the session
-//!   cookie used by the SPA when it calls the API surface.
-//! - `GET /logo.svg` serves the brand wordmark referenced by the
-//!   dashboard's nav bar. Kept as a separate cacheable asset rather
-//!   than inlined so the index response stays inside its buffer. The
-//!   tab icon goes the other way and is inlined into each page as a
-//!   `data:` URI, because a board serves as few as two requests at
-//!   once and a page load must not need a third.
+//! - `GET /` returns the HTML dashboard, which is fully static: every
+//!   time-varying field is filled in client-side from the API surface.
+//! - `HEAD /` mirrors it with no body, which is how the page refreshes
+//!   its single-use CSRF token without downloading the HTML again.
+//! - `GET /login`, `POST /login` and `POST /logout` drive the session
+//!   cookie the page carries to the API surface.
+//! - `GET /logo.svg` stays a separate cacheable asset so the index
+//!   response fits its buffer. The tab icon goes the other way and is
+//!   inlined into each page, for the reason `build.rs` records on
+//!   `icon_data_uri`.
 //!
-//! Any other path returns a 404 with a plain-text body. Wrong-method
-//! requests on known paths return 405. The transport loop and request
-//! parsing live in `ubos-http`; this module owns the handler dispatch
-//! and the response streaming through `edge-http`'s `Connection` state
-//! machine.
+//! Any other path returns 404, and a wrong method on a known path 405.
 
 use core::fmt::Write as _;
 
@@ -65,14 +56,10 @@ use ubos_http::{
 #[path = "tests/dashboard.rs"]
 mod tests;
 
-/// Buffer for reading POST/PATCH request bodies.
-///
-/// Sized to `Http::REQUEST_BUFFER_SIZE` so a login form or config
-/// payload fits in one allocation. Requests that exceed this cap
-/// receive a 413 response.
+/// Buffer for reading request bodies. A body that does not fit is
+/// answered with 413.
 const BODY_READ_BUFFER_SIZE: usize = Http::REQUEST_BUFFER_SIZE;
 
-/// Write a 302 redirect response to `location`.
 async fn write_redirect<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     location: &str,
@@ -88,7 +75,6 @@ where
     .await
 }
 
-/// Write a 302 redirect that also clears the session cookie.
 async fn write_logout_redirect<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
 ) -> Result<(), HttpError<T::Error>>
@@ -110,7 +96,6 @@ where
     .await
 }
 
-/// Write a 302 redirect that sets the session cookie to `token`.
 async fn write_login_success_redirect<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     cookie_header: &str,
@@ -130,12 +115,10 @@ where
     .await
 }
 
-/// Write an empty `200 OK` body-less response for `HEAD /`.
+/// Write an empty `200 OK` for `HEAD /`.
 ///
-/// `extra_headers` carries the optional `X-CSRF-Token` for session
-/// clients. Content-Length is fixed at 0 and Content-Encoding is
-/// intentionally omitted so edge-http's `SendBody::finish` accepts the
-/// zero bytes that follow `initiate_response`.
+/// Content-Encoding is omitted so that edge-http's `SendBody::finish`
+/// accepts the zero bytes that follow `initiate_response`.
 async fn write_head_ok<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     extra_headers: &[(&str, &str)],
@@ -144,10 +127,9 @@ where
     T: Read + Write + TcpSplit,
 {
     let mut headers: Vec<(&str, &str), MAX_RESPONSE_HEADERS> = Vec::new();
-    // Three fixed slots plus caller-supplied extras. The .expect() calls
-    // assume the call site stays within MAX_RESPONSE_HEADERS=8. No
-    // Connection header is sent, so HTTP/1.1 keeps the connection alive for
-    // the next request.
+    // The pushes are infallible while the caller's extras keep the total
+    // within MAX_RESPONSE_HEADERS. No response sends a Connection header,
+    // so HTTP/1.1 keeps the connection alive for the next request.
     headers
         .push(("Content-Type", "text/html; charset=utf-8"))
         .expect("BUG: response header vec sized for max headers");
@@ -165,13 +147,8 @@ where
     start_response(connection, Status::OK, &headers).await
 }
 
-/// Write a static asset response (gzipped HTML or SVG) to `connection`.
-///
-/// `content_type` is the MIME type. `cache_control` is the header value.
-/// `encoding` is the optional `Content-Encoding` value; pass `Some("gzip")`
-/// for gzipped assets and `None` for plain assets.
-/// `extra_headers` may carry additional headers such as `X-CSRF-Token`.
-/// `body` is the raw asset bytes.
+/// Write a static asset response, `encoding` naming the
+/// `Content-Encoding` a compressed asset needs.
 async fn write_asset<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     content_type: &str,
@@ -185,12 +162,8 @@ where
 {
     let content_length = format_content_length(body.len());
 
-    // Assemble headers on the stack. The capacity is
-    // MAX_RESPONSE_HEADERS; each push is infallible within that budget
-    // because the slots used here are counted statically: 3 fixed plus
-    // 1 optional encoding plus extra_headers up to 2, totalling at most
-    // 6, within the 8-slot cap. No Connection header is sent, so HTTP/1.1
-    // keeps the connection alive for the next asset request.
+    // The pushes are infallible: three fixed headers, one optional
+    // encoding and at most two extras stay within MAX_RESPONSE_HEADERS.
     let mut headers: Vec<(&str, &str), MAX_RESPONSE_HEADERS> = Vec::new();
     headers
         .push(("Content-Type", content_type))
@@ -230,13 +203,12 @@ const FORM_FIELD_MAX_LEN: usize = 64;
 /// malformed `%`-escapes or non-UTF-8 bytes. `+` is decoded as a space
 /// per `application/x-www-form-urlencoded`.
 fn form_field(body: &str, key: &str) -> Option<heapless::String<FORM_FIELD_MAX_LEN>> {
-    // Build "key=" prefix to search for.
     let mut prefix = heapless::String::<64>::new();
     prefix.push_str(key).ok()?;
     prefix.push('=').ok()?;
     let prefix = prefix.as_str();
 
-    // Search for exact key match at start or after a '&'.
+    // A key matches only at the start of the body or after a '&'.
     let start = if body.starts_with(prefix) {
         prefix.len()
     } else {
@@ -299,14 +271,8 @@ fn percent_decode(input: &str) -> Option<heapless::String<FORM_FIELD_MAX_LEN>> {
     Some(result)
 }
 
-/// Dashboard handler implementing `ubos_http::Service`.
-///
-/// Serves the web-UI shell (HTML, login, logout, logo).
-/// Methods are enforced: wrong-method requests on known paths return
-/// 405. Every request that reaches this handler increments the request
-/// counter via `ubos_net::net::Handle::record_request` regardless of
-/// response status, so the metric reflects handled-request volume rather
-/// than success rate.
+/// Dashboard handler implementing `ubos_http::Service` over the web-UI
+/// shell: the page, the login form, logout and the logo.
 pub struct DashboardService {
     net: ubos_net::net::Handle,
 }
@@ -320,10 +286,9 @@ impl DashboardService {
 }
 
 impl Service for DashboardService {
-    // The line count comes from the flat match dispatch table, not
-    // from deep nesting. Splitting the table into per-path helpers
-    // would require threading the generic `Connection` parameter through
-    // each helper function, adding noise without reducing complexity.
+    // The length is a flat match dispatch table rather than nesting, and
+    // splitting it would thread the generic `Connection` through every
+    // helper for no gain.
     #[allow(clippy::too_many_lines)]
     async fn handle<TcpSocket, const N: usize>(
         &self,
@@ -334,10 +299,9 @@ impl Service for DashboardService {
     where
         TcpSocket: Read + Write + TcpSplit,
     {
-        // Count each request that reaches this handler so
-        // `http_requests` reflects dashboard and API traffic.
-        // The metrics port does not increment it, and a connection
-        // dropped before its request is parsed is never counted.
+        // The count is of handled requests, not of successful ones: the
+        // metrics port does not increment it, and a connection dropped
+        // before its request is parsed is never counted.
         self.net.record_request();
 
         let method = parts.method.as_str();
@@ -346,16 +310,13 @@ impl Service for DashboardService {
         let cookie = parts.cookie.as_deref();
         let content_length = parts.content_length;
 
-        // The dashboard admits anonymous requests, since an unauthenticated
-        // browser must still reach `/login`. The CSRF check runs separately
-        // below, once the request body has been read, so an oversized body
-        // does not burn the session's CSRF token.
+        // Anonymous requests are admitted because an unauthenticated
+        // browser must still reach `/login`.
         let identity_policy = ubos_auth::Policy {
             allow_anonymous: true,
         };
-        // Anonymous requests are admitted by the policy above, so the only
-        // rejection left is the allow-list, and it is answered with 401
-        // whichever variant names it.
+        // With anonymous requests admitted, the only rejection left is the
+        // allow-list, whichever variant names it.
         let Ok(auth_ctx) =
             ubos_auth::gate_identity(peer_ip, authorization, cookie, &identity_policy)
         else {
@@ -366,29 +327,16 @@ impl Service for DashboardService {
             .await;
         };
 
-        // Logout is idempotent and unauthenticated. The logout control is
-        // a navigation form, so a top-level POST that arrives without a
-        // live session must still land on `/login` by following the
-        // redirect. Gating it on auth would answer an anonymous logout
-        // with `401` plus `WWW-Authenticate: Basic`, which the browser
-        // renders as a native credential prompt instead. That happens
-        // whenever the session is gone but the tab still shows the button,
-        // for example after the in-RAM sessions are cleared by a reboot.
-        // The handler invalidates whatever session the cookie names, which
-        // is a no-op when there is none, then redirects.
-
         let is_mutating = matches!(method, "POST" | "PATCH" | "DELETE");
 
-        // For any mutating request, drain the body here so handlers
-        // have the bytes ready and edge-http reaches the response-write
-        // state before `initiate_response` is called. The work buffer is
-        // reused for the response after `initiate_response`, so the body
-        // must be in a separate stack buffer.
+        // The body is drained here so that edge-http reaches the
+        // response-write state before `initiate_response`, and into a
+        // separate stack buffer, because the work buffer is reused for the
+        // response.
         //
-        // The body is read before the CSRF check so that an oversized
-        // payload returning 413 does not consume the single-use CSRF
-        // token; the client can retry with a trimmed body using the same
-        // token instead of refetching `GET /`.
+        // It is read before the CSRF check so that an oversized payload
+        // answered with 413 does not consume the single-use token; the
+        // client can retry the trimmed body with the same token.
         let needs_body = is_mutating;
 
         let mut body_buffer = [0u8; BODY_READ_BUFFER_SIZE];
@@ -410,26 +358,14 @@ impl Service for DashboardService {
             &[]
         };
 
-        // POST /login requires a valid X-CSRF-Token header issued for the
-        // presented session. A victim browser on the LAN could otherwise
-        // be force-logged-in by an attacker page: the attacker submits
-        // their own credentials into the victim's browser, takes over the
-        // active session, and then observes any state the victim stores in
-        // that session. The check applies only when a session cookie is
-        // already present so that a fresh anonymous login (no prior
-        // session) is not gated; the token is issued to the existing
-        // session on `GET /` and reused here. Basic-authenticated requests
-        // are exempt because they carry no SPA session.
+        // Without this gate an attacker page could log a victim browser
+        // into the attacker's own account and then read whatever the
+        // victim puts in that session. It binds to the session already
+        // presented, so a fresh anonymous login is not gated and a
+        // Basic-authenticated request, which carries no session, is exempt.
         //
-        // POST /logout is intentionally not CSRF-gated. Logout is a plain
-        // navigation form so the browser follows the redirect to /login
-        // exactly like the login form; a form POST cannot send the
-        // X-CSRF-Token header, and a forced logout is a low-value CSRF
-        // target that exposes no state and changes no credentials.
-        //
-        // The check takes the identity resolved above rather than
-        // resolving it again, so the body read between the two cannot
-        // change who is being checked.
+        // The identity is the one resolved above, so the body read between
+        // the two cannot change who is being checked.
         let needs_csrf = path == "/login" && is_mutating;
         if needs_csrf && ubos_auth::check_csrf(&auth_ctx, parts.csrf.as_deref()).is_err() {
             return write_message(
@@ -472,26 +408,14 @@ impl Service for DashboardService {
                     }
                 }
             }
-            ("HEAD", "/") => {
-                // Issues a fresh CSRF token in the response headers
-                // without serving the dashboard body, so the SPA can
-                // refresh its token between mutating requests without
-                // refetching the compressed HTML asset. Content-Length is
-                // 0 and Content-Encoding is omitted because edge-http
-                // finishes the response by checking advertised length
-                // against bytes written, and the client only consumes
-                // the response headers anyway.
-                match auth_ctx {
-                    ubos_auth::auth::AuthCtx::Anonymous => {
-                        write_redirect(connection, "/login").await
-                    }
-                    ubos_auth::auth::AuthCtx::Session(ref session_id) => {
-                        let csrf_token = ubos_auth::csrf::issue_csrf_token(session_id.as_str());
-                        write_head_ok(connection, &[("X-CSRF-Token", csrf_token.as_str())]).await
-                    }
-                    ubos_auth::auth::AuthCtx::Basic => write_head_ok(connection, &[]).await,
+            ("HEAD", "/") => match auth_ctx {
+                ubos_auth::auth::AuthCtx::Anonymous => write_redirect(connection, "/login").await,
+                ubos_auth::auth::AuthCtx::Session(ref session_id) => {
+                    let csrf_token = ubos_auth::csrf::issue_csrf_token(session_id.as_str());
+                    write_head_ok(connection, &[("X-CSRF-Token", csrf_token.as_str())]).await
                 }
-            }
+                ubos_auth::auth::AuthCtx::Basic => write_head_ok(connection, &[]).await,
+            },
             ("GET", "/login") => {
                 // A live session has nothing to sign in to, and the form
                 // it would post is CSRF-gated with no way to carry the
@@ -510,9 +434,8 @@ impl Service for DashboardService {
                 .await
             }
             ("POST", "/login") => {
-                // Parse `username=...&password=...` form body. Empty
-                // strings substitute for missing or malformed fields so
-                // the constant-time compare below still runs.
+                // An empty string stands in for a missing or malformed
+                // field, so the constant-time compare below still runs.
                 let body_str = core::str::from_utf8(body).unwrap_or("");
                 let supplied_username = form_field(body_str, "username").unwrap_or_default();
                 let supplied_password = form_field(body_str, "password").unwrap_or_default();
@@ -529,27 +452,21 @@ impl Service for DashboardService {
                 // Bitwise `&` (not `&&`) so the branch timing does not
                 // depend on which field mismatched first.
                 if username_ok & password_ok {
-                    // Invalidate any session presented on the inbound
-                    // request so a stale cookie from a prior login cannot
-                    // outlive the current login.
+                    // A stale cookie from a prior login must not outlive
+                    // the login happening now.
                     let existing_session = ubos_auth::auth::extract_session_cookie_from_str(cookie);
                     if let Some(existing) = existing_session {
                         ubos_auth::session::invalidate_session(existing);
                     }
                     let token = ubos_auth::csprng::random_token();
                     ubos_auth::session::create_session(token.clone());
-                    // Build the Set-Cookie header value into a stack buffer.
-                    // The `Secure` attribute is omitted because the device
-                    // runs HTTP only with no TLS terminator; revisit if
-                    // HTTPS support is added. `SameSite=Lax` rather than
-                    // `Strict`: a link from another site, such as the bench
-                    // signpost, is a cross-site top-level navigation, and
-                    // `Strict` withholds the cookie on it. The board then
-                    // bounces a live session to the login page, whose form
-                    // POST is same-site and does carry the cookie, so the
-                    // login is CSRF-gated and the form has no way to pass.
-                    // `Lax` sends the cookie on a top-level navigation and
-                    // still withholds it on a cross-site POST or fetch.
+                    // `Secure` is omitted because the device runs HTTP
+                    // only, with no TLS terminator. `SameSite=Strict`
+                    // would withhold the cookie on a link from another
+                    // site, bouncing a live session to a login page whose
+                    // CSRF-gated form has no way to pass, so `Lax` sends
+                    // it on a top-level navigation and still withholds it
+                    // on a cross-site POST or fetch.
                     let mut set_cookie_value = heapless::String::<128>::new();
                     let _ = core::write!(
                         set_cookie_value,
@@ -562,6 +479,12 @@ impl Service for DashboardService {
                 }
             }
             ("POST", "/logout") => {
+                // Logout is not gated on auth: a navigation form cannot
+                // carry the CSRF header, and answering an anonymous logout
+                // with 401 plus `WWW-Authenticate: Basic` would raise the
+                // browser's native credential prompt instead of the login
+                // page. Invalidating a session that is not there is a
+                // no-op.
                 if let Some(token) = ubos_auth::auth::extract_session_cookie_from_str(cookie) {
                     ubos_auth::session::invalidate_session(token);
                 }
@@ -602,12 +525,12 @@ impl Service for DashboardService {
     }
 }
 
-/// Seed the credential store from the persisted config before the accept loop.
+/// Seed the credential store from the persisted config.
 ///
-/// Call once before spawning web-UI worker tasks so the first request
+/// Call once before spawning the web-UI workers, so the first request
 /// authenticates against the operator's configured credentials. The REST
-/// API listener owns the config watch that keeps the shared credential
-/// store in sync on later changes.
+/// API listener owns the config watch that keeps the store in step after
+/// that.
 pub async fn seed_webui_credentials(config: ubos_config::Handle) {
     let api = config.current().await.api;
     ubos_auth::auth::set_credentials(&api.username, &api.password);

@@ -21,10 +21,9 @@ use static_cell::StaticCell;
 
 use super::{HOSTNAME_SUFFIX_LEN, compose_hostname_configured};
 
-// Minimum CAP for base "ab" (BASE_LEN=2): 2 + 3 = 5.
 const BASE: &str = "ab";
 const BASE_LEN: usize = 2;
-const CAP: usize = BASE_LEN + HOSTNAME_SUFFIX_LEN; // 5
+const CAP: usize = BASE_LEN + HOSTNAME_SUFFIX_LEN;
 
 #[test]
 fn empty_configured_returns_composed() {
@@ -42,7 +41,6 @@ fn empty_configured_returns_composed() {
 
 #[test]
 fn short_configured_returned_verbatim() {
-    // CAP=5 fits "hello" (5 bytes).
     static CELL: StaticCell<heapless::String<CAP>> = StaticCell::new();
     let hostname = compose_hostname_configured::<CAP, BASE_LEN>("hello", BASE, 0x01, &CELL);
     assert_eq!(hostname, "hello");
@@ -50,7 +48,6 @@ fn short_configured_returned_verbatim() {
 
 #[test]
 fn over_long_configured_falls_back_to_composed() {
-    // "toolong" is 7 bytes, which does not fit in CAP=5.
     static CELL: StaticCell<heapless::String<CAP>> = StaticCell::new();
     let hostname = compose_hostname_configured::<CAP, BASE_LEN>("toolong", BASE, 0xab, &CELL);
     assert!(

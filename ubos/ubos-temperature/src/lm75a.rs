@@ -19,10 +19,9 @@
 
 //! LM75A / LM75B I2C temperature sensor driver.
 //!
-//! Reads the 11-bit two's-complement temperature register at 0x00 and
-//! converts it to a [`Temperature`]. Resolution is 0.125°C on the LM75B and
-//! 0.5°C on the LM75A. Both produce the same register layout, so the
-//! driver handles either.
+//! The two parts share a register layout and differ only in resolution,
+//! 0.5 °C on the LM75A and 0.125 °C on the LM75B, so one driver reads
+//! either.
 
 use embedded_hal_async::i2c::{I2c, SevenBitAddress};
 use ubos_core::index::HashboardIndex;
@@ -42,12 +41,8 @@ const REG_TEMPERATURE: u8 = 0x00;
 const MIN_TEMPERATURE: Temperature = Temperature::from_millicelsius(-55_000);
 const MAX_TEMPERATURE: Temperature = Temperature::from_millicelsius(125_000);
 
-/// One LM75A on the I2C bus: its address and what it measures. The bus
-/// is passed in on each read so multiple sensors can share a `&mut I`
-/// without owning it.
 #[derive(Clone, Copy)]
 pub struct Lm75a {
-    /// The sensor's 7-bit I2C address.
     pub(crate) address: SevenBitAddress,
     /// What the sensor's own channel measures.
     pub(crate) local: TempSource,
@@ -72,8 +67,6 @@ impl Lm75a {
         self.local
     }
 
-    /// Read the temperature register.
-    /// Returns `Err` on bus error or out-of-range reading.
     pub async fn read_temperature<I, E>(&self, i2c: &mut I) -> Result<Temperature, Error<E>>
     where
         I: I2c<Error = E>,
@@ -108,15 +101,10 @@ pub enum Error<E> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct RawLm75a(pub(crate) [u8; 2]);
 
-/// The high byte is signed integer degrees C, and the low byte's top 3
-/// bits are fractional in 0.125°C steps. The result is exact
-/// millicelsius, computed without floats.
-///
-/// The low byte's bottom 5 bits are reserved on the LM75A/B; some
-/// clones leave noise there instead of zeros. They are masked before the
-/// shift so a misbehaving part cannot leak garbage into the result even
-/// if the sign-extension semantics of `>>` were to surprise us on a
-/// future toolchain.
+/// The high byte is signed whole degrees and the low byte's top 3 bits
+/// are the fraction in 0.125 °C steps. The bottom 5 bits are reserved and
+/// some clones leave noise there, so the mask is spelled out rather than
+/// left to the shift.
 impl From<RawLm75a> for Temperature {
     fn from(raw: RawLm75a) -> Self {
         let masked = [raw.0[0], raw.0[1] & 0xE0];

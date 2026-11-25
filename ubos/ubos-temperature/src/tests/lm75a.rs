@@ -19,8 +19,7 @@
 
 use super::*;
 
-/// Encode a temperature in 0.125°C steps as the LM75A two-byte
-/// register value.
+/// Encode eighths of a degree as the two-byte register value.
 fn encode(eighths_of_degree: i16) -> [u8; 2] {
     (eighths_of_degree << 5).to_be_bytes()
 }
