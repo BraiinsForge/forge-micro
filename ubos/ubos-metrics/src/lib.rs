@@ -43,6 +43,7 @@ ubos_mdns::declare_service!(
 pub mod chain;
 pub mod consts;
 pub mod cpu_load;
+mod freshness;
 pub mod hashrate;
 pub mod metrics;
 mod store;

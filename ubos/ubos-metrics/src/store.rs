@@ -28,6 +28,7 @@ use embassy_sync::mutex::Mutex;
 use ubos_logging::warn;
 
 use crate::consts::Metrics;
+use crate::freshness::Expiry;
 use crate::metrics::Metric;
 use crate::value::Value;
 
@@ -38,7 +39,7 @@ mod tests;
 /// Stored value associated with a map key.
 pub(crate) struct StoredValue {
     pub(crate) value: Value,
-    pub(crate) timestamp_ms: u64,
+    pub(crate) expiry: Option<Expiry>,
 }
 
 /// Canonical map key: metric name plus labels sorted by name and serialized.
@@ -236,7 +237,7 @@ fn upsert_metric<const MAX: usize>(
     };
     let stored = StoredValue {
         value: metric.value(),
-        timestamp_ms: metric.timestamp(),
+        expiry: metric.expiry(),
     };
     if map.insert(key, stored).is_err() {
         warn!("metrics map full, dropping metric");

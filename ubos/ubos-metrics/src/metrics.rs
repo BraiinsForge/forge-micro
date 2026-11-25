@@ -28,11 +28,12 @@ use edge_http::io::Error as HttpError;
 use edge_http::io::server::Connection;
 use edge_nal::TcpSplit;
 
-use embassy_time::Instant;
+use embassy_time::{Duration, Instant};
 use embedded_io_async::{Read, Write};
 use ubos_logging::warn;
 
 use crate::consts::Metrics;
+use crate::freshness::Expiry;
 use crate::store::{METRICS, MetricKey, StoredValue};
 use crate::value::Value;
 use ubos_http::{
@@ -82,15 +83,16 @@ pub type Labels = heapless::Vec<Label, { Metrics::MAX_LABELS }>;
 /// the metric with the current monotonic time, and push it with
 /// [`Metric::push`] or [`Metric::try_push`].
 ///
-/// The stored timestamp is **monotonic milliseconds since boot**
-/// (`embassy_time::Instant::now().as_millis()`). The exposition path
-/// adds the NTP epoch offset at scrape time to render an absolute
-/// Unix-epoch timestamp.
+/// A measured metric stores the time of its measurement in **monotonic
+/// milliseconds since boot** (`embassy_time::Instant::now().as_millis()`)
+/// and a TTL. The exposition path adds the NTP epoch offset at scrape
+/// time to render an absolute Unix-epoch timestamp. A constant stores
+/// neither and renders with no timestamp.
 pub struct Metric {
     name: &'static str,
     labels: Labels,
     value: Value,
-    timestamp_ms: u64,
+    expiry: Option<Expiry>,
 }
 
 impl Metric {
@@ -134,8 +136,31 @@ impl Metric {
             name,
             labels,
             value,
-            timestamp_ms: Instant::now().as_millis(),
+            expiry: Some(Expiry::new(
+                Instant::now().as_millis(),
+                Metrics::DEFAULT_TTL,
+            )),
         }
+    }
+
+    /// Make the metric a measurement that expires `ttl` after now, rounded
+    /// up to whole seconds. A publisher states its push interval times
+    /// [`Metrics::TTL_INTERVALS`], so a series that stops leaves the
+    /// exposition. The last of [`Metric::ttl`] and [`Metric::constant`]
+    /// wins.
+    #[must_use]
+    pub fn ttl(mut self, ttl: Duration) -> Self {
+        self.expiry = Some(Expiry::new(Instant::now().as_millis(), ttl));
+        self
+    }
+
+    /// Make the metric a constant: it never expires and renders with no
+    /// timestamp. Push it with [`Metric::push`], so it is never lost. The
+    /// last of [`Metric::ttl`] and [`Metric::constant`] wins.
+    #[must_use]
+    pub fn constant(mut self) -> Self {
+        self.expiry = None;
+        self
     }
 
     /// Push the metric into the exposition channel, waiting while the
@@ -168,10 +193,10 @@ impl Metric {
         self.value
     }
 
-    /// Monotonic-ms timestamp captured when the metric was constructed.
-    #[must_use]
-    pub fn timestamp(&self) -> u64 {
-        self.timestamp_ms
+    /// When the metric was measured and how long it stays valid, or
+    /// `None` for a constant.
+    pub(crate) fn expiry(&self) -> Option<Expiry> {
+        self.expiry
     }
 
     /// Labels attached to this metric.
@@ -391,10 +416,10 @@ fn render_metric(writer: &mut BufferWriter<'_>, key: &str, stored: &StoredValue,
     let _ = write!(writer, "{key} {}", stored.value);
     // Stored timestamps are monotonic ms since boot. Add the NTP epoch
     // offset to produce an absolute Unix-epoch timestamp. If NTP has
-    // not synced yet, omit the timestamp so Prometheus stamps the
-    // sample at scrape time.
-    if ntp_offset != 0 {
-        let ts_ms = stored.timestamp_ms + ntp_offset * 1000;
+    // not synced yet, or the series is a constant, omit the timestamp so
+    // Prometheus stamps the sample at scrape time.
+    if let (Some(expiry), true) = (stored.expiry, ntp_offset != 0) {
+        let ts_ms = expiry.at_ms() + ntp_offset * 1000;
         let _ = write!(writer, " {ts_ms}");
     }
     let _ = writeln!(writer);

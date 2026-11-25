@@ -58,4 +58,14 @@ impl Metrics {
     pub const IDLE_TIMEOUT: Duration = Net::SOCKET_TIMEOUT;
     pub const CHANNEL_DEPTH: usize = 32;
     pub const MAX_LABELS: usize = 4;
+    /// Pushes a series may miss in a row before it expires. Two lost
+    /// samples in a row do not remove a series. A publisher with its own
+    /// rate multiplies its interval by this to state its TTL.
+    pub const TTL_INTERVALS: u32 = 3;
+    /// The slowest interval at which a series is pushed, the upper bound
+    /// of the thermal sample interval.
+    pub const SLOWEST_PUSH_INTERVAL: Duration = Duration::from_secs(60);
+    /// The TTL of a measured metric that states none.
+    pub const DEFAULT_TTL: Duration =
+        Duration::from_secs(Self::SLOWEST_PUSH_INTERVAL.as_secs() * Self::TTL_INTERVALS as u64);
 }

@@ -24,6 +24,8 @@ use ubos_core::units::{Temperature, Voltage};
 use ubos_http::BufferWriter;
 
 use super::{METRIC_LINE_BYTES, StoredValue, render_metric};
+use crate::consts::Metrics;
+use crate::freshness::Expiry;
 
 /// The line `render_metric` writes for a stored value under `key`, with
 /// the clock offset given.
@@ -42,7 +44,7 @@ fn line(key: &str, stored: &StoredValue, ntp_offset: u64) -> heapless::String<ME
 fn a_stored_value_renders_as_one_line_in_its_base_unit() {
     let stored = StoredValue {
         value: Temperature::from_millicelsius(25_500).into(),
-        timestamp_ms: 1_000,
+        expiry: Some(Expiry::new(1_000, Metrics::DEFAULT_TTL)),
     };
     assert_eq!(
         line("board_ambient_temperature_celsius", &stored, 0).as_str(),
@@ -56,10 +58,24 @@ fn a_stored_value_renders_as_one_line_in_its_base_unit() {
 fn a_line_carries_the_time_of_the_reading_once_the_clock_is_set() {
     let stored = StoredValue {
         value: Voltage::from_mv(21_600).into(),
-        timestamp_ms: 1_000,
+        expiry: Some(Expiry::new(1_000, Metrics::DEFAULT_TTL)),
     };
     assert_eq!(
         line("hashboard_chain_voltage_volts{chain=\"0\"}", &stored, 2).as_str(),
         "hashboard_chain_voltage_volts{chain=\"0\"} 21.600 3000\n"
+    );
+}
+
+/// A constant has no time of measurement, so its line carries no
+/// timestamp when the clock is set.
+#[test]
+fn a_constant_renders_with_no_timestamp_once_the_clock_is_set() {
+    let stored = StoredValue {
+        value: Voltage::from_mv(21_600).into(),
+        expiry: None,
+    };
+    assert_eq!(
+        line("hashboard_chain_voltage_volts{chain=\"0\"}", &stored, 2).as_str(),
+        "hashboard_chain_voltage_volts{chain=\"0\"} 21.600\n"
     );
 }
