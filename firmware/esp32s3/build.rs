@@ -20,26 +20,19 @@
 use std::fs;
 use std::path::PathBuf;
 
-/// Build script that adds a link-time guard on the core-0 stack.
+/// Link-time guard on the core-0 stack.
 ///
-/// esp-hal lays `.data`, `.bss`, and the core-0 stack into the same
-/// `dram_seg`: the stack starts at the top of the region and grows down
-/// toward `.bss`. There is no fixed stack size; whatever `.bss` does not
-/// occupy is the stack. Cumulative `.bss` growth therefore silently shrinks
-/// the boot stack, and once it falls below the peak `embassy_net::new` needs,
-/// the stack grows past `__stack_chk_guard` and esp-hal's stack-guard
-/// watchpoint halts the core. That failure only shows up on hardware, late.
-///
-/// `stack-floor.x` turns it into a build error instead: it asserts the free
-/// stack between `_bss_end` and `_stack_start_cpu0` stays above a floor. Both
-/// symbols come from esp-hal's `linkall.x`; the assert sits outside any
-/// SECTIONS block, so the linker evaluates it after final allocation and the
-/// fragment only adds the check without replacing the layout script.
+/// esp-hal gives the core-0 stack whatever `.bss` leaves free at the top of
+/// `dram_seg`, so `.bss` growth shrinks the stack until it runs past
+/// `__stack_chk_guard` and the stack-guard watchpoint halts the core on
+/// hardware. `stack-floor.x` asserts the free stack between `_bss_end` and
+/// `_stack_start_cpu0` instead, outside any SECTIONS block so the linker
+/// evaluates it after final allocation.
 fn main() {
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("BUG: OUT_DIR not set by cargo"));
 
-    // 24 KiB floor. The boot path overran the historical ~8 KiB stack inside
-    // `embassy_net::new`; this keeps a 3x margin over that observed failure.
+    // 24 KiB floor: three times the ~8 KiB stack the boot path overran
+    // inside `embassy_net::new`.
     let stack_floor = "ASSERT(_stack_start_cpu0 - _bss_end >= 0x6000, \
         \"core-0 free stack below 24 KiB: .bss has crowded dram_seg; \
         shrink static buffers (e.g. the HTTP pools in config.rs) or the boot \

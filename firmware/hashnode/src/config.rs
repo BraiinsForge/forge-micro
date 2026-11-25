@@ -17,12 +17,10 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Board constants and peripheral extraction for the Hashnode, an
-//! RP2350 with a W5500 running the ubos-mining backend and a `SIC45x`-based
-//! `BfmPsu`.
-//! `Board::take` consumes the RP2350 `Peripherals` once and returns every
-//! singleton the board's schematic claims, keeping pin assignments in one
-//! place rather than scattered through `main`.
+//! Board constants and peripheral extraction for the Hashnode, an RP2350
+//! with a W5500 running the ubos-mining backend and a `SIC45x`-based
+//! `BfmPsu`. Every pin assignment the schematic fixes is claimed here
+//! rather than in `main`.
 //!
 //! Wiring/pinout: `../../../docs/SETUP.md`
 
@@ -134,13 +132,11 @@ pub struct Board {
     pub trng: Peri<'static, TRNG>,
 }
 
-/// The board descriptor this firmware targets: the 4-chip BM1370 hashnode.
-/// Every crate that needs board facts takes this explicitly rather than
-/// selecting a board behind a cargo feature.
+/// The 4-chip BM1370 hashboard. Every crate that needs board facts takes it
+/// explicitly rather than selecting a board behind a cargo feature.
 pub const BOARD: &ubos_asic::HashboardDescriptor = &MACHINE.hashboard;
 
-/// The Bitmain chip model this board's hashboard carries; injected into
-/// the mining actor as the concrete chain driver.
+/// Injected into the mining actor as the concrete chain driver.
 pub const CHIP: ubos_asic::Chip = ubos_asic::Chip::Bm1370;
 
 /// The tuners this board runs. The miner builds them, and [`BOUNDS`]
@@ -155,7 +151,6 @@ pub const BOUNDS: ubos_config::MiningBounds = BOARD.bounds(
     None,
 );
 
-/// Static mining capability metadata, built from [`BOARD`].
 pub const MINING_INFO: ubos_config::MiningInfo =
     BOARD.mining_info(&BOUNDS, ubos_config::DefaultTuning::Fixed);
 
@@ -164,13 +159,11 @@ pub const MINING_INFO: ubos_config::MiningInfo =
 /// `DEVFEE_*` overrides.
 pub const FEE_POOL: ubos_config::FeePool = ubos_config::fee::BRAIINS_POOL.with_overrides();
 
-/// Distinct series the Prometheus exposition map holds. The map is keyed
-/// by the label-expanded series, and a series that does not fit is
-/// dropped with a warning. Must be a power of two, which the map requires.
+/// Distinct series this board's exposition map holds; see
+/// [`ubos_metrics::metrics::MetricsStatics`] for what the number buys and
+/// what it must be.
 pub const MAX_METRICS: usize = 128;
 
-/// Bytes of the buffer one scrape is rendered into. It holds every series
-/// in the map at once, so it moves with [`MAX_METRICS`].
 pub const METRICS_RESPONSE_BYTES: usize = MAX_METRICS * ubos_metrics::metrics::METRIC_LINE_BYTES;
 
 impl Board {
@@ -251,7 +244,7 @@ impl Watchdog {
 
 /// Fan PWM and tachometer parameters. Default `clk_sys` on the RP2350 is
 /// 150 MHz, so `(PWM_TOP + 1) × divider = 6000` cycles per period puts
-/// the PWM frequency at exactly 25 kHz (the Intel 4-wire fan spec).
+/// the PWM frequency at 25 kHz, the rate the Intel 4-wire fan spec sets.
 pub struct Fan;
 impl Fan {
     pub const PWM_TOP: u16 = 5999;
@@ -271,27 +264,19 @@ impl Core1 {
     pub const STACK_BYTES: usize = 32_768;
 }
 
-/// Monotonic firmware version reported over the OTA API.
-///
-/// Sourced from the `UBOS_FW_VERSION` environment variable at build time,
-/// defaulting to `1` when unset. `embassy-boot` stores no version metadata
-/// in flash, so this const is the only version the running image exposes;
-/// the OTA endpoint surfaces it as `running_version`.
+/// Monotonic firmware version from `UBOS_FW_VERSION` at build time,
+/// defaulting to 1. `embassy-boot` stores no version metadata in flash, so
+/// this is the only version the running image can report.
 pub const FIRMWARE_VERSION: u32 = match option_env!("UBOS_FW_VERSION") {
-    // `parse` is not const; the helper in ubos-ota folds the decimal digits
-    // at compile time so the value is fixed with no runtime cost.
+    // `str::parse` is not const.
     Some(raw) => ubos_ota::parse_version(raw),
     None => 1,
 };
 
-/// On-board QSPI flash parameters for the ubos-config record store.
-///
-/// `SIZE` is the 2 MiB driver window exposed to the flash HAL; the physical
-/// device is 8 MiB but only the lower 2 MiB is mapped by this driver
-/// instance. `CONFIG_RANGE` claims the final two 4 KiB erase sectors of
-/// that window. The application binary must not grow past the start of the
-/// range — the linker script does not enforce this today, so a binary
-/// creeping past ~2040 KiB will silently overwrite the config region.
+/// `SIZE` is the driver window on the 8 MiB device, and `CONFIG_RANGE` the
+/// final two 4 KiB erase sectors of that window. Nothing in the linker
+/// script stops the binary growing past ~2040 KiB, which would silently
+/// overwrite the config region.
 pub struct Flash;
 impl Flash {
     pub const SIZE: usize = 2 * 1024 * 1024;

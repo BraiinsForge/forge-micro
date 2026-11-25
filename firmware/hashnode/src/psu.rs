@@ -19,14 +19,10 @@
 
 //! Hashnode PSU integration over the shared I2C1 bus.
 //!
-//! Wraps the shared `SIC45x` `PMBus` driver in [`GatedPsu`], which owns
-//! the `SIC_EN` (GPIO30) hardware-enable pin. On this board the `SIC45x`
-//! is gated by that pin, not by the `PMBus` `OPERATION` register, which
-//! this device rejects, so `GatedPsu` is built with no settle delay, no
-//! power-good input, and no inner `enable`/`disable` call; register
-//! reads and `set_voltage` still delegate to the inner driver. The bus
-//! mutex is owned by `main` so other I2C consumers can take additional
-//! `I2cDevice` handles from the same mutex.
+//! The `SIC45x` here is gated by the `SIC_EN` pin, not by the `PMBus`
+//! `OPERATION` register this device rejects, so [`GatedPsu`] is built with
+//! no settle delay, no power-good input and no inner `enable`/`disable`;
+//! register reads and `set_voltage` still delegate to the inner driver.
 
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_rp::gpio::{Input, Output};
@@ -35,7 +31,6 @@ use ubos_machine::HASHNODE as MACHINE;
 use ubos_psu::{BfmPsu, BfmShared, GatedPsu, InnerGate, PowerSupply};
 use ubos_rp::i2c::{Bus, Device};
 
-/// The shared `SIC45x` `PMBus` driver instantiated for this board's bus.
 type InnerPsu = BfmPsu<Device>;
 
 /// Board power stage: the `SIC45x` driver gated by the `SIC_EN` pin
@@ -46,9 +41,8 @@ static SHARED: StaticCell<BfmShared<Device>> = StaticCell::new();
 static DRIVER: StaticCell<BoardPsu> = StaticCell::new();
 static PSU: StaticCell<PowerSupply<BoardPsu>> = StaticCell::new();
 
-/// Construct the `BoardPsu` over an `I2cDevice` carved from `bus`, taking
-/// ownership of the `SIC_EN` pin (passed in already driven low), and return
-/// the `PowerSupply` over it, whose handle every other task takes.
+/// Takes the `SIC_EN` pin already driven low, and returns the
+/// `PowerSupply` whose handle every other task takes.
 pub fn init(bus: &'static Bus, sic_enable: Output<'static>) -> &'static PowerSupply<BoardPsu> {
     let device = I2cDevice::new(bus);
     let shared: &'static _ = SHARED.init(BfmShared::new(device, MACHINE.psu));

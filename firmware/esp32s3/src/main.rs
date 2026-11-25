@@ -20,18 +20,8 @@
 //! Firmware entry point for the Waveshare ESP32-S3-LCD-Driver-Board +
 //! external W5100S (SPI) with the BMM101/BM1362 ubos-mining backend.
 //!
-//! Configures SPI with DMA, brings up the W5100S via `embassy-net-wiznet`,
-//! starts the embassy-net stack with DHCP, and spawns the watchdog,
-//! ethernet runner, NTP, ubos-mining mining, and HTTP tasks.
-//! Built with `cargo build` from this crate inside `nix develop .#esp`.
-//!
-//! The ESP32-S3 has two cores (`PRO_CPU` + `APP_CPU`). Embassy-net, the
-//! mining state machine, and all peripheral tasks run on Core 0; the
-//! ubos-mining `serial_task` runs on a separate executor on Core 1, mirroring
-//! the rp2350 and bmm-pico dual-core split that keeps the chip UART loop
-//! off the network path. `ASIC_SESSION` uses a `CriticalSectionRawMutex`,
-//! so cross-core sharing needs no additional channel. Core 1 also accumulates
-//! `IDLE_TICKS[1]` via `IdleAccounting::<1>` for the cpu-load metric.
+//! Core 0 runs embassy-net, the mining state machine and every peripheral
+//! task; Core 1 runs only the chip serial worker, see the `mining` module.
 //!
 //! Board docs: `../../../docs/OVERVIEW.md`
 //! Wiring/build: `../../../docs/SETUP.md`
@@ -66,10 +56,8 @@ use ubos_esp32::i2c;
 use ubos_net::net;
 use {defmt_rtt as _, esp_backtrace as _};
 
-/// Backing storage for the user-facing event ring, owned here so its size
-/// follows this board's `EVENT_LOG_CAPACITY`. Placed in RTC fast RAM, which
-/// retains across a warm reset; the validity header in `RetainedRing` discards
-/// it after a cold boot leaves garbage.
+/// Placed in RTC fast RAM, which retains across a warm reset. See
+/// [`ubos_firmware::events::install`].
 #[esp_hal::ram(unstable(rtc_fast, persistent))]
 static mut EVENT_LOG_BACKING: ubos_esp32::PersistentRing<
     { config::MACHINE.control_board.event_log_capacity },
@@ -130,8 +118,6 @@ ubos_mining::pool_weights_task!(&mining::CHAINS);
 
 ubos_mining::miner_metrics_task!(POOL_SLOTS);
 
-/// Adapts the MCU internal thermometer, `esp32s3_tsens::Tsens`, to the
-/// `McuTemperatureSensor` trait.
 struct McuTempSensor(esp32s3_tsens::Tsens<'static>);
 
 impl ubos_thermal::McuTemperatureSensor for McuTempSensor {
@@ -148,9 +134,8 @@ ubos_thermal::thermal_task!(
 
 ubos_manager::manager_task!();
 
-/// Storage backend type the [`config_task`] hands to
-/// [`ubos_config::run`]. The chain is
-/// `esp-storage FlashStorage → SyncFlash → ubos-config FlashStorage`.
+/// Storage chain behind [`config_task`]: `esp-storage FlashStorage →
+/// SyncFlash → ubos-config FlashStorage`.
 type BoardConfigStorage = FlashStorage<SyncFlash<ubos_ota::EspSharedFlash>>;
 
 ubos_config::config_task!(
@@ -191,14 +176,12 @@ ubos_net::network_control_task!();
 
 ubos_api::ota_watchdog_task!();
 
-/// Parallel stratum session slots this board runs: three, because a
-/// fourth session task future pushes DRAM below the 24 KiB boot stack
-/// floor the linker holds. A build with the fee switch on gives the
-/// fee the last of them and the operator the other two.
+/// Three, because a fourth session task pushes DRAM below the boot stack
+/// floor the linker holds. With the fee switch on, the fee takes the last
+/// of them.
 pub(crate) const POOL_SLOTS: usize = ubos_firmware::MAX_POOLS;
 
-/// The fee pool this board runs, at its last session slot. `None` on
-/// an off build, so the source reads the same in both states.
+/// `None` on an off build, so the source reads the same in both states.
 pub(crate) const FEE_SLOT: Option<ubos_config::FeeSlot> =
     ubos_config::FeeSlot::last_of(config::FEE_POOL, POOL_SLOTS);
 
@@ -210,20 +193,14 @@ const TACH_PULSES_PER_REV: u64 = 2;
 /// so the log line reaches the probe first.
 const WIZNET_RETRY_DELAY: Duration = Duration::from_millis(500);
 
-/// Shared ASIC session: the bridge between the per-slot stratum sessions and
-/// the BM1362 serial worker. One instance per binary; referenced by every
-/// stratum client task and the mining serial task.
 static ASIC_SESSION: ubos_firmware::AsicSession<POOL_SLOTS> = ubos_firmware::AsicSession::new();
 
-/// The core-1 park of this firmware. The serial workers join it and the
-/// flash writers request it, so both sides meet at the same counters.
 static PARK: ubos_mining::Park = ubos_mining::Park::new();
 
-/// Board task shell around the shared stratum session loop, spawned once per
-/// pool slot. The loop body lives in `ubos-firmware`; the
-/// `#[embassy_executor::task]` shell stays per board because the attribute
-/// expands a typed task pool sized by this board's `POOL_SLOTS`, and it
-/// rejects the generic function a shared shell would have to be.
+/// Board shell for [`ubos_firmware::run_stratum_session`]: the
+/// `#[embassy_executor::task]` attribute sizes a typed task pool from this
+/// board's `POOL_SLOTS` and rejects the generic function a shared shell
+/// would be.
 #[embassy_executor::task(pool_size = POOL_SLOTS)]
 async fn stratum_client_task(
     stack: embassy_net::Stack<'static>,
@@ -261,13 +238,8 @@ fn main() -> ! {
 )]
 async fn boot(spawner: Spawner) {
     static STATE: StaticCell<State<8, 8>> = StaticCell::new();
-    // Socket-set capacity for the embassy-net stack. Eleven sockets are
-    // held continuously: DHCPv4, DNS, the stratum client, the mDNS
-    // responder, 4 HTTP listener sockets on :80, and 3 metrics listener
-    // sockets on :8081. NTP opens a transient UDP socket every 60 s, and
-    // closed TCP connections linger in TIME_WAIT until smoltcp reaps
-    // them. 24 provides headroom for concurrent connections and
-    // TIME_WAIT.
+    // For the slack above the asserted minimum, see
+    // `firmware/rp2040/src/main.rs`.
     const STACK_SOCKETS: usize = 24;
     ubos_net::assert_stack_sockets!(
         STACK_SOCKETS,
@@ -279,23 +251,15 @@ async fn boot(spawner: Spawner) {
     let peripherals = esp_hal::init(esp_hal::Config::default());
     let hw = config::Board::take(peripherals);
 
-    // Every handle is taken here, once, and each task gets the ones it
-    // writes through and reads. The listeners take them together.
     let (runners, handles) = ubos_firmware::Handles::take();
 
-    // Safety: called once at boot before any task runs. EVENT_LOG_BACKING lives
-    // in RTC fast RAM (persistent), so a warm reset preserves its contents.
+    // Safety: called once at boot, before any task runs.
     ubos_firmware::events::install(unsafe { &mut (*core::ptr::addr_of_mut!(EVENT_LOG_BACKING)).0 });
 
     let timg0 = TimerGroup::new(hw.timg0);
     let software_interrupts = SoftwareInterruptControl::new(hw.sw_interrupt);
     esp_rtos::start(timg0.timer0, software_interrupts.software_interrupt0);
 
-    // Pin the ubos-mining serial worker to Core 1 so embassy-net on Core 0
-    // stays responsive. Mirrors the rp2350/bmm-pico dual-core split.
-    // `ASIC_SESSION` uses `CriticalSectionRawMutex`, so the cross-core
-    // share is safe without an additional pipe. Core 1's executor uses
-    // `IdleAccounting::<1>` to populate `IDLE_TICKS[1]` for cpu-load metrics.
     static APP_EXECUTOR: StaticCell<esp_rtos::embassy::Executor> = StaticCell::new();
     static APP_CORE_STACK: StaticCell<Stack<8192>> = StaticCell::new();
     ubos_esp32::spawn_miner_core1!(
@@ -322,28 +286,21 @@ async fn boot(spawner: Spawner) {
 
     ubos_esp32::capture_reset_diag();
 
-    // One esp-storage driver behind a mutex, shared by the config store and
-    // the OTA writer: the chip has a single flash peripheral. The mutex
-    // serialises individual flash ops between the two consumers, and
-    // `multicore_auto_park` parks core 1 around each op so a flash write never
-    // races the mining serial worker.
+    // The chip has one flash peripheral, so the config store and the OTA
+    // writer share this driver; `multicore_auto_park` parks core 1 around
+    // each op so a flash write never races the mining serial worker.
     static SHARED_FLASH: StaticCell<ubos_ota::EspFlashMutex> = StaticCell::new();
     let shared_flash: &'static ubos_ota::EspFlashMutex =
         SHARED_FLASH.init(ubos_ota::EspFlashMutex::new(core::cell::RefCell::new(
             esp_storage::FlashStorage::new(hw.flash).multicore_auto_park(),
         )));
 
-    // Confirm the running image before the watchdog is armed so the
-    // rollback-enabled bootloader stops arming a revert on the next reset. A
-    // freshly OTA-activated slot boots as PendingVerify; this marks it Valid.
-    // Running it pre-yield, before the feeder task can enable the 2 s window,
-    // keeps the synchronous otadata write off the watchdog's clock.
+    // Run before the watchdog is armed and before the first yield, so the
+    // synchronous otadata write stays off the watchdog's clock.
     ubos_ota::confirm_running(ubos_ota::EspSharedFlash::new(shared_flash));
 
-    // The ingest task is the only reader of the metrics channel and it
-    // waits on nothing else, so it runs before every task that pushes.
-    // A pusher that waits for room and starts first blocks once the
-    // channel fills.
+    // Before every pusher, for the reason `ubos_metrics::metrics::run_ingest`
+    // gives.
     spawner.spawn(unwrap!(metrics_ingest_task()));
 
     let timg1 = TimerGroup::new(hw.timg1);
@@ -353,12 +310,11 @@ async fn boot(spawner: Spawner) {
     ))));
     spawner.spawn(unwrap!(reset_task()));
 
-    // SPI wiring via LCD header on Waveshare ESP32-S3-LCD-Driver-Board.
-    // LCD_MOSI=GPIO2, LCD_MISO=GPIO42, LCD_SCLK=GPIO1,
-    // LCD_CS=GPIO39, LCD_DC=GPIO41 as INT, LCD_RST=GPIO40 as RST.
+    // The W5100S rides the carrier's LCD header, so the PHY interrupt is on
+    // the LCD_DC pad and the PHY reset on the LCD_RST pad.
     let (rx_buffer, rx_descriptors, tx_buffer, tx_descriptors) = dma_buffers!(4096);
-    // dma_buffers! produces correctly-sized aligned descriptors and buffers,
-    // so DmaRxBuf::new and DmaTxBuf::new only fail on a programming error.
+    // `dma_buffers!` sizes and aligns both, so these fail only on a
+    // programming error.
     let dma_rx_buf =
         DmaRxBuf::new(rx_descriptors, rx_buffer).expect("BUG: DMA RX buffer creation failed");
     let dma_tx_buf =
@@ -383,20 +339,15 @@ async fn boot(spawner: Spawner) {
     let phy_int = Input::new(hw.phy_int, InputConfig::default().with_pull(Pull::Up));
     let phy_reset = Output::new(hw.phy_reset, Level::High, OutputConfig::default());
 
-    // Fold the ESP32-S3 factory eFuse MAC into a stable per-unit MAC.
-    // The WIZnet chip has no factory address; derive_mac keeps the fleet
-    // MAC scheme consistent across all board families.
     let mac_addr = runners.net.publish_mac(
         config::MACHINE.control_board.mac_family,
         esp_hal::efuse::base_mac_address().as_bytes(),
     );
     let state = STATE.init(State::<8, 8>::new());
-    // A failed init resets the board to try again. A failed SPI read is
-    // almost always transient, a brownout garbling the bus rather than a
-    // wiring fault. `new` consumes the SPI, both pins and the init-once
-    // `State`, so it cannot be retried in place. A panic spins until the
-    // watchdog fires, and the next boot then reports a watchdog stall for a
-    // fault outside the firmware.
+    // A failed init is almost always a transient bus fault, and `new`
+    // consumes the SPI, both pins and the init-once `State`, so it cannot
+    // be retried in place. A panic in its stead would make the next boot
+    // report a watchdog stall for a fault outside the firmware.
     let Ok((device, runner)) = embassy_net_wiznet::new(
         mac_addr,
         state,
@@ -445,12 +396,9 @@ async fn boot(spawner: Spawner) {
     );
     spawner.spawn(unwrap!(net_task(runner)));
 
-    // Seed the session CSPRNG from the hardware RNG.
     let csprng_seed = ubos_esp32::seed_from_rng(&mut rng);
     ubos_auth::csprng::seed_csprng(csprng_seed);
 
-    // Independent entropy stream for the SV2 noise handshake, drawn from
-    // the same hardware RNG as the session CSPRNG.
     let sv2_seed = ubos_esp32::seed_from_rng(&mut rng);
     let stratum_shared =
         ubos_firmware::init_stratum(sv2_seed, config::CHIP.chip_descriptor().rolls_ntime);
@@ -464,8 +412,6 @@ async fn boot(spawner: Spawner) {
     // No LED blink task: board wiring does not include an accessible LED.
     let tsens = esp32s3_tsens::Tsens::new(hw.sens, esp32s3_tsens::Range::Standard).await;
 
-    // SH1106 OLED on SPI3: reset pulse, then async DMA SPI.
-    // The reset pin is moved into display_task so it stays driven high for the display's lifetime.
     #[cfg(feature = "display")]
     let (reset, display) = {
         let rst = {
@@ -476,8 +422,8 @@ async fn boot(spawner: Spawner) {
             pin
         };
         let (disp_rx_buf, disp_rx_desc, disp_tx_buf, disp_tx_desc) = dma_buffers!(2048);
-        // dma_buffers! produces correctly-sized aligned descriptors and buffers,
-        // so DmaRxBuf::new and DmaTxBuf::new only fail on a programming error.
+        // `dma_buffers!` sizes and aligns both, so these fail only on a
+        // programming error.
         let disp_dma_rx =
             DmaRxBuf::new(disp_rx_desc, disp_rx_buf).expect("BUG: display DMA RX buffer failed");
         let disp_dma_tx =
@@ -514,10 +460,6 @@ async fn boot(spawner: Spawner) {
 
     spawner.spawn(unwrap!(miner_metrics_task(handles.mining)));
 
-    // BMM101 hashboard PSU, LM75A temperature sensors and the carrier
-    // TCA9554 I/O expander all share I2C0 (GPIO15 SDA, GPIO7 SCL). All
-    // mining tasks run on Core 0 so the I2C bus mutex can stay
-    // `NoopRawMutex`: every consumer is on the same executor.
     {
         static I2C0_BUS: StaticCell<i2c::Bus> = StaticCell::new();
         // Valid I2C0 peripheral with GPIO15/7 routed via the GPIO matrix; cannot fail.
@@ -528,11 +470,7 @@ async fn boot(spawner: Spawner) {
             .into_async();
         let bus: &'static i2c::Bus = I2C0_BUS.init(Mutex::new(i2c));
 
-        // Read the hashboard EEPROM once, before powering anything up, so
-        // its identity is in the log even if bring-up later fails. The
-        // parsed serial (or `None` on a failed read) is published for
-        // `GET /api/system/info`; this board has one hashboard, so the
-        // published array holds a single slot.
+        // Before anything is powered; see `HashboardEeprom::log_identity`.
         if let Some(address) = config::BOARD.eeprom_i2c_address {
             let mut device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
             let serial = ubos_eeprom::i2c::I2cEeprom::new(address, &mut device)
@@ -544,9 +482,8 @@ async fn boot(spawner: Spawner) {
         let psu = psu::init(bus);
         spawner.spawn(unwrap!(psu::psu_task(psu, runners.psu)));
 
-        // Hashboard reset: active-low, driven through the carrier TCA9554
-        // expander on EXIO5. Asserted (held low) here until the miner
-        // task sequences the release during bring-up.
+        // Held asserted until the miner task sequences the release during
+        // bring-up.
         let reset = ubos_esp32::expander::ExpanderResetPin::new(bus, mining::RESET_BIT).await;
         spawner.spawn(unwrap!(mining::miner_task(
             handles.psu,
@@ -555,7 +492,6 @@ async fn boot(spawner: Spawner) {
             handles.config
         )));
 
-        // Temperature and fan monitor via shared I2C0 bus.
         let hashboard_temp =
             ubos_thermal::SensorArray::new(config::MACHINE.sensors(), handles.thermal, || {
                 embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus)
@@ -581,10 +517,8 @@ async fn boot(spawner: Spawner) {
         )));
     };
 
-    // Hashboard plug-detect input on GPIO5, pulled up. `boot` returns once the
-    // listeners are spawned and the binding drops there, but esp-hal gives
-    // `Input` no `Drop`, so the pad keeps its configuration and the pull-up
-    // for the firmware's lifetime. Nothing else claims the pad.
+    // esp-hal gives `Input` no `Drop`, so the pad keeps its configuration and
+    // its pull-up after this binding falls out of `boot`.
     let _hb_plug = Input::new(hw.hb_plug, InputConfig::default().with_pull(Pull::Up));
 
     info!("waiting for dhcp");
@@ -607,8 +541,8 @@ async fn boot(spawner: Spawner) {
         handles.config
     )));
 
-    // Register the OTA target now that the network is up, then spawn the
-    // session watchdog that aborts a stalled upload and resumes mining.
+    // Registered once the network is up; the watchdog aborts a stalled
+    // upload and resumes mining.
     ubos_api::register_ota_target(ota_target).await;
     spawner.spawn(unwrap!(ota_watchdog_task(handles.manager)));
 

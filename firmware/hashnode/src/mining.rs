@@ -17,15 +17,9 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! BM1370 chip-side wiring: hashboard reset pin and the two long-running
-//! tasks the ubos-mining backend needs.
+//! BM1370 chip-side wiring for the ubos-mining backend.
 //!
-//! `serial_task` owns the UART and drives the board's single entry in
-//! [`CHAINS`] for the lifetime of the firmware; `miner_task` runs the
-//! bring-up / teardown state machine in `ubos_mining::Miner::run`. Neither
-//! ever returns under normal operation: there is no SIGINT on bare metal,
-//! so `Handle::stop` is never raised and `ubos_mining::Miner::run` parks
-//! inside its bring-up loop.
+//! `serial_task` runs on core 1; every other task here is on core 0.
 
 /// The board's single hashboard chain.
 pub static CHAINS: [ubos_mining::serial::Serial; crate::config::CHAINS] =

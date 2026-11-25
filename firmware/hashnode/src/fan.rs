@@ -17,27 +17,13 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Fan PWM drive and tachometer readback.
+//! Fan PWM drive and tachometer readback; `config::Board` names the pads.
 //!
-//! `PWM_SLICE5` channels A/B (GPIO10/GPIO11, `RP_PWM_A`/`RP_PWM_B`) and
-//! `PWM_SLICE9` channel B (GPIO43, `RP_PWM_C` on the `FAN_CONTROL`
-//! header) drive the fan PWM inputs at 25 kHz, the rate specified by
-//! the Intel 4-wire fan spec. `BoardFan` exposes the outputs behind the
-//! `ubos_cooling::FanOutput` trait at one shared duty so the cooling
-//! task can drive them from a PID loop.
-//!
-//! Five connectors expose a tachometer: GPIO24 (`RP_TACH_A`), GPIO25
-//! (`RP_TACH_B`), GPIO23 (`RP_TACH_C`), GPIO38 (`RP_TACH_D`), and
-//! GPIO44 (`RP_TACH_E`). None map to a `PWM_SLICE` channel B, so the
-//! PWM slice edge counter is unusable; instead each tach drives one PIO
-//! state machine that measures the pulse-to-pulse period in hardware
-//! and pushes it to its RX FIFO. A PIO block addresses a single 32-pin
-//! GPIO window (and embassy-rp selects the low window whenever a state
-//! machine's pins all sit below GPIO32), so the tachs split across
-//! blocks: `PIO0` SM0-2 take GPIO23/24/25, `PIO1` SM0-1 take
-//! GPIO38/44. `BoardTach` drains the latest period per fan each control
-//! tick behind `ubos_cooling::TachReader`, which publishes one labeled
-//! series per fan. Unpopulated connectors simply read 0 rpm.
+//! No tach maps to a `PWM_SLICE` channel B, so the slice edge counter is
+//! unusable and each tach drives one PIO state machine that measures the
+//! pulse-to-pulse period in hardware. A PIO block addresses a single 32-pin
+//! GPIO window, so the five split across blocks, and an unpopulated
+//! connector reads 0 rpm.
 //!
 //! The board's tach RC network charges the filter cap through a 4.7 kΩ
 //! pull-up, so the rising edge ramps slowly through the input threshold
@@ -63,8 +49,7 @@ use crate::config::Fan;
 /// Number of fan connectors, each with its own tachometer.
 pub const TACH_COUNT: usize = 5;
 
-/// PWM outputs driving the fan inputs. Construct once and pass into the
-/// cooling task; the cooling loop sets duty via `FanOutput::set_pwm`.
+/// Every channel runs at one shared duty, so all the fans track together.
 pub struct BoardFan {
     pwm_ab: Pwm<'static>,
     pwm_c: Pwm<'static>,
@@ -108,7 +93,6 @@ impl FanOutput for BoardFan {
         // u16 cast safe: compare <= self.top, which fits in u16.
         #[allow(clippy::cast_possible_truncation)]
         {
-            // Every channel gets the same duty so all fans track.
             config.compare_a = compare as u16;
             config.compare_b = compare as u16;
         }
@@ -117,9 +101,8 @@ impl FanOutput for BoardFan {
     }
 }
 
-/// Reads the latest measured RPM for all five connectors into the
-/// cooling loop. Each field owns the PIO state machine driving that
-/// connector's tachometer.
+/// Each field owns the PIO state machine driving that connector's
+/// tachometer.
 // One field per connector; the state machines are distinct const-generic
 // types, so they cannot share an array and every clear name shares a prefix.
 #[allow(clippy::struct_field_names)]
@@ -132,10 +115,8 @@ pub struct BoardTach {
 }
 
 impl BoardTach {
-    /// Load the tach program into both PIO blocks and start one state
-    /// machine per connector. Consumes both `Pio`s; the `common`
-    /// handles are only needed for setup and are dropped here, which
-    /// leaves the running state machines untouched.
+    /// Consumes both `Pio`s: the `common` handles are needed for setup
+    /// only, and dropping them leaves the running state machines alone.
     #[must_use]
     pub fn new(
         mut pio0: Pio<'static, PIO0>,

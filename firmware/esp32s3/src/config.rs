@@ -52,13 +52,9 @@ impl DisplaySpi {
     pub const FREQUENCY: Rate = Rate::from_mhz(10);
 }
 
-/// On-board flash parameters for the ubos-config record store.
-///
-/// The board runs the OTA partition layout in `partitions.csv`. The store
-/// takes the first two 4 KiB sectors of the `config` data partition, which
-/// begins at `0x61_0000` above the `ota_1` app slot. Keep this in sync with
-/// `partitions.csv`; the offset is absolute from the flash base, not relative
-/// to the partition.
+/// The first two 4 KiB sectors of the `config` data partition, which begins
+/// at `0x61_0000` above the `ota_1` app slot. The offset is absolute from
+/// the flash base, so it must follow any move in `partitions.csv`.
 pub struct Flash;
 impl Flash {
     pub const CONFIG_RANGE: core::ops::Range<u32> = 0x0061_0000..0x0061_2000;
@@ -78,9 +74,9 @@ impl Watchdog {
     pub const TIMEOUT: esp_hal::time::Duration = esp_hal::time::Duration::from_millis(2000);
 }
 
-/// Firmware version compiled into the running image, reported over the OTA
-/// API and used to label updates. Set at build time via `UBOS_FW_VERSION`
-/// (the flake image build passes it); defaults to 1 for local builds.
+/// Reported over the OTA API and used to label updates. Set at build time
+/// through `UBOS_FW_VERSION`, which the flake image build passes; a local
+/// build defaults to 1.
 pub const FIRMWARE_VERSION: u32 = match option_env!("UBOS_FW_VERSION") {
     Some(raw) => ubos_ota::parse_version(raw),
     None => 1,
@@ -143,13 +139,11 @@ pub struct Board<'d> {
     pub display_dma: esp_hal::peripherals::DMA_CH1<'d>,
 }
 
-/// The board descriptor this firmware targets: the 4-chip BM1362 BMM101.
-/// Every crate that needs board facts takes this explicitly rather than
-/// selecting a board behind a cargo feature.
+/// The 4-chip BM1362 BMM101. Every crate that needs board facts takes it
+/// explicitly rather than selecting a board behind a cargo feature.
 pub const BOARD: &ubos_asic::HashboardDescriptor = &MACHINE.hashboard;
 
-/// The Bitmain chip model this board's hashboard carries; injected into
-/// the mining actor as the concrete chain driver.
+/// Injected into the mining actor as the concrete chain driver.
 pub const CHIP: ubos_asic::Chip = ubos_asic::Chip::Bm1362;
 
 /// The tuners this board runs. The miner builds them, and [`BOUNDS`]
@@ -163,7 +157,6 @@ pub const BOUNDS: ubos_config::MiningBounds = BOARD.bounds(
     Some(ubos_machine::MINIMINER_INPUT_POWER),
 );
 
-/// Static mining capability metadata, built from [`BOARD`].
 pub const MINING_INFO: ubos_config::MiningInfo =
     BOARD.mining_info(&BOUNDS, ubos_config::DefaultTuning::Fixed);
 
@@ -172,13 +165,11 @@ pub const MINING_INFO: ubos_config::MiningInfo =
 /// `DEVFEE_*` overrides.
 pub const FEE_POOL: ubos_config::FeePool = ubos_config::fee::BRAIINS_POOL.with_overrides();
 
-/// Distinct series the Prometheus exposition map holds. The map is keyed
-/// by the label-expanded series, and a series that does not fit is
-/// dropped with a warning. Must be a power of two, which the map requires.
+/// Distinct series this board's exposition map holds; see
+/// [`ubos_metrics::metrics::MetricsStatics`] for what the number buys and
+/// what it must be.
 pub const MAX_METRICS: usize = 64;
 
-/// Bytes of the buffer one scrape is rendered into. It holds every series
-/// in the map at once, so it moves with [`MAX_METRICS`].
 pub const METRICS_RESPONSE_BYTES: usize = MAX_METRICS * ubos_metrics::metrics::METRIC_LINE_BYTES;
 
 impl Board<'static> {
