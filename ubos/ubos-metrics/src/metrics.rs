@@ -30,10 +30,13 @@ use embassy_time::{Duration, Instant};
 use crate::consts::Metrics;
 use crate::freshness::Expiry;
 use crate::name::{Name, Unit};
+#[cfg(feature = "metrics")]
 use crate::store::METRICS;
 use crate::value::Value;
 
+#[cfg(feature = "metrics")]
 pub use crate::scrape::PrometheusMetricsService;
+#[cfg(feature = "metrics")]
 pub use crate::store::{MetricsStatics, run_ingest};
 
 /// Bytes a series key may take, the name with its labels expanded. The
@@ -62,6 +65,8 @@ pub const METRIC_LINE_BYTES: usize =
 /// for every label of every queued metric.
 const LABEL_VALUE_CAPACITY: usize = 24;
 
+// Only the store reads a label, and a build without it has no reader.
+#[cfg_attr(not(feature = "metrics"), allow(dead_code))]
 pub(crate) struct Label {
     pub(crate) name: &'static str,
     pub(crate) value: heapless::String<LABEL_VALUE_CAPACITY>,
@@ -158,16 +163,24 @@ impl Metric {
         self
     }
 
-    /// Awaits while the channel is full.
+    /// Awaits while the channel is full. A build without the `metrics`
+    /// feature has no channel, so the metric is dropped and the call
+    /// returns at once.
+    // The function stays `async` in a build without the feature, where it
+    // awaits nothing, so that no push site depends on the feature.
+    #[allow(clippy::unused_async)]
     pub async fn push(self) {
+        #[cfg(feature = "metrics")]
         METRICS.send(self).await;
     }
 
     /// Drops the metric when the channel is full, for a caller that must
-    /// keep making progress while [`run_ingest`] cannot run. Every series
+    /// keep making progress while the ingest task cannot run. Every series
     /// pushed this way is pushed on a ticker, so the next sample replaces
-    /// a dropped one.
+    /// a dropped one. A build without the `metrics` feature has no channel
+    /// and drops every metric.
     pub fn try_push(self) {
+        #[cfg(feature = "metrics")]
         let _ = METRICS.try_send(self);
     }
 
@@ -183,11 +196,15 @@ impl Metric {
 
     /// When the metric was measured and how long it stays valid, or
     /// `None` for a constant.
+    // Only the store reads this, and a build without it has no reader.
+    #[cfg_attr(not(feature = "metrics"), allow(dead_code))]
     pub(crate) fn expiry(&self) -> Option<Expiry> {
         self.expiry
     }
 
     #[must_use]
+    // Only the store reads this, and a build without it has no reader.
+    #[cfg_attr(not(feature = "metrics"), allow(dead_code))]
     pub(crate) fn labels(&self) -> &[Label] {
         &self.labels
     }

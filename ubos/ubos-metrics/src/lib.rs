@@ -20,8 +20,13 @@
 //! Observability: the Prometheus exposition, the hashrate estimator, the
 //! per-chain table, and the CPU-load gauge.
 //! `PROMETHEUS_SERVICE` is the endpoint's mDNS advertisement.
+//!
+//! The `metrics` feature keeps the store: the channel, the series map,
+//! the render buffer, the scrape service and the advertisement. A build
+//! without it frees the RAM they hold, and a push returns at once.
 #![no_std]
 
+#[cfg(feature = "metrics")]
 ubos_mdns::declare_service!(
     pub PROMETHEUS_SERVICE = ubos_mdns::ServiceEntry {
         service: "_prometheus",
@@ -39,7 +44,9 @@ mod freshness;
 pub mod hashrate;
 pub mod metrics;
 mod name;
+#[cfg(feature = "metrics")]
 mod scrape;
+#[cfg(feature = "metrics")]
 mod store;
 pub mod value;
 
