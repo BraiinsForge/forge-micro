@@ -28,7 +28,6 @@ defmt = { workspace = true }
 # No chip feature here: the crate builds under both rp2040 (thumbv6m) and
 # rp235xa (thumbv8m), so the board or the flake check selects the chip.
 embassy-rp = { version = "0.10.0", default-features = false, features = ["unstable-pac"] }
-pio = "0.3"
 smart-leds = "0.4"
 cortex-m = { version = "0.7", features = ["inline-asm"] }
 cortex-m-rt = "0.7"

@@ -81,7 +81,7 @@ pub fn tach_program<P: Instance>(common: &mut Common<'static, P>) -> LoadedProgr
     // `set y, N` takes a 5-bit immediate, so the debounce window maxes at
     // 31 ticks (31 µs), comfortably longer than a single chatter pulse and
     // far shorter than a real tach half-period.
-    let program = pio::pio_asm!(
+    let program = embassy_rp::pio::program::pio_asm!(
         "seek_low:",
         "    jmp pin seek_low", // wait for a low baseline
         "seek_rise:",
