@@ -60,6 +60,13 @@ impl Expiry {
         }
     }
 
+    /// Whether the measurement is older than its TTL at `now_ms`. The age
+    /// saturates at zero, so a measurement stored after the clock was read
+    /// is not expired.
+    pub(crate) fn is_expired(self, now_ms: u64) -> bool {
+        now_ms.saturating_sub(self.at_ms) > u64::from(self.ttl_secs.get()) * MILLIS_PER_SECOND
+    }
+
     /// The time of the measurement in monotonic milliseconds.
     pub(crate) fn at_ms(self) -> u64 {
         self.at_ms

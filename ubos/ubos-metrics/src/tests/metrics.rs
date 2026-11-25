@@ -20,10 +20,11 @@
 //! Coverage for the render of one series: a stored value leaves as one
 //! exposition line in its base unit.
 
+use embassy_time::Duration;
 use ubos_core::units::{Temperature, Voltage};
 use ubos_http::BufferWriter;
 
-use super::{METRIC_LINE_BYTES, StoredValue, render_metric};
+use super::{METRIC_LINE_BYTES, MetricKey, StoredValue, render_metric, render_stored};
 use crate::consts::Metrics;
 use crate::freshness::Expiry;
 
@@ -78,4 +79,61 @@ fn a_constant_renders_with_no_timestamp_once_the_clock_is_set() {
         line("hashboard_chain_voltage_volts{chain=\"0\"}", &stored, 2).as_str(),
         "hashboard_chain_voltage_volts{chain=\"0\"} 21.600\n"
     );
+}
+
+const TTL_SECS: u32 = 10;
+const TTL_MS: u64 = TTL_SECS as u64 * 1_000;
+const TAKEN_AT_MS: u64 = 5_000;
+const KEY: &str = "board_ambient_temperature_celsius";
+
+/// The exposition of a map with one series, rendered at `now_ms`.
+fn exposition(expiry: Option<Expiry>, ntp_offset: u64, now_ms: u64) -> heapless::String<128> {
+    let mut map = heapless::index_map::FnvIndexMap::<MetricKey, StoredValue, 2>::new();
+    let key = MetricKey(heapless::String::try_from(KEY).expect("the key fits"));
+    let stored = StoredValue {
+        value: Temperature::from_millicelsius(25_500).into(),
+        expiry,
+    };
+    assert!(map.insert(key, stored).is_ok(), "the map has room");
+    let mut buffer = [0; 128];
+    let mut writer = BufferWriter::new(&mut buffer);
+    render_stored(&mut writer, &map, ntp_offset, now_ms);
+    let written = writer.len();
+    let text = core::str::from_utf8(&buffer[..written]).expect("the body is text");
+    text.try_into().expect("the body fits")
+}
+
+fn measured() -> Expiry {
+    Expiry::new(TAKEN_AT_MS, Duration::from_secs(u64::from(TTL_SECS)))
+}
+
+/// The series is shown at an age equal to its TTL and hidden one
+/// millisecond later.
+#[test]
+fn a_series_is_hidden_one_millisecond_past_its_ttl() {
+    assert!(!exposition(Some(measured()), 0, TAKEN_AT_MS + TTL_MS).is_empty());
+    assert!(exposition(Some(measured()), 0, TAKEN_AT_MS + TTL_MS + 1).is_empty());
+}
+
+/// The expiry reads the monotonic clock, so an unsynced clock hides a
+/// series too.
+#[test]
+fn an_expired_series_is_hidden_before_the_clock_is_set() {
+    assert!(exposition(Some(measured()), 0, TAKEN_AT_MS + TTL_MS + 1).is_empty());
+}
+
+/// A constant stays after a time far above any TTL, with no timestamp,
+/// also when the clock is set.
+#[test]
+fn a_constant_stays_with_no_timestamp() {
+    assert_eq!(
+        exposition(None, 2, u64::MAX).as_str(),
+        "board_ambient_temperature_celsius 25.500\n"
+    );
+}
+
+/// The ingest task can store a metric after the render read the clock.
+#[test]
+fn a_series_stored_after_the_clock_reading_is_shown() {
+    assert!(!exposition(Some(measured()), 0, TAKEN_AT_MS - 1).is_empty());
 }

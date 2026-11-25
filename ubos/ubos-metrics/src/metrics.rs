@@ -374,9 +374,7 @@ fn build_prometheus_body<const MAX: usize, const BODY: usize>(
     // HELP/TYPE lines are omitted throughout — they are optional in the
     // Prometheus text format and the buffer is tight.
     let ntp_offset = net.ntp_epoch_offset();
-    for (key, stored) in map {
-        render_metric(&mut writer, key.0.as_str(), stored, ntp_offset);
-    }
+    render_stored(&mut writer, map, ntp_offset, Instant::now().as_millis());
 
     // Render hardcoded derived metrics.
     let uptime_secs = Instant::now().as_secs();
@@ -406,6 +404,27 @@ fn build_prometheus_body<const MAX: usize, const BODY: usize>(
         );
     }
     writer.len()
+}
+
+/// Render every stored series that has not expired at `now_ms`, in
+/// monotonic milliseconds. The render is where a series whose publisher
+/// stopped pushing leaves the exposition. The ingest task removes expired
+/// entries only when the map is full.
+fn render_stored<const MAX: usize>(
+    writer: &mut BufferWriter<'_>,
+    map: &heapless::index_map::FnvIndexMap<MetricKey, StoredValue, MAX>,
+    ntp_offset: u64,
+    now_ms: u64,
+) {
+    for (key, stored) in map {
+        if stored
+            .expiry
+            .is_some_and(|expiry| expiry.is_expired(now_ms))
+        {
+            continue;
+        }
+        render_metric(writer, key.0.as_str(), stored, ntp_offset);
+    }
 }
 
 /// Render one stored metric line. The key string includes name and labels.
