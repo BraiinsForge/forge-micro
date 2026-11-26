@@ -29,7 +29,7 @@ use std::format;
 use embassy_time::{Duration, block_for};
 
 use ubos_core::index::HashboardIndex;
-use ubos_core::units::Temperature;
+use ubos_core::units::{Temperature, Voltage};
 
 use super::{
     KEY_CAPACITY, LONGEST_KEY_LABELS, LONGEST_KEY_NAME, LONGEST_RENDERED_KEY_BYTES, METRICS,
@@ -119,6 +119,44 @@ fn a_full_map_of_live_series_refuses_a_new_one() {
     assert!(holds(&map, "first") && holds(&map, "second") && !holds(&map, "third"));
 }
 
+// A chip series carries the hashboard and the slot of its chip, and its
+// voltage renders as a key of its own.
+#[test]
+fn a_chip_voltage_keys_on_the_hashboard_and_the_chip() {
+    let metric = metric!("chip_voltage_volts", Voltage::from_mv(1_200))
+        .label(HASHBOARD_LABEL, HashboardIndex(1))
+        .label(CHIP_ADDR_LABEL, 7_u8);
+    let key = MetricKey::from_metric(&metric).expect("the key must encode");
+    assert_eq!(
+        key.0.as_str(),
+        "chip_voltage_volts{chip_addr=\"7\",hashboard=\"1\"}"
+    );
+}
+
+// A second reading of a chip replaces the first and carries a later
+// time.
+#[test]
+fn a_second_reading_of_a_chip_replaces_the_first() {
+    let mut map = heapless::index_map::FnvIndexMap::<MetricKey, StoredValue, 2>::new();
+    let reading = |millivolts| {
+        metric!("chip_voltage_volts", Voltage::from_mv(millivolts))
+            .label(HASHBOARD_LABEL, HashboardIndex(0))
+            .label(CHIP_ADDR_LABEL, 3_u8)
+    };
+    upsert_metric(&mut map, &reading(1_200));
+    let first = map
+        .values()
+        .next()
+        .and_then(|stored| stored.expiry)
+        .expect("the first reading is stored");
+    block_for(Duration::from_millis(5));
+    upsert_metric(&mut map, &reading(1_250));
+    let stored = map.values().next().expect("the reading is stored");
+    assert_eq!(map.len(), 1);
+    assert_eq!(stored.value, Voltage::from_mv(1_250).into());
+    assert!(stored.expiry.expect("a reading expires").at_ms() > first.at_ms());
+}
+
 /// Serialises the tests that fill the shared channel.
 static CHANNEL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
@@ -138,4 +176,29 @@ fn a_push_to_a_full_channel_is_counted() {
     }
     assert_eq!(dropped() - before, excess);
     empty_channel();
+}
+
+// The longest chain a board holds, with both quantities of each chip,
+// fits a map of 512 series and loses no push when the reader keeps up.
+#[test]
+fn the_longest_chain_fits_a_map_of_512_series() {
+    let _guard = CHANNEL.lock().expect("no test panics holding the lock");
+    empty_channel();
+    let before = dropped();
+    let mut map = heapless::index_map::FnvIndexMap::<MetricKey, StoredValue, 512>::new();
+    for chip in 0..=u8::MAX {
+        metric!(CHIP_TEMPERATURE, ANY_TEMPERATURE)
+            .label(HASHBOARD_LABEL, HashboardIndex(0))
+            .label(CHIP_ADDR_LABEL, chip)
+            .try_push();
+        metric!("chip_voltage_volts", Voltage::from_mv(1_200))
+            .label(HASHBOARD_LABEL, HashboardIndex(0))
+            .label(CHIP_ADDR_LABEL, chip)
+            .try_push();
+        while let Ok(metric) = METRICS.try_receive() {
+            upsert_metric(&mut map, &metric);
+        }
+    }
+    assert_eq!(map.len(), 512);
+    assert_eq!(dropped(), before);
 }
