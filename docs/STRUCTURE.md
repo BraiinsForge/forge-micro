@@ -65,7 +65,7 @@ lists a workspace crate that its row does not name.
 The chain `(core + logging + config) ← ubos-net` runs strictly one-way
 above them. `ubos-net`, `ubos-http` and `ubos-display` depend on
 `ubos-metrics`, and it depends on none of them. `ubos-manager` sits beside the chain
-and supervises the thermal/cooling/mining handles via watch channels;
+and drives the mining handle from the pause reasons it aggregates;
 hardware and protocol crates sit beside the chain without participating
 in it. `ubos-machine`'s pure descriptor data sits below the mining and
 protocol crates that read it: `ubos-mining`, `stratum-client`, and
@@ -104,7 +104,7 @@ typed `TaskPool` static and so rejects generic task functions.
 | `ubos-core`        | shared constants, watchdog feed loop, hold-to-trigger button, typed units, hashboard and chip indices, I2C bus clear, boot seeds struct, `take_once::TakeOnce` guard that makes a handle takeable once |
 | `ubos-led`         | the indicator LEDs: the status blink on a plain pin and the breathing RGB colour behind the `RgbFrame` trait, each with its task shell |
 | `ubos-config`      | runtime `Config` watch, `ConfigHandle`, flash-backed `sequential-storage` persistence |
-| `ubos-manager`     | supervisor crate: routes `Message::Halt`/`Resume` to mining/cooling/thermal handles |
+| `ubos-manager`     | supervisor crate: aggregates pause reasons and halts or resumes the mining handle |
 | `ubos-net`         | DHCP, NTP sync; owns the cross-board atomics (IP, NTP offset) behind its handle, pushes the `uptime_seconds` and `ntp_synced` series, and owns `wall_clock_secs`, the logging clock for `defmt::timestamp!` and the event ring |
 | `ubos-http`        | HTTP transport primitives: TCP accept loop, request parser, `Service` trait, `PrefixRouter`, the port 80 listener constants; `RequestCounter`, which counts the requests of one listener and pushes `http_requests`; `Status`, which pairs each status code with its reason phrase, and `StatusMessage`, which pairs a status with the message of its body; generic response helpers (`read_body`, `start_response`, `write_json_response`, `write_response`, `write_message`, `MAX_RESPONSE_HEADERS`) |
 | `ubos-auth`        | shared HTTP middleware: IP allow-list, credential store, session table, CSRF tokens, CSPRNG |
