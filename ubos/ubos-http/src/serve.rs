@@ -37,6 +37,10 @@ use edge_nal::TcpSplit;
 
 use crate::request::RequestParts;
 
+#[cfg(test)]
+#[path = "tests/serve.rs"]
+mod tests;
+
 /// Headers parsed per request: headroom over a browser's sixteen or so
 /// plus `Authorization`.
 pub(crate) const MAX_HEADERS: usize = 32;
