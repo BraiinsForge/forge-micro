@@ -51,8 +51,8 @@ pub struct PrometheusMetricsService<const MAX: usize, const BODY: usize> {
 }
 
 impl<const MAX: usize, const BODY: usize> PrometheusMetricsService<MAX, BODY> {
-    /// Serve the exposition out of `statics`, with the clock and the request
-    /// count that `net` holds.
+    /// Serve the exposition out of `statics`, with the clock offset that
+    /// `net` holds.
     #[must_use]
     pub const fn new(
         statics: &'static MetricsStatics<MAX, BODY>,
@@ -178,21 +178,6 @@ fn build_prometheus_body<const MAX: usize, const BODY: usize>(
     let ntp_offset = net.ntp_epoch_offset();
     render_stored(&mut writer, map, ntp_offset, Instant::now().as_millis());
 
-    let uptime_secs = Instant::now().as_secs();
-    let ts_ms = if ntp_offset == 0 {
-        None
-    } else {
-        Some((uptime_secs + ntp_offset) * 1000)
-    };
-
-    render_scalar(&mut writer, "uptime_seconds", uptime_secs, ts_ms);
-
-    let request_count = net.request_count();
-    render_scalar(&mut writer, "http_requests", request_count, ts_ms);
-
-    let synced = u8::from(ntp_offset != 0);
-    render_scalar(&mut writer, "ntp_synced", synced, ts_ms);
-
     if writer.overflowed() {
         warn!(
             "prometheus response buffer overflow; truncated exposition served \
@@ -233,19 +218,6 @@ fn render_metric(writer: &mut BufferWriter<'_>, key: &str, stored: &StoredValue,
     let stamp_ms = stored.expiry.and_then(Expiry::stamp_ms);
     if let (Some(at_ms), true) = (stamp_ms, ntp_offset != 0) {
         let ts_ms = at_ms + ntp_offset * 1000;
-        let _ = write!(writer, " {ts_ms}");
-    }
-    let _ = writeln!(writer);
-}
-
-fn render_scalar<T: core::fmt::Display>(
-    writer: &mut BufferWriter<'_>,
-    name: &str,
-    value: T,
-    ts_ms: Option<u64>,
-) {
-    let _ = write!(writer, "{name} {value}");
-    if let Some(ts_ms) = ts_ms {
         let _ = write!(writer, " {ts_ms}");
     }
     let _ = writeln!(writer);
