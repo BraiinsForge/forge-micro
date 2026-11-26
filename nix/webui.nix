@@ -79,7 +79,7 @@ buildNpmPackage {
 
   # See the header for how to regenerate this when package-lock.json
   # moves.
-  npmDepsHash = "sha256-SRpfAjyVRNALTTSp7CkSfYcJ/WN3WKfuni4O2T9doZc=";
+  npmDepsHash = "sha256-JNIw4Fqgp5D6SDGuHduuXDbz/9s7by//aCT3F6rU6i4=";
 
   # No revision or time is baked in here. The bundle carries two fixed
   # tokens for them, and the crate's build.rs stamps the pages when it
