@@ -60,6 +60,13 @@ let
       "ubos-core"
       "ubos-temperature"
     ];
+    # The metrics store holds the metric types, the store and the render,
+    # and no module that pushes into it. A module that owns a series
+    # depends on this crate, so an edge back would close a cycle.
+    ubos-metrics = [
+      "ubos-core"
+      "ubos-logging"
+    ];
   };
 
   # Each `crate -> dependency` pair that a manifest lists and the row of
