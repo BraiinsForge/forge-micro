@@ -71,6 +71,10 @@ state that changes seldom can have a slow ticker and a long TTL.
 
 The last call of `ttl`, `state` and `constant` wins.
 
+`ubos-net` owns the clock. Its `run_ntp_sync` task joins the export loop
+to the sync loop, so the series exist before the DHCP lease does, and no
+board has a spawn line for them.
+
 ### Expiry
 
 A series leaves the exposition when its publisher stops pushing it. The

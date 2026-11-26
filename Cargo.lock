@@ -4589,6 +4589,7 @@ dependencies = [
  "ubos-core",
  "ubos-events",
  "ubos-logging",
+ "ubos-metrics",
 ]
 
 [[package]]

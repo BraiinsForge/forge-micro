@@ -23,7 +23,9 @@
 //! Architecture: `../../../docs/OVERVIEW.md`.
 
 use core::cell::Cell;
+use core::convert::Infallible;
 
+use embassy_futures::join::join;
 use embassy_futures::select::{Either, select};
 use embassy_net::dns::DnsQueryType;
 use embassy_net::tcp::TcpSocket;
@@ -31,10 +33,13 @@ use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_net::{ConfigV4, DhcpConfig, IpAddress, Ipv4Address, Stack};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::{Receiver, Watch};
-use embassy_time::{Duration, Instant, Timer, with_timeout};
+use embassy_time::{Duration, Instant, Ticker, Timer, with_timeout};
 use portable_atomic::{AtomicU32, Ordering};
 use ubos_config::{Message, NetworkConfig, NetworkMode};
 use ubos_logging::{Debug2Format, info, warn};
+use ubos_metrics::consts::Metrics;
+use ubos_metrics::metric;
+use ubos_metrics::value::{Count, Flag};
 
 use ubos_core::consts::Net;
 
@@ -441,13 +446,21 @@ pub async fn fetch_ntp_time(
     Ok(())
 }
 
-/// Periodically sync NTP time. Runs forever.
+/// Periodically sync NTP time and export the clock state. Runs forever.
 ///
+/// The export loop starts at once, so the series exist before the lease
+/// does. It is joined to the sync loop and not a task of its own, so no
+/// board has a spawn line for it.
+pub async fn run_ntp_sync(stack: Stack<'static>, publisher: Publisher) -> ! {
+    let (never, _) = join(sync_clock(stack, publisher), export_clock_state()).await;
+    match never {}
+}
+
 /// A failed fetch is retried on [`Ntp::RETRY_INTERVAL`], for the reason
 /// that constant gives, rather than the steady-state
 /// [`Ntp::SYNC_INTERVAL`]. There is no attempt limit: an unreachable
 /// pool is a condition to keep trying through, not one to give up on.
-pub async fn run_ntp_sync(stack: Stack<'static>, publisher: Publisher) -> ! {
+async fn sync_clock(stack: Stack<'static>, publisher: Publisher) -> Infallible {
     wait_for_config(stack, publisher).await;
     Timer::after(Ntp::INITIAL_DELAY).await;
 
@@ -460,6 +473,22 @@ pub async fn run_ntp_sync(stack: Stack<'static>, publisher: Publisher) -> ! {
             }
         };
         Timer::after(interval).await;
+    }
+}
+
+/// Pushes the uptime and whether NTP has synced, the two series of the
+/// clock this module owns. A push that finds the channel full is dropped,
+/// and the next tick replaces it.
+async fn export_clock_state() -> Infallible {
+    let mut ticker = Ticker::every(EXPORT_INTERVAL);
+    loop {
+        metric!("uptime_seconds", Count(Instant::now().as_secs()))
+            .state(EXPORT_TTL)
+            .try_push();
+        metric!("ntp_synced", Flag(epoch_offset() != 0))
+            .state(EXPORT_TTL)
+            .try_push();
+        ticker.next().await;
     }
 }
 
@@ -478,6 +507,13 @@ macro_rules! ntp_sync_task {
         }
     };
 }
+
+/// Cadence at which the clock series are pushed.
+const EXPORT_INTERVAL: Duration = Duration::from_secs(1);
+/// The series leave the exposition when this task stops, after the
+/// pushes that [`Metrics::TTL_INTERVALS`] allows to miss.
+const EXPORT_TTL: Duration =
+    Duration::from_secs(EXPORT_INTERVAL.as_secs() * Metrics::TTL_INTERVALS as u64);
 
 /// Cadence at which the live IPv4 address is observed and republished.
 /// Long enough to stay well off the executor hot path; `/api/info` and

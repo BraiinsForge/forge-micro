@@ -105,7 +105,7 @@ typed `TaskPool` static and so rejects generic task functions.
 | `ubos-led`         | the indicator LEDs: the status blink on a plain pin and the breathing RGB colour behind the `RgbFrame` trait, each with its task shell |
 | `ubos-config`      | runtime `Config` watch, `ConfigHandle`, flash-backed `sequential-storage` persistence |
 | `ubos-manager`     | supervisor crate: routes `Message::Halt`/`Resume` to mining/cooling/thermal handles |
-| `ubos-net`         | DHCP, NTP sync; owns the cross-board atomics (IP, NTP offset, request count) behind its handle, and `wall_clock_secs`, the logging clock for `defmt::timestamp!` and the event ring |
+| `ubos-net`         | DHCP, NTP sync; owns the cross-board atomics (IP, NTP offset, request count) behind its handle, pushes the `uptime_seconds` and `ntp_synced` series, and owns `wall_clock_secs`, the logging clock for `defmt::timestamp!` and the event ring |
 | `ubos-http`        | HTTP transport primitives: TCP accept loop, request parser, `Service` trait, `PrefixRouter`, the port 80 listener constants; `Status`, which pairs each status code with its reason phrase, and `StatusMessage`, which pairs a status with the message of its body; generic response helpers (`read_body`, `start_response`, `write_json_response`, `write_response`, `write_message`, `MAX_RESPONSE_HEADERS`) |
 | `ubos-auth`        | shared HTTP middleware: IP allow-list, credential store, session table, CSRF tokens, CSPRNG |
 | `ubos-api`         | REST handlers, `REST_API_SERVICE` mDNS entry, schema types; serves `/api/*` on port 80 |
