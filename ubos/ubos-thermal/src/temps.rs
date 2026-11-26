@@ -130,6 +130,16 @@ impl Temperatures {
         (chip.is_some() || hashboard.is_some()).then_some(TempSample { chip, hashboard })
     }
 
+    /// The stats of `source` at `now`, or `None` when it has no reading
+    /// inside its window.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the loop does not run the flag yet")
+    )]
+    pub(crate) fn stats(&self, source: Source, now: Instant) -> Option<TempStats> {
+        self.filtered(now)?.temp_stats(source)
+    }
+
     /// Publish the chip and hashboard values into `watches`.
     pub(crate) fn publish_filtered(&self, now: Instant, watches: &Watches) {
         watches.filtered.sender().send(self.filtered(now));

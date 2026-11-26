@@ -61,6 +61,7 @@ extern crate std;
 pub mod chain;
 pub use chain::ChainTemperature;
 mod array;
+mod danger;
 mod filter;
 mod metrics;
 mod stats;
