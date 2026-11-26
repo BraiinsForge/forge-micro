@@ -17,33 +17,13 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Tuning for the Prometheus metrics exposition listener on port 8081.
+//! Tuning for the metrics store: the channel, the labels and the TTL.
 
 use embassy_time::Duration;
 
-use ubos_core::consts::Net;
-
-/// Prometheus metrics exposition server settings.
+/// Metrics store settings.
 pub struct Metrics;
 impl Metrics {
-    pub const PORT: u16 = 8081;
-    /// Receive side of the scrape socket; a Prometheus 3.x request is
-    /// about 390 bytes. Every static here is sized against the rp2040's
-    /// SRAM, the smallest board that runs this server.
-    pub const RX_BUFFER_SIZE: usize = 512;
-    /// Send side, the large direction on this socket, so it kept its size
-    /// when the receive side was trimmed.
-    pub const TX_BUFFER_SIZE: usize = 1024;
-    /// Buffer for one scraper request, which `edge-http` must hold whole.
-    /// A Prometheus 3.x scrape carries a 240-byte Accept header, about
-    /// 390 bytes in all, and a request that does not fit is dropped with
-    /// no response. 1024 overflows the rp2040.
-    pub const REQUEST_BUFFER_SIZE: usize = 512;
-    /// Per-socket progress timeout.
-    pub const SOCKET_TIMEOUT: Duration = Net::SOCKET_TIMEOUT;
-    /// Bound on the wait for the request headers. Declared because the
-    /// listener macros read one constants type; a scrape never reaches it.
-    pub const IDLE_TIMEOUT: Duration = Net::SOCKET_TIMEOUT;
     pub const CHANNEL_DEPTH: usize = 32;
     pub const MAX_LABELS: usize = 4;
     /// Pushes a series may miss in a row before it expires. Two lost

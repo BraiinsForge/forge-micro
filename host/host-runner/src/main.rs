@@ -109,7 +109,7 @@ type HttpService = ubos_http::PrefixRouter<ubos_api::RestApiService, ubos_webui:
 
 /// The exposition handler, sized to the statics it serves.
 type MetricsService =
-    ubos_metrics::metrics::PrometheusMetricsService<MAX_METRICS, METRICS_RESPONSE_BYTES>;
+    ubos_prometheus::PrometheusMetricsService<MAX_METRICS, METRICS_RESPONSE_BYTES>;
 
 ubos_metrics::metrics_statics!(METRICS_STATICS, MAX_METRICS, METRICS_RESPONSE_BYTES);
 
@@ -208,7 +208,7 @@ async fn metrics_ingest_task() -> ! {
 const MDNS_SERVICES: &[&ubos_mdns::ServiceEntry] = &[
     &ubos_webui::WEBUI_SERVICE,
     &ubos_api::REST_API_SERVICE,
-    &ubos_metrics::PROMETHEUS_SERVICE,
+    &ubos_prometheus::PROMETHEUS_SERVICE,
 ];
 
 #[embassy_executor::task]
@@ -574,15 +574,15 @@ fn main() {
         static METRICS_TCP_BUFFERS: ConstStaticCell<
             edge_nal_embassy::TcpBuffers<
                 METRICS_HTTP_POOL,
-                { ubos_metrics::consts::Metrics::TX_BUFFER_SIZE },
-                { ubos_metrics::consts::Metrics::RX_BUFFER_SIZE },
+                { ubos_prometheus::Prometheus::TX_BUFFER_SIZE },
+                { ubos_prometheus::Prometheus::RX_BUFFER_SIZE },
             >,
         > = ConstStaticCell::new(edge_nal_embassy::TcpBuffers::new());
         static METRICS_TCP_NAL: StaticCell<edge_nal_embassy::Tcp<'static>> = StaticCell::new();
         static METRICS_WORK: ConstStaticCell<
-            [u8; ubos_metrics::consts::Metrics::REQUEST_BUFFER_SIZE * METRICS_HTTP_POOL],
+            [u8; ubos_prometheus::Prometheus::REQUEST_BUFFER_SIZE * METRICS_HTTP_POOL],
         > = ConstStaticCell::new(
-            [0; ubos_metrics::consts::Metrics::REQUEST_BUFFER_SIZE * METRICS_HTTP_POOL],
+            [0; ubos_prometheus::Prometheus::REQUEST_BUFFER_SIZE * METRICS_HTTP_POOL],
         );
         static METRICS_SERVICE: StaticCell<MetricsService> = StaticCell::new();
         let metrics_service: &'static MetricsService =
@@ -591,11 +591,11 @@ fn main() {
             METRICS_TCP_NAL.init(edge_nal_embassy::Tcp::new(stack, METRICS_TCP_BUFFERS.take()));
         let metrics_acceptor = embassy_futures::block_on(ubos_http::bind_tcp(
             metrics_tcp,
-            ubos_metrics::consts::Metrics::PORT,
+            ubos_prometheus::Prometheus::PORT,
         ));
         let metrics_buffers = ubos_http::split_work_buffer::<METRICS_HTTP_POOL>(
             METRICS_WORK.take(),
-            ubos_metrics::consts::Metrics::REQUEST_BUFFER_SIZE,
+            ubos_prometheus::Prometheus::REQUEST_BUFFER_SIZE,
         );
         for buffer in metrics_buffers {
             spawner.spawn(
@@ -603,8 +603,8 @@ fn main() {
                     metrics_acceptor,
                     buffer,
                     metrics_service,
-                    ubos_metrics::consts::Metrics::SOCKET_TIMEOUT,
-                    ubos_metrics::consts::Metrics::IDLE_TIMEOUT,
+                    ubos_prometheus::Prometheus::SOCKET_TIMEOUT,
+                    ubos_prometheus::Prometheus::IDLE_TIMEOUT,
                 )
                 .expect("BUG: metrics_worker_task token"),
             );

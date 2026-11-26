@@ -10,11 +10,11 @@ reference-miner where compatibility costs nothing.
 
 ## Servers
 
-| Port | Crate          | Purpose                                                |
-|------|----------------|--------------------------------------------------------|
-| 80   | `ubos-webui`   | dashboard SPA, login, logout, logo                     |
-| 80   | `ubos-api`     | JSON REST API (`/api/*`)                               |
-| 8081 | `ubos-metrics` | Prometheus text-format exposition at `/metrics`        |
+| Port | Crate             | Purpose                                                |
+|------|-------------------|--------------------------------------------------------|
+| 80   | `ubos-webui`      | dashboard SPA, login, logout, logo                     |
+| 80   | `ubos-api`        | JSON REST API (`/api/*`)                               |
+| 8081 | `ubos-prometheus` | Prometheus text-format exposition at `/metrics`        |
 
 Port 8081 and `_prometheus._tcp.local.` exist only in a build with the
 `metrics` feature, as `METRICS.md` describes.
@@ -33,14 +33,15 @@ change.
 
 ## Crate map
 
-| Crate          | Role                                                                      |
-|----------------|---------------------------------------------------------------------------|
-| `ubos-http`    | TCP accept loop, per-connection state machine, `Service` trait, `PrefixRouter`, the port 80 listener constants; `Status`, which pairs each status code with its reason phrase, and `StatusMessage`, which pairs a status with the message of its body; generic response helpers (`read_body`, `start_response`, `write_json_response`, `write_response`, `write_message`, `MAX_RESPONSE_HEADERS`) |
-| `ubos-auth`    | shared HTTP middleware: allow-list, auth, sessions, CSRF, CSPRNG          |
-| `ubos-api`     | REST handlers, `REST_API_SERVICE` mDNS entry, schema types                |
-| `ubos-webui`   | Zopfli-gzipped `index.html` / `login.html` and `logo.svg`, with `icon.png` inlined into each page; dashboard handler; `WEBUI_SERVICE` mDNS entry |
-| `ubos-mdns`    | DNS-SD responder; per-service registration via `declare_service!`         |
-| `ubos-metrics` | Prometheus exporter task and metric storage                               |
+| Crate             | Role                                                                      |
+|-------------------|---------------------------------------------------------------------------|
+| `ubos-http`       | TCP accept loop, per-connection state machine, `Service` trait, `PrefixRouter`, the port 80 listener constants; `Status`, which pairs each status code with its reason phrase, and `StatusMessage`, which pairs a status with the message of its body; generic response helpers (`read_body`, `start_response`, `write_json_response`, `write_response`, `write_message`, `MAX_RESPONSE_HEADERS`) |
+| `ubos-auth`       | shared HTTP middleware: allow-list, auth, sessions, CSRF, CSPRNG          |
+| `ubos-api`        | REST handlers, `REST_API_SERVICE` mDNS entry, schema types                |
+| `ubos-prometheus` | the port 8081 scrape service and its `_prometheus` mDNS entry             |
+| `ubos-webui`      | Zopfli-gzipped `index.html` / `login.html` and `logo.svg`, with `icon.png` inlined into each page; dashboard handler; `WEBUI_SERVICE` mDNS entry |
+| `ubos-mdns`       | DNS-SD responder; per-service registration via `declare_service!`         |
+| `ubos-metrics`    | Metric types, the metric store and its render                             |
 
 Each listener is served by a fixed pool of accept-loop workers spawned
 through `ubos_http::http_worker_task!` (see `docs/HTTP_LISTENERS.md`).
@@ -50,7 +51,7 @@ Port 80 serves a `ubos_http::PrefixRouter` over
 (`ubos-webui/src/dashboard.rs`). Each handler seeds its credentials at
 boot through `ubos_api::seed_api_credentials` and
 `ubos_webui::seed_webui_credentials`. Port 8081 serves
-`ubos_metrics::metrics::PrometheusMetricsService` (`ubos-metrics/src/scrape.rs`);
+`ubos_prometheus::PrometheusMetricsService` (`ubos-prometheus/src/lib.rs`);
 a separate `ubos_metrics::metrics::run_ingest` task drains the push channel into
 the shared metric map the service renders.
 
@@ -346,11 +347,11 @@ pairs per service. No `linkme` is used.
 
 Today the workspace advertises:
 
-| Service        | Port | Declared in                               |
-|----------------|------|-------------------------------------------|
-| `_http`        | 80   | `ubos-webui/src/lib.rs`                   |
-| `_ubos`        | 80   | `ubos-api/src/lib.rs`                     |
-| `_prometheus`  | 8081 | `ubos-metrics/src/lib.rs`, `metrics` only |
+| Service        | Port | Declared in                                  |
+|----------------|------|----------------------------------------------|
+| `_http`        | 80   | `ubos-webui/src/lib.rs`                      |
+| `_ubos`        | 80   | `ubos-api/src/lib.rs`                        |
+| `_prometheus`  | 8081 | `ubos-prometheus/src/lib.rs`, `metrics` only |
 
 Hostnames are composed per-board in each firmware's `config.rs` from
 the `MDNS_HOSTNAME_BASE` const and the last MAC byte.
@@ -382,7 +383,7 @@ once, and a third request costs the page its wordmark.
 | `Http::REQUEST_BUFFER_SIZE`       | 2048 B     | `ubos-http/src/consts.rs`             |
 | `Http::SOCKET_TIMEOUT`            | 10 s       | `ubos-http/src/consts.rs`             |
 | `Http::IDLE_TIMEOUT`              | 3 s        | `ubos-http/src/consts.rs`             |
-| `Metrics::PORT`                   | 8081       | `ubos-metrics/src/consts.rs`          |
+| `Prometheus::PORT`                | 8081       | `ubos-prometheus/src/lib.rs`          |
 | `MAX_SESSIONS`                    | 8          | `ubos-auth/src/session.rs`            |
 | `SESSION_TTL_SECS`                | 86 400     | `ubos-auth/src/session.rs`            |
 | `MAX_TOKENS` (CSRF)               | 16         | `ubos-auth/src/csrf.rs`               |

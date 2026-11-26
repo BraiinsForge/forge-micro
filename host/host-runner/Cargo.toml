@@ -49,6 +49,7 @@ ubos-mdns          = { workspace = true, default-features = false }
 ubos-metrics       = { workspace = true, default-features = false, features = ["metrics"] }
 ubos-mining         = { workspace = true }
 ubos-net           = { workspace = true, default-features = false }
+ubos-prometheus    = { workspace = true, default-features = false }
 ubos-psu           = { workspace = true }
 ubos-temperature   = { workspace = true, default-features = false }
 ubos-thermal       = { workspace = true, default-features = false }

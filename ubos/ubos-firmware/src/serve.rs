@@ -179,7 +179,7 @@ macro_rules! serve_metrics_items {
             const METRICS_POOL: usize = $http_pool_sizes.metrics;
 
             /// The exposition handler, sized to the statics it serves.
-            type MetricsService = ubos_metrics::metrics::PrometheusMetricsService<
+            type MetricsService = $crate::ubos_prometheus::PrometheusMetricsService<
                 { $max_metrics },
                 { $metrics_response_bytes },
             >;
@@ -196,7 +196,7 @@ macro_rules! serve_metrics_items {
                 metrics_worker_task,
                 metrics_service,
                 METRICS_POOL,
-                ubos_metrics::consts::Metrics
+                $crate::ubos_prometheus::Prometheus
             );
         }
     };
@@ -263,7 +263,7 @@ macro_rules! spawn_metrics_ingest {
 #[macro_export]
 macro_rules! mdns_services {
     ($($service:expr),* $(,)?) => {
-        &[$($service,)* &ubos_metrics::PROMETHEUS_SERVICE]
+        &[$($service,)* &$crate::ubos_prometheus::PROMETHEUS_SERVICE]
     };
 }
 

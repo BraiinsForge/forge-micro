@@ -17,24 +17,13 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Observability: the Prometheus exposition, the hashrate estimator, the
-//! per-chain table, and the CPU-load gauge.
-//! `PROMETHEUS_SERVICE` is the endpoint's mDNS advertisement.
+//! Observability: the metrics store and its exposition, the hashrate
+//! estimator, the per-chain table, and the CPU-load gauge.
 //!
-//! The `metrics` feature keeps the store: the channel, the series map,
-//! the render buffer, the scrape service and the advertisement. A build
-//! without it frees the RAM they hold, and a push returns at once.
+//! The `metrics` feature keeps the store: the channel, the series map
+//! and the render buffer. A build without it frees the RAM they hold,
+//! and a push returns at once.
 #![no_std]
-
-#[cfg(feature = "metrics")]
-ubos_mdns::declare_service!(
-    pub PROMETHEUS_SERVICE = ubos_mdns::ServiceEntry {
-        service: "_prometheus",
-        port: consts::Metrics::PORT,
-        txt_keys: &["path"],
-        txt_values: &["/metrics"],
-    }
-);
 
 pub mod catalog;
 pub mod chain;
@@ -46,8 +35,6 @@ pub mod metrics;
 mod name;
 #[cfg(feature = "metrics")]
 mod render;
-#[cfg(feature = "metrics")]
-mod scrape;
 #[cfg(feature = "metrics")]
 mod store;
 pub mod value;

@@ -55,3 +55,8 @@ pub use ubos_http::consts as http_consts;
 /// to uses of all three, so a board serves both listeners without naming
 /// `ubos-http` in its own manifest.
 pub use ubos_http::{PrefixRouter, http_worker_task, serve_http_pool};
+/// Re-exported so the metrics macros reach the scrape service through
+/// `$crate`, and a board names only `ubos-firmware/metrics`.
+#[cfg(feature = "metrics")]
+#[doc(hidden)]
+pub use ubos_prometheus;

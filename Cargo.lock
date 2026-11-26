@@ -2366,6 +2366,7 @@ dependencies = [
  "ubos-metrics",
  "ubos-mining",
  "ubos-net",
+ "ubos-prometheus",
  "ubos-psu",
  "ubos-temperature",
  "ubos-thermal",
@@ -4438,6 +4439,7 @@ dependencies = [
  "ubos-metrics",
  "ubos-mining",
  "ubos-net",
+ "ubos-prometheus",
  "ubos-psu",
  "ubos-thermal",
 ]
@@ -4529,20 +4531,14 @@ dependencies = [
  "cortex-m",
  "critical-section",
  "defmt 1.2.0",
- "edge-http",
- "edge-nal",
  "embassy-executor",
  "embassy-sync 0.8.0",
  "embassy-time",
- "embedded-io-async 0.7.0",
  "heapless 0.9.4",
  "portable-atomic",
  "static_cell",
  "ubos-core",
- "ubos-http",
  "ubos-logging",
- "ubos-mdns",
- "ubos-net",
 ]
 
 [[package]]
@@ -4612,6 +4608,21 @@ dependencies = [
  "esp-storage",
  "ubos-api",
  "ubos-mining",
+]
+
+[[package]]
+name = "ubos-prometheus"
+version = "0.1.0"
+dependencies = [
+ "edge-http",
+ "edge-nal",
+ "embassy-time",
+ "embedded-io-async 0.7.0",
+ "ubos-core",
+ "ubos-http",
+ "ubos-mdns",
+ "ubos-metrics",
+ "ubos-net",
 ]
 
 [[package]]

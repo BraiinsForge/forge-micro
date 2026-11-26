@@ -9,6 +9,7 @@ default = ["defmt"]
 defmt   = [
     "dep:defmt",
     "stratum-client/defmt",
+    "ubos-config/defmt",
     "ubos-core/defmt",
     "ubos-events/defmt",
     "ubos-logging/defmt",

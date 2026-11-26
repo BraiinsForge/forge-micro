@@ -136,6 +136,7 @@ let
     clippy-ubos-metrics.crate = "ubos-metrics";
     clippy-ubos-mdns.crate = "ubos-mdns";
     clippy-ubos-net.crate = "ubos-net";
+    clippy-ubos-prometheus.crate = "ubos-prometheus";
     clippy-ubos-psu.crate = "ubos-psu";
     clippy-ubos-snapshot.crate = "ubos-snapshot";
     clippy-ubos-eeprom.crate = "ubos-eeprom";

@@ -29,12 +29,13 @@ defmt = [
     "ubos-metrics/defmt",
     "ubos-mining/defmt",
     "ubos-net/defmt",
+    "ubos-prometheus?/defmt",
     "ubos-psu/defmt",
     "ubos-thermal/defmt",
 ]
 # Keep the metrics store and serve it on the Prometheus port. A board
 # enables this by default unless its RAM cannot hold the store.
-metrics = ["ubos-metrics/metrics"]
+metrics = ["dep:ubos-prometheus", "ubos-metrics/metrics"]
 
 [dependencies]
 # defmt is needed even though logging goes through the facade: the facade's
@@ -67,6 +68,7 @@ ubos-mdns      = { workspace = true, default-features = false }
 ubos-metrics   = { workspace = true, default-features = false }
 ubos-mining    = { workspace = true, default-features = false }
 ubos-net       = { workspace = true, default-features = false }
+ubos-prometheus = { workspace = true, optional = true, default-features = false }
 ubos-psu       = { workspace = true, default-features = false }
 ubos-thermal   = { workspace = true, default-features = false }
 

@@ -39,8 +39,6 @@ use crate::value::Value;
 #[cfg(feature = "metrics")]
 pub use crate::render::Exposition;
 #[cfg(feature = "metrics")]
-pub use crate::scrape::PrometheusMetricsService;
-#[cfg(feature = "metrics")]
 pub use crate::store::{MetricsStatics, run_ingest};
 
 /// Bytes a series key may take, the name with its labels expanded. The

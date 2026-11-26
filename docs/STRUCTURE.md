@@ -53,7 +53,8 @@ gives the framework's table of contents.
 The firmware framework is split along domain lines. `ubos-core` and
 `ubos-logging` are leaf crates with no workspace dependency.
 `ubos-events` depends only on `ubos-logging`. `ubos-config` depends only
-on those three crates, and it names no board. `ubos-asic` depends on
+on those three crates, and it names no board. `ubos-metrics` depends
+on `ubos-core` and `ubos-logging` only. `ubos-asic` depends on
 `ubos-core`, `ubos-config` and `ubos-temperature`. A hashboard
 descriptor holds the values that its model hands to a new config, and
 it lists the sensors on its board. `nix/crate-layers.nix`
@@ -61,9 +62,9 @@ lists the workspace crates that each of these base crates can depend
 on. The `crate-layers` check fails when a manifest of a base crate
 lists a workspace crate that its row does not name.
 
-The chain
-`(core + logging + config) ← ubos-net ← ubos-metrics ← ubos-display`
-runs strictly one-way above them. `ubos-manager` sits beside the chain
+The chain `(core + logging + config) ← ubos-net` runs strictly one-way
+above them. `ubos-net`, `ubos-http` and `ubos-display` depend on
+`ubos-metrics`, and it depends on none of them. `ubos-manager` sits beside the chain
 and supervises the thermal/cooling/mining handles via watch channels;
 hardware and protocol crates sit beside the chain without participating
 in it. `ubos-machine`'s pure descriptor data sits below the mining and
@@ -77,10 +78,13 @@ the mining crate.
 
 `ubos-auth` depends on `ubos-logging` only and holds the shared HTTP
 middleware (allow-list, auth, sessions, CSRF, CSPRNG). Both handler
-crates `ubos-webui` and `ubos-api` depend on `ubos-auth`, `ubos-http`,
-`ubos-mdns`, and `ubos-net`; neither depends on the other. They share
+crates `ubos-webui` and `ubos-api` depend on `ubos-auth`, `ubos-http`
+and `ubos-mdns`, and `ubos-api` also depends on `ubos-net` and
+`ubos-metrics`; neither handler crate depends on the other. They share
 one listener on port 80 behind `ubos_http::PrefixRouter`, which
-`ubos-firmware` wires.
+`ubos-firmware` wires. `ubos-prometheus` is a third handler crate. It
+depends on `ubos-http`, `ubos-mdns`, `ubos-net` and `ubos-metrics`, and
+it has its own listener on port 8081.
 
 `ubos-firmware` sits above everything above: it is the single library
 the `firmware/<board>` binaries depend on, and the only crate that may
@@ -105,9 +109,10 @@ typed `TaskPool` static and so rejects generic task functions.
 | `ubos-http`        | HTTP transport primitives: TCP accept loop, request parser, `Service` trait, `PrefixRouter`, the port 80 listener constants; `Status`, which pairs each status code with its reason phrase, and `StatusMessage`, which pairs a status with the message of its body; generic response helpers (`read_body`, `start_response`, `write_json_response`, `write_response`, `write_message`, `MAX_RESPONSE_HEADERS`) |
 | `ubos-auth`        | shared HTTP middleware: IP allow-list, credential store, session table, CSRF tokens, CSPRNG |
 | `ubos-api`         | REST handlers, `REST_API_SERVICE` mDNS entry, schema types; serves `/api/*` on port 80 |
+| `ubos-prometheus`  | Prometheus scrape service on port 8081 and its `PROMETHEUS_SERVICE` mDNS entry |
 | `ubos-webui`       | Zopfli-gzipped `index.html`, `login.html` and `logo.svg`; dashboard handler and `WEBUI_SERVICE` mDNS entry on port 80 |
 | `ubos-mdns`        | DNS-SD responder; per-service `declare_service!` macro composed by firmware |
-| `ubos-metrics`     | Prometheus exporter task, hashrate EWMA, CPU-load gauge, shared metric map |
+| `ubos-metrics`     | metric store and ingest task, exposition render, hashrate EWMA, CPU-load gauge |
 | `ubos-display`     | SH1106 OLED driver and render task                 |
 | `ubos-logging`     | `defmt`/`log` macro facade                         |
 | `ubos-thermal`     | `TemperatureSensor` and `McuTemperatureSensor` traits, descriptor-driven sensor fusion, sample loop, window filter, the series of every temperature reading, `ThermalHandle` publisher of the filtered temperatures, thermal guard |

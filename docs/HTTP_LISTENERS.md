@@ -2,8 +2,9 @@
 
 Status: implemented. Scope: the `ubos-http` accept loop and its consumers.
 `ubos-webui` and `ubos-api` share one listener on port 80 behind
-`ubos_http::PrefixRouter`. `ubos-metrics` has its own listener on port
-8081 in a build with the `metrics` feature, as `METRICS.md` describes.
+`ubos_http::PrefixRouter`. `ubos_prometheus::PrometheusMetricsService`
+has its own listener on port 8081 in a build with the `metrics` feature,
+as `METRICS.md` describes.
 
 The firmware HTTP servers serve several connections at once through a
 fixed pool of accept-loop workers, sized per board. This note records the
@@ -92,7 +93,7 @@ Buffer sizes:
 | Listener | RX | TX | request-parse | per-connection |
 |----------|----|----|---------------|----------------|
 | :80 `ubos_http::consts::Http` | 2 KiB | 2 KiB | 2 KiB | **6 KiB** |
-| :8081 `ubos_metrics::consts::Metrics` | 512 B | 1 KiB | 512 B | **2 KiB** |
+| :8081 `ubos_prometheus::Prometheus` | 512 B | 1 KiB | 512 B | **2 KiB** |
 
 The sizes are the same on every board, and the buffers sit in main SRAM.
 

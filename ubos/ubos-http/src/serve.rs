@@ -263,7 +263,7 @@ pub fn split_work_buffer<const N: usize>(
 /// // In the board crate:
 /// ubos_http::http_worker_task!(
 ///     metrics_worker_task,
-///     ubos_metrics::metrics::PrometheusMetricsService<64, 4096>,
+///     ubos_prometheus::PrometheusMetricsService<64, 4096>,
 ///     METRICS_POOL
 /// );
 ///
@@ -271,8 +271,8 @@ pub fn split_work_buffer<const N: usize>(
 /// for chunk in work_chunks {
 ///     spawner.spawn(unwrap!(metrics_worker_task(
 ///         acceptor, chunk, service,
-///         ubos_metrics::consts::Metrics::SOCKET_TIMEOUT,
-///         ubos_metrics::consts::Metrics::IDLE_TIMEOUT,
+///         ubos_prometheus::Prometheus::SOCKET_TIMEOUT,
+///         ubos_prometheus::Prometheus::IDLE_TIMEOUT,
 ///     )));
 /// }
 /// ```
@@ -303,7 +303,7 @@ macro_rules! http_worker_task {
 /// consts_path)` allocates a listener's buffers in block-scoped statics,
 /// binds `consts_path::PORT` and spawns `POOL_CONST` workers.
 /// `consts_path` is a type with the buffer sizes, the two timeouts and
-/// `PORT`, such as `ubos_metrics::consts::Metrics`. A board on
+/// `PORT`, such as `ubos_prometheus::Prometheus`. A board on
 /// embassy-executor 0.9.x prefixes the arguments with `must_spawn;`,
 /// because its task constructor returns the token directly.
 #[macro_export]

@@ -17,21 +17,16 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! The scrape service: the HTTP handler on [`Metrics::PORT`] that answers
-//! with the exposition the store renders.
-//!
-//! [`Metrics::PORT`]: crate::consts::Metrics::PORT
+//! The handler that answers a scrape with the exposition the store renders.
 
 use core::net::IpAddr;
 
 use edge_http::io::Error as HttpError;
 use edge_http::io::server::Connection;
 use edge_nal::TcpSplit;
-
 use embedded_io_async::{Read, Write};
 use ubos_http::{RequestParts, Service, Status, format_content_length, start_response};
-
-use crate::store::MetricsStatics;
+use ubos_metrics::metrics::MetricsStatics;
 
 /// Prometheus `/metrics` exposition handler.
 pub struct PrometheusMetricsService<const MAX: usize, const BODY: usize> {

@@ -4,13 +4,14 @@ Status: implemented — the code wins. When this file and the code
 disagree, the code is right and this file needs a patch.
 
 Each firmware built with the `metrics` feature exposes a Prometheus
-text endpoint on `http://<board-ip>:<Metrics::PORT>/`. A Prometheus server scrapes it on
-an interval.
+text endpoint on `http://<board-ip>:<Prometheus::PORT>/`. A Prometheus
+server scrapes it on an interval.
 
 ## Endpoint model
 
 Code: `ubos/ubos-metrics/src/metrics.rs`, `ubos/ubos-metrics/src/store.rs`,
-`ubos/ubos-metrics/src/scrape.rs`, `ubos/ubos-metrics/src/value.rs`.
+`ubos/ubos-metrics/src/render.rs`, `ubos/ubos-metrics/src/value.rs`,
+`ubos/ubos-prometheus/src/lib.rs`.
 
 Any async context pushes a `Metric` value into a static `Channel` with
 `Metric::push`, which waits while the channel is full, or
@@ -28,10 +29,15 @@ map and the response buffer. `serve_all!` sizes it from the
 `MAX_METRICS` and `METRICS_RESPONSE_BYTES` constants in the board's
 `config.rs`. The `run_ingest` task is the only writer of the map. It
 drains the channel and upserts by name and label set. On each TCP
-connection, the exposition service reads the map. It
-renders every series that has not expired and a fixed set of derived
-metrics (uptime, request count, NTP sync state) in Prometheus
-exposition format 0.0.4.
+connection, the scrape service of `ubos-prometheus` asks the store to render.
+The store renders every series that has not expired in Prometheus
+exposition format 0.0.4, and it reads only the map. The caller gives it
+the NTP epoch offset, so the store has no clock of its own.
+
+`ubos-metrics` is a leaf. It has the metric types, the store and the
+render. It pushes no series of another module, and it reads no state of
+another module. The module that owns a state pushes it. See "State
+series".
 
 Every push of a measured series is one sample of one value, and it
 carries the time of the push. A sample says nothing about the value
@@ -104,7 +110,8 @@ requires the browser to fetch without credentials.
 
 ## The `metrics` feature
 
-Code: `ubos/ubos-firmware/src/serve.rs`, `ubos/ubos-metrics/src/lib.rs`.
+Code: `ubos/ubos-firmware/src/serve.rs`, `ubos/ubos-metrics/src/lib.rs`,
+`ubos/ubos-prometheus/src/lib.rs`.
 
 The cargo feature `metrics` keeps the store in a firmware image. Each
 board declares it as `metrics = ["ubos-firmware/metrics"]` and lists it
