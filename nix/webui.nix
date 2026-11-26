@@ -40,6 +40,7 @@
 {
   lib,
   buildNpmPackage,
+  nodejs_26,
 }:
 
 let
@@ -77,9 +78,13 @@ buildNpmPackage {
 
   passthru = { inherit inputs; };
 
+  # The same major as the dev shell's, which `@types/node` follows, so
+  # the type check describes the Node that runs the build.
+  nodejs = nodejs_26;
+
   # See the header for how to regenerate this when package-lock.json
   # moves.
-  npmDepsHash = "sha256-JNIw4Fqgp5D6SDGuHduuXDbz/9s7by//aCT3F6rU6i4=";
+  npmDepsHash = "sha256-8IiEm4O4fE7dAXyk+LZdY2GH5DAlghmHg5ygODMyQr4=";
 
   # No revision or time is baked in here. The bundle carries two fixed
   # tokens for them, and the crate's build.rs stamps the pages when it

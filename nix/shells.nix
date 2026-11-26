@@ -99,7 +99,7 @@ pkgs.lib.mapAttrs (_: helpers.withWebuiDist) {
         # ubos-webui's Rsbuild/Preact dev loop (`npm run dev`). Not for
         # build.rs: every shell hands it the hermetic dist, see the
         # header.
-        nodejs
+        nodejs_26
         # Byte-exact A/B size measurement of the ubos-webui pages; the
         # crate's build.rs embeds Zopfli-gzipped bytes, so the CLI must
         # match the encoder to make the crate CLAUDE.md numbers honest.
