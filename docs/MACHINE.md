@@ -153,7 +153,7 @@ graph TD
     asic --> config[ubos-config]
     psu --> metrics
     config --> core[ubos-core]
-    temperature --> core
+    temperature --> config
     metrics --> core
 ```
 

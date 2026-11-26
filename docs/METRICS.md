@@ -323,37 +323,47 @@ OTA waits for the miner's `Stopped` state, independent of this metric.
 ## Board temperature
 
 Code: `ubos/ubos-thermal/src/metrics.rs`,
-`ubos/ubos-thermal/src/array.rs`, `ubos/ubos-thermal/src/chain.rs`.
+`ubos/ubos-thermal/src/chain.rs`, `ubos/ubos-temperature/src/array.rs`,
+`ubos/ubos-temperature/src/source.rs`.
 
 The series in this section carry a temperature. One more is the
 temperature the cooling PID follows, under "Cooling and fans".
 
-Each kind of reading has a series name of its own, and
-`ubos_thermal::run_thermal` writes every series. If the channel is
-full, a write drops that sample.
+Each kind of reading has a series name of its own, and `ubos_thermal::run`
+writes every series. If the channel is full, a write drops that sample.
 
-- `ubos_thermal::array::SensorArray` submits the readings of its
-  sensors on every tick.
+A board gives `ubos_temperature::run` one `ReadingSource`, which is a pair
+of sources when the board has two. The task of `ubos-temperature` samples
+the source at its start, on each sample interval and after each change
+of the interval, and ends each sample with a marker. Thermal publishes
+when it takes the marker, so a publish holds the readings of its own
+sample. A source that is slow delays the publish and not the dangerous
+flag, which a reading sets when it arrives. The source of the chains
+submits through the handle of thermal, and every other source through
+`ubos_temperature::Handle`. Thermal takes the readings and the markers
+through the one `ubos_temperature::Receiver`. A filtered value holds
+the readings of the last three samples.
+
+- `ubos_temperature::SensorArray` submits the readings of its
+  sensors on every sample.
 - The driver of a chain submits the reading of a chip at the moment
   the chip answers, through `ubos_thermal::Handle::submit_chip`. The
   driver never waits for thermal. If the input channel of thermal is
   full, that reading is dropped, and the chip submits again on its next
   turn.
-- The ambient sensor of the board gives the temperature of the air
-  around the board, `ambient_temperature_celsius`. `run_thermal` reads
-  it on every tick, also on a tick that measured no chip temperature.
-- The board's `ubos_thermal::McuTemperatureSensor` gives the
-  temperature of the MCU die on the control board,
-  `mcu_temperature_celsius`. `run_thermal` reads it on every tick, on
-  the boards whose MCU has an internal thermometer: esp32s3.
+- A board that measures the air around it names a source for that
+  sensor. The source submits the reading of `TempSource::Ambient`, which
+  is `ambient_temperature_celsius`. The reading is for the operator and
+  the metrics. It gates no halt and drives no fan.
+- A board whose MCU has an internal thermometer names a source for it.
+  The source submits the reading of `TempSource::Mcu`, which is
+  `mcu_temperature_celsius`. The esp32s3 is the one such board.
 
 The sources measure different hardware. Under load a control board is
 tens of degrees cooler than a hashboard, and the air is cooler again.
 
-What the ambient reading is and is not for is stated once, on
-`ubos_thermal::AmbientSensor`. If the hashboard rail is down,
-`ubos_thermal::run_thermal` still reads it. See "The overheat halt" in
-`docs/MINING.md`.
+The task of `ubos-temperature` samples every source on each sample, also when the hashboard rail is down. See
+"The overheat halt" in `docs/MINING.md`.
 
 No series marks a held value. A read that returns nothing writes
 nothing, so the series keeps the last written value until its TTL
@@ -531,8 +541,8 @@ pool credit.
 Code: `ubos/ubos-thermal/src/chain.rs`.
 
 On a board whose chips are its only thermometer, `ChainTemperature`
-publishes one more gauge every ten seconds, from inside the thermal
-sample. It is labelled `hashboard="i"`, and only a present chain reports:
+publishes one more gauge every ten seconds, from inside its sample in
+the task of `ubos-temperature`. It is labelled `hashboard="i"`, and only a present chain reports:
 
 - `chip_voltage_sum_volts` — the sum of the core
   voltages the chain's chips report about themselves. The chips sit in

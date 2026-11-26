@@ -69,7 +69,7 @@ over a `Transport` (`write_all` / `flush` / `read` / `set_baud` /
   out writes no temperature series. A driver pushes the core voltage of a
   chip itself, as `chip_voltage_volts`, with `ubos_metrics::metric!`.
   On a board whose chips are its only thermometer,
-  `ubos_thermal::ChainTemperature` is the `TemperatureSensor` over those
+  `ubos_thermal::ChainTemperature` is the `ubos_temperature::ReadingSource` over those
   stores, one per chain. It reports the hottest and the mean die
   temperature of all present chains. It judges a chain and not one chip: a chip
   answers a turn only once per pass, which is minutes on a long chain. A

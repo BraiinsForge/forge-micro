@@ -127,9 +127,11 @@ The flag clears in two ways:
   stays until the operator acknowledges it with
   `POST /api/system/thermal/clear`. The API calls
   `Handle::acknowledge()` and then sends `Start` to the manager, so a
-  pause that the operator holds ends with the halt. Thermal takes the
-  acknowledge on its next tick. A reading that reaches its limit
-  afterwards sets the flag again.
+  pause that the operator holds ends with the halt. A tick of thermal
+  is the end of a sample of the sources. Thermal takes the acknowledge
+  on its next tick, and drops it when a reading reached its limit since
+  the tick before. A reading that reaches its limit afterwards sets the
+  flag again.
 
 A bare `POST /api/system/resume` while the flag is set is refused with
 409, because `Start` alone clears only the pause of the operator and
@@ -462,8 +464,8 @@ empty connector reads 0 rpm.
 
 ## Temperature sensors
 
-Code: `firmware/hashnode/src/temperature.rs` binds
-`ubos_thermal::SensorArray` to the board's I2C1 bus from the
+Code: `firmware/hashnode/src/main.rs` binds
+`ubos_temperature::SensorArray` to the board's I2C1 bus from the
 `ubos_machine::HASHNODE` sensor table.
 
 The hashboard carries a TMP461 sensor and two TMP102 sensors on the

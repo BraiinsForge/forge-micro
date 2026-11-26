@@ -119,7 +119,7 @@ typed `TaskPool` static and so rejects generic task functions.
 | `ubos-metrics`     | metric types, metric store and ingest task, exposition render. It holds no state of another crate and calculates no value |
 | `ubos-display`     | SH1106 OLED driver and render task                 |
 | `ubos-logging`     | `defmt`/`log` macro facade                         |
-| `ubos-thermal`     | `TemperatureSensor` and `McuTemperatureSensor` traits, descriptor-driven sensor fusion, sample loop, window filter, the series of every temperature reading, `ThermalHandle` publisher of the filtered temperatures, the hottest die and the voltage sum of each chain, thermal guard |
+| `ubos-thermal`     | the loop that filters the readings, window filter, the series of every temperature reading, `ThermalHandle` publisher of the filtered temperatures, the hottest die and the voltage sum of each chain, thermal guard |
 | `ubos-cooling`     | fan control task, PID or fixed duty, `FanOutput` HAL trait, EMC2302-1 fan controller driver |
 | `ubos-mining`      | BM13xx chip-serial actor, miner state machine, `MiningHandle`, the hashrate estimator, the accounting of each chain and its snapshot on the handle |
 | `ubos-asic`        | pure chip-protocol library: the vendor-neutral `ChainDriver` seam plus the BM13xx chip family |
@@ -136,7 +136,7 @@ typed `TaskPool` static and so rejects generic task functions.
 | `serial-baudrate`  | trait for runtime baud-rate changes on a serial line |
 | `transitions`      | state machine types: states own their data and name the states they lead to, checked for unreachable states and dead ends |
 | `ubos-psu`         | async PSU drivers over I2C, and the PSU task every other task reaches through its handle |
-| `ubos-temperature` | LM75A, TMP102, TMP461 and TMP464 drivers, the `Reading` every sensor yields, and the sensor descriptor types a board declares its topology with. No task and no metric |
+| `ubos-temperature` | LM75A, TMP102, TMP461 and TMP464 drivers, the `Reading` every sensor yields, the sensor descriptor types a board declares its topology with, the descriptor-driven `SensorArray`, the `ReadingSource` trait, and the task that samples the sources. No metric |
 | `ubos-machine`     | per-board `MachineDescriptor` consts composing the hashboard, PSU, and sensor descriptors with a control-board and platform descriptor; pure const data read by firmware and the host runner, and the `MAX_CHAINS` ceiling |
 | `ubos-rp`          | per-platform support for the RP2040 and RP2350 control boards: the `#[panic_handler]` and `HardFault` symbols, reset diagnostic, `BoardWatchdog`, fan PWM and tachometer, the shared I2C bus aliases, `MinerUart`, the WS2812 adapter for the breathing status LED, the boot glue for the MAC, the seeds and the WIZnet bring-up, the Cortex-M executor shell `run_cortex_m_executor`, the idle counter of each core, the `cpu_load_task!` macro, the `embassy-boot` OTA backend, and the `spawn_miner_core1!` macro |
 | `rp-bootloader`    | the `embassy-boot-rp` swap sequence shared by `rp2040-bootloader` and `rp2350-bootloader`; no `ubos` library above it |
