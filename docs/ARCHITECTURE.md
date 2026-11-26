@@ -52,7 +52,10 @@ map and the dependency direction.
      several writers, so it returns a `Copy` `Publisher` for the writes,
      and the readers keep the `Handle`. The pool counters have no
      runner: the session tasks of the crate count in them directly, and
-     the handle serves the readers.
+     the handle serves the readers. The readings of `ubos-temperature`
+     have their consumer in another crate, so `take` also returns a
+     `Receiver`. It is the right to drain the readings and is not
+     `Copy`, and the firmware gives it to the thermal task.
    - **Where a handle is made.** A firmware takes each handle once at
      the start of `main`, through `Handles::take` of `ubos-firmware`. It
      passes copies of the handles to the tasks that use them and gives
@@ -92,8 +95,18 @@ map and the dependency direction.
     one `run` task. The handle is the API. The statics are not. The
     commands of the PSU are the methods of its handle over a private
     `Command` enum. Thermal takes readings where another module takes
-    commands: its handle submits each reading to a private input
-    channel, and its state is one private watch for each filtered
+    commands. The sources of `ubos-temperature` submit each reading to the
+    channel of that crate, and the task of that crate ends each sample
+    with a marker in the same channel. Thermal drains the channel through
+    the `Receiver` of that crate and publishes at each marker.
+    `ubos-temperature` is no subsystem of this template: it has no state
+    and takes no command, and its task is the sampling half of thermal.
+    The task and the channel are in that crate because `ubos-thermal`
+    depends on it, so a source there cannot hold the handle of thermal.
+    This is the one channel that crosses a crate, and no other module
+    takes this shape. The handle
+    of thermal submits the dies of a chip to a private input channel. Its
+    state is one private watch for each filtered
     temperature and one for the dangerous flag. The hottest die and
     the voltage sum of each chain are a private table of atomics and no
     watch, because no task waits for them: the chain sensor writes the
@@ -112,7 +125,9 @@ map and the dependency direction.
 11. **One consumer per channel.** Exactly one task, `run`, drains each
     module's `COMMAND_CHANNEL` and owns that module's policy. Slow
     work delegates inside the module via a sibling `Signal` or worker
-    future, never via a second public channel.
+    future, never via a second public channel. The channel of readings
+    in `ubos-temperature` is the one that a task of another crate
+    drains: the thermal task, which holds the one `Receiver`.
 12. **Domain messages, not bit-manipulation.** Senders construct facts
     or intent, for example `BrokenFan` or `Stop`. The
     receiving module interprets. No public `Assert(Reason)` or
@@ -135,9 +150,12 @@ map and the dependency direction.
 All traffic between the tasks of different modules flows through
 `…Handle` methods. The set of edges is the sum of the handle surfaces,
 so the crate docs are the contract: a module that a handle does not
-connect does not talk. A shared type that the firmware owns under
-principle 4 is the one other edge, and its crate docs name every
-task that holds it.
+connect does not talk. Two other edges exist. A shared type that the
+firmware owns under principle 4 is one, and its crate docs name every
+task that holds it. The channel of readings of `ubos-temperature` is
+the other: a source submits through the handle of that crate, and the
+thermal task takes the readings through the one `Receiver`, which
+principles 4, 10 and 11 describe.
 
 - **One writer per `STATE_WATCH`** — the module's own `run` task.
 - **Only the manager writes `halt`/`resume`.** Every other producer
