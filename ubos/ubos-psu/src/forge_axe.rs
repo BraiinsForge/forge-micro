@@ -23,13 +23,15 @@
 
 use core::marker::PhantomData;
 
-use embedded_hal_async::i2c::I2c;
+use embassy_time::Duration;
+use embedded_hal_async::i2c::{I2c, SevenBitAddress};
 use ubos_core::units::{Power, Voltage};
+use ubos_logging::info;
 use ubos_temperature::SensorDescriptor;
 
 use crate::state::{Device, Shared};
 use crate::tps53647::{self, Tps53647Config};
-use crate::{Error, ModelString, Psu, VoltageSource};
+use crate::{Error, ModelString, Psu, VoltageSource, heartbeat};
 
 #[cfg(test)]
 #[path = "tests/forge_axe.rs"]
@@ -42,6 +44,10 @@ pub struct ForgeAxePsuDescriptor {
     pub tps: Tps53647Config,
     /// The temperature sensors on the PSU.
     pub temp: &'static [SensorDescriptor],
+    /// I2C address of the `SLG46826G` supervisor that takes the heartbeat.
+    pub heartbeat_address: SevenBitAddress,
+    /// How often the supervisor is sent its heartbeat.
+    pub heartbeat_interval: Duration,
 }
 
 impl ForgeAxePsuDescriptor {
@@ -49,6 +55,8 @@ impl ForgeAxePsuDescriptor {
     pub const DEFAULT: Self = Self {
         tps: Tps53647Config::DEFAULT,
         temp: &[],
+        heartbeat_address: 0x08,
+        heartbeat_interval: Duration::from_secs(5),
     };
 }
 
@@ -138,6 +146,33 @@ impl<I: I2c + 'static> Psu for ForgeAxePsu<I> {
         let mut psu = self.shared.acquire().await?;
         let (i2c, config) = psu.split();
         tps53647::read_status(i2c, &config.tps).await
+    }
+
+    async fn heartbeat_interval(&self) -> Option<Duration> {
+        Some(
+            self.shared
+                .with_config(|config| config.heartbeat_interval)
+                .await,
+        )
+    }
+
+    /// Send a heartbeat to the `SLG46826G` if init has succeeded.
+    ///
+    /// A heartbeat keeps a running device alive, so it takes the lock
+    /// through [`Shared::initialized`] and never brings the device up
+    /// itself.
+    async fn heartbeat(&self) -> Result<(), Error<I::Error>> {
+        if self.shared.is_terminated() {
+            return Err(Error::Terminated);
+        }
+        let Some(mut psu) = self.shared.initialized().await else {
+            return Ok(());
+        };
+        let (i2c, config) = psu.split();
+        info!("sending the heartbeat");
+        heartbeat::pulse(i2c, config.heartbeat_address)
+            .await
+            .map_err(Error::Bus)
     }
 
     async fn terminate(&self) {

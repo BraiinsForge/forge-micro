@@ -190,6 +190,7 @@ const FORGE_AXE_TPS: Tps53647Config = Tps53647Config {
 pub(crate) const FORGE_AXE_PSU: ForgeAxePsuDescriptor = ForgeAxePsuDescriptor {
     tps: FORGE_AXE_TPS,
     temp: &[SensorDescriptor::Tmp102(Tmp102::psu(0x49))],
+    ..ForgeAxePsuDescriptor::DEFAULT
 };
 
 #[cfg(test)]

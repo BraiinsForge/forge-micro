@@ -34,6 +34,11 @@ fn make_handle(bus: Mock) -> (ForgeAxePsu<Mock>, Mock) {
     (ForgeAxePsu::new(shared), bus_handle)
 }
 
+/// The heartbeat pulse for `ForgeAxePsuDescriptor::DEFAULT`.
+fn pulse_transactions() -> [Transaction; 3] {
+    crate::state::test_support::pulse_transactions(ForgeAxePsuDescriptor::DEFAULT.heartbeat_address)
+}
+
 /// The init wire sequence for `ForgeAxePsuDescriptor::DEFAULT`, mirroring
 /// `tests/tps53647.rs::init_transactions`.
 fn init_transactions() -> Vec<Transaction> {
@@ -105,7 +110,68 @@ fn terminated_psu_rejects_operations() {
         run(psu.read_input_power()),
         Err(Error::Terminated)
     ));
+    assert!(matches!(run(psu.heartbeat()), Err(Error::Terminated)));
     bus.done();
+}
+
+#[test]
+fn heartbeat_pulses_only_an_initialized_supply() {
+    use crate::tps53647::{READ_POUT, Tps53647Config};
+    let raw = 50u16.to_le_bytes();
+    let mut transactions = init_transactions();
+    transactions.push(Transaction::write_read(
+        Tps53647Config::DEFAULT.address,
+        vec![READ_POUT],
+        vec![raw[0], raw[1]],
+    ));
+    transactions.extend(pulse_transactions());
+    let (psu, mut bus) = make_handle(Mock::new(&transactions));
+    assert_eq!(
+        run(psu.heartbeat_interval()),
+        Some(ForgeAxePsuDescriptor::DEFAULT.heartbeat_interval)
+    );
+    // Before init the heartbeat reaches no register.
+    run(psu.heartbeat()).expect("heartbeat should succeed");
+    run(psu.read_output_power()).expect("read should succeed");
+    run(psu.heartbeat()).expect("heartbeat should succeed");
+    bus.done();
+}
+
+#[test]
+fn gated_enable_raises_pwr_en_only_after_a_heartbeat() {
+    use crate::tps53647::{CLEAR_FAULTS, OPERATION, STATUS_BYTE, Tps53647Config};
+    use crate::{GatedPsu, InnerGate};
+    use embedded_hal_mock::eh1::digital::{Mock as Pin, State, Transaction as PinTransaction};
+    let address = Tps53647Config::DEFAULT.address;
+    let mut transactions = init_transactions();
+    transactions.push(Transaction::write_read(
+        address,
+        vec![STATUS_BYTE],
+        vec![0x00],
+    ));
+    transactions.extend(pulse_transactions());
+    transactions.extend([
+        Transaction::write_read(address, vec![OPERATION], vec![0x00]),
+        Transaction::write(address, vec![OPERATION, 0x80]),
+        Transaction::write(address, vec![CLEAR_FAULTS]),
+    ]);
+    let (inner, mut bus) = make_handle(Mock::new(&transactions));
+    let mut pwr_en = Pin::new(&[]);
+    let psu = GatedPsu::new(
+        inner,
+        [pwr_en.clone()],
+        None::<Pin>,
+        None,
+        InnerGate::DriveOperation,
+    );
+    let mut enable = core::pin::pin!(psu.enable());
+    // The enable holds the heartbeat high, and PWR_EN, which expects nothing
+    // yet, would panic if it rose before the pulse.
+    assert!(embassy_futures::poll_once(enable.as_mut()).is_pending());
+    pwr_en.update_expectations(&[PinTransaction::set(State::High)]);
+    run(enable).expect("enable should succeed");
+    bus.done();
+    pwr_en.done();
 }
 
 #[test]
