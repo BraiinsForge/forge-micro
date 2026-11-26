@@ -45,6 +45,8 @@ pub mod hashrate;
 pub mod metrics;
 mod name;
 #[cfg(feature = "metrics")]
+mod render;
+#[cfg(feature = "metrics")]
 mod scrape;
 #[cfg(feature = "metrics")]
 mod store;

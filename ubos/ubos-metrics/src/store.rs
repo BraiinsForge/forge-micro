@@ -161,9 +161,9 @@ pub struct MetricsStatics<const MAX: usize, const BODY: usize> {
     ///
     /// A single `Mutex` shared across all exposition workers: with a
     /// pool depth above one, concurrent scrapes serialize on this lock
-    /// while rendering. `serve_metrics` drops the map guard before the
-    /// socket write, so a slow scrape blocks only other scrapes, never
-    /// the ingestion task.
+    /// while rendering. `MetricsStatics::render` drops the map guard
+    /// before the socket write, so a slow scrape blocks only other
+    /// scrapes, never the ingestion task.
     pub(crate) body: Mutex<CriticalSectionRawMutex, [u8; BODY]>,
 }
 
@@ -196,16 +196,14 @@ macro_rules! metrics_statics {
 /// Consume pushed metrics into the shared map.
 ///
 /// The sole writer of `statics`' map. `ubos_firmware::serve_all!` wraps
-/// this in the board's `#[embassy_executor::task]`; the exposition
-/// workers it spawns beside that task read the map through
-/// [`PrometheusMetricsService`], so the exposition always reflects the
-/// latest pushed values without a drain step on the serve path.
+/// this in the board's `#[embassy_executor::task]`; the scrape service
+/// renders the map through [`MetricsStatics::render`], so the exposition
+/// always reflects the latest pushed values without a drain step on the
+/// serve path.
 ///
 /// It is also the only reader of the metrics channel, so a board spawns
 /// it before every task that pushes: a pusher that waits for room and
 /// starts first blocks once the channel fills.
-///
-/// [`PrometheusMetricsService`]: crate::metrics::PrometheusMetricsService
 pub async fn run_ingest<const MAX: usize, const BODY: usize>(
     statics: &'static MetricsStatics<MAX, BODY>,
 ) -> ! {

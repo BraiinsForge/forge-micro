@@ -17,32 +17,21 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! The scrape service: the HTTP handler on [`Metrics::PORT`] that renders
-//! the series map of the store as a Prometheus text exposition. It is
-//! apart from the store so that the store holds state and ingestion only.
+//! The scrape service: the HTTP handler on [`Metrics::PORT`] that answers
+//! with the exposition the store renders.
 //!
 //! [`Metrics::PORT`]: crate::consts::Metrics::PORT
 
-use core::fmt::Write as _;
 use core::net::IpAddr;
 
 use edge_http::io::Error as HttpError;
 use edge_http::io::server::Connection;
 use edge_nal::TcpSplit;
 
-use embassy_time::Instant;
 use embedded_io_async::{Read, Write};
-use ubos_http::{
-    BufferWriter, RequestParts, Service, Status, format_content_length, start_response,
-};
-use ubos_logging::warn;
+use ubos_http::{RequestParts, Service, Status, format_content_length, start_response};
 
-use crate::freshness::Expiry;
-use crate::store::{MetricKey, MetricsStatics, StoredValue};
-
-#[cfg(test)]
-#[path = "tests/scrape.rs"]
-mod tests;
+use crate::store::MetricsStatics;
 
 /// Prometheus `/metrics` exposition handler.
 pub struct PrometheusMetricsService<const MAX: usize, const BODY: usize> {
@@ -91,15 +80,10 @@ async fn serve_metrics<T, const N: usize, const MAX: usize, const BODY: usize>(
 where
     T: Read + Write + TcpSplit,
 {
-    let mut body_buffer = statics.body.lock().await;
-    // The map lock is released before the socket write, so a slow scrape
-    // never blocks ingestion.
-    let body_len = {
-        let map = statics.map.lock().await;
-        build_prometheus_body(&mut body_buffer, &map, net)
-    };
+    let exposition = statics.render(net.ntp_epoch_offset()).await;
+    let body = exposition.as_bytes();
 
-    let content_length = format_content_length(body_len);
+    let content_length = format_content_length(body.len());
 
     start_response(
         connection,
@@ -117,7 +101,7 @@ where
     )
     .await?;
 
-    embedded_io_async::Write::write_all(connection, &body_buffer[..body_len]).await?;
+    embedded_io_async::Write::write_all(connection, body).await?;
 
     Ok(())
 }
@@ -162,63 +146,4 @@ where
         b"",
     )
     .await
-}
-
-/// Build the exposition body into `buffer` and return its length. A body
-/// that does not fit warns, since a silent truncation ships a malformed
-/// exposition the scraper rejects without a diagnostic here.
-fn build_prometheus_body<const MAX: usize, const BODY: usize>(
-    buffer: &mut [u8; BODY],
-    map: &heapless::index_map::FnvIndexMap<MetricKey, StoredValue, MAX>,
-    net: ubos_net::net::Handle,
-) -> usize {
-    let mut writer = BufferWriter::new(buffer);
-
-    // HELP and TYPE lines are optional, and the buffer is tight.
-    let ntp_offset = net.ntp_epoch_offset();
-    render_stored(&mut writer, map, ntp_offset, Instant::now().as_millis());
-
-    if writer.overflowed() {
-        warn!(
-            "prometheus response buffer overflow; truncated exposition served \
-             (raise the board's METRICS_RESPONSE_BYTES or reduce series count)"
-        );
-    }
-    writer.len()
-}
-
-/// Render every stored series that has not expired at `now_ms`, in
-/// monotonic milliseconds. The render is where a series whose publisher
-/// stopped pushing leaves the exposition. The ingest task removes expired
-/// entries only when the map is full.
-fn render_stored<const MAX: usize>(
-    writer: &mut BufferWriter<'_>,
-    map: &heapless::index_map::FnvIndexMap<MetricKey, StoredValue, MAX>,
-    ntp_offset: u64,
-    now_ms: u64,
-) {
-    for (key, stored) in map {
-        if stored
-            .expiry
-            .is_some_and(|expiry| expiry.is_expired(now_ms))
-        {
-            continue;
-        }
-        render_metric(writer, key.0.as_str(), stored, ntp_offset);
-    }
-}
-
-/// `ntp_offset` is what [`ubos_net::net::Handle::ntp_epoch_offset`] returns.
-fn render_metric(writer: &mut BufferWriter<'_>, key: &str, stored: &StoredValue, ntp_offset: u64) {
-    let _ = write!(writer, "{key} {}", stored.value);
-    // Stored timestamps are monotonic ms since boot. Add the NTP epoch
-    // offset to produce an absolute Unix-epoch timestamp. If NTP has
-    // not synced yet, or the series is a state or a constant, omit the
-    // timestamp so Prometheus stamps the sample at scrape time.
-    let stamp_ms = stored.expiry.and_then(Expiry::stamp_ms);
-    if let (Some(at_ms), true) = (stamp_ms, ntp_offset != 0) {
-        let ts_ms = at_ms + ntp_offset * 1000;
-        let _ = write!(writer, " {ts_ms}");
-    }
-    let _ = writeln!(writer);
 }

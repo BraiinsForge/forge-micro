@@ -22,9 +22,8 @@
 
 use embassy_time::Duration;
 use ubos_core::units::{Temperature, Voltage};
-use ubos_http::BufferWriter;
 
-use super::{render_metric, render_stored};
+use super::{BodyWriter, render_metric, render_stored};
 use crate::consts::Metrics;
 use crate::freshness::Expiry;
 use crate::metrics::METRIC_LINE_BYTES;
@@ -34,9 +33,9 @@ use crate::store::{MetricKey, StoredValue};
 /// the clock offset given.
 fn line(key: &str, stored: &StoredValue, ntp_offset: u64) -> heapless::String<METRIC_LINE_BYTES> {
     let mut buffer = [0; METRIC_LINE_BYTES];
-    let mut writer = BufferWriter::new(&mut buffer);
+    let mut writer = BodyWriter::new(&mut buffer);
     render_metric(&mut writer, key, stored, ntp_offset);
-    let written = writer.len();
+    let written = writer.len;
     let text = core::str::from_utf8(&buffer[..written]).expect("a line is text");
     text.try_into().expect("a line fits its budget")
 }
@@ -112,9 +111,9 @@ fn exposition(expiry: Option<Expiry>, ntp_offset: u64, now_ms: u64) -> heapless:
     };
     assert!(map.insert(key, stored).is_ok(), "the map has room");
     let mut buffer = [0; 128];
-    let mut writer = BufferWriter::new(&mut buffer);
+    let mut writer = BodyWriter::new(&mut buffer);
     render_stored(&mut writer, &map, ntp_offset, now_ms);
-    let written = writer.len();
+    let written = writer.len;
     let text = core::str::from_utf8(&buffer[..written]).expect("the body is text");
     text.try_into().expect("the body fits")
 }
@@ -160,4 +159,22 @@ fn a_state_is_hidden_one_millisecond_past_its_ttl() {
 #[test]
 fn a_series_stored_after_the_clock_reading_is_shown() {
     assert!(!exposition(Some(measured()), 0, TAKEN_AT_MS - 1).is_empty());
+}
+
+// A line that does not fit leaves nothing of itself in the buffer, so the
+// exposition ends on a whole line.
+#[test]
+fn a_line_that_overflows_leaves_none_of_itself() {
+    let stored = StoredValue {
+        value: Voltage::from_mv(21_600).into(),
+        expiry: None,
+    };
+    let mut buffer = [0; 20];
+    let mut writer = BodyWriter::new(&mut buffer);
+    render_metric(&mut writer, "a", &stored, 0);
+    let whole = writer.len;
+    render_metric(&mut writer, "a_key_too_long_to_fit", &stored, 0);
+    assert!(writer.overflowed);
+    assert_eq!(writer.len, whole);
+    assert_eq!(&buffer[..whole], b"a 21.600\n");
 }
