@@ -29,8 +29,7 @@
 //! zero.
 //!
 //! The store hands out the chain's aggregate the thermal loop needs, the
-//! hottest and the mean die and whether the chain still reports, and each
-//! chip's die temperature for the per-chip metric.
+//! hottest and the mean die and whether the chain still reports.
 
 use core::cell::RefCell;
 use core::num::NonZeroU8;
@@ -124,19 +123,6 @@ impl<const CHIPS: usize> ChainPvt<CHIPS> {
     #[must_use]
     pub fn last_answer(&self) -> Option<Instant> {
         self.readings.lock(|readings| readings.borrow().last_answer)
-    }
-
-    /// The die temperature `chip` last reported, or `None` until it has
-    /// reported one.
-    #[must_use]
-    pub fn temperature(&self, chip: ChipAddress) -> Option<Temperature> {
-        self.readings.lock(|readings| {
-            readings
-                .borrow()
-                .chips
-                .get(chip.slot())
-                .and_then(|entry| entry.temperature)
-        })
     }
 
     /// The hottest die the chain has reported.

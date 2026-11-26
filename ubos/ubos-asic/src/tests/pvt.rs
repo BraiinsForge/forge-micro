@@ -36,20 +36,6 @@ fn the_store() {
         Some(Voltage::from_mv(290)),
     );
     assert_eq!(store.hottest().map(Temperature::millicelsius), Some(41_500));
-    assert_eq!(
-        store.temperature(ChipAddress::One(1)),
-        Some(Temperature::from_millicelsius(38_000))
-    );
-    assert_eq!(
-        store.temperature(ChipAddress::One(2)),
-        None,
-        "chip 2 has not reported"
-    );
-    assert_eq!(
-        store.temperature(ChipAddress::One(16)),
-        None,
-        "chip 16 is past the array"
-    );
     let dies = store.temperature_summary().expect("two chips reported");
     assert_eq!(dies.chips.get(), 2);
     assert_eq!(dies.mean.millicelsius(), 39_750);
@@ -107,8 +93,7 @@ fn all_is_the_lone_chip_of_a_chain_of_one() {
         Some(Temperature::from_celsius_f64(50.0)),
         None,
     );
-    assert_eq!(
-        store.temperature(ChipAddress::One(0)),
-        Some(Temperature::from_celsius_f64(50.0))
-    );
+    let dies = store.temperature_summary().expect("the lone chip reported");
+    assert_eq!(dies.chips.get(), 1);
+    assert_eq!(dies.highest, Temperature::from_celsius_f64(50.0));
 }
