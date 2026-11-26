@@ -63,6 +63,7 @@ in
     src = "${edge-net}/edge-http";
     patches = [
       ../patches/edge-http-01-standalone-manifest.patch
+      ../patches/edge-http-02-invalid-content-length.patch
     ];
   };
 
