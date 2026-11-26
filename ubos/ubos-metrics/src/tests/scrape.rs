@@ -83,6 +83,20 @@ fn a_constant_renders_with_no_timestamp_once_the_clock_is_set() {
     );
 }
 
+/// A state carries no timestamp when the clock is set, so the scraper
+/// stamps it.
+#[test]
+fn a_state_renders_with_no_timestamp_once_the_clock_is_set() {
+    let stored = StoredValue {
+        value: Voltage::from_mv(21_600).into(),
+        expiry: Some(Expiry::unstamped(1_000, Metrics::DEFAULT_TTL)),
+    };
+    assert_eq!(
+        line("psu_voltage_volts{type=\"readback\"}", &stored, 2).as_str(),
+        "psu_voltage_volts{type=\"readback\"} 21.600\n"
+    );
+}
+
 const TTL_SECS: u32 = 10;
 const TTL_MS: u64 = TTL_SECS as u64 * 1_000;
 const TAKEN_AT_MS: u64 = 5_000;
@@ -132,6 +146,14 @@ fn a_constant_stays_with_no_timestamp() {
         exposition(None, 2, u64::MAX).as_str(),
         "ambient_temperature_celsius 25.500\n"
     );
+}
+
+/// A state expires by its TTL as a measurement does.
+#[test]
+fn a_state_is_hidden_one_millisecond_past_its_ttl() {
+    let state = Expiry::unstamped(TAKEN_AT_MS, Duration::from_secs(u64::from(TTL_SECS)));
+    assert!(!exposition(Some(state), 2, TAKEN_AT_MS + TTL_MS).is_empty());
+    assert!(exposition(Some(state), 2, TAKEN_AT_MS + TTL_MS + 1).is_empty());
 }
 
 /// The ingest task can store a metric after the render read the clock.

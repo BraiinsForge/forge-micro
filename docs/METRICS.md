@@ -45,8 +45,25 @@ reading, and the TTL ends the series of a chip that stops.
 The stored time is monotonic milliseconds since boot. The exposition
 adds the NTP epoch offset at scrape time and renders an absolute
 Unix-epoch timestamp. The exposition omits the timestamp of a constant
-series, and of every series while NTP has not synced. Prometheus then
-stamps the sample at scrape time.
+series, of a state series, and of every series while NTP has not synced.
+Prometheus then stamps the sample at scrape time.
+
+### State series
+
+A state series has a TTL and no timestamp. Its owner exports the state
+on its own ticker. Call `Metric::state` with the push interval times
+`Metrics::TTL_INTERVALS` to make one. Prometheus stamps each sample at
+scrape time, and it marks the series stale when the series leaves the
+exposition. The TTL frees the slot in the store when the owner stops. A
+state that changes seldom can have a slow ticker and a long TTL.
+
+| Kind | Timestamp | TTL | Use |
+|------|-----------|-----|-----|
+| measurement, `ttl` or the default | yes | interval times 3 | a value that was sampled at a known time |
+| state, `state` | no | interval times 3, or long | a state that its owner exports on a ticker |
+| constant, `constant` | no | none | a fact that does not change |
+
+The last call of `ttl`, `state` and `constant` wins.
 
 ### Expiry
 
@@ -64,10 +81,13 @@ not remove a series. A publisher with its own rate calls
 `Metric::ttl` with its push interval times `Metrics::TTL_INTERVALS`.
 `Metric::ttl` rounds up to whole seconds.
 
+A state series has a TTL too, and it frees its slot the same way. See
+"State series".
+
 A constant series never expires and has no timestamp. Prometheus stamps
 it at scrape time. Call `Metric::constant` to make one, and push it
-with `push`, so the channel never drops it. The last call of `ttl` and
-`constant` wins.
+with `push`, so the channel never drops it. The last call of `ttl`,
+`state` and `constant` wins.
 
 Prometheus does not mark a sample stale when it has an explicit
 timestamp and then disappears. The series stays visible until five

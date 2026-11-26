@@ -70,6 +70,27 @@ fn ttl_after_constant_gives_a_measured_metric() {
 }
 
 #[test]
+fn a_measured_metric_carries_its_time() {
+    let metric = metric().ttl(Duration::from_secs(5));
+    assert!(metric.expiry().and_then(Expiry::stamp_ms).is_some());
+}
+
+#[test]
+fn a_state_keeps_its_ttl_and_carries_no_time() {
+    let metric = metric().state(Duration::from_secs(5));
+    assert_eq!(ttl_secs(&metric), NonZeroU32::new(5));
+    assert!(metric.expiry().and_then(Expiry::stamp_ms).is_none());
+}
+
+#[test]
+fn ttl_after_state_gives_a_measured_metric() {
+    let metric = metric()
+        .state(Duration::from_secs(5))
+        .ttl(Duration::from_secs(5));
+    assert!(metric.expiry().and_then(Expiry::stamp_ms).is_some());
+}
+
+#[test]
 fn constant_after_ttl_removes_the_expiry() {
     let metric = metric().ttl(Duration::from_secs(5)).constant();
     assert!(metric.expiry().is_none());

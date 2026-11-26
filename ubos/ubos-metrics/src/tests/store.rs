@@ -154,7 +154,7 @@ fn a_second_reading_of_a_chip_replaces_the_first() {
     let stored = map.values().next().expect("the reading is stored");
     assert_eq!(map.len(), 1);
     assert_eq!(stored.value, Voltage::from_mv(1_250).into());
-    assert!(stored.expiry.expect("a reading expires").at_ms() > first.at_ms());
+    assert!(stored.expiry.expect("a reading expires").stamp_ms() > first.stamp_ms());
 }
 
 /// Serialises the tests that fill the shared channel.

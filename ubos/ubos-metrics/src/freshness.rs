@@ -17,9 +17,10 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! The expiry of a measured metric: when it was taken and how long it
-//! stays in the exposition. A constant has no expiry, so a metric holds
-//! an `Option<Expiry>` and the two states cannot mix.
+//! The expiry of a metric: when it was pushed, how long it stays in the
+//! exposition, and whether its line carries that time. A constant has no
+//! expiry, so a metric holds an `Option<Expiry>` and the kinds cannot
+//! mix.
 
 use core::num::NonZeroU32;
 
@@ -31,13 +32,14 @@ mod tests;
 
 const MILLIS_PER_SECOND: u64 = 1_000;
 
-/// The time of a measurement in monotonic milliseconds and the seconds
-/// it stays valid. The render reads it to omit a series whose publisher
-/// stopped pushing.
+/// The time of a push in monotonic milliseconds, the seconds it stays
+/// valid, and whether the line carries the time. The render reads it to
+/// omit a series whose publisher stopped pushing.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) struct Expiry {
     at_ms: u64,
     ttl_secs: NonZeroU32,
+    stamped: bool,
 }
 
 /// Each slot of the map and of the channel holds an `Option<Expiry>`, so
@@ -48,15 +50,27 @@ const _: () = assert!(
 );
 
 impl Expiry {
-    /// An expiry for a measurement taken at `at_ms`. The TTL rounds up to
-    /// whole seconds and is held between one second and `u32::MAX`
-    /// seconds, so the zero value is never stored.
+    /// An expiry for a measurement taken at `at_ms`, whose line carries
+    /// that time. The TTL rounds up to whole seconds and is held between
+    /// one second and `u32::MAX` seconds, so the zero value is never
+    /// stored.
     pub(crate) fn new(at_ms: u64, ttl: Duration) -> Self {
         let secs = ttl.as_millis().div_ceil(MILLIS_PER_SECOND);
         let secs = u32::try_from(secs).unwrap_or(u32::MAX);
         Self {
             at_ms,
             ttl_secs: NonZeroU32::new(secs).unwrap_or(NonZeroU32::MIN),
+            stamped: true,
+        }
+    }
+
+    /// An expiry for a state pushed at `at_ms`, whose line carries no
+    /// time. The scraper then stamps each sample and marks the series
+    /// stale once it leaves the exposition.
+    pub(crate) fn unstamped(at_ms: u64, ttl: Duration) -> Self {
+        Self {
+            stamped: false,
+            ..Self::new(at_ms, ttl)
         }
     }
 
@@ -69,11 +83,12 @@ impl Expiry {
         now_ms.saturating_sub(self.at_ms) > u64::from(self.ttl_secs.get()) * MILLIS_PER_SECOND
     }
 
-    /// The time of the measurement in monotonic milliseconds.
+    /// The time the line carries in monotonic milliseconds, or `None` for
+    /// a state.
     // Only the store reads this, and a build without it has no reader.
     #[cfg_attr(not(feature = "metrics"), allow(dead_code))]
-    pub(crate) fn at_ms(self) -> u64 {
-        self.at_ms
+    pub(crate) fn stamp_ms(self) -> Option<u64> {
+        self.stamped.then_some(self.at_ms)
     }
 
     /// The seconds the measurement stays valid.

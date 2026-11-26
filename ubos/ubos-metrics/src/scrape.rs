@@ -37,6 +37,7 @@ use ubos_http::{
 };
 use ubos_logging::warn;
 
+use crate::freshness::Expiry;
 use crate::store::{MetricKey, MetricsStatics, StoredValue};
 
 #[cfg(test)]
@@ -227,10 +228,11 @@ fn render_metric(writer: &mut BufferWriter<'_>, key: &str, stored: &StoredValue,
     let _ = write!(writer, "{key} {}", stored.value);
     // Stored timestamps are monotonic ms since boot. Add the NTP epoch
     // offset to produce an absolute Unix-epoch timestamp. If NTP has
-    // not synced yet, or the series is a constant, omit the timestamp so
-    // Prometheus stamps the sample at scrape time.
-    if let (Some(expiry), true) = (stored.expiry, ntp_offset != 0) {
-        let ts_ms = expiry.at_ms() + ntp_offset * 1000;
+    // not synced yet, or the series is a state or a constant, omit the
+    // timestamp so Prometheus stamps the sample at scrape time.
+    let stamp_ms = stored.expiry.and_then(Expiry::stamp_ms);
+    if let (Some(at_ms), true) = (stamp_ms, ntp_offset != 0) {
+        let ts_ms = at_ms + ntp_offset * 1000;
         let _ = write!(writer, " {ts_ms}");
     }
     let _ = writeln!(writer);

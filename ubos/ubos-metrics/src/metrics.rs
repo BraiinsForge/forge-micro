@@ -87,8 +87,8 @@ type Labels = heapless::Vec<Label, { Metrics::MAX_LABELS }>;
 /// A measured metric stores the time of its measurement in **monotonic
 /// milliseconds since boot** (`embassy_time::Instant::now().as_millis()`)
 /// and a TTL. The exposition path adds the NTP epoch offset at scrape
-/// time to render an absolute Unix-epoch timestamp. A constant stores
-/// neither and renders with no timestamp.
+/// time to render an absolute Unix-epoch timestamp. A state has a TTL
+/// and renders with no timestamp. A constant has neither.
 pub struct Metric {
     name: &'static str,
     labels: Labels,
@@ -159,17 +159,30 @@ impl Metric {
     /// Make the metric a measurement that expires `ttl` after now, rounded
     /// up to whole seconds. A publisher states its push interval times
     /// [`Metrics::TTL_INTERVALS`], so a series that stops leaves the
-    /// exposition. The last of [`Metric::ttl`] and [`Metric::constant`]
-    /// wins.
+    /// exposition. The last of [`Metric::ttl`], [`Metric::state`] and
+    /// [`Metric::constant`] wins.
     #[must_use]
     pub fn ttl(mut self, ttl: Duration) -> Self {
         self.expiry = Some(Expiry::new(Instant::now().as_millis(), ttl));
         self
     }
 
+    /// Make the metric a state that expires `ttl` after now and renders
+    /// with no timestamp. A publisher exports the state it owns on its own
+    /// ticker and states the TTL as for [`Metric::ttl`]. The scraper
+    /// stamps each sample, so a series that leaves the exposition is
+    /// marked stale at once. The last of [`Metric::ttl`],
+    /// [`Metric::state`] and [`Metric::constant`] wins.
+    #[must_use]
+    pub fn state(mut self, ttl: Duration) -> Self {
+        self.expiry = Some(Expiry::unstamped(Instant::now().as_millis(), ttl));
+        self
+    }
+
     /// Make the metric a constant: it never expires and renders with no
     /// timestamp. Push it with [`Metric::push`], so it is never lost. The
-    /// last of [`Metric::ttl`] and [`Metric::constant`] wins.
+    /// last of [`Metric::ttl`], [`Metric::state`] and
+    /// [`Metric::constant`] wins.
     #[must_use]
     pub fn constant(mut self) -> Self {
         self.expiry = None;
