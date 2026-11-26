@@ -32,12 +32,13 @@ use ubos_core::index::HashboardIndex;
 use ubos_core::units::Temperature;
 
 use super::{
-    KEY_CAPACITY, LONGEST_KEY_LABELS, LONGEST_KEY_NAME, LONGEST_RENDERED_KEY_BYTES, MetricKey,
-    StoredValue, upsert_metric,
+    KEY_CAPACITY, LONGEST_KEY_LABELS, LONGEST_KEY_NAME, LONGEST_RENDERED_KEY_BYTES, METRICS,
+    MetricKey, StoredValue, upsert_metric,
 };
-use crate::catalog::{CHIP_ADDR_LABEL, HASHBOARD_LABEL};
+use crate::catalog::{CHIP_ADDR_LABEL, CHIP_TEMPERATURE, HASHBOARD_LABEL};
+use crate::consts::Metrics;
 use crate::metric;
-use crate::metrics::Metric;
+use crate::metrics::{Metric, dropped};
 use crate::name::Name;
 use crate::value::Count;
 
@@ -116,4 +117,25 @@ fn a_full_map_of_live_series_refuses_a_new_one() {
     upsert(&mut map, "second", Duration::from_secs(3_600));
     upsert(&mut map, "third", Duration::from_secs(3_600));
     assert!(holds(&map, "first") && holds(&map, "second") && !holds(&map, "third"));
+}
+
+/// Serialises the tests that fill the shared channel.
+static CHANNEL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn empty_channel() {
+    while METRICS.try_receive().is_ok() {}
+}
+
+// Pushes past the depth of the channel with no reader are counted.
+#[test]
+fn a_push_to_a_full_channel_is_counted() {
+    let _guard = CHANNEL.lock().expect("no test panics holding the lock");
+    empty_channel();
+    let before = dropped();
+    let excess = 5_u32;
+    for _ in 0..Metrics::CHANNEL_DEPTH + excess as usize {
+        metric!(CHIP_TEMPERATURE, ANY_TEMPERATURE).try_push();
+    }
+    assert_eq!(dropped() - before, excess);
+    empty_channel();
 }

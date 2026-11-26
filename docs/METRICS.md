@@ -14,7 +14,9 @@ Code: `ubos/ubos-metrics/src/metrics.rs`, `ubos/ubos-metrics/src/store.rs`,
 
 Any async context pushes a `Metric` value into a static `Channel` with
 `Metric::push`, which waits while the channel is full, or
-`Metric::try_push`, which drops the sample instead. The value of a
+`Metric::try_push`, which drops the sample instead and adds one to the
+count that `ubos_metrics::metrics::dropped` reads. The count is 0 in a
+build without the `metrics` feature. The value of a
 `Metric` is a typed unit from `ubos_core::units`, a
 `ubos_metrics::value::Ratio`, a flag or a count. See "Units" below. A
 push site builds the `Metric` with the `metric!` macro. See "Names"

@@ -26,12 +26,14 @@
 use core::fmt::Write as _;
 
 use embassy_time::{Duration, Instant};
+#[cfg(feature = "metrics")]
+use portable_atomic::Ordering;
 
 use crate::consts::Metrics;
 use crate::freshness::Expiry;
 use crate::name::{Name, Unit};
 #[cfg(feature = "metrics")]
-use crate::store::METRICS;
+use crate::store::{DROPPED, METRICS};
 use crate::value::Value;
 
 #[cfg(feature = "metrics")]
@@ -92,6 +94,17 @@ pub struct Metric {
     labels: Labels,
     value: Value,
     expiry: Option<Expiry>,
+}
+
+/// How many pushes [`Metric::try_push`] has dropped since boot. It is
+/// always 0 in a build without the `metrics` feature, which has no
+/// channel to fill.
+#[must_use]
+pub fn dropped() -> u32 {
+    #[cfg(feature = "metrics")]
+    return DROPPED.load(Ordering::Relaxed);
+    #[cfg(not(feature = "metrics"))]
+    0
 }
 
 impl Metric {
@@ -174,14 +187,18 @@ impl Metric {
         METRICS.send(self).await;
     }
 
-    /// Drops the metric when the channel is full, for a caller that must
-    /// keep making progress while the ingest task cannot run. Every series
-    /// pushed this way is pushed on a ticker, so the next sample replaces
-    /// a dropped one. A build without the `metrics` feature has no channel
-    /// and drops every metric.
+    /// Drops the metric when the channel is full and counts the drop in
+    /// [`dropped`], for a caller that must keep making progress while the
+    /// ingest task cannot run. A ticker replaces a dropped sample with
+    /// the next one. A driver that pushes a reading when it takes it
+    /// keeps the older value until the next reading. A build without the
+    /// `metrics` feature has no channel and drops every metric without a
+    /// count.
     pub fn try_push(self) {
         #[cfg(feature = "metrics")]
-        let _ = METRICS.try_send(self);
+        if METRICS.try_send(self).is_err() {
+            DROPPED.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     #[must_use]

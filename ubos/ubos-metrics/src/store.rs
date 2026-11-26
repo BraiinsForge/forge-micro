@@ -25,6 +25,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use embassy_time::Instant;
+use portable_atomic::AtomicU32;
 use ubos_logging::warn;
 
 use ubos_core::units::Temperature;
@@ -129,6 +130,9 @@ fn push_escaped_label_value(key: &mut heapless::String<KEY_CAPACITY>, value: &st
 /// Shared channel through which any task can push metrics.
 pub(crate) static METRICS: Channel<CriticalSectionRawMutex, Metric, { Metrics::CHANNEL_DEPTH }> =
     Channel::new();
+
+/// Pushes that [`Metric::try_push`] dropped because the channel was full.
+pub(crate) static DROPPED: AtomicU32 = AtomicU32::new(0);
 
 /// The exposition map and its render buffer, sized by the board.
 ///
