@@ -76,6 +76,9 @@ Two properties matter for capacity:
   abandoned browser frees its worker after 3 s. One value cannot do both
   jobs. A single 3 s aborts an OTA upload mid-sector, and a single 10 s
   lets two abandoned tabs hold the whole HTTP surface of a tight board.
+  The acceptor sets the socket timeout before each socket listens, so a
+  handshake that the peer never completes is reset after 10 s and its
+  worker goes back to accept.
   A completed exchange that asked to close gets a bounded graceful close.
   Every other exit aborts with a reset. This is what
   removed the earlier ~30 s unreachable window after a live network apply,

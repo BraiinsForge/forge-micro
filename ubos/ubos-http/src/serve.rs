@@ -92,7 +92,7 @@ pub async fn bind_tcp(tcp: &'static Tcp<'static>, port: u16) -> TcpAccept<'stati
 /// wait for headers, so an abandoned browser socket frees its worker
 /// fast. One value cannot do both.
 pub async fn serve_worker<S>(
-    acceptor: TcpAccept<'static>,
+    mut acceptor: TcpAccept<'static>,
     parse_buffer: &'static mut [u8],
     service: &'static S,
     socket_timeout: Duration,
@@ -101,6 +101,10 @@ pub async fn serve_worker<S>(
 where
     S: Service,
 {
+    // On the acceptor, so the bound also covers a handshake the peer never
+    // completes; see `TcpAccept::set_timeout`.
+    acceptor.set_timeout(Some(socket_timeout));
+
     loop {
         let (peer_addr, mut socket): (SocketAddr, _) = match acceptor.accept().await {
             Ok(pair) => pair,
@@ -109,8 +113,6 @@ where
                 continue;
             }
         };
-
-        socket.set_timeout(Some(socket_timeout));
 
         loop {
             match serve_one(
