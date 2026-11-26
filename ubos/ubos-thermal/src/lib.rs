@@ -323,6 +323,29 @@ pub struct Handle(());
 /// it to a second.
 pub struct Runner(());
 
+/// What the thermal task does to its statics, for a test that drives a
+/// consumer of them with no thermal task of its own. These are methods of
+/// the runner because its holder is the one writer of the watches.
+#[cfg(feature = "test-util")]
+impl Runner {
+    /// Publish the dangerous temperature flag.
+    pub fn publish_dangerous(&self, set: bool) {
+        WATCHES.danger.sender().send(set);
+    }
+
+    /// Publish the chip and hashboard temperatures, or `None` for no
+    /// reading inside the window.
+    pub fn publish_filtered(&self, filtered: Option<TempSample>) {
+        WATCHES.filtered.sender().send(filtered);
+    }
+
+    /// Take the operator's acknowledge as a tick does, and answer whether
+    /// one waited.
+    pub fn take_acknowledge(&self) -> bool {
+        ACKNOWLEDGE.try_take().is_some()
+    }
+}
+
 impl Handle {
     /// The firmware's one thermal handle, and the runner of the task that
     /// reads the sensors. A second call panics.
