@@ -71,6 +71,7 @@ in
       ../patches/edge-nal-embassy-04-embassy-time-dep.patch
       ../patches/edge-nal-embassy-05-idle-timeout.patch
       ../patches/edge-nal-embassy-06-edition-2024.patch
+      ../patches/edge-nal-embassy-07-accept-timeout.patch
     ];
   };
 }

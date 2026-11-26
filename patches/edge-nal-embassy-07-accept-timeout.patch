@@ -1,0 +1,59 @@
+Time out a half-open connection before accept returns.
+
+A peer that sends a SYN and never answers the SYN-ACK held the
+listening socket in SYN-RECEIVED for good, because smoltcp
+retransmits the SYN-ACK with no retry limit and the socket had no
+timeout until accept returned. Each such peer cost the server one
+listener, until none was left. A timeout set on the acceptor now
+reaches each socket before it listens.
+
+diff --git a/src/tcp.rs b/src/tcp.rs
+index 2e9bee41..c4e9eb33 100644
+--- a/src/tcp.rs
++++ b/src/tcp.rs
+@@ -75,6 +75,7 @@ impl TcpBind for Tcp<'_> {
+         Ok(TcpAccept {
+             stack: *self,
+             local,
++            timeout: None,
+         })
+     }
+ }
+@@ -87,6 +88,17 @@ impl TcpBind for Tcp<'_> {
+ pub struct TcpAccept<'d> {
+     stack: Tcp<'d>,
+     local: SocketAddr,
++    timeout: Option<embassy_time::Duration>,
++}
++
++impl TcpAccept<'_> {
++    /// Sets the inactivity timeout every accepted socket listens with.
++    ///
++    /// Set before the socket listens, it also resets a handshake the peer
++    /// never completes, which smoltcp would otherwise keep retrying.
++    pub fn set_timeout(&mut self, duration: Option<embassy_time::Duration>) {
++        self.timeout = duration;
++    }
+ }
+ 
+ impl edge_nal::TcpAccept for TcpAccept<'_> {
+@@ -100,6 +112,8 @@ impl edge_nal::TcpAccept for TcpAccept<'_> {
+     async fn accept(&self) -> Result<(SocketAddr, Self::Socket<'_>), Self::Error> {
+         let mut socket = TcpSocket::new(self.stack.stack, self.stack.buffers)?;
+ 
++        socket.set_timeout(self.timeout);
++
+         socket
+             .socket
+             .accept(to_emb_bind_socket(self.local).ok_or(TcpError::UnsupportedProto)?)
+@@ -166,8 +180,8 @@ impl<'d> TcpSocket<'d> {
+     /// timeout aborts the connection only after `duration` elapses with no
+     /// traffic, resetting on each packet. This is an idle timeout, not a
+     /// whole-connection cap: a long but actively streaming request stays
+-    /// alive while a silent client is still reaped. `ubos-http`'s accept
+-    /// loop relies on this so a large OTA upload is not killed mid-transfer.
++    /// alive while a silent client is still reaped. `TcpAccept::accept`
++    /// applies it to every socket it creates; see `TcpAccept::set_timeout`.
+     pub fn set_timeout(&mut self, duration: Option<embassy_time::Duration>) {
+         self.socket.set_timeout(duration);
+     }
