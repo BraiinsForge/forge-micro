@@ -24,6 +24,9 @@
 
 pub mod buffer;
 pub mod consts;
+#[cfg(test)]
+#[path = "tests/mock_socket.rs"]
+mod mock_socket;
 pub mod request;
 pub mod response;
 pub mod router;
