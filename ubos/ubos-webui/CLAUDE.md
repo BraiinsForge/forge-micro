@@ -294,8 +294,7 @@ route.
   carries a one-line why. Every guard added for the type checker also
   ships as runtime bytes, so keep them to what strict actually needs.
 - `preact` is **pinned** in `package.json` (exact version, no caret);
-  keep it pinned. Preact 11 is RC-only — do not adopt it here until it
-  ships stable.
+  keep it pinned.
 - Comments: proper sentences, explain *why*. Never comment `icons.svg`
   (`?raw` ships it verbatim).
 - `web/lib/format.ts` holds the shared value formatters (`fmtHr`,

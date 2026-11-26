@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks';
-import type { JSX } from 'preact';
+import type { TargetedEvent } from 'preact';
 import { saveConfig } from '../lib/api';
 import { fmtRange } from '../lib/format';
 import { toast } from '../lib/toast';
@@ -77,7 +77,7 @@ export default function ConfigThermal({ thermal, cooling, thermalBounds, cooling
   // empty duty is refused here by name: an emptied number input coerces
   // to 0, which is in range for a duty, so the board cannot refuse it
   // the way it refuses the fields whose range starts above zero.
-  const save = (event: JSX.TargetedEvent<HTMLFormElement, SubmitEvent>) => {
+  const save = (event: TargetedEvent<HTMLFormElement, SubmitEvent>) => {
     event.preventDefault();
     if (minFanPwm === '') return toast.err('Min fan speed must be set.');
     if (fixedFanPwm === '') return toast.err('Fixed fan speed must be set.');

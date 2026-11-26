@@ -1,9 +1,9 @@
-import type { ComponentChildren, JSX } from 'preact';
+import type { ComponentChildren, GenericEventHandler } from 'preact';
 
 export interface CheckboxProps {
   label?: ComponentChildren;
   checked?: boolean;
-  onInput?: JSX.GenericEventHandler<HTMLInputElement>;
+  onInput?: GenericEventHandler<HTMLInputElement>;
   disabled?: boolean;
   class?: string;
 }

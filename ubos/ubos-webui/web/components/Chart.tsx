@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import type { JSX } from 'preact';
+import type { TargetedEvent } from 'preact';
 import { SAMPLES } from '../lib/store';
 import { niceStep } from '../lib/format';
 
@@ -111,7 +111,7 @@ export default function Chart({
     return () => ro.disconnect();
   }, []);
 
-  function handlePointerMove(event: JSX.TargetedEvent<SVGSVGElement, PointerEvent>) {
+  function handlePointerMove(event: TargetedEvent<SVGSVGElement, PointerEvent>) {
     if (event.pointerType !== 'mouse') return;
     if (!w) return;
     const svgEl = svgRef.current;

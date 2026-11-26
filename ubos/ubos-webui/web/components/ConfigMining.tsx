@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks';
-import type { JSX } from 'preact';
+import type { TargetedEvent } from 'preact';
 import { saveConfig } from '../lib/api';
 import { fmtRange } from '../lib/format';
 import type { AsicBounds, AsicDefaults, MinerConfig, Range, Tuning } from '../lib/types';
@@ -60,7 +60,7 @@ export default function ConfigMining({ miner, bounds, defaults }: ConfigMiningPr
   // which is a target nobody entered. A field the tuner does not read
   // is not shown, but the efficiency is posted even then, because the
   // power target requires one.
-  const save = (event: JSX.TargetedEvent<HTMLFormElement, SubmitEvent>) => {
+  const save = (event: TargetedEvent<HTMLFormElement, SubmitEvent>) => {
     const tuning: Tuning = isPower
       ? {
           Power: {

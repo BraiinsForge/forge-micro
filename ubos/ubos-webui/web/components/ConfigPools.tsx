@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks';
-import type { JSX } from 'preact';
+import type { TargetedEvent } from 'preact';
 import { saveConfig } from '../lib/api';
 import { toast } from '../lib/toast';
 import type { PoolConfig, PoolProtocol } from '../lib/types';
@@ -71,7 +71,7 @@ export default function ConfigPools({ pools, fee, feePermille }: ConfigPoolsProp
     setSlots((prev) => prev.map((slot, idx) => (idx === i ? { ...slot, [field]: value } : slot)));
   }
 
-  async function save(event: JSX.TargetedEvent<HTMLFormElement, SubmitEvent>): Promise<void> {
+  async function save(event: TargetedEvent<HTMLFormElement, SubmitEvent>): Promise<void> {
     event.preventDefault();
     // Row order is the priority: the board mines the first pool and fails over down the list.
     const pool: PoolPatch[] = [];

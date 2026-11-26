@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import type { JSX } from 'preact';
+import type { TargetedEvent } from 'preact';
 import { getJSON, postOnce } from '../lib/api';
 import { ipToBytes, bytesToIp, prefixToMask, maskToPrefix } from '../lib/ip';
 import { setNetChanged } from '../lib/net';
@@ -51,7 +51,7 @@ export default function ConfigNetwork({ hostname: initialHostname }: ConfigNetwo
     })();
   }, []);
 
-  function openReview(event: JSX.TargetedEvent<HTMLFormElement, SubmitEvent>) {
+  function openReview(event: TargetedEvent<HTMLFormElement, SubmitEvent>) {
     event.preventDefault();
     if (hostname && (!/^[a-zA-Z0-9-]+$/.test(hostname) || hostname.startsWith('-') || hostname.endsWith('-'))) {
       toast.err('Hostname may use only letters, digits, and hyphens, not at the ends.');

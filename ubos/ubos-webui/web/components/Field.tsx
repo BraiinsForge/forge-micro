@@ -1,12 +1,12 @@
 import { useState } from 'preact/hooks';
-import type { ComponentChildren, JSX } from 'preact';
+import type { ComponentChildren, GenericEventHandler, InputHTMLAttributes } from 'preact';
 
 export interface FieldProps {
   label: ComponentChildren;
   desc?: ComponentChildren;
   value?: string | number;
-  onInput?: JSX.GenericEventHandler<HTMLInputElement>;
-  type?: string;
+  onInput?: GenericEventHandler<HTMLInputElement>;
+  type?: 'text' | 'number' | 'password';
   placeholder?: string;
   disabled?: boolean;
   required?: boolean;
@@ -39,6 +39,14 @@ export default function Field({
 }: FieldProps) {
   const isPassword = type === 'password';
   const [visible, setVisible] = useState(false);
+  // Preact types an input's attributes as one variant per `type`, so
+  // the type is spread from a literal per branch rather than a union.
+  const typeAttr: InputHTMLAttributes<HTMLInputElement> =
+    type === 'number'
+      ? { type: 'number' }
+      : isPassword && !visible
+        ? { type: 'password' }
+        : { type: 'text' };
 
   return (
     <label class={'fld' + (off ? ' off' : '') + (extra ? ' ' + extra : '')}>
@@ -48,7 +56,7 @@ export default function Field({
       </span>
       <span class={'fldCtl' + (unit ? ' hasUnit' : '') + (isPassword ? ' hasPw' : '')}>
         <input
-          type={isPassword && visible ? 'text' : type}
+          {...typeAttr}
           value={value}
           onInput={onInput}
           placeholder={placeholder}

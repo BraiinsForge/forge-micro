@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks';
-import type { JSX } from 'preact';
+import type { TargetedEvent } from 'preact';
 import { API, loginRedirect, postOnce, saveConfig, sleep } from '../lib/api';
 import { useDash, startPoll, stopPoll } from '../lib/store';
 import { toast } from '../lib/toast';
@@ -29,7 +29,7 @@ export default function ConfigSystem({ api, boardNotice }: ConfigSystemProps) {
   const [sysUser, setSysUser] = useState(() => (api && api.username) || '');
   const [sysPass, setSysPass] = useState('');
 
-  const saveCreds = (event: JSX.TargetedEvent<HTMLFormElement, SubmitEvent>) =>
+  const saveCreds = (event: TargetedEvent<HTMLFormElement, SubmitEvent>) =>
     saveConfig({ api: { username: sysUser, password: sysPass } }, event);
 
   const dash = useDash();
