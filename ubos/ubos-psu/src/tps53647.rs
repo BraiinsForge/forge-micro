@@ -28,7 +28,7 @@
 //! by reference rather than a method on a handle, for the same reason
 //! as [`crate::sic45x`]: see its module doc.
 
-use embedded_hal_async::i2c::I2c;
+use embedded_hal_async::i2c::{I2c, SevenBitAddress};
 use ubos_core::units::{Power, Temperature, Voltage};
 
 use crate::Error;
@@ -132,7 +132,7 @@ impl Phases {
 #[derive(Clone, Copy, Debug)]
 pub struct Tps53647Config {
     /// `PMBus` 7-bit address, set by the ADDR-TRISE resistor divider.
-    pub address: u8,
+    pub address: SevenBitAddress,
     /// Output voltage to program during init. The rail stays off
     /// until `enable`; the tuner then anchors at open-core voltage.
     pub initial_voltage: Voltage,

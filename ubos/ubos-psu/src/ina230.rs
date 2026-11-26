@@ -28,7 +28,7 @@
 //! `cal_value = 5_120_000_000 / (current_lsb_microamps * shunt_microohm)`
 //! `power_mw = power_register * 25 * current_lsb_microamps / 1_000_000`
 
-use embedded_hal_async::i2c::I2c;
+use embedded_hal_async::i2c::{I2c, SevenBitAddress};
 use ubos_core::units::{Current, Power, Voltage};
 
 #[cfg(test)]
@@ -125,7 +125,7 @@ impl From<RawBusVoltage> for Voltage {
 /// Returns the bus error when either write fails.
 pub(crate) async fn init<I, E>(
     i2c: &mut I,
-    address: u8,
+    address: SevenBitAddress,
     max_current: Current,
     shunt_microohm: u32,
 ) -> Result<(), E>
@@ -154,7 +154,7 @@ where
 /// Returns the bus error when the read fails.
 pub(crate) async fn read_power<I, E>(
     i2c: &mut I,
-    address: u8,
+    address: SevenBitAddress,
     max_current: Current,
 ) -> Result<Power, E>
 where
@@ -181,7 +181,10 @@ where
 }
 
 /// Read the bus-voltage register.
-pub(crate) async fn read_bus_voltage<I, E>(i2c: &mut I, address: u8) -> Result<Voltage, E>
+pub(crate) async fn read_bus_voltage<I, E>(
+    i2c: &mut I,
+    address: SevenBitAddress,
+) -> Result<Voltage, E>
 where
     I: I2c<Error = E>,
 {

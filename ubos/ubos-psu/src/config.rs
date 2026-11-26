@@ -20,21 +20,22 @@
 //! Runtime configuration for `BmmPsu`.
 
 use embassy_time::Duration;
+use embedded_hal_async::i2c::SevenBitAddress;
 use ubos_core::units::{Current, Voltage};
 
 use crate::tps6287x::{SoftStartRampTime, VoltageRampSpeed, VoltageRange};
 
 #[derive(Clone, Copy, Debug)]
 pub struct BmmPsuDescriptor {
-    pub dcdc_address: u8,
+    pub dcdc_address: SevenBitAddress,
     pub dcdc_initial: Voltage,
     pub dcdc_voltage_range: VoltageRange,
     pub dcdc_ramp_speed: VoltageRampSpeed,
     pub dcdc_soft_start: SoftStartRampTime,
-    pub heartbeat_address: u8,
+    pub heartbeat_address: SevenBitAddress,
     pub heartbeat_interval: Duration,
-    pub ina_input_address: u8,
-    pub ina_output_address: u8,
+    pub ina_input_address: SevenBitAddress,
+    pub ina_output_address: SevenBitAddress,
     pub ina_input_max_current: Current,
     pub ina_output_max_current: Current,
     pub ina_input_shunt_microohm: u32,

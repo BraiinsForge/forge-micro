@@ -24,7 +24,7 @@
 use core::fmt::Write as _;
 use core::marker::PhantomData;
 
-use embedded_hal_async::i2c::I2c;
+use embedded_hal_async::i2c::{I2c, SevenBitAddress};
 use ubos_core::units::{Current, Power, Voltage};
 
 use crate::state::{Device, Shared};
@@ -41,7 +41,7 @@ pub struct BfmPsuDescriptor {
     pub sic: crate::sic45x::Sic45xConfig,
     /// INA230 7-bit I2C address. The hardware answers on 0x43 regardless
     /// of the schematic's nominal 0x53.
-    pub ina_address: u8,
+    pub ina_address: SevenBitAddress,
     /// Maximum expected load current for INA230 calibration.
     pub ina_max_current: Current,
     /// Shunt resistor value for INA230 calibration.

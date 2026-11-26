@@ -29,7 +29,7 @@
 //! method that locked again would deadlock. `State<I, C>` in `state.rs`
 //! already is that receiver.
 
-use embedded_hal_async::i2c::I2c;
+use embedded_hal_async::i2c::{I2c, SevenBitAddress};
 use ubos_core::units::{Current, Power, Temperature, Voltage};
 
 use crate::Error;
@@ -200,7 +200,7 @@ impl From<RawUlinear11> for Power {
 #[derive(Clone, Copy, Debug)]
 pub struct Sic45xConfig {
     /// `PMBus` 7-bit address, selected by hardware resistor.
-    pub address: u8,
+    pub address: SevenBitAddress,
     /// Output voltage to program during init.
     pub initial_voltage: Voltage,
     /// Feedback divider scale to match the board's resistor network.
@@ -559,7 +559,7 @@ where
 /// `IC_DEVICE_ID` is the only documented identity register, framed as a
 /// plain `PMBus` word read, matching every other multi-byte register in
 /// this driver.
-pub(crate) async fn read_device_id<I, E>(i2c: &mut I, address: u8) -> Option<u16>
+pub(crate) async fn read_device_id<I, E>(i2c: &mut I, address: SevenBitAddress) -> Option<u16>
 where
     I: I2c<Error = E>,
     E: embedded_hal_async::i2c::Error,

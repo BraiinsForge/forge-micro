@@ -28,7 +28,7 @@
 //! These are free functions taking the bus as `&mut I` for the same
 //! reason as [`crate::sic45x`]: see its module doc.
 
-use embedded_hal_async::i2c::I2c;
+use embedded_hal_async::i2c::{I2c, SevenBitAddress};
 
 use crate::Error;
 
@@ -40,7 +40,7 @@ use crate::Error;
 /// Returns [`Error::Bus`] on any I2C transaction failure.
 pub(crate) async fn write_word<I, E>(
     i2c: &mut I,
-    address: u8,
+    address: SevenBitAddress,
     register: u8,
     value: u16,
 ) -> Result<(), Error<E>>
@@ -59,7 +59,11 @@ where
 /// # Errors
 ///
 /// Returns [`Error::Bus`] on any I2C transaction failure.
-pub(crate) async fn read_word<I, E>(i2c: &mut I, address: u8, register: u8) -> Result<u16, Error<E>>
+pub(crate) async fn read_word<I, E>(
+    i2c: &mut I,
+    address: SevenBitAddress,
+    register: u8,
+) -> Result<u16, Error<E>>
 where
     I: I2c<Error = E>,
     E: embedded_hal_async::i2c::Error,

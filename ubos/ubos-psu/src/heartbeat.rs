@@ -28,7 +28,7 @@
 //! doc.
 
 use embassy_time::{Duration, Timer};
-use embedded_hal_async::i2c::I2c;
+use embedded_hal_async::i2c::{I2c, SevenBitAddress};
 
 #[cfg(test)]
 #[path = "tests/heartbeat.rs"]
@@ -49,7 +49,7 @@ const HEARTBEAT_HIGH_DURATION: Duration = Duration::from_millis(100);
 /// Returns the bus error when a write fails. A failed heartbeat leaves
 /// the input wherever the failure left it, and the next call starts
 /// again from the low write.
-pub(crate) async fn pulse<I, E>(i2c: &mut I, address: u8) -> Result<(), E>
+pub(crate) async fn pulse<I, E>(i2c: &mut I, address: SevenBitAddress) -> Result<(), E>
 where
     I: I2c<Error = E>,
 {
