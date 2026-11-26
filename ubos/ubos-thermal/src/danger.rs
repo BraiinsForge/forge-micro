@@ -24,11 +24,6 @@
 //! operator acknowledges it. The flag is `true` while mining must stay
 //! halted.
 
-#![cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the loop does not run the flag yet")
-)]
-
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::Watch;
 use embassy_time::Instant;

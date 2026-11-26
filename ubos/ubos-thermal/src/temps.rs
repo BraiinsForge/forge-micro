@@ -30,6 +30,7 @@ use ubos_config::{PidTarget, Source, Statistic};
 use ubos_core::units::Temperature;
 use ubos_temperature::{Reading, TempSource};
 
+use crate::danger::FlagWatch;
 use crate::filter::TempFilter;
 use crate::{TempSample, TempStats, WATCH_CAPACITY};
 
@@ -72,6 +73,8 @@ pub(crate) struct Watches {
     pub(crate) pid: PidWatch,
     /// The air around the board.
     pub(crate) ambient: TempWatch,
+    /// The dangerous temperature flag.
+    pub(crate) danger: FlagWatch,
 }
 
 impl Watches {
@@ -80,6 +83,7 @@ impl Watches {
             filtered: Watch::new(),
             pid: Watch::new(),
             ambient: Watch::new(),
+            danger: Watch::new(),
         }
     }
 }
@@ -132,10 +136,6 @@ impl Temperatures {
 
     /// The stats of `source` at `now`, or `None` when it has no reading
     /// inside its window.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the loop does not run the flag yet")
-    )]
     pub(crate) fn stats(&self, source: Source, now: Instant) -> Option<TempStats> {
         self.filtered(now)?.temp_stats(source)
     }

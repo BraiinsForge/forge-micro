@@ -689,3 +689,124 @@ rusty_fork_test! {
         );
     }
 }
+
+/// The I2C address of the sensor that the hashboard readings name.
+const SENSOR: u8 = 0x48;
+
+/// A sensor that submits one hashboard reading for each queued temperature,
+/// in degrees, one on each sample.
+struct ScriptedHashboard {
+    degrees: VecDeque<i32>,
+}
+
+impl TemperatureSensor for ScriptedHashboard {
+    async fn sample(&mut self) -> Reading {
+        let celsius = self.degrees.pop_front().expect("BUG: past the script");
+        let chain = ubos_core::index::HashboardIndex(0);
+        let source = ubos_temperature::TempSource::hashboard(chain, SENSOR);
+        let value = Temperature::from_celsius(celsius);
+        crate::Handle(())
+            .submit(ubos_temperature::Reading { source, value })
+            .await;
+        Reading::Idle
+    }
+}
+
+/// Cool ticks that the wake test runs, which is more than the hot pane
+/// takes to leave the window of the filter.
+const COOL_TICKS: usize = 6;
+
+rusty_fork_test! {
+    #[test]
+    fn a_hot_reading_sets_the_flag_and_an_acknowledge_clears_it() {
+        // Below the limit and above the cooldown, so only an acknowledge
+        // clears the flag.
+        const WARM: i32 = 60;
+        let _clock = clock();
+        let driver = MockDriver::get();
+        driver.reset();
+        let sensor = ScriptedHashboard {
+            degrees: core::iter::once(200)
+                .chain(core::iter::repeat_n(WARM, COOL_TICKS + 1))
+                .collect(),
+        };
+        let (mut manager_runner, manager) = ManagerHandle::take();
+        let (_mining_runner, mining) = ubos_mining::Handle::take();
+        let (mut thermal_runner, thermal_handle) = crate::Handle::take();
+        let (mut config_runner, config) = ubos_config::Handle::take();
+        let store = StoreDir::new();
+        let mut config_task = pin!(run_config(&store, &mut config_runner));
+        settle(&mut config_task);
+        let mut manager_task = pin!(run_manager(&mut manager_runner, mining));
+        let mut thermal = pin!(run_thermal(
+            sensor,
+            NoAmbient,
+            NoMcu,
+            &mut thermal_runner,
+            manager,
+            config
+        ));
+        prime(&mut thermal);
+        prime(&mut manager_task);
+        assert!(!thermal_handle.is_dangerous(), "the flag starts clear");
+        tick(driver, &mut thermal, &mut manager_task);
+        assert!(
+            thermal_handle.is_dangerous(),
+            "a reading above its limit sets the flag"
+        );
+        for _ in 0..COOL_TICKS {
+            tick(driver, &mut thermal, &mut manager_task);
+        }
+        assert!(thermal_handle.is_dangerous(), "the readings did not cool");
+        thermal_handle.acknowledge();
+        tick(driver, &mut thermal, &mut manager_task);
+        assert!(
+            !thermal_handle.is_dangerous(),
+            "the acknowledge clears the flag"
+        );
+    }
+
+    #[test]
+    fn a_subscriber_wakes_once_when_a_reading_crosses_and_once_when_it_cools() {
+        let _clock = clock();
+        let driver = MockDriver::get();
+        driver.reset();
+        let sensor = ScriptedHashboard {
+            degrees: [200, 200]
+                .into_iter()
+                .chain(core::iter::repeat_n(30, COOL_TICKS))
+                .collect(),
+        };
+        let (mut manager_runner, manager) = ManagerHandle::take();
+        let (_mining_runner, mining) = ubos_mining::Handle::take();
+        let (mut thermal_runner, thermal_handle) = crate::Handle::take();
+        let (mut config_runner, config) = ubos_config::Handle::take();
+        let store = StoreDir::new();
+        let mut config_task = pin!(run_config(&store, &mut config_runner));
+        settle(&mut config_task);
+        let mut manager_task = pin!(run_manager(&mut manager_runner, mining));
+        let mut thermal = pin!(run_thermal(
+            sensor,
+            NoAmbient,
+            NoMcu,
+            &mut thermal_runner,
+            manager,
+            config
+        ));
+        prime(&mut thermal);
+        prime(&mut manager_task);
+        let mut flag = thermal_handle.subscribe_dangerous();
+        assert_eq!(flag.try_changed(), Some(false), "the first publish");
+        tick(driver, &mut thermal, &mut manager_task);
+        assert_eq!(flag.try_changed(), Some(true), "the reading crossed");
+        tick(driver, &mut thermal, &mut manager_task);
+        assert_eq!(flag.try_changed(), None, "a second hot tick is no edge");
+        let wakes: std::vec::Vec<bool> = (0..COOL_TICKS)
+            .filter_map(|_| {
+                tick(driver, &mut thermal, &mut manager_task);
+                flag.try_changed()
+            })
+            .collect();
+        assert_eq!(wakes, [false], "the readings cooled");
+    }
+}

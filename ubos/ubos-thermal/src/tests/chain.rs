@@ -34,7 +34,13 @@ fn sampled<S: TemperatureSensor>(sensor: &mut S) -> Reading {
     match embassy_futures::block_on(embassy_futures::select::select(
         sensor.sample(),
         crate::drain_input(
-            &mut crate::Temperatures::for_interval(embassy_time::Duration::from_secs(1)),
+            &mut crate::Folds::new(
+                embassy_time::Duration::from_secs(1),
+                ubos_config::TemperatureDescriptor {
+                    chip: None,
+                    hashboard: None,
+                },
+            ),
             Instant::now(),
         ),
     )) {
