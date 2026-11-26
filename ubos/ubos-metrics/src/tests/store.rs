@@ -33,14 +33,14 @@ use ubos_core::units::{Temperature, Voltage};
 
 use super::{
     KEY_CAPACITY, LONGEST_KEY_LABELS, LONGEST_KEY_NAME, LONGEST_RENDERED_KEY_BYTES, METRICS,
-    MetricKey, StoredValue, upsert_metric,
+    MetricKey, StoredValue, report_dropped, upsert_metric,
 };
 use crate::catalog::{CHIP_ADDR_LABEL, CHIP_TEMPERATURE, HASHBOARD_LABEL};
 use crate::consts::Metrics;
 use crate::metric;
 use crate::metrics::{Metric, dropped};
 use crate::name::Name;
-use crate::value::Count;
+use crate::value::{Count, Value};
 
 /// A temperature for a test that reads the key of a metric and never its
 /// value.
@@ -201,4 +201,52 @@ fn the_longest_chain_fits_a_map_of_512_series() {
     }
     assert_eq!(map.len(), 512);
     assert_eq!(dropped(), before);
+}
+
+fn dropped_count(map: &Map) -> Option<u64> {
+    map.iter()
+        .find(|(key, _)| key.0.as_str() == "metrics_dropped")
+        .and_then(|(_, stored)| match stored.value {
+            Value::Count(count) => Some(count),
+            _ => None,
+        })
+}
+
+// The first write has no earlier count, so the series exists with the
+// count at that time before any push can fill the map.
+#[test]
+fn the_first_report_writes_the_drop_count() {
+    let mut map = Map::new();
+    assert_eq!(report_dropped(&mut map, 0, None), Some(0));
+    assert_eq!(dropped_count(&map), Some(0));
+}
+
+#[test]
+fn a_report_writes_the_count_when_it_changed() {
+    let mut map = Map::new();
+    let reported = report_dropped(&mut map, 0, None);
+    assert_eq!(report_dropped(&mut map, 3, reported), Some(3));
+    assert_eq!(dropped_count(&map), Some(3));
+}
+
+// A count that did not change is not written again, so a full map is
+// not searched for a slot after every push.
+#[test]
+fn a_report_of_the_same_count_writes_nothing() {
+    let mut map = Map::new();
+    assert_eq!(report_dropped(&mut map, 2, Some(2)), Some(2));
+    assert_eq!(dropped_count(&map), None);
+}
+
+// The series is a constant, so the slot of the first write survives a
+// full map that drops its expired series.
+#[test]
+fn the_drop_count_keeps_its_slot_in_a_full_map() {
+    let mut map = Map::new();
+    report_dropped(&mut map, 0, None);
+    upsert(&mut map, "stopped", Duration::from_secs(1));
+    block_for(Duration::from_millis(1_100));
+    upsert(&mut map, "new", Duration::from_secs(3_600));
+    assert_eq!(dropped_count(&map), Some(0));
+    assert!(holds(&map, "new") && !holds(&map, "stopped"));
 }

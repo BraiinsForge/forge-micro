@@ -33,9 +33,10 @@ use ubos_core::units::Temperature;
 use crate::catalog;
 use crate::consts::Metrics;
 use crate::freshness::Expiry;
-use crate::metrics::{KEY_CAPACITY, Metric};
+use crate::metric;
+use crate::metrics::{KEY_CAPACITY, Metric, dropped};
 use crate::name::Name;
-use crate::value::Value;
+use crate::value::{Count, Value};
 
 #[cfg(test)]
 #[path = "tests/store.rs"]
@@ -207,11 +208,32 @@ macro_rules! metrics_statics {
 pub async fn run_ingest<const MAX: usize, const BODY: usize>(
     statics: &'static MetricsStatics<MAX, BODY>,
 ) -> ! {
+    let mut reported = report_dropped(&mut *statics.map.lock().await, dropped(), None);
     loop {
         let metric = METRICS.receive().await;
         let mut map = statics.map.lock().await;
         upsert_metric(&mut map, &metric);
+        reported = report_dropped(&mut map, dropped(), reported);
     }
+}
+
+/// Writes `metrics_dropped` into the map when `dropped` differs from the
+/// count of the last write, and returns the count the map now shows. The
+/// ingest task writes it because a push through the channel cannot carry
+/// it: the channel is full when the count changes. A write with no earlier
+/// one is the first, so the series has its slot before the map can fill.
+/// It is a constant, because the store writes it for as long as it exists.
+fn report_dropped<const MAX: usize>(
+    map: &mut heapless::index_map::FnvIndexMap<MetricKey, StoredValue, MAX>,
+    dropped: u32,
+    reported: Option<u32>,
+) -> Option<u32> {
+    if reported == Some(dropped) {
+        return reported;
+    }
+    let metric = metric!("metrics_dropped", Count(u64::from(dropped))).constant();
+    upsert_metric(map, &metric);
+    Some(dropped)
 }
 
 /// Upsert a metric into the map, sorting its labels into a canonical key.

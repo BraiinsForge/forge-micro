@@ -81,6 +81,13 @@ pool joins the export loop to its accept loop. The label `port` names the
 listener, and the requests of the metrics port are counted too. A request
 count is at most one interval old at a scrape.
 
+`metrics_dropped` is the number of pushes that `Metric::try_push` lost
+to a full channel since boot. A push through the channel cannot carry it,
+because the channel is full when the count changes. The ingest task
+writes it as 0 before its first receive, so the series has a slot before
+the map can fill. A value above 0 shows that `Metrics::CHANNEL_DEPTH` is
+too small for the longest stall of the ingest task.
+
 ### Expiry
 
 A series leaves the exposition when its publisher stops pushing it. The
