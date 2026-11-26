@@ -88,13 +88,18 @@ map and the dependency direction.
     `Command` enum. Thermal takes readings where another module takes
     commands: its handle submits each reading to a private input
     channel, and its state is one private watch for each filtered
-    temperature that it publishes.
+    temperature and one for the dangerous flag. The handle takes one
+    command, the acknowledge of that flag, through a private `Signal`.
+    Mining keeps a second private watch beside `STATE_WATCH`. It says
+    whether the miner holds the rail off because no temperature reading
+    was left. The lifecycle status cannot say this, because the miner is
+    `Stopped` for the retry delay, as after any failed bring-up.
 11. **One consumer per channel.** Exactly one task, `run`, drains each
     module's `COMMAND_CHANNEL` and owns that module's policy. Slow
     work delegates inside the module via a sibling `Signal` or worker
     future, never via a second public channel.
 12. **Domain messages, not bit-manipulation.** Senders construct facts
-    or intent, for example `DangerousTemperature` or `Stop`. The
+    or intent, for example `BrokenFan` or `Stop`. The
     receiving module interprets. No public `Assert(Reason)` or
     `Clear(Reason)` scaffolding crosses a crate boundary.
 13. **Concern separation is by module.** Configuration is a
@@ -122,7 +127,9 @@ task that holds it.
 - **One writer per `STATE_WATCH`** — the module's own `run` task.
 - **Only the manager writes `halt`/`resume`.** Every other producer
   influences mining by sending a `Message` into the manager. The
-  message vocabulary is in `ubos-manager/src/message.rs`.
+  dangerous temperature flag of `ubos-thermal` is the exception:
+  `ubos-mining` reads it itself, as "The overheat halt" in `MINING.md`
+  says. The message vocabulary is in `ubos-manager/src/message.rs`.
 - **The API talks only to handles.** No handler reads another crate's
   atomics or statics.
 - **The metrics push channel is the one sanctioned shared static.**

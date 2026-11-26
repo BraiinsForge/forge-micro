@@ -30,12 +30,13 @@ export default function ActionMenu({ boardNotice }: ActionMenuProps) {
   // with the board.
   const temperature = dash.temperature;
   const noReading = temperature?.chipMax == null && temperature?.hashboardMax == null;
-  // See "Two ways out of an overheat halt" in docs/MINING.md. An
+  // See "The overheat halt" in docs/MINING.md. An
   // overheat stop does not answer to a bare resume, so Start opens
   // the confirm step below and the confirm clears the halt and starts.
   const overheated = reason === 'dangerousTemperature';
-  // Start is inert against an unreadable-sensor stop, and the same
-  // section says why this menu offers no control for it.
+  // Start is inert against an unreadable-sensor stop, and "The
+  // unreadable temperature" in docs/MINING.md says why this menu
+  // offers no control for it.
   const unreadable = reason === 'temperatureUnreadable';
   // Whether Start is inert, which depends on why mining is stopped.
   // Start answers alone only where `userRequest` is the dominant

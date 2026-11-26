@@ -31,7 +31,7 @@ driver is exercised without a hashboard on the bench.
 | Task | Owner | Role |
 |------|-------|------|
 | `serial_task` | `mining.rs` | Drives one entry of the board's static `mining::CHAINS` array through `Serial::run(...)`. One actor per hashboard chain: command dispatch, parser, in-flight work registry, baud-rate switch, and that chain's own `ChainStats`. Pinned to Core 1 so embassy-net on Core 0 stays responsive. |
-| `miner_task` | `mining.rs` | Drives `Miner::<_, T, CHAINS>::new(psu_handle, BOARD, chains, platform, mining).run(config)` against the tuner `MinerConfig::tuning` selects from the firmware's tuner set `T`. Bring-up / teardown state machine: reset assert, wait until the scheduler would dispatch work, PSU up, reset release, per-chain enumeration, per-chain safe-boot configuration, start work, apply tuner plans, PSU off. |
+| `miner_task` | `mining.rs` | Drives `Miner::<_, T, CHAINS>::new(psu_handle, BOARD, chains, platform, mining, thermal).run(config)` against the tuner `MinerConfig::tuning` selects from the firmware's tuner set `T`. Bring-up / teardown state machine: reset assert, wait until the scheduler would dispatch work, PSU up, reset release, per-chain enumeration, per-chain safe-boot configuration, start work, apply tuner plans, PSU off. |
 | `psu_task` | `psu.rs` | Drives `ubos_psu::PowerSupply::run` with the PSU runner. Carries out the rail commands the other tasks send through the PSU handle, records the voltage each command sets, and polls the SIC45x input/output power every `POWER_STATS_INTERVAL` (two seconds) and publishes it. |
 
 The SIC45x rail is gated by the `SIC_EN` GPIO the `BoardPsu` owns, not by
@@ -42,8 +42,9 @@ the PSU handle: high during bring-up, and low when mining halts.
 `serial_task` and `miner_task` never return under normal operation.
 `Miner::run` responds to `Handle::stop` with a rail cut.
 HALT and STOP interrupt the state machine, as the section on it says.
-After HALT, the machine waits for `Message::Resume` or `Handle::stop`.
-Resume restarts bring-up, while STOP ends the machine. On
+After HALT, the machine waits for the end of the halt or for `Handle::stop`.
+`Halted` below says what ends each halt.
+The end of the halt restarts bring-up, while STOP ends the machine. On
 bare metal there is no `Handle::stop`, so if either task ever returns the
 task idles for 60 s between log lines, keeping the rest of the firmware
 (network, metrics, watchdog) alive so logs can be pulled.
@@ -78,12 +79,15 @@ bring-up found no chain.
 
 | Producer         | `Message` sent to the manager | `PauseReason` bit asserted |
 |------------------|-------------------------------|----------------------------|
-| `ubos-thermal`   | `DangerousTemperature`        | `DangerousTemperature`     |
-| `ubos-thermal`   | `TemperatureUnreadable`       | `TemperatureUnreadable`    |
 | `ubos-cooling`   | `BrokenFan`                   | `BrokenFan`                |
 | tuner            | `TunerFault`                  | `TunerFault`               |
 | OTA (`ubos-api`) | `OtaBegin`                    | `OtaUpdate`                |
 | operator         | `Stop`                        | `UserRequest`              |
+
+`ubos-thermal` sends no message to the manager. `ubos-mining` halts by
+itself on the dangerous temperature flag of `ubos-thermal`. The manager
+cannot resume a machine that the flag holds. See "The overheat halt"
+below.
 
 ### The pool gate
 
@@ -101,40 +105,61 @@ in which the scheduler would dispatch nothing for `POOL_LOSS_GRACE`
 cuts the rail and returns to the wait, so a pool outage shorter than
 the grace is only a dispatch gap.
 
-### Two ways out of an overheat halt
+### The overheat halt
 
-Where a reading survives the rail cut, the thermal loop sees the
-cooldown itself and sends `TemperatureNormal`. Where the chips
-themselves are the thermometer, the trip cuts the rail those chips
-answer on: the board cools where nothing can see it, no reading can
-report the cooldown, and only the operator's acknowledgement
-(`POST /api/system/thermal/clear`) clears the halt. The API sends
-`TemperatureAcknowledged` and then `Start` to the manager itself, the
-same way it sends `Start` and `Stop`. Clearing and starting are both
-that route's job, so a pause the operator holds comes off with the
-halt; the thermal loop reads the halt back from the manager's mask on
-every tick, so the release reaches it the same way its own would. A
-bare `POST /api/system/resume` while the halt stands is refused with
-409, because `Start` alone would clear only the operator's own pause
-and leave mining halted.
+`ubos-thermal` checks every reading against the limit of its kind,
+which `ThermalConfig::dangerous` holds. A chip or a hashboard reading
+at or above its limit sets the dangerous temperature flag at once. A
+kind with no limit never sets the flag. `Handle::is_dangerous()` reads
+the flag, and `Handle::subscribe_dangerous()` returns a receiver of it.
+`ubos-mining` halts while the flag is set. Thermal is the only owner
+of the overheat state.
 
-The web UI reads only the dominant reason, so its Start button leans on
-both ends of the severity order. That order is `PRIORITY` in
-`ubos/ubos-manager/src/pause.rs`, which `PauseReasons::dominant` walks
-and a const assertion holds in step with `PauseReason::severity`. The
-table above lists the producers, not the order. `UserRequest` is
-reported only when nothing else holds the mask, and
-`DangerousTemperature` is reported in front of anything else. The API
-refuses on the mask bit itself. The two agree while those two reasons
-keep their places.
+The flag clears in two ways:
 
-The unreadable halt is different from both: the loop retracts it
-itself, once a reading returns or the board goes idle, and no operator
-control exists for it because there is nothing to acknowledge. A
-sensor that never answers again -- a `SensorArray` on a dead I2C bus,
-for example -- is a hardware fault. The halt stands until the bus
-answers, and a reboot does not cure it: the loop spends its tolerance
-budget again and halts again.
+- **A fresh reading that cooled.** On each tick, thermal reads the
+  kinds that set the flag. If each of them has a fresh value, and
+  every fresh value of a kind with a limit is at or below
+  `cooldown_temp`, the flag clears.
+- **An acknowledge.** The chips give no reading after the rail is cut.
+  A flag that a chip set therefore does not clear by the rule above,
+  even on a board that also has a cool hashboard sensor. The flag
+  stays until the operator acknowledges it with
+  `POST /api/system/thermal/clear`. The API calls
+  `Handle::acknowledge()` and then sends `Start` to the manager, so a
+  pause that the operator holds ends with the halt. Thermal takes the
+  acknowledge on its next tick. A reading that reaches its limit
+  afterwards sets the flag again.
+
+A bare `POST /api/system/resume` while the flag is set is refused with
+409, because `Start` alone clears only the pause of the operator and
+leaves mining halted.
+
+The web UI reads only the dominant reason. The API reports the flag as
+`dangerousTemperature` in front of every reason that the manager
+holds. `UserRequest` is reported only when the flag is clear and
+nothing else holds the mask. The order of the reasons of the manager
+is `PRIORITY` in `ubos/ubos-manager/src/pause.rs`, which
+`PauseReasons::dominant` walks. A const assertion holds it in step
+with `PauseReason::severity`.
+
+### The unreadable temperature
+
+Thermal does not halt on a silent sensor. `ubos-mining` watches the
+readings while it mines. If `Handle::has_no_reading()` holds during
+`Pause` for one sample interval of thermal plus `UNREADABLE_MARGIN`,
+the miner cuts the rail and goes to `Recover`. It does the same when
+thermal stops ticking for that long, which it reads from the pid
+temperature watch. `has_no_reading` is true when neither the chips nor
+the hashboard sensors have a reading inside the window of the filter.
+
+The manager holds no pause reason for this rail cut, and no operator
+control exists for it. The API reports it as `temperatureUnreadable`
+while `Handle::temperature_unreadable()` holds, which is the retry
+delay in `Recover`. The miner then starts bring-up again. A
+sensor that never answers again is a hardware fault, for example a
+`SensorArray` on a dead I2C bus. The miner then cuts the rail again
+each time the grace ends.
 
 Domain producers raise typed messages; they never name a `PauseReason`.
 Manager translates and serialises the halt/resume sequence so mining
@@ -143,7 +168,8 @@ active concurrently.
 
 The mining command channel carries `Message::Halt` and `Message::Resume`.
 The active miner ignores redundant Resume messages.
-After Halt, the miner waits for Resume or `Handle::stop`.
+After Halt, the miner waits for Resume or `Handle::stop`, and for the
+dangerous temperature flag to clear if it is set.
 A Resume queued after Halt remains available to that wait.
 
 Frequency, voltage, and algorithm edits do not travel the command channel.
@@ -180,12 +206,15 @@ The states are:
 7. `Pause`: wait for the plan delay, then go to `Step`.
    An algorithm change ends the wait and goes to `Choose`, which starts initialization with the new policy.
    A scheduler with nothing to dispatch for `POOL_LOSS_GRACE` also goes to `Choose`, which waits for a pool again.
+   No temperature reading for one sample interval of thermal plus `UNREADABLE_MARGIN` goes to `Recover`.
 8. `Recover`: hold the rail off for the retry delay, then go to `Choose`.
-9. `Halted`: hold the rail off until `Message::Resume`, then go to `Choose`.
+9. `Halted`: hold the rail off, then go to `Choose`. A halt from the manager or a park holds until `Message::Resume`.
+   A set dangerous temperature flag holds every halt until it clears.
 
 One select runs every state. It reads STOP and HALT and waits for the state's work.
+HALT is `Message::Halt` or a set dangerous temperature flag.
 On HALT, go to `Halted`. On STOP, return from `Miner::run`.
-In `Halted`, the select reads only STOP, and `Halted` reads the resume itself.
+In `Halted`, the select reads only STOP, and `Halted` reads the resume and the flag itself.
 STOP or HALT during `Step` allows up to 100 ms for the current plan.
 In every other state, STOP or HALT ends the state's work immediately.
 Either one cuts the rail without a shutdown ramp or a voltage write.
@@ -288,26 +317,20 @@ answered nothing can answer the attempt that follows a settle. Only a
 bring-up where no chain comes up present cuts the rail and starts
 another cycle; one absent or faulted chain does not stop the others.
 
-The temperature read is part of the budget because presence is what the
-thermal loop measures a chain's silence from. `ChainTemperature` restarts
-that clock when a chain turns present, and the per-chip readings are
-never cleared, so a chain that reached `Present` with nothing read would
-have the loop hold the reading from before the last rail cut for the
-whole ramp. Failing the bring-up step instead keeps the rule that a chain
-the tuner sees has one reading of its own behind it.
+The temperature read is part of the budget because presence is what
+`ChainTemperature` measures the silence of a chain from. It starts that
+clock again when a chain becomes present, and the per-chip readings
+are never cleared. A chain that reaches `Present` with nothing read
+therefore reports the reading from before the last rail cut for the
+whole ramp. A failed bring-up step keeps the rule that a chain the
+tuner sees has one reading of its own behind it.
 
-That rule is load-bearing twice over. It also lets `ChainTemperature`
-read "no chain present" as an idle board rather than as a fault, because
-a present chain always has a reading behind it, so silence from a board
-with no present chain is a board with nothing powered.
-
-That reading is what a stop depends on. A rail cut marks every chain
-unknown, so a board whose chips are its thermometer falls silent the
-moment it stops, and a loop that read that silence as a dead sensor
-would hold the board down for the silence its own stop caused. Reading
-it as idle instead is what lets the thermal loop release its own
-unreadable halt: a halt that waited for a reading could never lift,
-because the halt is what ends the readings.
+A stop depends on that rule too. A rail cut marks every chain unknown,
+so a board whose chips are its thermometer becomes silent when it
+stops. That silence is no fault, because a board with no present chain
+has nothing powered. `ubos-mining` therefore watches for the missing
+readings only in `Pause`, when it mines. A halt that waits for a
+reading can never end, because the halt is what stops the readings.
 
 ### Tolerance ends at bring-up
 
@@ -317,17 +340,18 @@ bring-up loop and by the rail cut, so once the machine is mining there
 is no path that moves a chain out of the ramp. Two runtime faults
 therefore take the whole machine down:
 
-- **A present chain that goes silent.** `ChainTemperature::sample`
-  answers `Unreadable` when any present chain has been silent for its
-  budget, and the thermal loop halts the board on
-  `TemperatureUnreadable`. The other chains are hashing and are stopped
-  with it. The sensor cannot do otherwise today: it reads presence and
-  does not write it, and an unread die is the greater risk.
+- **A present chain that goes silent.** `ChainTemperature` submits no
+  dies while a present chain is silent for its budget. The chip filter
+  then becomes empty. If no hashboard sensor has a reading either,
+  `ubos-mining` cuts the rail and goes to `Recover`. The other chains
+  hash and stop with it. The sensor cannot do otherwise today: it reads
+  presence and does not write it, and an unread die is the greater
+  risk.
 
-  That halt releases itself; see "Two ways out of an overheat halt"
-  above. A chain that enumerates clean and goes silent again therefore cycles
-  through bring-up about once per silence budget. That is the price of
-  the release, and why the release exists is under "Chain presence".
+  The miner starts bring-up again by itself. See "The unreadable
+  temperature" above. A chain that enumerates clean and becomes silent
+  again therefore goes through bring-up about once for each silence
+  budget.
 - **A present chain that refuses a ramp step.** The plan executor
   reports the first error, so the miner cuts the rail and retries the
   whole bring-up. A persistent frequency-command failure therefore
@@ -446,8 +470,11 @@ shared I2C1 bus. The TMP461 remote channel reads the ASIC die. The
 TMP461 local channel and the two TMP102 sensors read the hashboard.
 The halt judges each kind of reading against its own threshold. It
 halts when the die reading reaches `dangerous_chip_temp`, or when the
-hottest hashboard reading reaches `dangerous_hashboard_temp`. Mining
-resumes when every kind of reading is at or below `cooldown_temp`. `BFMX4_HASHBOARD` in `ubos-asic` gives the
+hottest hashboard reading reaches `dangerous_hashboard_temp`. If the die
+reading sets the flag, the flag stays until the operator acknowledges it.
+The TMP461 remote channel gives no reading while the ASIC has no power.
+If a hashboard reading sets the flag, the flag clears when every kind of
+reading is at or below `cooldown_temp`. See "The overheat halt". `BFMX4_HASHBOARD` in `ubos-asic` gives the
 factory value of both thresholds.
 
 ## Host parity

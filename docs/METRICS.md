@@ -347,8 +347,8 @@ tens of degrees cooler than a hashboard, and the air is cooler again.
 
 What the ambient reading is and is not for is stated once, on
 `ubos_thermal::AmbientSensor`. If the hashboard rail is down,
-`ubos_thermal::run_thermal` still reads it. See "Two ways out of an
-overheat halt" in `docs/MINING.md`.
+`ubos_thermal::run_thermal` still reads it. See "The overheat halt" in
+`docs/MINING.md`.
 
 No series marks a held value. A read that returns nothing writes
 nothing, so the series keeps the last written value until its TTL
