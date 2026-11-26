@@ -30,7 +30,9 @@ use embedded_hal_async::i2c::SevenBitAddress;
 use ubos_config::thermal::BOUNDS;
 use ubos_core::index::{ChipAddress, HashboardIndex};
 use ubos_core::units::Temperature;
-use ubos_metrics::catalog::{AMBIENT_TEMPERATURE, CHIP_TEMPERATURE, HASHBOARD_LABEL, ID_LABEL};
+use ubos_metrics::catalog::{
+    AMBIENT_TEMPERATURE, CHIP_ADDR_LABEL, CHIP_TEMPERATURE, HASHBOARD_LABEL, ID_LABEL,
+};
 use ubos_metrics::consts::Metrics;
 use ubos_metrics::metric;
 use ubos_temperature::{Reading, TempSource};
@@ -80,6 +82,6 @@ fn publish_hashboard_reading(chain: HashboardIndex, address: SevenBitAddress, va
 fn publish_chip_reading(chain: HashboardIndex, chip: ChipAddress, value: Temperature) {
     metric!(CHIP_TEMPERATURE, value)
         .label(HASHBOARD_LABEL, chain)
-        .label("chip_addr", chip.slot())
+        .label(CHIP_ADDR_LABEL, chip.slot())
         .try_push();
 }

@@ -35,7 +35,7 @@ use super::{
     KEY_CAPACITY, LONGEST_KEY_LABELS, LONGEST_KEY_NAME, LONGEST_RENDERED_KEY_BYTES, MetricKey,
     StoredValue, upsert_metric,
 };
-use crate::catalog::HASHBOARD_LABEL;
+use crate::catalog::{CHIP_ADDR_LABEL, HASHBOARD_LABEL};
 use crate::metric;
 use crate::metrics::Metric;
 use crate::name::Name;
@@ -52,7 +52,7 @@ const ANY_TEMPERATURE: Temperature = Temperature::from_celsius(60);
 fn the_longest_key_constants_match_what_from_metric_renders() {
     let metric = metric!(LONGEST_KEY_NAME, ANY_TEMPERATURE)
         .label(HASHBOARD_LABEL, HashboardIndex(0))
-        .label("chip_addr", u8::MAX);
+        .label(CHIP_ADDR_LABEL, u8::MAX);
     let key = MetricKey::from_metric(&metric).expect("the longest key must encode");
     assert_eq!(
         key.0.as_str(),
@@ -67,7 +67,7 @@ fn the_longest_key_constants_match_what_from_metric_renders() {
 fn labels_added_one_by_one_render_sorted_in_the_key() {
     let metric = metric!("chip_temperature_celsius", ANY_TEMPERATURE)
         .label(HASHBOARD_LABEL, HashboardIndex(0))
-        .label("chip_addr", 255_usize);
+        .label(CHIP_ADDR_LABEL, 255_usize);
     let key = MetricKey::from_metric(&metric).expect("the key must encode");
     assert_eq!(
         key.0.as_str(),

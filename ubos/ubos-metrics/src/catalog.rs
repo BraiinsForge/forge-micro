@@ -34,6 +34,11 @@ use crate::name::Name;
 /// index of the hashboard from 0, the chain index of the REST API.
 pub const HASHBOARD_LABEL: &str = "hashboard";
 
+/// The label of the chip a series belongs to. Its value is the slot of
+/// the chip on its hashboard from 0, so a chain of one chip has the
+/// value 0.
+pub const CHIP_ADDR_LABEL: &str = "chip_addr";
+
 /// The label of the pool a series belongs to. Its value is the index of
 /// the pool slot from 0.
 pub const POOL_LABEL: &str = "pool";
