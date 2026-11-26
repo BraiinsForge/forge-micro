@@ -98,6 +98,9 @@ Shipped pool depths are per board:
 | esp32s3 | 4 | 3 |
 | rp2040 | 2 | 1 |
 
+The `metrics` depth has no effect on a board built without the
+`metrics` feature, which `rp2040` is by default.
+
 Each board takes the largest depth its RAM links. Two is the floor
 everywhere. One slot puts the OTA recovery path behind whatever worker
 an open dashboard holds, and it also leaves a board with an open page

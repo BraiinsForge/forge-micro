@@ -100,7 +100,8 @@ Code: `ubos/ubos-config/src/lib.rs` (`DEFAULT_POOL_*` and `Config::for_board`).
 
 Each board advertises itself via three mDNS services so Prometheus,
 browsers, REST clients, and ad-hoc tooling can find it without static
-config. The announcement carries an `A` record for `<hostname>.local`
+config. A board built without the `metrics` feature, which `rp2040` is
+by default, advertises the first two only. The announcement carries an `A` record for `<hostname>.local`
 and one `SRV`/`TXT`/`PTR` set per service. Each TXT record carries
 `path=`, `board=`, and `mcu=`.
 

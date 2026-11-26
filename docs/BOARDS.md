@@ -154,7 +154,7 @@ states, so their rows hold in both states.
 | Board     | Flash     | Main RAM   | Headroom note                                  |
 |-----------|-----------|------------|------------------------------------------------|
 | bmm-pico  | 566 / 2048 KiB | ~406 / 512 KiB (79%, est.) | comfortable; ~106 KiB free     |
-| rp2040    | 590 / 2048 KiB | 241 / 256 KiB (94%) | tight; ~15.4 KiB free. Holds 64 series, because the 128-series map and its buffer no longer fit in the RAM |
+| rp2040    | 589 / 2048 KiB | 214 / 256 KiB (84%) | ~42 KiB free for the stack, which reaches ~20 KiB at boot. Ships without the metrics store, because with it only ~15.4 KiB stays free and the stack overflows |
 | rp2350    | 567 / 2048 KiB | ~406 / 512 KiB (79%, est.) | comfortable; ~106 KiB free     |
 | esp32s3   | 826 / 8192 KiB | 284 / 320 KiB DRAM (89%) | tight; ~36 KiB DRAM free. Holds 64 series, because the 128-series map and its buffer leave less than the 24 KiB boot stack floor |
 

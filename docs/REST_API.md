@@ -395,8 +395,9 @@ model, the per-board depths, and the RAM bound that caps them.
 
 The last two rows are the exposition map and its render buffer. Each
 board states them in its own `config.rs`. Every board in this tree
-holds 128 series, except `esp32s3`, which holds 64. The RAM of that
-board does not hold the larger map. On every board, the buffer has
+holds 128 series, except `esp32s3` and `rp2040`, which hold 64. The RAM
+of those boards does not hold the larger map, and `rp2040` ships
+without the store. On every board, the buffer has
 `METRIC_LINE_BYTES` for each series, so it holds a full map.
 See "Footprint" in `docs/STRUCTURE.md`.
 

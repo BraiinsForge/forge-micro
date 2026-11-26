@@ -24,7 +24,8 @@ Each board crate brings up its own SPI link, then hands an
 `embassy_net::Stack<'static>` to the shared `ubos-*` library crates.
 From that point every board runs the same above-the-link-layer tasks:
 DHCP bring-up, NTP sync, the HTTP listeners, the Prometheus metrics
-endpoint, the watchdog, and the display where present.
+endpoint where the board keeps the metrics store, the watchdog, and the
+display where present.
 
 Every board uses a WIZnet chip through `embassy-net-wiznet` in MACRAW
 mode, so smoltcp owns the full TCP/IP stack. One code path covers the
