@@ -66,7 +66,8 @@ over a `Transport` (`write_all` / `flush` / `read` / `set_baud` /
   A driver that reads a die temperature also hands it to
   `ubos_thermal::Handle::submit_chip` when the chip answers, and thermal
   writes the series of that chip from it. A driver that leaves the call
-  out writes no chip series.
+  out writes no temperature series. A driver pushes the core voltage of a
+  chip itself, as `chip_voltage_volts`, with `ubos_metrics::metric!`.
   On a board whose chips are its only thermometer,
   `ubos_thermal::ChainTemperature` is the `TemperatureSensor` over those
   stores, one per chain. It reports the hottest and the mean die

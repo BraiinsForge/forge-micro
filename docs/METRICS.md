@@ -38,7 +38,9 @@ carries the time of the push. A sample says nothing about the value
 between two pushes, so a measured series holds no value and is no
 state. Each publisher of a measured series therefore pushes on a
 ticker. A push on a change is one more sample, not a replacement for
-the ticker. A constant series is the exception, see "Expiry".
+the ticker. A constant series is the exception, see "Expiry". A driver
+is the other exception: it pushes each reading when it takes the
+reading, and the TTL ends the series of a chip that stops.
 
 The stored time is monotonic milliseconds since boot. The exposition
 adds the NTP epoch offset at scrape time and renders an absolute
@@ -229,6 +231,8 @@ is `psu` for the supply's own readback and `feedback` for a
 separate monitor on the rail, and a board that has both exports one series
 for each. A zero value on a board without a voltage sensor means
 unavailable.
+`chip_voltage_volts` is the on-die core voltage of one chip. The chip
+driver pushes it when the chip answers.
 `chip_voltage_sum_volts` is different:
 it sums the on-die core voltages reported by the chips. It remains a
 separate metric because it is not a PSU rail measurement.
@@ -461,9 +465,13 @@ sample. It is labelled `hashboard="i"`, and only a present chain reports:
   voltages the chain's chips report about themselves. The chips sit in
   series across one rail, so this is the string voltage.
 
-The reading of each die is under `chip_temperature_celsius`. Thermal
-exports no aggregate of them, so a dashboard computes the lowest, the
-mean and the highest die of a hashboard from those series.
+The reading of each die is under `chip_temperature_celsius`. A
+driver that reads the core voltage of a chip pushes it as
+`chip_voltage_volts` when the chip answers. Both series carry the labels
+`hashboard` and `chip_addr`, and both keep the default TTL. A chip that
+stops is absent after that time. Thermal exports no aggregate of the
+dies, so a dashboard computes the lowest, the mean and the highest die
+of a hashboard from those series.
 
 ## Hashrate
 
