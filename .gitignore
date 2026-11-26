@@ -11,6 +11,7 @@ target/
 # shells; the repo carries only the patches/*.patch files. See
 # nix/patched-crates.nix.
 /patches/embassy-net-wiznet
+/patches/edge-http
 /patches/edge-nal-embassy
 
 # probe-rs-runner session logs, written to the project logs/ dir

@@ -27,8 +27,8 @@
 { pkgs }:
 let
   # The edge-net workspace at the rev the workspace deps pin; the
-  # edge-nal-embassy override below is cut from its subdir so the
-  # whole edge-net family keeps resolving to one source.
+  # edge-http and edge-nal-embassy overrides below are cut from its
+  # subdirs so the whole edge-net family keeps resolving to one source.
   edge-net = pkgs.fetchFromGitHub {
     owner = "ivmarkov";
     repo = "edge-net";
@@ -53,6 +53,16 @@ in
     patches = [
       ../patches/embassy-net-wiznet-rx-frame-underflow.patch
       ../patches/embassy-net-wiznet-drain-rx-frames.patch
+    ];
+  };
+
+  # edge-http from the same edge-net rev, cut and patched the same way
+  # as edge-nal-embassy below.
+  edge-http = pkgs.applyPatches {
+    name = "edge-http-0.7.0-patched";
+    src = "${edge-net}/edge-http";
+    patches = [
+      ../patches/edge-http-01-standalone-manifest.patch
     ];
   };
 

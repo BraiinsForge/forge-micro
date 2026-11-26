@@ -188,11 +188,13 @@ opt-level     = "s"
 [patch.crates-io]
 embassy-net-wiznet = { path = "patches/embassy-net-wiznet" }
 
-# edge-nal-embassy from the pinned edge-net rev with the local patch
-# series applied on top; nix materializes the tree at this path the
-# same way as embassy-net-wiznet above. Each patch file's preamble
-# explains its fix; the peer-endpoint fix has an upstream PR pending.
+# edge-http and edge-nal-embassy from the pinned edge-net rev with
+# their local patch series applied on top; nix materializes each tree
+# at its path the same way as embassy-net-wiznet above. Each patch
+# file's preamble explains its fix; the peer-endpoint fix has an
+# upstream PR pending.
 [patch."https://github.com/ivmarkov/edge-net"]
+edge-http = { path = "patches/edge-http" }
 edge-nal-embassy = { path = "patches/edge-nal-embassy" }
 
 [profile.rust-analyzer]

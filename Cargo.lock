@@ -841,7 +841,6 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 [[package]]
 name = "edge-http"
 version = "0.7.0"
-source = "git+https://github.com/ivmarkov/edge-net?rev=1f084b41944c35b233cbe17accfbc09a56d5eaf0#1f084b41944c35b233cbe17accfbc09a56d5eaf0"
 dependencies = [
  "base64",
  "defmt 1.0.1",
