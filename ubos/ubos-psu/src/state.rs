@@ -317,6 +317,7 @@ impl<D: Device> Ready<'_, D> {
 #[cfg(test)]
 pub(crate) mod test_support {
     use crate::BmmPsuDescriptor;
+    use embedded_hal_async::i2c::SevenBitAddress;
     use embedded_hal_mock::eh1::i2c::Transaction;
 
     const INA_CONFIG: u16 = 0b0100_0001_0010_0111;
@@ -369,9 +370,16 @@ pub(crate) mod test_support {
                     .to_vec(),
             ),
             Transaction::write(config.dcdc_address, tps6287x::encode_vset(dac).to_vec()),
-            Transaction::write(config.heartbeat_address, vec![0x7a, 0x00]),
-            Transaction::write(config.heartbeat_address, vec![0x7a, 0x01]),
-            Transaction::write(config.heartbeat_address, vec![0x7a, 0x00]),
+        ]
+    }
+
+    /// The heartbeat pulse that `heartbeat::pulse` writes to `address`.
+    pub fn pulse_transactions(address: SevenBitAddress) -> [Transaction; 3] {
+        use crate::heartbeat::REG_VIRTUAL_INPUT;
+        [
+            Transaction::write(address, vec![REG_VIRTUAL_INPUT, 0x00]),
+            Transaction::write(address, vec![REG_VIRTUAL_INPUT, 0x01]),
+            Transaction::write(address, vec![REG_VIRTUAL_INPUT, 0x00]),
         ]
     }
 }

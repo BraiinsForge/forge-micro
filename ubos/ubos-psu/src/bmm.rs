@@ -51,8 +51,7 @@ impl<I: I2c> Device for BmmDevice<I> {
     type BusError = I::Error;
 
     /// Initialization sequence for the BMM power stage: both INA230
-    /// monitors, the `TPS6287x` converter, then the first `SLG46826G`
-    /// heartbeat.
+    /// monitors and the `TPS6287x` converter.
     async fn init(
         i2c: &mut I,
         config: &mut BmmPsuDescriptor,
@@ -74,9 +73,6 @@ impl<I: I2c> Device for BmmDevice<I> {
         .await
         .map_err(Error::Bus)?;
         tps6287x::init(i2c, config).await?;
-        heartbeat::pulse(i2c, config.heartbeat_address)
-            .await
-            .map_err(Error::Bus)?;
         Ok(None)
     }
 }
@@ -117,6 +113,10 @@ impl<I: I2c + 'static> Psu for BmmPsu<I> {
     async fn enable(&self) -> Result<(), Error<I::Error>> {
         let mut psu = self.shared.acquire().await?;
         let (i2c, config) = psu.split();
+        // The supervisor sees a pulse before the converter starts switching.
+        heartbeat::pulse(i2c, config.heartbeat_address)
+            .await
+            .map_err(Error::Bus)?;
         tps6287x::enable(i2c, config).await?;
         self.ramped.store(true, Ordering::SeqCst);
         Ok(())

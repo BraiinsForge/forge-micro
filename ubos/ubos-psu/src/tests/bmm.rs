@@ -166,6 +166,7 @@ fn undervoltage_latched_before_a_disable_is_reported_once() {
     };
     let mut transactions = test_support::init_transactions(&config);
     // The enable runs to its end and clears what the ramp latched.
+    transactions.extend(test_support::pulse_transactions(config.heartbeat_address));
     transactions.push(Transaction::write(
         config.dcdc_address,
         tps6287x::encode_control1(true, config.dcdc_ramp_speed).to_vec(),
@@ -207,6 +208,7 @@ fn undervoltage_of_a_ramp_cut_short_is_not_latched_by_the_disable() {
     };
     let mut transactions = test_support::init_transactions(&config);
     transactions.push(switch(false));
+    transactions.extend(test_support::pulse_transactions(config.heartbeat_address));
     // The enable is dropped in its soft-start wait, before its status read.
     transactions.push(switch(true));
     // The disable stops the converter and reads no flags.
@@ -226,7 +228,15 @@ fn undervoltage_of_a_ramp_cut_short_is_not_latched_by_the_disable() {
     let (psu, mut bus) = make_handle(Mock::new(&transactions), config);
 
     run(psu.disable()).expect("BUG: first disable failed");
-    assert!(embassy_futures::poll_once(psu.enable()).is_pending());
+    {
+        // The enable waits out the heartbeat's high level, then the ramp.
+        let mut enable = core::pin::pin!(psu.enable());
+        assert!(embassy_futures::poll_once(enable.as_mut()).is_pending());
+        run(embassy_time::Timer::after(
+            crate::heartbeat::HEARTBEAT_HIGH_DURATION,
+        ));
+        assert!(embassy_futures::poll_once(enable.as_mut()).is_pending());
+    }
     run(psu.disable()).expect("BUG: second disable failed");
     let flags = run(psu.read_status()).expect("BUG: read_status failed");
 

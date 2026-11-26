@@ -34,8 +34,8 @@ use embedded_hal_async::i2c::{I2c, SevenBitAddress};
 #[path = "tests/heartbeat.rs"]
 mod tests;
 
-const REG_VIRTUAL_INPUT: u8 = 0x7a;
-const HEARTBEAT_HIGH_DURATION: Duration = Duration::from_millis(100);
+pub(crate) const REG_VIRTUAL_INPUT: u8 = 0x7a;
+pub(crate) const HEARTBEAT_HIGH_DURATION: Duration = Duration::from_millis(100);
 
 /// Drive the part's virtual input low, pulse it high, then return it low.
 ///

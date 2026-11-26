@@ -56,11 +56,12 @@ pub enum InnerGate {
 /// Sequences up to `N` enable outputs, an optional power-good input, and
 /// a settle delay around an inner [`Psu`].
 ///
-/// `enable` raises the enable lines in array order, waits `settle` if
-/// set, then samples `power_good` if present and logs a warning when it
-/// reads low. `disable` and `terminate` drop the lines in reverse order.
-/// `inner_gate` says whether the inner device's own [`Psu::enable`] and
-/// [`Psu::disable`] are part of the sequence.
+/// `enable` sends the inner heartbeat, raises the enable lines in array
+/// order, waits `settle` if set, then samples `power_good` if present
+/// and logs a warning when it reads low. `disable` and `terminate` drop
+/// the lines in reverse order. `inner_gate` says whether the inner
+/// device's own [`Psu::enable`] and [`Psu::disable`] are part of the
+/// sequence.
 pub struct GatedPsu<D, EN, PG, const N: usize> {
     inner: D,
     enables: [PinCell<EN>; N],
@@ -108,6 +109,9 @@ where
         // init, so protection limits are programmed before any enable
         // line goes high.
         self.inner.read_status().await?;
+        // The supervisor of a supply with a heartbeat sees a pulse before
+        // any enable line goes high.
+        self.inner.heartbeat().await?;
         for line in &self.enables {
             line.lock(|pin| {
                 let _ = pin.borrow_mut().set_high();
