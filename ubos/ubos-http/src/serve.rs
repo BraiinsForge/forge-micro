@@ -46,6 +46,12 @@ pub(crate) const MAX_HEADERS: usize = 32;
 const HEADER_OVERFLOW_RESPONSE: &[u8] =
     b"HTTP/1.1 431 Request Header Fields Too Large\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
 
+/// Written raw when a request's framing headers do not resolve, such as a
+/// `Content-Length` that is not a number. RFC 9112 requires a 400 and a
+/// close, because the body cannot be delimited.
+const BAD_FRAMING_RESPONSE: &[u8] =
+    b"HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
+
 const INTERNAL_ERROR_BODY: &str = "INTERNAL ERROR";
 
 /// Handler for one request, called by the worker after edge-http parsed
@@ -131,10 +137,10 @@ where
                     let _ = with_timeout(socket_timeout, socket.close(Close::Both)).await;
                     break;
                 }
-                // A live client owed an answer rather than a reset; the
+                // The client is owed an answer rather than a reset; the
                 // progress timeout bounds the write.
-                Err(Ended::TooManyHeaders) => {
-                    if socket.write_all(HEADER_OVERFLOW_RESPONSE).await.is_ok() {
+                Err(Ended::Refuse(response)) => {
+                    if socket.write_all(response).await.is_ok() {
                         let _ = socket.flush().await;
                     }
                     let _ = with_timeout(socket_timeout, socket.close(Close::Both)).await;
@@ -151,12 +157,12 @@ where
     }
 }
 
-/// How the worker must end a finished connection. The header overflow
-/// is the one failure whose peer is a live client owed an answer.
+/// How the worker must end a finished connection. A request whose headers
+/// overflow or do not resolve is answered before the close.
 enum Ended {
     Reset,
-    /// Answer with a 431 before closing.
-    TooManyHeaders,
+    /// Answer with this raw response before closing.
+    Refuse(&'static [u8]),
 }
 
 /// Serve one request and report whether the response asked to close.
@@ -185,7 +191,10 @@ where
     .await
     {
         Ok(Ok(connection)) => connection,
-        Ok(Err(HttpError::TooManyHeaders)) => return Err(Ended::TooManyHeaders),
+        Ok(Err(HttpError::TooManyHeaders)) => return Err(Ended::Refuse(HEADER_OVERFLOW_RESPONSE)),
+        Ok(Err(HttpError::HeadersMismatchError(_))) => {
+            return Err(Ended::Refuse(BAD_FRAMING_RESPONSE));
+        }
         _ => return Err(Ended::Reset),
     };
 

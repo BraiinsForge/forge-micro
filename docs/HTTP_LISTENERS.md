@@ -80,6 +80,9 @@ Two properties matter for capacity:
   handshake that the peer never completes is reset after 10 s and its
   worker goes back to accept.
   A completed exchange that asked to close gets a bounded graceful close.
+  A request whose headers overflow gets a 431, and a request whose framing
+  does not resolve, such as a `Content-Length` that is not a number, gets
+  a 400. Both then get the same bounded close.
   Every other exit aborts with a reset. This is what
   removed the earlier ~30 s unreachable window after a live network apply,
   where a single graceful-closing socket blocked all new connections.
