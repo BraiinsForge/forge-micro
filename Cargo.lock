@@ -4329,7 +4329,6 @@ dependencies = [
  "ubos-config",
  "ubos-core",
  "ubos-logging",
- "ubos-manager",
  "ubos-metrics",
  "ubos-temperature",
  "ubos-thermal",
@@ -4711,9 +4710,7 @@ dependencies = [
  "ubos-core",
  "ubos-events",
  "ubos-logging",
- "ubos-manager",
  "ubos-metrics",
- "ubos-mining",
  "ubos-temperature",
 ]
 

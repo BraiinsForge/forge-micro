@@ -55,7 +55,6 @@ use stratum_client::{
     STRATUM_TCP_BUFFER_SIZE, SessionError, run_stratum_session,
 };
 use ubos_config::FileStorage;
-use ubos_manager::Handle as ManagerHandle;
 use ubos_mining::Handle as MiningHandle;
 use ubos_net::net;
 
@@ -271,7 +270,6 @@ async fn network_control_task(
 async fn thermal_task(
     sensor: temperature::HashboardTemperature,
     mut thermal_runner: ubos_thermal::Runner,
-    manager_handle: ManagerHandle,
     config_handle: ubos_config::Handle,
 ) -> ! {
     ubos_thermal::run_thermal(
@@ -279,7 +277,6 @@ async fn thermal_task(
         ubos_thermal::NoAmbient,
         ubos_thermal::NoMcu,
         &mut thermal_runner,
-        manager_handle,
         config_handle,
     )
     .await
@@ -622,7 +619,7 @@ fn main() {
             Some(controller) => match temperature::HashboardTemperature::open(thermal_handle) {
                 Some(sensor) => {
                     spawner.spawn(
-                        thermal_task(sensor, thermal_runner, manager_handle, config_handle)
+                        thermal_task(sensor, thermal_runner, config_handle)
                             .expect("BUG: thermal_task token"),
                     );
                     spawner.spawn(

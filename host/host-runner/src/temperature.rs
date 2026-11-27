@@ -30,7 +30,7 @@ use embedded_i2c_unix::I2c as HostI2c;
 use log::{error, info};
 use ubos_asic::BMM101_HASHBOARD;
 use ubos_temperature::Sensor;
-use ubos_thermal::{Accumulator, Handle as ThermalHandle, Reading, TempSample, TemperatureSensor};
+use ubos_thermal::{Handle as ThermalHandle, TemperatureSensor};
 
 use crate::psu::I2C_BUS_ENV;
 
@@ -72,18 +72,12 @@ impl HashboardTemperature {
 }
 
 impl TemperatureSensor for HashboardTemperature {
-    async fn sample(&mut self) -> Reading {
-        let mut hashboard: Option<Accumulator> = None;
+    async fn sample(&mut self) {
         for sensor in &mut self.sensors {
             let address = sensor.descriptor().address();
             for result in sensor.read_temperatures().await {
                 match result {
-                    Ok(reading) => {
-                        self.thermal.submit(reading).await;
-                        hashboard = hashboard
-                            .map(|acc| acc.include(reading.value))
-                            .or_else(|| Some(reading.value.into()));
-                    }
+                    Ok(reading) => self.thermal.submit(reading).await,
                     Err(error) => error!(
                         "temperature: {:?} {address:#x} error: {:?}",
                         error.source, error.fault
@@ -91,16 +85,5 @@ impl TemperatureSensor for HashboardTemperature {
                 }
             }
         }
-        // Every sensor here is a hashboard LM75A and the board carries no
-        // die sensor, so the hashboard readings are the ones it reports.
-        //
-        // These sensors answer whether or not the hashboard rail is up,
-        // so silence is always a fault and never an idle board.
-        hashboard.map_or(Reading::Unreadable, |acc| {
-            Reading::Measured(TempSample {
-                chip: None,
-                hashboard: Some(acc.stats()),
-            })
-        })
     }
 }

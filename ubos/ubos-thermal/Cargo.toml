@@ -16,7 +16,6 @@ defmt   = [
     "ubos-core/defmt",
     "ubos-events/defmt",
     "ubos-logging/defmt",
-    "ubos-manager/defmt",
     "ubos-metrics/defmt",
     "ubos-temperature/defmt",
 ]
@@ -35,7 +34,6 @@ ubos-asic          = { workspace = true }
 ubos-config        = { workspace = true, default-features = false }
 ubos-core          = { workspace = true }
 ubos-events        = { workspace = true, default-features = false }
-ubos-manager       = { workspace = true, default-features = false }
 ubos-metrics       = { workspace = true, default-features = false }
 ubos-temperature   = { workspace = true, default-features = false }
 ubos-logging       = { workspace = true }
@@ -53,11 +51,10 @@ critical-section = { version = "1.2", features = ["std"] }
 # The accounting handle the tests build takes its wired-chain count as an
 # atomic of the same crate `ubos-metrics` uses.
 portable-atomic  = { workspace = true }
-# The `run_thermal` tests run the real manager, which halts mining through
-# its handle, and take every handle in a process of their own.
-ubos-mining      = { workspace = true, default-features = false }
 # The loop tests run the real config task over a `FileStorage`.
 ubos-config      = { workspace = true, default-features = false, features = ["std"] }
+# The `run_thermal` tests take the thermal handle, which a process gives
+# out once, so each runs in a process of its own.
 rusty-fork       = { workspace = true }
 
 [package.metadata.cargo-machete]

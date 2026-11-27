@@ -22,16 +22,15 @@
 //! A board describes its sensor topology as `&'static` [`SensorDescriptor`]
 //! entries, then instantiates [`SensorArray`] with them. On each sample,
 //! `SensorArray` reads every sensor through the drivers in
-//! `ubos-temperature`, folds the chip and the hashboard readings each into
-//! their hottest and their mean, and publishes every reading it took.
-//! Boards supply only the topology; all folding logic lives here.
+//! `ubos-temperature` and submits every reading it took to thermal.
+//! Boards supply only the topology.
 
 use embassy_time::{Duration, with_timeout};
 use embedded_hal_async::i2c::{I2c, SevenBitAddress};
 use ubos_logging::{Debug2Format, error};
-use ubos_temperature::{ReadingError, Sensor, SensorDescriptor, TempSource};
+use ubos_temperature::{ReadingError, Sensor, SensorDescriptor};
 
-use crate::{Accumulator, Handle, Reading, TempSample, TemperatureSensor};
+use crate::{Handle, TemperatureSensor};
 
 /// The longest that the read of one sensor may take. A sensor that does not
 /// answer in this time is passed over, so it cannot stop the reads of the
@@ -74,10 +73,7 @@ impl<const N: usize, Bus> TemperatureSensor for SensorArray<N, Bus>
 where
     Bus: I2c,
 {
-    async fn sample(&mut self) -> Reading {
-        let mut chip: Option<Accumulator> = None;
-        let mut hashboard: Option<Accumulator> = None;
-
+    async fn sample(&mut self) {
         for sensor in &mut self.sensors {
             let address = sensor.descriptor().address();
             let Ok(readings) = with_timeout(READ_TIMEOUT, sensor.read_temperatures()).await else {
@@ -93,29 +89,7 @@ where
                     continue;
                 };
                 self.thermal.submit(reading).await;
-                match (reading.source, reading.value) {
-                    (TempSource::Chip { .. }, temp) => {
-                        chip = chip
-                            .map(|acc| acc.include(temp))
-                            .or_else(|| Some(temp.into()));
-                    }
-                    (TempSource::Hashboard { .. }, temp) => {
-                        hashboard = hashboard
-                            .map(|acc| acc.include(temp))
-                            .or_else(|| Some(temp.into()));
-                    }
-                    // Published only: these gate no halt and drive no fan.
-                    (TempSource::Ambient | TempSource::ControlBoard | TempSource::Psu, _) => {}
-                }
             }
-        }
-
-        match (chip, hashboard) {
-            (None, None) => Reading::Unreadable,
-            (chip, hashboard) => Reading::Measured(TempSample {
-                chip: chip.map(Accumulator::stats),
-                hashboard: hashboard.map(Accumulator::stats),
-            }),
         }
     }
 }

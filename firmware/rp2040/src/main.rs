@@ -330,7 +330,6 @@ async fn boot(spawner: Spawner) {
             ubos_thermal::NoAmbient,
             ubos_thermal::NoMcu,
             runners.thermal,
-            handles.manager,
             handles.config
         )));
         spawner.spawn(unwrap!(manager_task(runners.manager, handles.mining)));

@@ -45,11 +45,10 @@ use ubos_config::{
 };
 use ubos_core::index::HashboardIndex;
 use ubos_core::units::{FanPwm, FanRpm, Temperature};
-use ubos_manager::Handle as ManagerHandle;
 use ubos_temperature::{Reading as TempReading, TempSource};
 use ubos_thermal::{
-    Handle as ThermalHandle, NoAmbient, NoMcu, Reading, Runner as ThermalRunner, TempSample,
-    TempStats, TemperatureSensor, run_thermal,
+    Handle as ThermalHandle, NoAmbient, NoMcu, Runner as ThermalRunner, TemperatureSensor,
+    run_thermal,
 };
 
 use crate::{FanOutput, Handle, Runner, TachReader};
@@ -59,8 +58,6 @@ use crate::{FanOutput, Handle, Runner, TachReader};
 pub(crate) struct Rig {
     pub(crate) fan: Handle,
     pub(crate) thermal: ThermalHandle,
-    /// Nothing runs the manager.
-    pub(crate) manager: ManagerHandle,
     pub(crate) config: ConfigHandle,
     dir: std::path::PathBuf,
 }
@@ -83,12 +80,10 @@ impl Rig {
         ));
         let (fan_runner, fan) = Handle::take();
         let (thermal_runner, thermal) = ThermalHandle::take();
-        let (_manager_runner, manager) = ManagerHandle::take();
         let (config_runner, config) = ConfigHandle::take();
         let rig = Self {
             fan,
             thermal,
-            manager,
             config,
             dir,
         };
@@ -109,8 +104,8 @@ impl Drop for Rig {
 
 /// A sensor that answers once. It submits the reading it was given, as a
 /// source does, so the temperature that cooling reads comes through the
-/// filter of thermal. With no reading it answers as a board that has nothing to
-/// measure.
+/// filter of thermal. With no reading it submits nothing, as a board that has
+/// nothing to measure.
 struct OneReading {
     reading: Option<TempReading>,
     thermal: ThermalHandle,
@@ -118,24 +113,15 @@ struct OneReading {
 }
 
 impl TemperatureSensor for OneReading {
-    async fn sample(&mut self) -> Reading {
+    async fn sample(&mut self) {
         assert!(
             !self.answered,
             "BUG: test drove run_thermal past its one reading"
         );
         self.answered = true;
-        let Some(reading) = self.reading else {
-            return Reading::Idle;
-        };
-        self.thermal.submit(reading).await;
-        let stats = TempStats {
-            max: reading.value,
-            mean: reading.value,
-        };
-        Reading::Measured(TempSample {
-            chip: None,
-            hashboard: Some(stats),
-        })
+        if let Some(reading) = self.reading {
+            self.thermal.submit(reading).await;
+        }
     }
 }
 
@@ -224,7 +210,6 @@ pub(crate) fn publish_reading(
         NoAmbient,
         NoMcu,
         runner,
-        rig.manager,
         rig.config
     ));
     settle(&mut thermal);

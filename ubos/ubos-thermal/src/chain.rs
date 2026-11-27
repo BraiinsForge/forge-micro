@@ -25,7 +25,7 @@
 //!
 //! Only present chains are read: an absent one has no chip to run a PVT
 //! block, and counting it silent would halt the board for hardware that
-//! is not there. With none present the sensor answers `Idle`; see "Chain
+//! is not there. With none present the sensor submits nothing; see "Chain
 //! presence" in `docs/MINING.md`. A chain that has just gone quiet is
 //! handled by [`SILENT_TICKS_BEFORE_FAULT`].
 //!
@@ -41,7 +41,7 @@
 //! chip that answers once in a pass would leave its window between two
 //! turns.
 
-use crate::{Accumulator, Handle, Reading, TempSample, TemperatureSensor};
+use crate::{Accumulator, Handle, TemperatureSensor};
 use embassy_futures::poll_once;
 use embassy_time::{Duration, Instant, Ticker};
 use ubos_asic::ChainPvt;
@@ -62,8 +62,9 @@ mod tests;
 /// nothing drives the chain.
 pub const MAX_SILENCE: Duration = Duration::from_secs(60);
 
-/// How many samples in a row a present chain may be silent before the
-/// sensor stops answering, which faults the thermal loop. The first
+/// How many samples in a row a present chain may be silent before no
+/// chain submits its dies, so the chip filter runs out and mining cuts
+/// the rail. The first
 /// silent sample still delivers a sibling's hot reading, so a trip
 /// already in hand is not delayed; from the second on, the quiet chain's
 /// unread dies count for more.
@@ -225,7 +226,7 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
 impl<const CHIPS: usize, const CHAINS: usize> TemperatureSensor
     for ChainTemperature<CHIPS, CHAINS>
 {
-    async fn sample(&mut self) -> Reading {
+    async fn sample(&mut self) {
         self.report();
         let now = Instant::now();
         let mut chips: Option<Accumulator> = None;
@@ -265,25 +266,18 @@ impl<const CHIPS: usize, const CHAINS: usize> TemperatureSensor
         // Nothing is powered, so nothing owes a reading; see the module
         // doc.
         if !any_present {
-            return Reading::Idle;
+            return;
         }
         // See `SILENT_TICKS_BEFORE_FAULT`.
         if self.stalled() {
-            return Reading::Unreadable;
+            return;
         }
         let Some(dies) = chips.map(Accumulator::stats) else {
-            return Reading::Unreadable;
+            return;
         };
         // A stalled chain stops the dies of every chain, so the filter of
         // thermal empties and the readings of a sibling cannot stand in
         // for the dies that nothing reads.
         self.thermal.submit_dies(dies).await;
-        // The chips are the board's thermometer, so they both gate the
-        // halt and drive the fans; the reading comes from the die itself,
-        // so it is gated against the chip limit.
-        Reading::Measured(TempSample {
-            chip: Some(dies),
-            hashboard: None,
-        })
     }
 }
