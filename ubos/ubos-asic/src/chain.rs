@@ -43,7 +43,7 @@
 use heapless::Vec;
 use sha2::{Digest, Sha256};
 use ubos_core::index::HashboardIndex;
-use ubos_core::units::{Frequency, FrequencyRange, Voltage};
+use ubos_core::units::{Difficulty, Frequency, FrequencyRange, Shares, Voltage};
 
 use crate::board::HashboardDescriptor;
 use crate::transport::Transport;
@@ -407,16 +407,14 @@ pub struct PollBatch {
 /// [`ShareTarget`]. Drivers supply their own link and snapshot budgets, then
 /// encode the resulting target in their vendor-specific register format.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub struct ShareDifficulty(u64);
+pub struct ShareDifficulty(Difficulty);
 
 impl ShareDifficulty {
-    /// Hashes represented by one difficulty-one solution.
-    const HASHES_PER_DIFF_1: u64 = 1 << 32;
     /// Hashes one core makes per second per kilohertz of hash clock.
     const HASHES_PER_KHZ_SECOND: u64 = 1_000;
 
     /// Difficulty one, the loosest hardware share filter.
-    pub const ONE: Self = Self(1);
+    pub const ONE: Self = Self(Difficulty::new(1));
 
     /// Construct a validated power-of-two difficulty.
     ///
@@ -426,7 +424,7 @@ impl ShareDifficulty {
     #[must_use]
     pub const fn from_pow2(difficulty: u64) -> Self {
         assert!(difficulty.is_power_of_two());
-        Self(difficulty)
+        Self(Difficulty::new(difficulty))
     }
 
     /// Select the smallest power-of-two difficulty satisfying both limits.
@@ -453,17 +451,19 @@ impl ShareDifficulty {
         let chip_hashes =
             u64::from(cores) * u64::from(frequency.khz()) * Self::HASHES_PER_KHZ_SECOND;
         let chain_hashes = chip_hashes * u64::from(chips.max(1));
-        let for_chain = chain_hashes.div_ceil(chain_records_per_second * Self::HASHES_PER_DIFF_1);
+        let for_chain = chain_hashes.div_ceil(chain_records_per_second * Shares::HASHES_PER_SHARE);
         let chip_hashes_per_period = chip_hashes * period.as_millis() / 1_000;
         let for_chip =
-            chip_hashes_per_period.div_ceil(chip_records_per_period * Self::HASHES_PER_DIFF_1);
-        Self(for_chain.max(for_chip).max(1).next_power_of_two())
+            chip_hashes_per_period.div_ceil(chip_records_per_period * Shares::HASHES_PER_SHARE);
+        Self(Difficulty::new(
+            for_chain.max(for_chip).max(1).next_power_of_two(),
+        ))
     }
 
     /// The target the consumer verifies and credits against.
     #[must_use]
     pub const fn target(self) -> ShareTarget {
-        ShareTarget::from_pow2_difficulty(self.0)
+        ShareTarget::from_pow2_difficulty(self.0.get())
     }
 }
 
