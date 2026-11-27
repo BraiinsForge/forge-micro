@@ -497,7 +497,8 @@ Five series are labelled `hashboard="i"`. Each is pushed once for each
 chain the machine wired up, which `ChainStatsHandle::chain_count`
 reports. The unused slots of the `MAX_CHAINS`-sized table are never
 published, and no per-hashboard series is pushed before the miner
-metrics task starts:
+metrics task starts. The one exception is `chips_discovered`, a constant
+that bring-up of the chain pushes, as "Machine facts" says:
 
 - `hashboard_present` — 1 when `ChainStats::presence()` is `Present`,
   0 otherwise (absent, faulted, or not yet enumerated).
@@ -539,6 +540,50 @@ driver that reads the core voltage of a chip pushes it as
 stops is absent after that time. Thermal exports no aggregate of the
 dies, so a dashboard computes the lowest, the mean and the highest die
 of a hashboard from those series.
+
+## Machine facts
+
+Code: `ubos/ubos-mining/src/publishers.rs`, `ubos/ubos-metrics/src/metrics.rs`.
+
+Five series state a fact that does not change while the machine runs.
+Each is a constant, so it has no timestamp and it does not expire. The
+code that owns the fact pushes it, and a board has no call of its own.
+
+| Series | Value | Labels | Pushed by |
+|--------|-------|--------|-----------|
+| `chips_expected` | chips on one hashboard | none | the miner, when it starts |
+| `voltage_domains` | voltage domains on one hashboard | none | the miner, when it starts |
+| `hashboards` | hashboard connectors of the machine | none | the miner, when it starts |
+| `chips_discovered` | chips that answered the last enumeration | `hashboard` | bring-up of the chain |
+| `application_version_details` | 1 | `commit`, `built` | `serve_all` and the host runner |
+
+One firmware image drives one chip model, so every hashboard has the
+same `chips_expected` and `voltage_domains`. A query divides by
+`scalar(chips_expected)`. The chip index in a domain, and the domain of a
+chip, are also found in the query.
+
+`chips_discovered` is 0 when no chip answered. A faulted chain shows the
+count that it found, so a dashboard reads `hashboard_present` for the
+verdict on the chain. Each bring-up replaces the value of its chain.
+
+`application_version_details` is an info series. Its value is 1 and its
+text is in its labels. `commit` is the first 12 digits of the commit of
+the checkout. `built` is the build time in UTC as 12 digits,
+`yymmddHHMMSS`. The dirty marker of the build id is not exported.
+
+A constant keeps its slot in the series map for the whole run. These
+series use four slots and one more for each chain. The open boards have
+one chain and hold 128 series, so the budget of `MAX_METRICS` is not
+changed. The `esp32s3` and the `rp2040` hold 64 and ship without the store.
+
+These facts have no series, because no crate owns them and a push would
+need a workaround:
+
+- The model of the machine. `MachineDescriptor::model` reaches neither
+  the miner nor `serve_all`.
+- The serial number of a hashboard and the device ID. A serial has up to
+  39 bytes on some boards, and a label value holds 24. The REST API
+  reports the serials.
 
 ## Hashrate
 
