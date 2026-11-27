@@ -56,6 +56,7 @@ where
     /// bring-up from a known-off supply, whatever the previous boot left
     /// it in.
     pub async fn run(&mut self, config: ubos_config::Handle) {
+        crate::publishers::publish_machine_facts(self.board, CHAINS).await;
         let mut subscription = config.subscribe();
         // This task is spawned before the configuration task, and the
         // first state reads the tuning through this subscription, so it

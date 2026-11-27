@@ -93,7 +93,7 @@ impl<R: ResetPin> ChainHandle<R> {
     pub(crate) async fn bring_up(&mut self, expected: u8) {
         let index = self.chain().0;
         let mut attempt = 1u8;
-        let presence = loop {
+        let (presence, found) = loop {
             let _ = self.serial.reset().await;
             let found = self.serial.reset_and_enumerate().await;
             // Every attempt, so a chain that came up short of its
@@ -117,7 +117,7 @@ impl<R: ResetPin> ChainHandle<R> {
                 decided => decided,
             };
             match action {
-                Action::Continue | Action::Park => break presence,
+                Action::Continue | Action::Park => break (presence, found),
                 Action::Retry => {
                     if found != expected {
                         warn!(
@@ -142,6 +142,9 @@ impl<R: ResetPin> ChainHandle<R> {
             }
         };
         self.stats.set_presence(presence);
+        crate::publishers::chips_discovered(index, found)
+            .push()
+            .await;
         match presence {
             ChainPresence::Present { .. } => {}
             ChainPresence::Absent => {

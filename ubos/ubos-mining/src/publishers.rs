@@ -25,12 +25,48 @@
 //! `#[embassy_executor::task]` wrapper.
 
 use embassy_time::{Duration, Ticker};
+use ubos_asic::HashboardDescriptor;
+use ubos_metrics::Metric;
 use ubos_metrics::catalog::{HASHBOARD_LABEL, POOL_LABEL, TYPE_LABEL};
 use ubos_metrics::metric;
 use ubos_metrics::value::{Count, Flag};
 
 use crate::{Handle as MiningHandle, MiningState};
 use ubos_metrics::chain as stats;
+
+#[cfg(test)]
+#[path = "tests/publishers.rs"]
+mod tests;
+
+/// The chips a chain answered at its last enumeration, which is zero for
+/// a chain that answered none. Grafana divides it by `chips_expected`, and
+/// the verdict on the chain stays in `hashboard_present`.
+pub(crate) fn chips_discovered(chain: u8, found: u8) -> Metric {
+    metric!("chips_discovered", Count(u64::from(found)))
+        .label(HASHBOARD_LABEL, chain)
+        .constant()
+}
+
+/// Publish the counts of hashboards, chips and voltage domains the
+/// machine is built with. One descriptor describes every chain, so the
+/// series carry no `hashboard` label.
+pub(crate) async fn publish_machine_facts(board: &HashboardDescriptor, chains: usize) {
+    metric!("chips_expected", Count(u64::from(board.num_chips)))
+        .constant()
+        .push()
+        .await;
+    metric!(
+        "voltage_domains",
+        Count(u64::from(board.num_voltage_domains))
+    )
+    .constant()
+    .push()
+    .await;
+    metric!("hashboards", Count(chains as u64))
+        .constant()
+        .push()
+        .await;
+}
 
 /// Publish the miner state and the confirmed accounting of each hashboard
 /// every two seconds. A hashboard series carries the `hashboard` label,
