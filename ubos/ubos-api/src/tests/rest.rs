@@ -537,3 +537,27 @@ fn ota_chunk_ack_schema_marks_next_optional() {
     assert_eq!(value["required"], serde_json::json!(["ok"]));
     assert_eq!(value["properties"]["next"]["format"], "uint32");
 }
+
+#[test]
+fn the_temperature_reasons_lead_the_pause_state_of_both_info_bodies() {
+    let held = ubos_manager::PauseReasons::default().assert(ubos_manager::PauseReason::UserRequest);
+    assert_eq!(
+        crate::rest::pause_state(true, true, held),
+        (true, Some(ApiPauseReason::DangerousTemperature))
+    );
+    assert_eq!(
+        crate::rest::pause_state(false, true, held),
+        (true, Some(ApiPauseReason::TemperatureUnreadable))
+    );
+}
+
+#[test]
+fn no_temperature_reason_leaves_the_pause_state_to_the_manager() {
+    let none = ubos_manager::PauseReasons::default();
+    assert_eq!(crate::rest::pause_state(false, false, none), (false, None));
+    let held = none.assert(ubos_manager::PauseReason::UserRequest);
+    assert_eq!(
+        crate::rest::pause_state(false, false, held),
+        (true, Some(ApiPauseReason::UserRequest))
+    );
+}

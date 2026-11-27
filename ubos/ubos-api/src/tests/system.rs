@@ -35,7 +35,7 @@ use embedded_io_async::{ErrorType, Read, Write};
 
 use rusty_fork::rusty_fork_test;
 use ubos_core::units::{FanPwm, FanRpm, Frequency, Hashrate, Shares, Voltage};
-use ubos_manager::{Message, PauseReason, PauseReasons, run_manager};
+use ubos_manager::{Message, run_manager};
 
 use crate::ota::{OtaError, StagedConfig};
 use crate::system::{DispatchOutcome, Route, route};
@@ -902,7 +902,7 @@ fn system_info_hw_info_serializes_unpublished_versions_as_null() {
 /// handled `prime`. `settle` lets the manager handle what the body sent.
 fn with_manager<R>(
     prime: &[Message],
-    body: impl FnOnce(ubos_manager::Handle, &mut dyn FnMut()) -> R,
+    body: impl FnOnce(ubos_manager::Handle, ubos_mining::Handle, &mut dyn FnMut()) -> R,
 ) -> R {
     let (mut runner, manager) = ubos_manager::Handle::take();
     let (_mining_runner, mining) = ubos_mining::Handle::take();
@@ -919,7 +919,7 @@ fn with_manager<R>(
         }
     });
     settle();
-    body(manager, &mut settle)
+    body(manager, mining, &mut settle)
 }
 
 /// Polls that let the manager handle every message that waits for it.
@@ -930,7 +930,7 @@ const SETTLE_POLLS: usize = 16;
 ///
 /// The caller gets `manager` from [`with_manager`], so the mask the handler
 /// reads is the one the real manager published.
-fn run_resume_handler(manager: ubos_manager::Handle) -> u16 {
+fn run_resume_handler(manager: ubos_manager::Handle, thermal: ubos_thermal::Handle) -> u16 {
     let io = MockIo::new(b"POST /api/system/resume HTTP/1.1\r\nContent-Length: 0\r\n\r\n".to_vec());
 
     embassy_futures::block_on(async {
@@ -939,7 +939,7 @@ fn run_resume_handler(manager: ubos_manager::Handle) -> u16 {
             .await
             .expect("BUG: Connection::new failed on mock HTTP request");
 
-        crate::system::handle_resume(&mut connection, manager)
+        crate::system::handle_resume(&mut connection, manager, thermal)
             .await
             .expect("BUG: handle_resume returned Err on mock socket — Infallible violated");
 
@@ -953,14 +953,18 @@ fn run_resume_handler(manager: ubos_manager::Handle) -> u16 {
 rusty_fork_test! {
     #[test]
     fn resume_during_overheat_halt_is_refused() {
-        with_manager(&[Message::DangerousTemperature], |manager, settle| {
-            let status = run_resume_handler(manager);
+        let (thermal_runner, thermal) = ubos_thermal::Handle::take();
+        thermal_runner.publish_dangerous(true);
+        with_manager(&[Message::Stop], |manager, _mining, settle| {
+            let before = manager.pause_reasons();
+            let status = run_resume_handler(manager, thermal);
             settle();
 
             assert_eq!(status, 409);
+            assert!(!before.is_empty());
             assert_eq!(
                 manager.pause_reasons(),
-                PauseReasons::default().assert(PauseReason::DangerousTemperature),
+                before,
                 "a refused resume must change nothing in the manager"
             );
         });
@@ -968,8 +972,10 @@ rusty_fork_test! {
 
     #[test]
     fn resume_without_overheat_halt_starts() {
-        with_manager(&[Message::Stop], |manager, settle| {
-            let status = run_resume_handler(manager);
+        let (thermal_runner, thermal) = ubos_thermal::Handle::take();
+        thermal_runner.publish_dangerous(false);
+        with_manager(&[Message::Stop], |manager, _mining, settle| {
+            let status = run_resume_handler(manager, thermal);
             settle();
 
             assert_eq!(status, 200);
@@ -989,7 +995,7 @@ rusty_fork_test! {
 /// return the HTTP status code from the response.
 ///
 /// Built the same way as `run_resume_handler`, and for the same reason.
-fn run_thermal_clear_handler(manager: ubos_manager::Handle) -> u16 {
+fn run_thermal_clear_handler(manager: ubos_manager::Handle, thermal: ubos_thermal::Handle) -> u16 {
     let io = MockIo::new(
         b"POST /api/system/thermal/clear HTTP/1.1\r\nContent-Length: 0\r\n\r\n".to_vec(),
     );
@@ -1000,7 +1006,7 @@ fn run_thermal_clear_handler(manager: ubos_manager::Handle) -> u16 {
             .await
             .expect("BUG: Connection::new failed on mock HTTP request");
 
-        crate::system::handle_thermal_clear(&mut connection, manager)
+        crate::system::handle_thermal_clear(&mut connection, manager, thermal)
             .await
             .expect("BUG: handle_thermal_clear returned Err on mock socket — Infallible violated");
 
@@ -1013,15 +1019,33 @@ fn run_thermal_clear_handler(manager: ubos_manager::Handle) -> u16 {
 
 rusty_fork_test! {
     #[test]
-    fn thermal_clear_acknowledges_then_starts() {
-        with_manager(&[Message::DangerousTemperature], |manager, settle| {
-            let status = run_thermal_clear_handler(manager);
+    fn thermal_clear_starts_mining() {
+        let (thermal_runner, thermal) = ubos_thermal::Handle::take();
+        thermal_runner.publish_dangerous(true);
+        with_manager(&[], |manager, _mining, settle| {
+            let status = run_thermal_clear_handler(manager, thermal);
             settle();
 
             assert_eq!(status, 200);
             assert!(
                 manager.pause_reasons().is_empty(),
-                "the clear must lift the halt and leave nothing paused"
+                "the clear must leave nothing paused"
+            );
+        });
+    }
+
+    #[test]
+    fn thermal_clear_acknowledges_the_flag() {
+        let (thermal_runner, thermal) = ubos_thermal::Handle::take();
+        thermal_runner.publish_dangerous(true);
+        with_manager(&[], |manager, _mining, settle| {
+            let status = run_thermal_clear_handler(manager, thermal);
+            settle();
+
+            assert_eq!(status, 200);
+            assert!(
+                thermal_runner.take_acknowledge(),
+                "the clear must leave an acknowledge for the thermal task"
             );
         });
     }
@@ -1029,20 +1053,20 @@ rusty_fork_test! {
     #[test]
     fn thermal_clear_starts_whether_or_not_the_operator_paused() {
         // The operator's own pause on top of the halt. Clearing is the same
-        // two sends either way, which is what keeps one confirm enough.
-        with_manager(
-            &[Message::DangerousTemperature, Message::Stop],
-            |manager, settle| {
-                let status = run_thermal_clear_handler(manager);
-                settle();
+        // acknowledge and start either way, which is what keeps one confirm
+        // enough.
+        let (thermal_runner, thermal) = ubos_thermal::Handle::take();
+        thermal_runner.publish_dangerous(true);
+        with_manager(&[Message::Stop], |manager, _mining, settle| {
+            let status = run_thermal_clear_handler(manager, thermal);
+            settle();
 
-                assert_eq!(status, 200);
-                assert!(
-                    manager.pause_reasons().is_empty(),
-                    "the clear must lift the halt and the operator's pause with it"
-                );
-            },
-        );
+            assert_eq!(status, 200);
+            assert!(
+                manager.pause_reasons().is_empty(),
+                "the clear must lift the operator's pause"
+            );
+        });
     }
 }
 

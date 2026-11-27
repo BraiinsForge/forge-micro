@@ -277,11 +277,11 @@ where
         .mining
         .state()
         .map(crate::schema::state::ApiMiningState::from);
-    let pause_reasons = service.manager.pause_reasons();
-    let paused = !pause_reasons.is_empty();
-    let pause_reason = pause_reasons
-        .dominant()
-        .map(crate::schema::state::ApiPauseReason::from);
+    let (paused, pause_reason) = crate::rest::pause_state(
+        service.thermal.is_dangerous(),
+        service.mining.temperature_unreadable(),
+        service.manager.pause_reasons(),
+    );
 
     let hw_info = HwInfo {
         brand_name: crate::hw_info::brand_name(),
@@ -612,17 +612,18 @@ where
 }
 
 /// Handle `POST /api/system/resume`. `Start` lifts only the operator's
-/// own pause, so a resume during an overheat halt answers 409 rather than
-/// acking a halt that stands; see "Two ways out of an overheat halt" in
-/// `docs/MINING.md`.
+/// own pause, so a resume while the dangerous temperature flag is set
+/// answers 409 rather than acking a halt that stands; see "The overheat
+/// halt" in `docs/MINING.md`.
 pub(crate) async fn handle_resume<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     manager: ManagerHandle,
+    thermal: ThermalHandle,
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
-    if manager.holds(ubos_manager::PauseReason::DangerousTemperature) {
+    if thermal.is_dangerous() {
         return write_message(
             connection,
             Status::CONFLICT.with_message("an overheat halt stands; clear it to start"),
@@ -640,13 +641,14 @@ where
 pub(crate) async fn handle_thermal_clear<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     manager: ManagerHandle,
+    thermal: ThermalHandle,
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
     crate::events::user_cleared_thermal_halt();
     crate::events::user_requested_start();
-    manager.send(ManagerMessage::TemperatureAcknowledged).await;
+    thermal.acknowledge();
     manager.send(ManagerMessage::Start).await;
     handle_action(connection, "thermal/clear").await
 }
@@ -1572,10 +1574,10 @@ where
             handle_action(connection, "pause").await?;
         }
         DispatchOutcome::Handled(Route::ResumeAck) => {
-            handle_resume(connection, service.manager).await?;
+            handle_resume(connection, service.manager, service.thermal).await?;
         }
         DispatchOutcome::Handled(Route::ThermalClearAck) => {
-            handle_thermal_clear(connection, service.manager).await?;
+            handle_thermal_clear(connection, service.manager, service.thermal).await?;
         }
         DispatchOutcome::Handled(Route::RestartAck) => {
             crate::events::user_restart();

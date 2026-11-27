@@ -42,6 +42,28 @@ use ubos_http::{
 use crate::schema::info::{ApiInfo, ApiInfoChain, ApiInfoOta};
 use crate::schema::state::{ApiMiningState, ApiPauseReason};
 
+/// Whether the board is paused and the reason it gives, for both info
+/// bodies. `dangerous` is the flag of thermal and `unreadable` is the
+/// rail cut that mining makes when no temperature reading is left. The
+/// two lead every reason the manager holds, because the manager holds
+/// neither, and a board reads the same on either route.
+pub(crate) fn pause_state(
+    dangerous: bool,
+    unreadable: bool,
+    reasons: ubos_manager::PauseReasons,
+) -> (bool, Option<ApiPauseReason>) {
+    if dangerous {
+        return (true, Some(ApiPauseReason::DangerousTemperature));
+    }
+    if unreadable {
+        return (true, Some(ApiPauseReason::TemperatureUnreadable));
+    }
+    (
+        !reasons.is_empty(),
+        reasons.dominant().map(ApiPauseReason::from),
+    )
+}
+
 #[cfg(test)]
 #[path = "tests/rest.rs"]
 mod tests;
@@ -155,7 +177,11 @@ impl RestApiService {
         let chain_stats = ubos_metrics::chain::handle();
         let fan = self.cooling.current();
         let psu_reading = self.psu.current();
-        let pause_reasons = self.manager.pause_reasons();
+        let (paused, pause_reason) = pause_state(
+            self.thermal.is_dangerous(),
+            self.mining.temperature_unreadable(),
+            self.manager.pause_reasons(),
+        );
         let mining_state = self.mining.state();
         let ota = crate::ota::ota_info().map(|info| {
             ApiInfoOta::new(
@@ -181,8 +207,8 @@ impl RestApiService {
             net_confirm_seconds: self.config.pending_seconds_remaining(),
             running: matches!(mining_state, Some(ubos_mining::MiningState::Running)),
             mining_state: mining_state.map(ApiMiningState::from),
-            paused: !pause_reasons.is_empty(),
-            pause_reason: pause_reasons.dominant().map(ApiPauseReason::from),
+            paused,
+            pause_reason,
             // One entry per chain the board wired up, so a single-chain
             // board reports no phantom chains for the empty slots of the
             // table behind `chain_stats`. That table is `MAX_CHAINS` slots
