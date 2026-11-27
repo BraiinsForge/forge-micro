@@ -297,6 +297,7 @@
         # its default feature set only.
         checks =
           import ./nix/checks.nix {
+            inherit (sources) patchedCratesOverlay;
             inherit
               units
               webuiEnv

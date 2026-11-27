@@ -36,6 +36,7 @@
   src,
   srcFor,
   deps,
+  patchedCratesOverlay,
   craneLib,
   units,
   # See flake.nix.
@@ -615,7 +616,15 @@ hostClippyChecks
           "ubos-events"
           "ubos-metrics"
         ];
-        cargoArtifacts = craneLib.buildDepsOnly (args // { inherit src; });
+        # See `checkBag` in nix/deps.nix for why the overlay follows the
+        # stubbing.
+        cargoArtifacts = craneLib.buildDepsOnly (
+          args
+          // {
+            inherit src;
+            extraDummyScript = patchedCratesOverlay;
+          }
+        );
         doInstallCargoArtifacts = false;
       }
     );
