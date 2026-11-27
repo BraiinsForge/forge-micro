@@ -1,0 +1,31 @@
+Write the generated configuration in a fixed order.
+
+The build script collects the configuration constants in a HashMap
+and writes config.rs in the map's iteration order, which changes on
+every run. The constants are the same, but the bytes of config.rs are
+not, so each build of smoltcp has a different crate hash. A build on
+one host then does not link against a crate that another host built
+against its own copy, and the build stops with E0463 or E0460. A
+BTreeMap writes the constants in name order on every run. Upstream
+made the same change after 0.13.1.
+
+Applies to smoltcp 0.13.1 from crates.io; the pin and this patch are
+consumed by nix/patched-crates.nix.
+
+--- a/build.rs
++++ b/build.rs
+@@ -1,4 +1,4 @@
+-use std::collections::HashMap;
++use std::collections::BTreeMap;
+ use std::fmt::Write;
+ use std::path::PathBuf;
+ use std::{env, fs};
+@@ -41,7 +41,7 @@
+         println!("cargo:rerun-if-env-changed=SMOLTCP_{name}");
+     }
+ 
+-    let mut configs = HashMap::new();
++    let mut configs = BTreeMap::new();
+     for (name, default) in CONFIGS {
+         configs.insert(
+             *name,

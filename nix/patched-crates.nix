@@ -72,6 +72,22 @@ in
     ];
   };
 
+  # smoltcp 0.13.1 with its generated configuration written in a fixed
+  # order, so that two builds of it are the same crate; see the patch
+  # preamble.
+  smoltcp = pkgs.applyPatches {
+    name = "smoltcp-0.13.1-patched";
+    src = pkgs.fetchzip {
+      name = "smoltcp-0.13.1";
+      url = "https://static.crates.io/crates/smoltcp/smoltcp-0.13.1.crate";
+      extension = "tar.gz";
+      hash = "sha256-WJ1jKfaxikG7LqWqfOrCvrd+Fwiv7Tk6HubUXCnDAmo=";
+    };
+    patches = [
+      ../patches/smoltcp-sorted-config.patch
+    ];
+  };
+
   # edge-nal-embassy from the pinned edge-net rev with the local patch
   # series applied in order; each patch's preamble explains its change.
   # The series starts with the standalone-manifest rewrite because the
