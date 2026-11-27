@@ -80,6 +80,7 @@ where
     ) -> Option<MinerState<T>> {
         let rail = state.rail();
         let status = state.mining_state();
+        let unreadable = state.temperature_unreadable();
         let next = self.race(state, config).await;
         let next_rail = next.as_ref().map(MinerState::rail);
         let leaves_live = rail == Rail::Live && next_rail != Some(Rail::Live);
@@ -91,6 +92,12 @@ where
             .map_or(MiningState::Stopped, MinerState::mining_state);
         if next_status != status {
             self.mining.publish(next_status);
+        }
+        let next_unreadable = next
+            .as_ref()
+            .is_some_and(MinerState::temperature_unreadable);
+        if next_unreadable != unreadable {
+            self.mining.publish_temperature_unreadable(next_unreadable);
         }
         next
     }
@@ -271,6 +278,12 @@ impl<T> MinerState<T> {
     /// on before the cut. Only [`Step`] writes plans to the hardware.
     pub(super) fn grants_grace(&self) -> bool {
         matches!(self, Self::Step(_))
+    }
+
+    /// Whether this state holds the rail off because no temperature
+    /// reading was left.
+    pub(super) fn temperature_unreadable(&self) -> bool {
+        matches!(self, Self::Recover(Recover { unreadable: true }))
     }
 
     /// The lifecycle status the API and the metrics report for this state.

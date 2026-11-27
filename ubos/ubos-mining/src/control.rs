@@ -47,6 +47,11 @@ type StopSignal = Signal<CSMutex, ()>;
 
 static STATE_WATCH: StateWatch = Watch::new();
 
+/// Whether the miner holds the rail off because no temperature reading
+/// was left. The lifecycle status cannot say it: the miner is `Stopped`
+/// for the retry delay, as after any failed bring-up.
+static UNREADABLE_WATCH: Watch<CSMutex, bool, 1> = Watch::new();
+
 pub(crate) static COMMAND_CHANNEL: CommandChannel = Channel::new();
 
 static STOP: StopSignal = Signal::new();
@@ -129,6 +134,15 @@ impl Handle {
         STATE_WATCH.try_get()
     }
 
+    /// Whether the miner holds the rail off because no temperature reading
+    /// was left to watch the machine by. It ends when the miner starts
+    /// bring-up again, see "The unreadable temperature" in
+    /// `docs/MINING.md`.
+    #[must_use]
+    pub fn temperature_unreadable(&self) -> bool {
+        UNREADABLE_WATCH.try_get().unwrap_or(false)
+    }
+
     /// Obtain a long-lived subscription. Call once per consumer task
     /// before entering its loop.
     ///
@@ -187,6 +201,12 @@ impl Runner {
     /// the miner stays the only writer.
     pub(crate) fn publish(&self, state: MiningState) {
         STATE_WATCH.sender().send(state);
+    }
+
+    /// Publish whether the rail is off because no temperature reading was
+    /// left, for [`Handle::temperature_unreadable`].
+    pub(crate) fn publish_temperature_unreadable(&self, unreadable: bool) {
+        UNREADABLE_WATCH.sender().send(unreadable);
     }
 
     /// Wait for a stop request. The future holds nothing of the runner, so

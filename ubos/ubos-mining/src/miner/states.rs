@@ -202,7 +202,7 @@ where
                 "mining: no chain present on cycle {} of {}; cutting rail and retrying",
                 miner.empty_cycles, BRING_UP_CYCLES
             );
-            return BringUpNext::Retry(Recover);
+            return BringUpNext::Retry(Recover::after_fault());
         }
         error!(
             "mining: no chain present in {} cycles; parking until resume",
@@ -244,7 +244,7 @@ where
                 Debug2Format(&error)
             );
             crate::events::work_initialization_failed();
-            return StartWorkNext::Failed(Recover);
+            return StartWorkNext::Failed(Recover::after_fault());
         }
         crate::events::work_initialized();
         // Every present chain is enumerated, configured and clocked;
@@ -308,7 +308,7 @@ where
                 );
                 if run.failures >= PLAN_FAILURE_BUDGET {
                     crate::events::tuner_fault();
-                    return StepNext::Faulted(Recover);
+                    return StepNext::Faulted(Recover::after_fault());
                 }
             }
         }
@@ -373,14 +373,30 @@ where
             Either4::Fourth(()) => {
                 error!("mining: temperature unreadable; rail cut");
                 crate::events::temperature_unreadable();
-                PauseNext::Unreadable(Recover)
+                PauseNext::Unreadable(Recover::unreadable())
             }
         }
     }
 }
 
 /// Hold the rail off before the next bring-up.
-pub(super) struct Recover;
+pub(super) struct Recover {
+    /// Whether the rail is off because no temperature reading was left,
+    /// which the API reports as the reason of the stop.
+    pub(super) unreadable: bool,
+}
+
+impl Recover {
+    /// The state after a bring-up or a plan failed.
+    pub(super) const fn after_fault() -> Self {
+        Self { unreadable: false }
+    }
+
+    /// The state after no temperature reading was left.
+    pub(super) const fn unreadable() -> Self {
+        Self { unreadable: true }
+    }
+}
 
 successors! { pub(super) enum RecoverNext { Retry(Choose) } }
 

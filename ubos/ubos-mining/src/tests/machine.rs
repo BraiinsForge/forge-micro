@@ -1171,7 +1171,7 @@ rusty_fork_test! {
                 MinerState::ExitReset(ExitReset),
                 MinerState::BringUp(BringUp),
                 MinerState::StartWork(StartWork),
-                MinerState::Recover(Recover),
+                MinerState::Recover(Recover::after_fault()),
             ];
             for state in states {
                 psu_driver.mining.stop();
@@ -1365,6 +1365,17 @@ rusty_fork_test! {
                     .expect("a silent sensor does not stop the machine");
                 assert!(matches!(recover, MinerState::Recover(_)));
                 LOG.lock(|log| assert_eq!(log.borrow().as_slice(), &[Write::Disable]));
+                assert!(
+                    psu_driver.mining.temperature_unreadable(),
+                    "the API reads the reason of the cut"
+                );
+                // A stop leaves the state without the retry delay.
+                psu_driver.mining.stop();
+                assert!(miner.advance(recover, &mut subscription).await.is_none());
+                assert!(
+                    !psu_driver.mining.temperature_unreadable(),
+                    "the reason ends with the state"
+                );
                 ACTOR.terminate().await.expect("actor terminates");
             };
             let actor = ACTOR.run(
