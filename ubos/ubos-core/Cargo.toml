@@ -23,4 +23,5 @@ schemars        = { workspace = true, optional = true }
 serde           = { workspace = true }
 
 [dev-dependencies]
-heapless = { workspace = true }
+heapless   = { workspace = true }
+serde_json = { workspace = true }
