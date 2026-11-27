@@ -74,6 +74,10 @@ pub const APPLICATION_VERSION_DETAILS: Name<Count> = Name::new("application_vers
 /// because a board reports one ambient reading.
 pub const AMBIENT_TEMPERATURE: Name<Temperature> = Name::new("ambient_temperature_celsius");
 
+/// The temperature of the die of the MCU. It carries no label, because a
+/// board has one MCU.
+pub const MCU_TEMPERATURE: Name<Temperature> = Name::new("mcu_temperature_celsius");
+
 /// The temperature of the die of one chip, one series for each chip of
 /// a hashboard. It is the longest key the tree renders, so the key
 /// budget of the store reads the name from here.

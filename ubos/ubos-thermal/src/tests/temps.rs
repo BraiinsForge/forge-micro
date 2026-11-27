@@ -120,6 +120,7 @@ fn a_reading_with_no_filter_reaches_no_watch() {
     let mut temperatures = Temperatures::for_interval(INTERVAL);
     let now = Instant::from_millis(0);
     temperatures.update(reading(TempSource::ControlBoard, 50), now);
+    temperatures.update(reading(TempSource::Mcu, 50), now);
     temperatures.publish_filtered(now, &WATCHES);
     temperatures.publish_ambient(now, &WATCHES);
     assert_eq!(WATCHES.filtered.try_get(), Some(None));

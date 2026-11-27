@@ -114,7 +114,6 @@ use ubos_config::{PidTarget, TemperatureDescriptor, ThermalConfig};
 use ubos_core::index::{ChipAddress, HashboardIndex};
 use ubos_core::units::Temperature;
 use ubos_logging::{info, warn};
-use ubos_metrics::metric;
 use ubos_temperature::{Reading as TempReading, TempSource};
 
 ubos_events::events! {
@@ -561,8 +560,15 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatu
         // Read last, after the sample the cooling loop turns on has gone out,
         // and dropped on a full channel: this safety loop must not wait on the
         // metrics.
-        if let Some(temp) = draining(mcu.read(), &mut folds, now).await {
-            metric!("mcu_temperature_celsius", temp).try_push();
+        if let Some(value) = draining(mcu.read(), &mut folds, now).await {
+            take(
+                TempReading {
+                    source: TempSource::Mcu,
+                    value,
+                },
+                &mut folds,
+                now,
+            );
         }
     }
 }

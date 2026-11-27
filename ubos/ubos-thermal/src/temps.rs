@@ -114,7 +114,7 @@ impl Temperatures {
             TempSource::Hashboard { .. } => &mut self.hashboard,
             TempSource::Chip { .. } => &mut self.chip,
             TempSource::Ambient => &mut self.ambient,
-            TempSource::ControlBoard | TempSource::Psu => return,
+            TempSource::Mcu | TempSource::ControlBoard | TempSource::Psu => return,
         };
         filter.update(reading.value, now);
     }

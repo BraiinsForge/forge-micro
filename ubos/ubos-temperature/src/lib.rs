@@ -116,6 +116,8 @@ pub enum TempSource {
     },
     /// The air around the board.
     Ambient,
+    /// The thermometer on the die of the MCU.
+    Mcu,
     ControlBoard,
     Psu,
 }

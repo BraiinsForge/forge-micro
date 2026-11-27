@@ -52,7 +52,7 @@ const fn kind_of(source: TempSource) -> Option<Source> {
     match source {
         TempSource::Chip { .. } => Some(Source::Chip),
         TempSource::Hashboard { .. } => Some(Source::Hashboard),
-        TempSource::Ambient | TempSource::ControlBoard | TempSource::Psu => None,
+        TempSource::Ambient | TempSource::Mcu | TempSource::ControlBoard | TempSource::Psu => None,
     }
 }
 

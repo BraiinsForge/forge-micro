@@ -32,6 +32,7 @@ use ubos_core::index::{ChipAddress, HashboardIndex};
 use ubos_core::units::Temperature;
 use ubos_metrics::catalog::{
     AMBIENT_TEMPERATURE, CHIP_ADDR_LABEL, CHIP_TEMPERATURE, HASHBOARD_LABEL, ID_LABEL,
+    MCU_TEMPERATURE,
 };
 use ubos_metrics::consts::Metrics;
 use ubos_metrics::metric;
@@ -56,6 +57,7 @@ pub(crate) fn publish_reading(reading: Reading) {
         }
         TempSource::Chip { chain, chip } => publish_chip_reading(chain, chip, reading.value),
         TempSource::Ambient => metric!(AMBIENT_TEMPERATURE, reading.value).try_push(),
+        TempSource::Mcu => metric!(MCU_TEMPERATURE, reading.value).try_push(),
         TempSource::ControlBoard => {
             metric!("control_board_temperature_celsius", reading.value).try_push();
         }
