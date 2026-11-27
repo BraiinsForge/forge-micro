@@ -34,7 +34,6 @@ use embassy_net::{ConfigV4, DhcpConfig, IpAddress, Ipv4Address, Stack};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::{Receiver, Watch};
 use embassy_time::{Duration, Instant, Ticker, Timer, with_timeout};
-use portable_atomic::{AtomicU32, Ordering};
 use ubos_config::{Message, NetworkConfig, NetworkMode};
 use ubos_logging::{Debug2Format, info, warn};
 use ubos_metrics::consts::Metrics;
@@ -165,9 +164,6 @@ pub async fn connect_stratum<'b>(
     Err(StratumConnectError::AllConnectsFailed)
 }
 
-/// Count of accepted HTTP requests since boot. Incremented through
-/// [`Handle::record_request`] by the dashboard and API HTTP servers.
-static REQUEST_COUNT: AtomicU32 = AtomicU32::new(0);
 type CSMutex = CriticalSectionRawMutex;
 
 /// Cross-module network identity published by `ubos-net`: the live IPv4
@@ -207,9 +203,8 @@ pub type NetSubscription = Receiver<'static, CSMutex, NetState, WATCH_CAPACITY>;
 
 static TAKEN: ubos_core::take_once::TakeOnce = ubos_core::take_once::TakeOnce::new("net");
 
-/// Consumer-side handle for the network-identity state and the HTTP
-/// request count. It holds no data: a firmware takes it once and passes a
-/// copy to each task that uses it.
+/// Consumer-side handle for the network-identity state. It holds no data:
+/// a firmware takes it once and passes a copy to each task that uses it.
 #[derive(Clone, Copy)]
 pub struct Handle(());
 
@@ -258,11 +253,6 @@ impl Handle {
         epoch_offset()
     }
 
-    #[must_use]
-    pub fn request_count(&self) -> u32 {
-        REQUEST_COUNT.load(Ordering::Relaxed)
-    }
-
     /// Seconds since the Unix epoch, or `None` while NTP has not synced.
     #[must_use]
     pub fn unix_secs(&self) -> Option<u64> {
@@ -270,10 +260,6 @@ impl Handle {
             0 => None,
             offset => Some(Instant::now().as_secs() + offset),
         }
-    }
-
-    pub fn record_request(&self) {
-        REQUEST_COUNT.fetch_add(1, Ordering::Relaxed);
     }
 }
 

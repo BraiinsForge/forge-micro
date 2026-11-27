@@ -80,14 +80,4 @@ rusty_fork_test! {
         assert_eq!(mac, derive_mac(DUMMY_OUI, 0x07, b"chip"));
         assert_eq!(net.current().and_then(|state| state.mac), Some(mac));
     }
-
-    #[test]
-    fn a_recorded_request_is_counted() {
-        let (_publisher, net) = crate::net::Handle::take();
-        assert_eq!(net.request_count(), 0);
-
-        net.record_request();
-
-        assert_eq!(net.request_count(), 1);
-    }
 }

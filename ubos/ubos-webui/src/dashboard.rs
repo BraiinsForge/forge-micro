@@ -269,17 +269,7 @@ fn percent_decode(input: &str) -> Option<heapless::String<FORM_FIELD_MAX_LEN>> {
 
 /// Dashboard handler implementing `ubos_http::Service` over the web-UI
 /// shell: the page, the login form, logout and the logo.
-pub struct DashboardService {
-    net: ubos_net::net::Handle,
-}
-
-impl DashboardService {
-    /// Serve the web UI and count each request on `net`.
-    #[must_use]
-    pub const fn new(net: ubos_net::net::Handle) -> Self {
-        Self { net }
-    }
-}
+pub struct DashboardService;
 
 impl Service for DashboardService {
     // The length is a flat match dispatch table rather than nesting, and
@@ -295,11 +285,6 @@ impl Service for DashboardService {
     where
         TcpSocket: Read + Write + TcpSplit,
     {
-        // The count is of handled requests, not of successful ones: the
-        // metrics port does not increment it, and a connection dropped
-        // before its request is parsed is never counted.
-        self.net.record_request();
-
         let method = parts.method.as_str();
         let path = parts.path.as_str();
         let authorization = parts.authorization.as_deref();

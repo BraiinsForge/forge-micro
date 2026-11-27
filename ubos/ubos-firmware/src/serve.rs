@@ -129,7 +129,7 @@ macro_rules! serve_all {
                     handles.stratum,
                     stack,
                 ),
-                fallback: ubos_webui::DashboardService::new(handles.net),
+                fallback: ubos_webui::DashboardService,
             });
             $crate::serve_http_pool!(
                 spawner,

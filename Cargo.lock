@@ -4582,7 +4582,6 @@ dependencies = [
  "embassy-sync 0.8.0",
  "embassy-time",
  "heapless 0.9.4",
- "portable-atomic",
  "rusty-fork",
  "ubos-auth",
  "ubos-config",
@@ -4743,7 +4742,6 @@ dependencies = [
  "ubos-http",
  "ubos-logging",
  "ubos-mdns",
- "ubos-net",
  "zopfli",
 ]
 

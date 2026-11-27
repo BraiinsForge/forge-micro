@@ -551,7 +551,7 @@ fn main() {
                 stratum_handle,
                 stack,
             ),
-            fallback: ubos_webui::DashboardService::new(net_handle),
+            fallback: ubos_webui::DashboardService,
         });
         let http_buffers = ubos_http::split_work_buffer::<HTTP_POOL>(
             HTTP_WORK.take(),

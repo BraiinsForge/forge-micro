@@ -216,9 +216,6 @@ impl Service for RestApiService {
     where
         TcpSocket: Read + Write + TcpSplit,
     {
-        // `http_requests`; the metrics port does not count.
-        self.net.record_request();
-
         let method = parts.method.as_str();
         let path = parts.path.as_str();
         let authorization = parts.authorization.as_deref();
