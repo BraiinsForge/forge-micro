@@ -113,8 +113,11 @@ let
       brand = builtins.fromJSON (builtins.readFile (root + "/${dir}/brand.json"));
     in
     lib.optional (
-      !builtins.pathExists (root + "/${dir}/logo.svg")
-    ) "${dir} has no logo.svg, which is the wordmark every page serves"
+      !builtins.pathExists (root + "/${dir}/dashboard-logo.svg")
+    ) "${dir} has no dashboard-logo.svg, which is the wordmark the dashboard serves"
+    ++ lib.optional (
+      !builtins.pathExists (root + "/${dir}/login-logo.svg")
+    ) "${dir} has no login-logo.svg, which is the wordmark the login page serves"
     ++ lib.optional (
       !builtins.pathExists (root + "/${dir}/icon.png")
     ) "${dir} has no icon.png, which is the tab icon every page links"

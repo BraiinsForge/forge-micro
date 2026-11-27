@@ -2,8 +2,8 @@
 
 Preact + Rsbuild frontend for the miner's port-80 web UI. `build.rs` runs
 the Rsbuild build, gzips the two resulting single-file pages
-(`index.html`, `login.html`) plus the declared brand's `logo.svg` with
-Zopfli, encodes that brand's `icon.png` into a `data:` URI inside each
+(`index.html`, `login.html`) plus the declared brand's `dashboard-logo.svg` and
+`login-logo.svg` with Zopfli, encodes that brand's `icon.png` into a `data:` URI inside each
 page, and `src/lib.rs` embeds the results with `include_bytes!` for the
 firmware to serve. Gzip rather than Brotli because browsers only
 advertise `br` over HTTPS and the board serves plain HTTP.
@@ -79,9 +79,10 @@ one of them. Export the variable to see the other brand:
 UBOS_BRAND=../../brand/forge npm run dev
 ```
 
-The dev server serves that directory's `logo.svg` at `/logo.svg`, which
-is the same file the firmware serves, and inlines its `icon.png` the
-same way `build.rs` does.
+The dev server serves that directory's `dashboard-logo.svg` and
+`login-logo.svg` at the paths of the same names. These are the same
+files the firmware serves. It inlines `icon.png` the same way `build.rs`
+does.
 
 ## Dev loop against a live board
 

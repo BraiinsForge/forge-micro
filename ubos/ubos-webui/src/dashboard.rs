@@ -30,8 +30,8 @@
 //!   its single-use CSRF token without downloading the HTML again.
 //! - `GET /login`, `POST /login` and `POST /logout` drive the session
 //!   cookie the page carries to the API surface.
-//! - `GET /logo.svg` stays a separate cacheable asset so the index
-//!   response fits its buffer. The tab icon goes the other way and is
+//! - `GET /dashboard-logo.svg` and `GET /login-logo.svg` stay separate
+//!   cacheable assets so the page responses fit their buffers. The tab icon goes the other way and is
 //!   inlined into each page, for the reason `build.rs` records on
 //!   `icon_data_uri`.
 //!
@@ -45,7 +45,7 @@ use edge_nal::TcpSplit;
 use embedded_io_async::{Read, Write};
 use heapless::Vec;
 
-use crate::{INDEX_HTML_GZ, LOGIN_HTML_GZ, LOGO_SVG_GZ};
+use crate::{DASHBOARD_LOGO_SVG_GZ, INDEX_HTML_GZ, LOGIN_HTML_GZ, LOGIN_LOGO_SVG_GZ};
 use ubos_http::consts::Http;
 use ubos_http::{
     MAX_RESPONSE_HEADERS, RequestParts, Service, Status, format_content_length, read_body,
@@ -268,7 +268,7 @@ fn percent_decode(input: &str) -> Option<heapless::String<FORM_FIELD_MAX_LEN>> {
 }
 
 /// Dashboard handler implementing `ubos_http::Service` over the web-UI
-/// shell: the page, the login form, logout and the logo.
+/// shell: the page, the login form, logout and the logos.
 pub struct DashboardService;
 
 impl Service for DashboardService {
@@ -471,18 +471,29 @@ impl Service for DashboardService {
                 }
                 write_logout_redirect(connection).await
             }
-            ("GET", "/logo.svg") => {
+            ("GET", "/dashboard-logo.svg") => {
                 write_asset(
                     connection,
                     "image/svg+xml",
                     "public, max-age=86400",
                     Some("gzip"),
                     &[],
-                    LOGO_SVG_GZ,
+                    DASHBOARD_LOGO_SVG_GZ,
                 )
                 .await
             }
-            (_, "/" | "/login" | "/logout" | "/logo.svg") => {
+            ("GET", "/login-logo.svg") => {
+                write_asset(
+                    connection,
+                    "image/svg+xml",
+                    "public, max-age=86400",
+                    Some("gzip"),
+                    &[],
+                    LOGIN_LOGO_SVG_GZ,
+                )
+                .await
+            }
+            (_, "/" | "/login" | "/logout" | "/dashboard-logo.svg" | "/login-logo.svg") => {
                 write_status_only(
                     connection,
                     Status::METHOD_NOT_ALLOWED,

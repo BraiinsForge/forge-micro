@@ -12,7 +12,7 @@ reference-miner where compatibility costs nothing.
 
 | Port | Crate             | Purpose                                                |
 |------|-------------------|--------------------------------------------------------|
-| 80   | `ubos-webui`      | dashboard SPA, login, logout, logo                     |
+| 80   | `ubos-webui`      | dashboard SPA, login, logout, logos                    |
 | 80   | `ubos-api`        | JSON REST API (`/api/*`)                               |
 | 8081 | `ubos-prometheus` | Prometheus text-format exposition at `/metrics`        |
 
@@ -39,7 +39,7 @@ change.
 | `ubos-auth`       | shared HTTP middleware: allow-list, auth, sessions, CSRF, CSPRNG          |
 | `ubos-api`        | REST handlers, `REST_API_SERVICE` mDNS entry, schema types                |
 | `ubos-prometheus` | the port 8081 scrape service and its `_prometheus` mDNS entry             |
-| `ubos-webui`      | Zopfli-gzipped `index.html` / `login.html` and `logo.svg`, with `icon.png` inlined into each page; dashboard handler; `WEBUI_SERVICE` mDNS entry |
+| `ubos-webui`      | Zopfli-gzipped `index.html` / `login.html`, `dashboard-logo.svg` and `login-logo.svg`, with `icon.png` inlined into each page; dashboard handler; `WEBUI_SERVICE` mDNS entry |
 | `ubos-mdns`       | DNS-SD responder; per-service registration via `declare_service!`         |
 | `ubos-metrics`    | Metric types, the metric store and its render                             |
 
@@ -68,8 +68,8 @@ own chain, and the two chains differ only where this section says so.
    `401` with body `{"message":"Client not in allowed network range"}`,
    before any auth attempt.
 2. **Authentication** (`ubos_auth::auth::authenticate`,
-   `ubos-auth/src/auth.rs`). Anonymous routes (`/login`, `/logo.svg`)
-   skip. Everything else requires either `Authorization: Basic …` or a
+   `ubos-auth/src/auth.rs`). Anonymous routes (`/login`, `/dashboard-logo.svg`,
+   `/login-logo.svg`) skip. Everything else requires either `Authorization: Basic …` or a
    valid `session=` cookie. Failure: `401`,
    `WWW-Authenticate: Basic realm="ubos"`.
 3. **CSRF** (session-authenticated, state-changing only). `POST` from a
@@ -78,7 +78,8 @@ own chain, and the two chains differ only where this section says so.
    clients are exempt. Anonymous `POST /login` (no active session
    cookie) is exempt. Failure: `403`,
    `{"message":"CSRF token invalid or missing"}`.
-4. **Routing**. Known paths: `/`, `/login`, `/logout`, `/logo.svg`.
+4. **Routing**. Known paths: `/`, `/login`, `/logout`, `/dashboard-logo.svg`,
+   `/login-logo.svg`.
    Wrong method on a known path → `405`. Unknown path → `404`.
 
 ### REST handler
@@ -115,7 +116,8 @@ from the same page.
 | GET    | `/login`       | none        | Login form; gzipped                                          |
 | POST   | `/login`       | none        | Form `username=&password=`; sets `session=` cookie on success     |
 | POST   | `/logout`      | session     | Invalidates session, clears cookie                                |
-| GET    | `/logo.svg`    | none        | The brand wordmark; `Cache-Control: public, max-age=86400`        |
+| GET    | `/dashboard-logo.svg` | none | The wordmark of the dashboard; `Cache-Control: public, max-age=86400` |
+| GET    | `/login-logo.svg`     | none | The wordmark of the login page; `Cache-Control: public, max-age=86400` |
 
 Anonymous `GET /` is rewritten to `302 Found → /login`.
 
@@ -362,7 +364,8 @@ the `MDNS_HOSTNAME_BASE` const and the last MAC byte.
 |------------------|------------------------------|----------|-----------------------------|
 | Dashboard SPA    | `ubos-webui/index.html`      | gzip     | `Cache-Control: no-store`   |
 | Login form       | `ubos-webui/login.html`      | gzip     | `Cache-Control: no-store`   |
-| Logo wordmark    | `$UBOS_BRAND/logo.svg`       | gzip     | `public, max-age=86400`     |
+| Dashboard logo   | `$UBOS_BRAND/dashboard-logo.svg` | gzip | `public, max-age=86400`     |
+| Login logo       | `$UBOS_BRAND/login-logo.svg` | gzip     | `public, max-age=86400`     |
 | Tab icon         | `$UBOS_BRAND/icon.png`       | inlined  | rides inside each page      |
 
 Assets are Zopfli-gzipped at build time by `ubos-webui/build.rs` and

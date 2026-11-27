@@ -223,12 +223,19 @@ fn main() {
     // rather than merely removed.
     fs::write(out_dir.join("brand-name"), &brand.name).expect("BUG: write brand name");
 
-    // The wordmark is referenced by an `<img>` and never passes through
-    // the bundler, so it is gzipped here for the handler to serve with
-    // `Content-Encoding: gzip`.
-    let logo_path = brand_dir.join("logo.svg");
-    let logo = fs::read(&logo_path).unwrap_or_else(|_| panic!("BUG: read {}", logo_path.display()));
-    gzip_to(&logo, &out_dir.join("logo.svg.gz"));
+    // Each page names its own wordmark. Both are referenced by an `<img>`
+    // and never pass through the bundler, so they are gzipped here for
+    // the handler to serve with `Content-Encoding: gzip`.
+    let logo_paths = ["dashboard-logo.svg", "login-logo.svg"].map(|file| brand_dir.join(file));
+    for logo_path in &logo_paths {
+        let logo =
+            fs::read(logo_path).unwrap_or_else(|_| panic!("BUG: read {}", logo_path.display()));
+        let file = logo_path.file_name().expect("BUG: logo path has a name");
+        gzip_to(
+            &logo,
+            &out_dir.join(format!("{}.gz", file.to_string_lossy())),
+        );
+    }
 
     // Rebuild when any frontend source or the build environment changes.
     for path in [
@@ -246,7 +253,7 @@ fn main() {
     }
     println!("cargo:rerun-if-env-changed=UBOS_WEBUI_DIST");
 
-    // The brand is three files outside the crate, so each one needs its
+    // The brand is four files outside the crate, so each one needs its
     // own trigger. A trigger naming a file that does not exist makes
     // cargo run this script on every build, and each run costs a Zopfli
     // pass, so these paths are the ones read above and nothing else.
@@ -255,7 +262,9 @@ fn main() {
         "cargo:rerun-if-changed={}",
         brand_dir.join("brand.json").display()
     );
-    println!("cargo:rerun-if-changed={}", logo_path.display());
+    for logo_path in &logo_paths {
+        println!("cargo:rerun-if-changed={}", logo_path.display());
+    }
     println!(
         "cargo:rerun-if-changed={}",
         brand_dir.join("icon.png").display()

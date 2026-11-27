@@ -13,7 +13,7 @@ export default function TopNav({ view, boardNotice, brand }: TopNavProps) {
   return (
     <nav class="bar">
       <span class="logo">
-        <img src="/logo.svg" alt={brand || __BRAND_NAME__} />
+        <img src="/dashboard-logo.svg" alt={brand || __BRAND_NAME__} />
       </span>
       <a href="#dash" class={view === 'dash' ? 'on' : ''}>
         Dashboard

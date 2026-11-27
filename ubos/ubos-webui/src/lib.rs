@@ -33,9 +33,15 @@ pub const INDEX_HTML_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/index
 /// project's `login` entry.
 pub const LOGIN_HTML_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/login.html.gz"));
 
-/// Gzipped wordmark SVG served at `/logo.svg`, taken from the brand
-/// directory the tree declares as `UBOS_BRAND`.
-pub const LOGO_SVG_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/logo.svg.gz"));
+/// Gzipped wordmark SVG of the dashboard, served at
+/// `/dashboard-logo.svg` and taken from the brand directory the tree
+/// declares as `UBOS_BRAND`.
+pub const DASHBOARD_LOGO_SVG_GZ: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/dashboard-logo.svg.gz"));
+
+/// Gzipped wordmark SVG of the login page, served at `/login-logo.svg`
+/// and taken from the same brand directory.
+pub const LOGIN_LOGO_SVG_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/login-logo.svg.gz"));
 
 ubos_mdns::declare_service!(
     pub WEBUI_SERVICE = ubos_mdns::ServiceEntry {

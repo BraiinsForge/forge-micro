@@ -134,7 +134,7 @@ clients.
 A client is not one connection. A browser opens a second one for the
 burst at page load. It is only a second one, because the `build.rs` of
 `ubos-webui` puts the CSS and the JS inside the gzipped HTML, so a page
-load is `/` and `/logo.svg` and nothing more. Count two connections for
+load is `/` and one logo and nothing more. Count two connections for
 each browser and one for each machine client.
 
 `StackResources<N>` must cover the continuously held sockets plus the

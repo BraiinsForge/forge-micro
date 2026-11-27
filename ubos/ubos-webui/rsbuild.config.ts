@@ -130,14 +130,21 @@ export default defineConfig(({ env }) => ({
     inject: 'body',
   },
   output: {
-    // Serve the declared brand's wordmark at /logo.svg for the dev
-    // server, so it shows the same file the firmware serves. A
-    // production build copies nothing: there the wordmark never passes
-    // through the bundler, build.rs gzips it straight from the brand
-    // directory, and the dist stays the same for every brand. The tab
-    // icon needs no copy in either mode, because it is inlined into
-    // the page rather than served from a path.
-    ...(env === 'production' ? {} : { copy: [{ from: join(brandDir(), 'logo.svg'), to: 'logo.svg' }] }),
+    // Serve the declared brand's wordmarks at /dashboard-logo.svg and
+    // /login-logo.svg for the dev server, so it shows the same files the
+    // firmware serves. A production build copies nothing: there the
+    // wordmarks never pass through the bundler, build.rs gzips them
+    // straight from the brand directory, and the dist stays the same for
+    // every brand. The tab icon needs no copy in either mode, because
+    // it is inlined into the page rather than served from a path.
+    ...(env === 'production'
+      ? {}
+      : {
+          copy: ['dashboard-logo.svg', 'login-logo.svg'].map((file) => ({
+            from: join(brandDir(), file),
+            to: file,
+          })),
+        }),
     // Inline everything so each page is a single self-contained file.
     inlineScripts: true,
     inlineStyles: true,

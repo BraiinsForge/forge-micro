@@ -110,7 +110,7 @@ typed `TaskPool` static and so rejects generic task functions.
 | `ubos-auth`        | shared HTTP middleware: IP allow-list, credential store, session table, CSRF tokens, CSPRNG |
 | `ubos-api`         | REST handlers, `REST_API_SERVICE` mDNS entry, schema types; serves `/api/*` on port 80 |
 | `ubos-prometheus`  | Prometheus scrape service on port 8081 and its `PROMETHEUS_SERVICE` mDNS entry |
-| `ubos-webui`       | Zopfli-gzipped `index.html`, `login.html` and `logo.svg`; dashboard handler and `WEBUI_SERVICE` mDNS entry on port 80 |
+| `ubos-webui`       | Zopfli-gzipped `index.html`, `login.html`, `dashboard-logo.svg` and `login-logo.svg`; dashboard handler and `WEBUI_SERVICE` mDNS entry on port 80 |
 | `ubos-mdns`        | DNS-SD responder; per-service `declare_service!` macro composed by firmware |
 | `ubos-metrics`     | metric store and ingest task, exposition render, hashrate EWMA, CPU-load gauge |
 | `ubos-display`     | SH1106 OLED driver and render task                 |

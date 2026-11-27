@@ -48,14 +48,15 @@ through this submodule and leaves that half to the call here.
 Every key is required. `ubos/ubos-webui/build.rs` reads the file and
 fails the build when a key is absent.
 
-## The two files beside it
+## The three files beside it
 
 | File | Use |
 |------|-----|
-| `logo.svg` | the wordmark, gzipped and served at `/logo.svg` |
+| `dashboard-logo.svg` | the wordmark of the dashboard, gzipped and served at `/dashboard-logo.svg` |
+| `login-logo.svg` | the wordmark of the login page, gzipped and served at `/login-logo.svg` |
 | `icon.png` | the tab icon, encoded into each page as a `data:` URI |
 
-`build.rs` reads both. The wordmark is the published asset, taken from
+`build.rs` reads all three. A wordmark is the published asset, taken from
 the brand's page on the design site and not redrawn. The icon is that
 page's own tab icon, scaled down to 32x32 and not redrawn either.
 
@@ -112,13 +113,14 @@ section on uBOS and white text below.
 
 ## One file carries the whole wordmark
 
-A page shows `logo.svg` and nothing else beside it. A brand that needs
-more words in its wordmark puts them in that file, because there is no
-second element to put them in.
+A page shows its own wordmark and nothing else beside it. A brand that
+needs more words in its wordmark puts them in that file, because there
+is no second element to put them in. The two pages can show different
+files, and a brand that needs one mark on both pages ships two copies.
 
-`name` is not that file's contents, and the two are allowed to differ.
+`name` is not the contents of a wordmark file, and the two are allowed to differ.
 `name` is the product, which the page title and the wordmark `alt` text
-carry. `logo.svg` is the mark the design site publishes for that
+carry. The wordmarks are the marks the design site publishes for that
 product. uBOS is the case where they differ on purpose: the mark is the
 Braiins wordmark, and the title says uBOS. Do not "correct" one to
 match the other.
