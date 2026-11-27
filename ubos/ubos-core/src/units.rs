@@ -19,11 +19,11 @@
 
 //! Typed units for the quantities that cross module boundaries in the
 //! miner: frequency, voltage, power, current, efficiency, temperature,
-//! fan PWM, fan RPM, shares, and difficulty. Each newtype wraps the
-//! canonical scalar already used in the codebase (kHz, mV, mW, mA, mJ/TH,
-//! millicelsius, percent, RPM, difficulty-1 shares, difficulty) so the
-//! refactor is mechanical: bare integers at signatures become typed
-//! values, conversions stay inside the driver that owns the wire
+//! fan PWM, fan RPM, shares, difficulty, and hashrate. Each newtype wraps
+//! the canonical scalar already used in the codebase (kHz, mV, mW, mA,
+//! mJ/TH, millicelsius, percent, RPM, difficulty-1 shares, difficulty,
+//! H/s) so the refactor is mechanical: bare integers at signatures become
+//! typed values, conversions stay inside the driver that owns the wire
 //! encoding. The newtypes are `#[repr(transparent)]` over their inner
 //! scalar, so atomic storage and FFI layouts are unaffected.
 
@@ -658,5 +658,114 @@ impl Difficulty {
     #[must_use]
     pub const fn get(self) -> u64 {
         self.0
+    }
+}
+
+/// Hashrate in hashes per second.
+///
+/// It serializes as its integer H/s.
+#[repr(transparent)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[serde(transparent)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(
+    feature = "schema",
+    schemars(inline, description = "A hashrate in H/s.")
+)]
+pub struct Hashrate(u64);
+
+/// The schema of the integer a [`Hashrate`] serializes as, so a record
+/// that holds one keeps the schema hash it had when it held the integer.
+impl postcard_schema::Schema for Hashrate {
+    const SCHEMA: &'static postcard_schema::schema::NamedType =
+        <u64 as postcard_schema::Schema>::SCHEMA;
+}
+
+impl Hashrate {
+    /// The rate from which [`Display`](fmt::Display) writes gigahashes.
+    const HPS_PER_GH: u64 = 1_000_000_000;
+    /// One hundredth of a gigahash per second, the last digit shown.
+    const HPS_PER_HUNDREDTH_GH: u64 = Self::HPS_PER_GH / 100;
+    /// Hashes per second in one MH/s.
+    const HPS_PER_MH: u64 = 1_000_000;
+    /// Hashes per second in one TH/s.
+    const HPS_PER_TH: u64 = 1_000_000_000_000;
+
+    #[must_use]
+    pub const fn from_hps(hps: u64) -> Self {
+        Self(hps)
+    }
+
+    /// The rate of `mhs` megahashes per second, for a table that holds
+    /// its rates in MH/s.
+    ///
+    /// Saturates at `u64::MAX` H/s.
+    #[must_use]
+    pub const fn from_mhs(mhs: u64) -> Self {
+        Self(mhs.saturating_mul(Self::HPS_PER_MH))
+    }
+
+    /// The rate of `ths` terahashes per second, or `None` when it does
+    /// not fit a `u64` in H/s.
+    #[must_use]
+    pub const fn checked_from_ths(ths: u64) -> Option<Self> {
+        match ths.checked_mul(Self::HPS_PER_TH) {
+            Some(hps) => Some(Self(hps)),
+            None => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn hps(self) -> u64 {
+        self.0
+    }
+
+    #[must_use]
+    pub const fn saturating_add(self, other: Self) -> Self {
+        Self(self.0.saturating_add(other.0))
+    }
+
+    #[must_use]
+    pub const fn saturating_mul(self, factor: u64) -> Self {
+        Self(self.0.saturating_mul(factor))
+    }
+}
+
+/// The rate with its unit, for a screen and a log line: whole H/s below
+/// 1 GH/s, and GH/s with two decimals, truncated, from there up.
+impl fmt::Display for Hashrate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.0 < Self::HPS_PER_GH {
+            return write!(f, "{} H/s", self.0);
+        }
+        let whole = self.0 / Self::HPS_PER_GH;
+        let hundredths = (self.0 % Self::HPS_PER_GH) / Self::HPS_PER_HUNDREDTH_GH;
+        write!(f, "{whole}.{hundredths:02} GH/s")
+    }
+}
+
+/// The rate with its unit, as [`Display`](fmt::Display) writes it.
+#[cfg(feature = "defmt")]
+impl defmt::Format for Hashrate {
+    fn format(&self, f: defmt::Formatter<'_>) {
+        if self.0 < Self::HPS_PER_GH {
+            defmt::write!(f, "{=u64} H/s", self.0);
+            return;
+        }
+        let whole = self.0 / Self::HPS_PER_GH;
+        let hundredths = (self.0 % Self::HPS_PER_GH) / Self::HPS_PER_HUNDREDTH_GH;
+        defmt::write!(f, "{=u64}.{=u64:02} GH/s", whole, hundredths);
     }
 }

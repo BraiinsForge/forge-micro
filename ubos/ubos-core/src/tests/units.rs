@@ -229,3 +229,74 @@ fn shares_and_difficulty_serialize_as_their_integer() {
         difficulty
     );
 }
+
+#[test]
+fn a_hashrate_keeps_its_inner_value() {
+    assert_eq!(Hashrate::from_hps(450_000_000_000).hps(), 450_000_000_000);
+    assert_eq!(Hashrate::default().hps(), 0);
+}
+
+#[test]
+fn hashrates_add_without_wrapping() {
+    assert_eq!(
+        Hashrate::from_hps(3).saturating_add(Hashrate::from_hps(4)),
+        Hashrate::from_hps(7)
+    );
+    assert_eq!(
+        Hashrate::from_hps(u64::MAX).saturating_add(Hashrate::from_hps(1)),
+        Hashrate::from_hps(u64::MAX)
+    );
+}
+
+#[test]
+fn a_hashrate_scales_from_megahashes_and_terahashes() {
+    assert_eq!(
+        Hashrate::from_mhs(180_000),
+        Hashrate::from_hps(180_000_000_000)
+    );
+    assert_eq!(Hashrate::from_mhs(u64::MAX), Hashrate::from_hps(u64::MAX));
+    assert_eq!(
+        Hashrate::checked_from_ths(170),
+        Some(Hashrate::from_hps(170_000_000_000_000))
+    );
+    assert_eq!(Hashrate::checked_from_ths(u64::MAX), None);
+}
+
+#[test]
+fn a_hashrate_multiplies_without_wrapping() {
+    assert_eq!(
+        Hashrate::from_hps(3).saturating_mul(2),
+        Hashrate::from_hps(6)
+    );
+    assert_eq!(
+        Hashrate::from_hps(u64::MAX).saturating_mul(2),
+        Hashrate::from_hps(u64::MAX)
+    );
+}
+
+#[test]
+fn a_hashrate_serializes_as_its_integer() {
+    const PAST_U32_TEXT: &str = "450000000000";
+    let hashrate = Hashrate::from_hps(450_000_000_000);
+    assert_eq!(
+        serde_json::to_string(&hashrate).expect("serializes"),
+        PAST_U32_TEXT
+    );
+    assert_eq!(
+        serde_json::from_str::<Hashrate>(PAST_U32_TEXT).expect("deserializes"),
+        hashrate
+    );
+}
+
+// The text changes unit at 1 GH/s, and the second decimal is truncated.
+#[test]
+fn a_hashrate_displays_in_hashes_or_gigahashes() {
+    extern crate std;
+    use std::string::ToString;
+    let shown = |hps| Hashrate::from_hps(hps).to_string();
+    assert_eq!(shown(0), "0 H/s");
+    assert_eq!(shown(999_999_999), "999999999 H/s");
+    assert_eq!(shown(1_000_000_000), "1.00 GH/s");
+    assert_eq!(shown(1_509_999_999), "1.50 GH/s");
+    assert_eq!(shown(450_070_000_000), "450.07 GH/s");
+}
