@@ -193,6 +193,12 @@ embassy-net-wiznet = { path = "patches/embassy-net-wiznet" }
 # without it. The patch preamble explains the fault.
 esp-hal = { path = "patches/esp-hal" }
 
+# smoltcp 0.13.1 from crates.io with its generated configuration
+# written in a fixed order. Two builds of the crate are then the same
+# crate, which a cache shared between build hosts needs. The patch
+# preamble explains the fault.
+smoltcp = { path = "patches/smoltcp" }
+
 # edge-nal-embassy from the pinned edge-net rev with the local patch
 # series applied on top; nix materializes the tree at this path the
 # same way as embassy-net-wiznet above. Each patch file's preamble
