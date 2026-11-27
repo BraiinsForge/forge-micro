@@ -94,6 +94,16 @@ macro_rules! serve_all {
             handles: $crate::Handles,
             board_name: &'static str,
         ) {
+            ubos_metrics::metric!(
+                ubos_metrics::catalog::APPLICATION_VERSION_DETAILS,
+                ubos_metrics::value::Count(1)
+            )
+            .label(ubos_metrics::catalog::COMMIT_LABEL, env!("BUILD_COMMIT"))
+            .label(ubos_metrics::catalog::BUILT_LABEL, env!("BUILD_STAMP"))
+            .constant()
+            .push()
+            .await;
+
             // Bound to a name of its own so what reaches the task
             // attribute is an identifier.
             const HTTP_POOL: usize = $http_pool_sizes.http;

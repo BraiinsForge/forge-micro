@@ -207,6 +207,15 @@ async fn ntp_sync_task(stack: Stack<'static>, net_publisher: ubos_net::net::Publ
 
 #[embassy_executor::task]
 async fn metrics_ingest_task() -> ! {
+    ubos_metrics::metric!(
+        ubos_metrics::catalog::APPLICATION_VERSION_DETAILS,
+        ubos_metrics::value::Count(1)
+    )
+    .label(ubos_metrics::catalog::COMMIT_LABEL, env!("BUILD_COMMIT"))
+    .label(ubos_metrics::catalog::BUILT_LABEL, env!("BUILD_STAMP"))
+    .constant()
+    .push()
+    .await;
     ubos_metrics::metrics::run_ingest(&METRICS_STATICS).await
 }
 

@@ -29,6 +29,7 @@
 use ubos_core::units::{Power, Temperature};
 
 use crate::name::Name;
+use crate::value::Count;
 
 /// The label of the hashboard a series belongs to. Its value is the
 /// index of the hashboard from 0, the chain index of the REST API.
@@ -54,6 +55,20 @@ pub const TYPE_LABEL: &str = "type";
 /// The label that tells apart the statistics of one quantity, such as
 /// `min`, `mean` and `max`, or `oldest` and `newest` for a set of ages.
 pub const STAT_LABEL: &str = "stat";
+
+/// The label of the checkout an image was built from. Its value is the
+/// first 12 digits of the commit.
+pub const COMMIT_LABEL: &str = "commit";
+
+/// The label of the build time of an image. Its value is the UTC time as
+/// 12 digits, `yymmddHHMMSS`.
+pub const BUILT_LABEL: &str = "built";
+
+/// The info series of an image: its value is 1 and its text is in the
+/// [`COMMIT_LABEL`] and [`BUILT_LABEL`] labels. The firmware and the host
+/// runner each push it once, with the 12 characters of the commit and the
+/// 12 digits of the build time that `ubos-build` exports.
+pub const APPLICATION_VERSION_DETAILS: Name<Count> = Name::new("application_version_details");
 
 /// The temperature of the air around the board. It carries no label,
 /// because a board reports one ambient reading.

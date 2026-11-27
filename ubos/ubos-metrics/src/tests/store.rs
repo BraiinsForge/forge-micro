@@ -35,7 +35,10 @@ use super::{
     KEY_CAPACITY, LONGEST_KEY_LABELS, LONGEST_KEY_NAME, LONGEST_RENDERED_KEY_BYTES, METRICS,
     MetricKey, StoredValue, report_dropped, upsert_metric,
 };
-use crate::catalog::{CHIP_ADDR_LABEL, CHIP_TEMPERATURE, HASHBOARD_LABEL};
+use crate::catalog::{
+    APPLICATION_VERSION_DETAILS, BUILT_LABEL, CHIP_ADDR_LABEL, CHIP_TEMPERATURE, COMMIT_LABEL,
+    HASHBOARD_LABEL,
+};
 use crate::consts::Metrics;
 use crate::metric;
 use crate::metrics::{Metric, dropped};
@@ -60,6 +63,21 @@ fn the_longest_key_constants_match_what_from_metric_renders() {
         format!("{}{LONGEST_KEY_LABELS}", LONGEST_KEY_NAME.as_str())
     );
     assert_eq!(key.0.len(), LONGEST_RENDERED_KEY_BYTES);
+}
+
+// The info series of the image is the longest key built from text that
+// the build owns, so its widest form must fit.
+#[test]
+fn the_build_info_key_fits_with_the_widest_build_parts() {
+    let metric = metric!(APPLICATION_VERSION_DETAILS, Count(1))
+        .label(COMMIT_LABEL, "0123456789ab")
+        .label(BUILT_LABEL, "261127101500")
+        .constant();
+    let key = MetricKey::from_metric(&metric).expect("the build info key must encode");
+    assert_eq!(
+        key.0.as_str(),
+        "application_version_details{built=\"261127101500\",commit=\"0123456789ab\"}"
+    );
 }
 
 // A push site adds its labels one call at a time, in any order, and the
