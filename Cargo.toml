@@ -199,6 +199,11 @@ esp-hal = { path = "patches/esp-hal" }
 # preamble explains the fault.
 smoltcp = { path = "patches/smoltcp" }
 
+# riscv-macros 0.3.0 from crates.io with its interrupt code generated in
+# a fixed order, for the same reason as smoltcp above. The patch
+# preamble explains the fault.
+riscv-macros = { path = "patches/riscv-macros" }
+
 # edge-nal-embassy from the pinned edge-net rev with the local patch
 # series applied on top; nix materializes the tree at this path the
 # same way as embassy-net-wiznet above. Each patch file's preamble
