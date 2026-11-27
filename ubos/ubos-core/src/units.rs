@@ -17,14 +17,15 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Typed units for the eight quantities that cross module boundaries in
-//! the miner: frequency, voltage, power, current, efficiency,
-//! temperature, fan PWM, and fan RPM. Each newtype wraps the canonical
-//! scalar already used in the codebase (kHz, mV, mW, mA, mJ/TH,
-//! millicelsius, percent, RPM) so the refactor is mechanical: bare
-//! integers at signatures become typed values, conversions stay inside
-//! the driver that owns the wire encoding. The newtypes are `#[repr(transparent)]` over
-//! their inner scalar, so atomic storage and FFI layouts are unaffected.
+//! Typed units for the quantities that cross module boundaries in the
+//! miner: frequency, voltage, power, current, efficiency, temperature,
+//! fan PWM, fan RPM, shares, and difficulty. Each newtype wraps the
+//! canonical scalar already used in the codebase (kHz, mV, mW, mA, mJ/TH,
+//! millicelsius, percent, RPM, difficulty-1 shares, difficulty) so the
+//! refactor is mechanical: bare integers at signatures become typed
+//! values, conversions stay inside the driver that owns the wire
+//! encoding. The newtypes are `#[repr(transparent)]` over their inner
+//! scalar, so atomic storage and FFI layouts are unaffected.
 
 use core::fmt;
 use core::num::NonZeroU32;
@@ -557,6 +558,105 @@ impl FanRpm {
 
     #[must_use]
     pub const fn rpm(self) -> u32 {
+        self.0
+    }
+}
+
+/// Mining work in difficulty-1 shares. A solution found against a target
+/// of difficulty `d` counts as `d` shares, whatever filter the chip runs,
+/// so a sum of shares over any mix of targets is a sum of expected hashes.
+///
+/// It serializes as its integer count of shares.
+#[repr(transparent)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[serde(transparent)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(
+    feature = "schema",
+    schemars(inline, description = "Mining work in difficulty-1 shares.")
+)]
+pub struct Shares(u64);
+
+/// The schema of the integer a [`Shares`] serializes as, so a record that
+/// holds one keeps the schema hash it had when it held the integer.
+impl postcard_schema::Schema for Shares {
+    const SCHEMA: &'static postcard_schema::schema::NamedType =
+        <u64 as postcard_schema::Schema>::SCHEMA;
+}
+
+impl Shares {
+    /// Expected hashes behind one share.
+    pub const HASHES_PER_SHARE: u64 = 1 << 32;
+
+    #[must_use]
+    pub const fn new(shares: u64) -> Self {
+        Self(shares)
+    }
+
+    #[must_use]
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+
+    #[must_use]
+    pub const fn saturating_add(self, other: Self) -> Self {
+        Self(self.0.saturating_add(other.0))
+    }
+}
+
+/// Difficulty of a share target: the expected number of difficulty-1
+/// shares of work behind one solution that meets the target.
+///
+/// It serializes as its integer difficulty.
+#[repr(transparent)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[serde(transparent)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(
+    feature = "schema",
+    schemars(inline, description = "The difficulty of a share target.")
+)]
+pub struct Difficulty(u64);
+
+/// The schema of the integer a [`Difficulty`] serializes as, so a record
+/// that holds one keeps the schema hash it had when it held the integer.
+impl postcard_schema::Schema for Difficulty {
+    const SCHEMA: &'static postcard_schema::schema::NamedType =
+        <u64 as postcard_schema::Schema>::SCHEMA;
+}
+
+impl Difficulty {
+    #[must_use]
+    pub const fn new(difficulty: u64) -> Self {
+        Self(difficulty)
+    }
+
+    #[must_use]
+    pub const fn get(self) -> u64 {
         self.0
     }
 }

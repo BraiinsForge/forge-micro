@@ -183,3 +183,49 @@ fn a_scaled_unit_displays_with_three_decimals() {
         Efficiency::from_mj_per_th(core::num::NonZeroU32::new(40_001).expect("nonzero"));
     assert_eq!(efficiency.to_string(), "40.001");
 }
+
+#[test]
+fn shares_and_difficulty_keep_their_inner_value() {
+    assert_eq!(Shares::new(4_096).get(), 4_096);
+    assert_eq!(Shares::default().get(), 0);
+    assert_eq!(Difficulty::new(256).get(), 256);
+    assert_eq!(Difficulty::default().get(), 0);
+}
+
+#[test]
+fn shares_add_without_wrapping() {
+    assert_eq!(
+        Shares::new(3).saturating_add(Shares::new(4)),
+        Shares::new(7)
+    );
+    assert_eq!(
+        Shares::new(u64::MAX).saturating_add(Shares::new(1)),
+        Shares::new(u64::MAX)
+    );
+}
+
+// A value past 2^32 shows that the whole `u64` crosses, not a narrower
+// integer.
+#[test]
+fn shares_and_difficulty_serialize_as_their_integer() {
+    const PAST_U32: u64 = 1 << 40;
+    const PAST_U32_TEXT: &str = "1099511627776";
+    let shares = Shares::new(PAST_U32);
+    assert_eq!(
+        serde_json::to_string(&shares).expect("serializes"),
+        PAST_U32_TEXT
+    );
+    assert_eq!(
+        serde_json::from_str::<Shares>(PAST_U32_TEXT).expect("deserializes"),
+        shares
+    );
+    let difficulty = Difficulty::new(PAST_U32);
+    assert_eq!(
+        serde_json::to_string(&difficulty).expect("serializes"),
+        PAST_U32_TEXT
+    );
+    assert_eq!(
+        serde_json::from_str::<Difficulty>(PAST_U32_TEXT).expect("deserializes"),
+        difficulty
+    );
+}
