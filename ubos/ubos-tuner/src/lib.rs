@@ -27,7 +27,7 @@
 #![no_std]
 
 use embassy_time::{Duration, Instant};
-use ubos_core::units::{Frequency, Temperature, Voltage};
+use ubos_core::units::{Frequency, Hashrate, Temperature, Voltage};
 use ubos_psu::PsuReading;
 
 /// Readings of one chain.
@@ -40,8 +40,8 @@ pub struct ChainReadings {
     /// The hottest die temperature reported, `None` before the first
     /// reading.
     pub hottest: Option<Temperature>,
-    /// Smoothed hashrate in hashes per second.
-    pub hashrate: u64,
+    /// Smoothed hashrate.
+    pub hashrate: Hashrate,
 }
 
 /// Readings the loop passes to one step.
@@ -84,7 +84,7 @@ pub struct Plan<const CHAINS: usize> {
 ///
 /// ```
 /// use embassy_time::{Duration, Instant};
-/// use ubos_core::units::{Frequency, Voltage};
+/// use ubos_core::units::{Frequency, Hashrate, Voltage};
 /// use ubos_tuner::{ChainReadings, Plan, Readings, Tuner};
 ///
 /// struct Raise {
@@ -117,7 +117,7 @@ pub struct Plan<const CHAINS: usize> {
 ///     chips: 4,
 ///     frequency: Frequency::from_mhz(450),
 ///     hottest: None,
-///     hashrate: 0,
+///     hashrate: Hashrate::default(),
 /// };
 /// let mut readings = Readings {
 ///     now: Instant::from_millis(0),

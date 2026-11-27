@@ -30,7 +30,7 @@ use core::fmt;
 use core::num::NonZeroU64;
 
 use ubos_core::units::{
-    Current, Difficulty, FanPwm, FanRpm, Frequency, Power, Shares, Temperature, Voltage,
+    Current, Difficulty, FanPwm, FanRpm, Frequency, Hashrate, Power, Shares, Temperature, Voltage,
 };
 
 #[cfg(test)]
@@ -110,6 +110,8 @@ pub enum Value {
     Shares(Shares),
     /// The difficulty of a share target.
     Difficulty(Difficulty),
+    /// A hashrate, shown in hashes per second.
+    Hashrate(Hashrate),
     /// A condition that holds or does not, shown as 1 or 0.
     Flag(bool),
     /// A number with no unit, such as a counter.
@@ -134,6 +136,7 @@ impl fmt::Display for Value {
             Self::Ratio(ratio) => ratio.fmt(f),
             Self::Shares(shares) => shares.get().fmt(f),
             Self::Difficulty(difficulty) => difficulty.get().fmt(f),
+            Self::Hashrate(hashrate) => hashrate.hps().fmt(f),
             Self::Flag(flag) => u8::from(*flag).fmt(f),
             Self::Count(count) => count.fmt(f),
         }
@@ -165,6 +168,7 @@ value_from_unit!(
     Ratio,
     Shares,
     Difficulty,
+    Hashrate,
 );
 
 /// A number with no unit, such as a counter.

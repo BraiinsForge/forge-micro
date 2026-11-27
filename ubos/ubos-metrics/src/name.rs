@@ -28,7 +28,7 @@
 use core::marker::PhantomData;
 
 use ubos_core::units::{
-    Current, Difficulty, FanPwm, FanRpm, Frequency, Power, Shares, Temperature, Voltage,
+    Current, Difficulty, FanPwm, FanRpm, Frequency, Hashrate, Power, Shares, Temperature, Voltage,
 };
 
 use crate::value::{Count, Flag, Ratio, Value};
@@ -53,11 +53,13 @@ const RATIO: &str = "_ratio";
 const SHARES: &str = "_shares";
 /// The suffix of a series of a target difficulty.
 const DIFFICULTY: &str = "_difficulty";
+/// The suffix of a hashrate series.
+const HPS: &str = "_hps";
 
 /// Every suffix that states the unit of a typed value. A name whose unit
 /// has no suffix must end in none of them.
-const UNIT_SUFFIXES: [&str; 8] = [
-    CELSIUS, VOLTS, WATTS, AMPERES, HERTZ, RATIO, SHARES, DIFFICULTY,
+const UNIT_SUFFIXES: [&str; 9] = [
+    CELSIUS, VOLTS, WATTS, AMPERES, HERTZ, RATIO, SHARES, DIFFICULTY, HPS,
 ];
 
 /// The endings that state a scaled unit or a percentage. A series is in
@@ -121,6 +123,10 @@ impl Unit for Shares {
 
 impl Unit for Difficulty {
     const SUFFIX: &'static str = DIFFICULTY;
+}
+
+impl Unit for Hashrate {
+    const SUFFIX: &'static str = HPS;
 }
 
 impl Unit for FanPwm {

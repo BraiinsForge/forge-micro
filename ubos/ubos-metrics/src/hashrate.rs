@@ -23,7 +23,7 @@
 
 use embassy_time::Instant;
 use portable_atomic::{AtomicBool, AtomicU64, Ordering};
-use ubos_core::units::Shares;
+use ubos_core::units::{Hashrate, Shares};
 
 #[cfg(test)]
 #[path = "tests/hashrate.rs"]
@@ -115,14 +115,14 @@ impl HashrateEstimator {
         shares
     }
 
-    /// Smoothed hashrate in H/s; zero until the first bucket finalizes.
+    /// Smoothed hashrate; zero until the first bucket finalizes.
     /// Decays read-side only once the current bucket is two buckets stale,
     /// and never writes back, so the single-writer invariant holds.
     #[must_use]
-    pub fn hashrate(&self) -> u64 {
+    pub fn hashrate(&self) -> Hashrate {
         let stored = self.ewma.load(Ordering::Relaxed);
         if stored == 0 || !self.bucket_primed.load(Ordering::Relaxed) {
-            return stored;
+            return Hashrate::from_hps(stored);
         }
 
         let bucket_start = self.bucket_start_ms.load(Ordering::Relaxed);
@@ -130,11 +130,11 @@ impl HashrateEstimator {
         let stale_ms = now_ms.saturating_sub(bucket_start);
 
         if stale_ms < 2 * BUCKET_MS {
-            return stored;
+            return Hashrate::from_hps(stored);
         }
 
         let missed = (stale_ms - BUCKET_MS) / BUCKET_MS;
-        decay_silent(stored, missed)
+        Hashrate::from_hps(decay_silent(stored, missed))
     }
 }
 
@@ -180,24 +180,6 @@ fn next_ewma(bucket_total: u64, elapsed_ms: u64, previous: u64) -> u64 {
     let delta = i128::from(bucket_rate) - i128::from(previous);
     let next = i128::from(previous) + (delta >> EWMA_ALPHA_SHIFT);
     u64::try_from(next.max(0)).unwrap_or(u64::MAX)
-}
-
-/// `Display` adapter for a hashrate: `"<n> H/s"` below 1 GH/s,
-/// `"<n>.<dd> GH/s"` above.
-pub struct HashrateDisplay(pub u64);
-
-impl core::fmt::Display for HashrateDisplay {
-    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        const ONE_GH: u64 = 1_000_000_000;
-        const HUNDREDTH_GH: u64 = ONE_GH / 100;
-        if self.0 >= ONE_GH {
-            let whole = self.0 / ONE_GH;
-            let hundredths = (self.0 % ONE_GH) / HUNDREDTH_GH;
-            write!(formatter, "{whole}.{hundredths:02} GH/s")
-        } else {
-            write!(formatter, "{} H/s", self.0)
-        }
-    }
 }
 
 /// Expected hashes behind one solution found against `target`, from the

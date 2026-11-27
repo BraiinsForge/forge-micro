@@ -24,7 +24,7 @@
 
 use ubos_asic::BMM101_HASHBOARD;
 use ubos_asic::bm13xx::registers::PllParameterReg;
-use ubos_core::units::{Frequency, Voltage};
+use ubos_core::units::{Frequency, Hashrate, Voltage};
 use ubos_psu::BmmPsuDescriptor;
 
 use super::FixedTarget;
@@ -45,7 +45,7 @@ fn walk_steps(from: FixedTarget, target: FixedTarget) -> heapless::Vec<(u32, u32
             chips: u16::from(BMM101_HASHBOARD.num_chips),
             frequency: from.frequency,
             hottest: None,
-            hashrate: 0,
+            hashrate: Hashrate::default(),
         })],
     };
     let mut steps = heapless::Vec::new();
@@ -249,7 +249,7 @@ fn a_new_target_restarts_a_completed_policy() {
             chips: u16::from(board.num_chips),
             frequency: safe,
             hottest: None,
-            hashrate: 0,
+            hashrate: Hashrate::default(),
         })],
     };
     let plan = tuner.step(target, &readings, &());
@@ -291,7 +291,7 @@ fn applied_voltage_takes_precedence_over_psu_samples() {
             chips: u16::from(board.num_chips),
             frequency: target.frequency,
             hottest: None,
-            hashrate: 0,
+            hashrate: Hashrate::default(),
         })],
     };
     let mut tuner = FixedTuner::new(board);
@@ -317,7 +317,7 @@ fn a_new_target_replaces_an_unfinished_transition() {
             chips: u16::from(board.num_chips),
             frequency: original.frequency,
             hottest: None,
-            hashrate: 0,
+            hashrate: Hashrate::default(),
         })],
     };
     let target = FixedTarget {
@@ -348,7 +348,7 @@ fn unequal_chains_converge_without_exceeding_the_shared_rail_power_ceiling() {
             chips: u16::from(board.num_chips),
             frequency,
             hottest: None,
-            hashrate: 0,
+            hashrate: Hashrate::default(),
         })
     };
     let mut readings = Readings {

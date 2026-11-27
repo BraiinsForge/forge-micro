@@ -26,7 +26,9 @@ extern crate std;
 
 use core::fmt::Write as _;
 
-use ubos_core::units::{Efficiency, FanPwm, FanRpm, Frequency, Power, Temperature, Voltage};
+use ubos_core::units::{
+    Efficiency, FanPwm, FanRpm, Frequency, Hashrate, Power, Temperature, Voltage,
+};
 
 use crate::ota::{MAX_BUILD_ID_LEN, OtaPhase, OtaWritePhase, ResetReason};
 use crate::rest::{API_INFO_BODY_BUFFER_SIZE, CONFIG_RESPONSE_BUFFER_SIZE};
@@ -58,7 +60,7 @@ fn api_info_body_fits_in_buffer() {
             state: ApiChainState::Unknown,
             chips: u16::MAX,
             frequency: Frequency::from_khz(u32::MAX),
-            hashrate: u64::MAX,
+            hashrate: Hashrate::from_hps(u64::MAX),
             hottest_c: Some(chain_hottest_c),
             pool: None,
         })
@@ -66,7 +68,7 @@ fn api_info_body_fits_in_buffer() {
 
     let info = ApiInfo {
         name: leaked("A", 42),
-        hashrate: u64::MAX,
+        hashrate: Hashrate::from_hps(u64::MAX),
         uptime: u64::MAX,
         fan_rpm: FanRpm::from_rpm(u32::MAX),
         fan_pwm: FanPwm::FULL,
@@ -201,7 +203,7 @@ fn api_info_body_fits_in_buffer() {
 fn api_info_without_ota_leaves_the_key_out() {
     let info = ApiInfo {
         name: "board",
-        hashrate: 0,
+        hashrate: Hashrate::default(),
         uptime: 0,
         fan_rpm: FanRpm::default(),
         fan_pwm: FanPwm::default(),

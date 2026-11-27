@@ -54,7 +54,7 @@ pub async fn run_miner_metrics_publisher(mining: MiningHandle, pool_slots: usize
                 .label(HASHBOARD_LABEL, chain)
                 .push()
                 .await;
-            metric!("hashrate_hps", Count(stats.hashrate()))
+            metric!("hashrate_hps", stats.hashrate())
                 .label(HASHBOARD_LABEL, chain)
                 .push()
                 .await;

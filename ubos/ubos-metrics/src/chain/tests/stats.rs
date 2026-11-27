@@ -185,7 +185,7 @@ fn handle_walks_no_slot_before_the_chain_count_is_published() {
     assert_eq!(handle.slots(), 3);
     assert_eq!(handle.chain_count(), 0);
     assert_eq!(handle.chains().count(), 0);
-    assert_eq!(handle.machine_hashrate(), 0);
+    assert_eq!(handle.machine_hashrate().hps(), 0);
     assert_eq!(handle.machine_share_count().get(), 0);
 }
 

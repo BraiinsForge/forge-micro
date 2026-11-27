@@ -21,7 +21,7 @@
 
 use embassy_time::Instant;
 use ubos_asic::BMM101_HASHBOARD;
-use ubos_core::units::{Efficiency, Frequency, Power, Voltage};
+use ubos_core::units::{Efficiency, Frequency, Hashrate, Power, Voltage};
 use ubos_psu::PsuReading;
 use ubos_tuner::{ChainReadings, Plan, Readings, Tuner};
 
@@ -52,7 +52,7 @@ fn safe_boot() -> Readings<1> {
             chips: u16::from(BMM101_HASHBOARD.num_chips),
             frequency: BMM101_HASHBOARD.chip.frequency_range.min(),
             hottest: None,
-            hashrate: 0,
+            hashrate: Hashrate::default(),
         })],
     }
 }

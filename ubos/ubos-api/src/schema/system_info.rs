@@ -21,7 +21,7 @@
 
 use heapless::String;
 use serde::Serialize;
-use ubos_core::units::{FanPwm, FanRpm, Frequency, Shares, Voltage};
+use ubos_core::units::{FanPwm, FanRpm, Frequency, Hashrate, Shares, Voltage};
 
 use crate::hw_info::{HashboardIds, HwString};
 use crate::schema::state::{ApiMiningState, ApiPauseReason};
@@ -126,7 +126,7 @@ pub struct SystemInfo<'response> {
     /// else `boardName`.
     pub hostname: &'response str,
     /// EWMA-smoothed mining rate in hashes per second.
-    pub hashrate: u64,
+    pub hashrate: Hashrate,
     /// Firmware uptime in whole seconds since boot.
     pub uptime_seconds: u64,
     /// Fan rotational speed; zero if no fan is present. The body carries

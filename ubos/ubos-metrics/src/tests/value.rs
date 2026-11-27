@@ -25,7 +25,7 @@ extern crate std;
 use std::string::{String, ToString};
 
 use ubos_core::units::{
-    Current, Difficulty, FanPwm, FanRpm, Frequency, Power, Shares, Temperature, Voltage,
+    Current, Difficulty, FanPwm, FanRpm, Frequency, Hashrate, Power, Shares, Temperature, Voltage,
 };
 
 use super::{Ratio, Value};
@@ -50,6 +50,7 @@ fn each_variant_displays_its_base_unit() {
     assert_eq!(shown(Ratio::new(1, 4)), "0.250");
     assert_eq!(shown(Shares::new(4_096)), "4096");
     assert_eq!(shown(Difficulty::new(8_192)), "8192");
+    assert_eq!(shown(Hashrate::from_hps(450_000_000_000)), "450000000000");
     assert_eq!(shown(Value::Flag(true)), "1");
     assert_eq!(shown(Value::Flag(false)), "0");
     assert_eq!(shown(Value::Count(1_234)), "1234");
@@ -78,6 +79,7 @@ fn the_widest_text_of_each_variant_fits_the_line_budget() {
         shown(Ratio::new(1, 1)),
         shown(Shares::new(u64::MAX)),
         shown(Difficulty::new(u64::MAX)),
+        shown(Hashrate::from_hps(u64::MAX)),
         shown(Value::Count(u64::MAX)),
     ];
     for text in widest {

@@ -27,7 +27,7 @@
 use heapless::{String, Vec};
 use serde::Serialize;
 use ubos_config::POOL_SLOTS;
-use ubos_core::units::{FanPwm, FanRpm, Frequency, Power, Temperature, Voltage};
+use ubos_core::units::{FanPwm, FanRpm, Frequency, Hashrate, Power, Temperature, Voltage};
 use ubos_metrics::chain::{ChainStats, MAX_CHAINS};
 
 use crate::hw_info::HwString;
@@ -45,7 +45,7 @@ pub struct ApiInfo {
     /// The control board's product name.
     pub name: &'static str,
     /// Sum of every chain's smoothed hashrate in hashes per second.
-    pub hashrate: u64,
+    pub hashrate: Hashrate,
     /// Firmware uptime in whole seconds since boot.
     pub uptime: u64,
     /// Fan speed, or zero where no fan reports. The body carries it as
@@ -147,7 +147,7 @@ pub struct ApiInfoChain {
     #[serde(rename = "frequency_khz")]
     pub frequency: Frequency,
     /// The chain's smoothed hashrate in hashes per second.
-    pub hashrate: u64,
+    pub hashrate: Hashrate,
     /// The chain's hottest die in whole degrees Celsius, or `null` before
     /// a reading lands.
     pub hottest_c: Option<i32>,

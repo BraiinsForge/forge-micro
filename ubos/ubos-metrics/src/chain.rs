@@ -49,7 +49,7 @@
 use crate::hashrate::HashrateEstimator;
 use portable_atomic::{AtomicI32, AtomicU8, AtomicU16, AtomicU32, AtomicU64, Ordering};
 use ubos_core::index::HashboardIndex;
-use ubos_core::units::{Frequency, Shares, Temperature, Voltage};
+use ubos_core::units::{Frequency, Hashrate, Shares, Temperature, Voltage};
 
 pub mod presence;
 
@@ -134,7 +134,7 @@ impl ChainStats {
 
     /// See [`HashrateEstimator::hashrate`].
     #[must_use]
-    pub fn hashrate(&self) -> u64 {
+    pub fn hashrate(&self) -> Hashrate {
         self.hashrate.hashrate()
     }
 
@@ -327,9 +327,10 @@ impl ChainStatsHandle {
 
     /// Saturating sum over the wired chains.
     #[must_use]
-    pub fn machine_hashrate(&self) -> u64 {
-        self.chains()
-            .fold(0u64, |total, chain| total.saturating_add(chain.hashrate()))
+    pub fn machine_hashrate(&self) -> Hashrate {
+        self.chains().fold(Hashrate::default(), |total, chain| {
+            total.saturating_add(chain.hashrate())
+        })
     }
 
     /// Saturating sum over the wired chains.
