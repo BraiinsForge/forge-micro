@@ -216,6 +216,7 @@ let
     test-ubos-eeprom.crate = "ubos-eeprom";
     test-embedded-i2c-unix.crate = "embedded-i2c-unix";
     test-ubos-auth.crate = "ubos-auth";
+    test-ubos-build.crate = "ubos-build";
     test-ubos-metrics.crate = "ubos-metrics";
     test-ubos-mining.crate = "ubos-mining";
     test-stratum-v1.crate = "stratum-v1";

@@ -77,7 +77,11 @@ rec {
   };
 
   inherit buildIdEnv;
-  buildId = buildIdEnv.UBOS_BUILD_ID;
+  buildId =
+    buildIdEnv.UBOS_BUILD_COMMIT
+    + (if buildIdEnv.UBOS_BUILD_DIRTY == "" then "" else "-dirty")
+    + "-"
+    + buildIdEnv.UBOS_BUILD_STAMP;
 
   # Points ubos-webui's build.rs at the hermetic Rsbuild output so the
   # crate check never runs `npm` in the offline sandbox. build.rs reads

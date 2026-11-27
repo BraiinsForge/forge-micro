@@ -76,10 +76,17 @@ pub fn copy_memory_x() {
     println!("cargo:rerun-if-changed={MEMORY_X}");
 }
 
-/// The variable that hands a build its whole id, for a build with no
-/// `.git` to read. The nix image builds set it from the flake's revision
-/// and its last-modified date.
-const BUILD_ID_ENV: &str = "UBOS_BUILD_ID";
+/// The variables that hand a build the parts of its id, for a build with
+/// no `.git` to read. The nix image builds set them from the flake's
+/// revision, its dirty state and its last-modified date. A non-empty dirty
+/// variable marks a dirty tree.
+const BUILD_COMMIT_ENV: &str = "UBOS_BUILD_COMMIT";
+const BUILD_DIRTY_ENV: &str = "UBOS_BUILD_DIRTY";
+const BUILD_STAMP_ENV: &str = "UBOS_BUILD_STAMP";
+
+/// The longest commit or stamp an override may hold. The metrics store
+/// carries both as label values, which bound them.
+const MAX_PART_LEN: usize = 12;
 
 /// The directories of this tree, relative to its root, whose sources reach
 /// a board image. A change under any of them re-runs the board's build
@@ -107,22 +114,40 @@ pub fn open_board_build_id() {
 }
 
 /// Stamp a build id into the `BUILD_ID` variable the boot banner, the REST
-/// API and the package name read: the tip of the whole checkout and the
-/// UTC time this script last ran, `<hash>[-dirty]-<yymmddHHMMSS>`. The tip
-/// is the superproject's when the tree is a submodule of one, because that
-/// commit names every source the build used.
+/// API and the package name read, and its two parts into `BUILD_COMMIT`
+/// and `BUILD_STAMP`, which the metrics read as labels. The id is the tip
+/// of the whole checkout and the UTC time this script last ran,
+/// `<hash>[-dirty]-<yymmddHHMMSS>`. The tip is the superproject's when the
+/// tree is a submodule of one, because that commit names every source the
+/// build used. [`BUILD_COMMIT_ENV`] and [`BUILD_STAMP_ENV`] replace the two
+/// parts and must be set together, and [`BUILD_DIRTY_ENV`] replaces the
+/// dirty marker.
 ///
 /// Cargo re-runs a build script only for the inputs it names, so `sources`
 /// must name every directory whose sources reach the image, and the log of
 /// the tip's `HEAD` is named too because a commit moves the tip without
 /// touching a source.
+///
+/// # Panics
+///
+/// When only one of [`BUILD_COMMIT_ENV`] and [`BUILD_STAMP_ENV`] is set,
+/// or when either holds more than 12 bytes.
 pub fn build_id<P: AsRef<Path>>(sources: &[P]) {
-    println!("cargo:rerun-if-env-changed={BUILD_ID_ENV}");
-    if let Ok(id) = std::env::var(BUILD_ID_ENV)
-        && !id.is_empty()
-    {
-        println!("cargo:rustc-env=BUILD_ID={id}");
-        return;
+    for var in [BUILD_COMMIT_ENV, BUILD_DIRTY_ENV, BUILD_STAMP_ENV] {
+        println!("cargo:rerun-if-env-changed={var}");
+    }
+    let set = |var| std::env::var(var).ok().filter(|value| !value.is_empty());
+    match (set(BUILD_COMMIT_ENV), set(BUILD_STAMP_ENV)) {
+        (Some(commit), Some(stamp)) => {
+            assert!(
+                commit.len() <= MAX_PART_LEN && stamp.len() <= MAX_PART_LEN,
+                "{BUILD_COMMIT_ENV} and {BUILD_STAMP_ENV} hold at most {MAX_PART_LEN} bytes each"
+            );
+            emit(&commit, set(BUILD_DIRTY_ENV).is_some(), &stamp);
+            return;
+        }
+        (None, None) => {}
+        _ => panic!("set both {BUILD_COMMIT_ENV} and {BUILD_STAMP_ENV}, or neither"),
     }
     for dir in sources {
         println!("cargo:rerun-if-changed={}", dir.as_ref().display());
@@ -153,10 +178,28 @@ pub fn build_id<P: AsRef<Path>>(sources: &[P]) {
         "git",
         &["status", "--porcelain", "--untracked-files=no"],
     )
-    .map_or("", |_| "-dirty");
+    .is_some();
     let stamp =
         run(None, "date", &["-u", "+%y%m%d%H%M%S"]).unwrap_or_else(|| "000000000000".into());
-    println!("cargo:rustc-env=BUILD_ID={hash}{dirty}-{stamp}");
+    emit(&hash, dirty, &stamp);
+}
+
+/// Write the cargo directives that stamp the build id and its two parts.
+/// The id keeps the dirty marker, and the parts do not carry it.
+fn emit(commit: &str, dirty: bool, stamp: &str) {
+    for directive in directives(commit, dirty, stamp) {
+        println!("{directive}");
+    }
+}
+
+/// The cargo directives for the parts of a build id.
+fn directives(commit: &str, dirty: bool, stamp: &str) -> [String; 3] {
+    let marker = if dirty { "-dirty" } else { "" };
+    [
+        format!("cargo:rustc-env=BUILD_COMMIT={commit}"),
+        format!("cargo:rustc-env=BUILD_STAMP={stamp}"),
+        format!("cargo:rustc-env=BUILD_ID={commit}{marker}-{stamp}"),
+    ]
 }
 
 /// Run a command in `dir`, or in the build script's own directory when it
@@ -223,4 +266,24 @@ fn linker_be_nice() {
             .expect("BUG: failed to get build script path")
             .display()
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::directives;
+
+    /// The commit is 12 characters and the stamp is 12 digits, and the id
+    /// is built from the two with the dirty marker between them.
+    #[test]
+    fn parts_and_id_agree() {
+        let [commit, stamp, id] = directives("0123456789ab", true, "261127101500");
+        assert_eq!(commit, "cargo:rustc-env=BUILD_COMMIT=0123456789ab");
+        assert_eq!(stamp, "cargo:rustc-env=BUILD_STAMP=261127101500");
+        assert_eq!(
+            id,
+            "cargo:rustc-env=BUILD_ID=0123456789ab-dirty-261127101500"
+        );
+        let [_, _, clean] = directives("0123456789ab", false, "261127101500");
+        assert_eq!(clean, "cargo:rustc-env=BUILD_ID=0123456789ab-261127101500");
+    }
 }

@@ -71,19 +71,21 @@
       rostnix,
     }@inputs:
     let
-      # The build id an image carries, handed whole to ubos-build's build
-      # script through UBOS_BUILD_ID, because the sandbox has no .git to
-      # read. It takes the form a dev build stamps: 12 characters of the
-      # revision, a dirty marker, and the last-modified time in UTC.
-      buildIdEnv = {
-        UBOS_BUILD_ID =
-          let
-            rev = self.rev or self.dirtyRev or null;
-            hash = if rev == null then "nogit" else builtins.substring 0 12 rev;
-            dirty = if self ? dirtyRev then "-dirty" else "";
-          in
-          "${hash}${dirty}-${builtins.substring 2 12 self.lastModifiedDate}";
-      };
+      # The parts of the build id an image carries, handed to ubos-build's
+      # build script through UBOS_BUILD_COMMIT, UBOS_BUILD_DIRTY and
+      # UBOS_BUILD_STAMP, because the sandbox has no .git to read. They
+      # are 12 characters of the revision, a marker that is set for a
+      # dirty tree, and the last-modified time in UTC. The id they make
+      # is the form a dev build stamps.
+      buildIdEnv =
+        let
+          rev = self.rev or self.dirtyRev or null;
+        in
+        {
+          UBOS_BUILD_COMMIT = if rev == null then "nogit" else builtins.substring 0 12 rev;
+          UBOS_BUILD_DIRTY = if self ? dirtyRev then "1" else "";
+          UBOS_BUILD_STAMP = builtins.substring 2 12 self.lastModifiedDate;
+        };
 
       # probe-rs tooling: the patched build and the overlay exposing
       # it plus the probe-rs-runner wrapper. A downstream repo
