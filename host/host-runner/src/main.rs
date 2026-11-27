@@ -113,6 +113,12 @@ type MetricsService =
 
 ubos_metrics::metrics_statics!(METRICS_STATICS, MAX_METRICS, METRICS_RESPONSE_BYTES);
 
+/// The request counters of the two listeners, one for each pool.
+static HTTP_REQUESTS: ubos_http::RequestCounter =
+    ubos_http::RequestCounter::new(ubos_http::consts::Http::PORT);
+static METRICS_REQUESTS: ubos_http::RequestCounter =
+    ubos_http::RequestCounter::new(ubos_prometheus::Prometheus::PORT);
+
 ubos_http::http_worker_task!(http_worker_task, HttpService, HTTP_POOL);
 ubos_http::http_worker_task!(metrics_worker_task, MetricsService, METRICS_HTTP_POOL);
 
@@ -238,6 +244,7 @@ async fn serve_http_task(
                 acceptor,
                 buffer,
                 service,
+                &HTTP_REQUESTS,
                 ubos_http::consts::Http::SOCKET_TIMEOUT,
                 ubos_http::consts::Http::IDLE_TIMEOUT,
             )
@@ -603,6 +610,7 @@ fn main() {
                     metrics_acceptor,
                     buffer,
                     metrics_service,
+                    &METRICS_REQUESTS,
                     ubos_prometheus::Prometheus::SOCKET_TIMEOUT,
                     ubos_prometheus::Prometheus::IDLE_TIMEOUT,
                 )

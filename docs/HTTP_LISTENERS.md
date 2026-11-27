@@ -33,6 +33,13 @@ method, path, and tracked headers from that one `RequestParts` value
 instead of copying them out again, and `PrefixRouter` routes on
 `parts.path` rather than a second borrow of the connection.
 
+Each worker counts every request that it serves on the counter of its
+pool, a `ubos_http::RequestCounter` that `serve_http_pool!` declares for
+the port. The first worker to claim the export joins a loop to its accept
+loop, and the loop pushes the count each second as the series
+`http_requests{port}`. The metrics port is counted too. See
+`docs/METRICS.md`, "State series".
+
 The allow-list, authentication, and CSRF sequencing that used to be
 copied into each handler now lives in `ubos_auth::gate`. A caller passes
 `gate_identity` the peer address, the `Authorization` and `Cookie`

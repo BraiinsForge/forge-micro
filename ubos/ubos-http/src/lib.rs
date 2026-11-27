@@ -28,6 +28,7 @@ pub mod consts;
 #[path = "tests/mock_socket.rs"]
 mod mock_socket;
 pub mod request;
+pub mod requests;
 pub mod response;
 pub mod router;
 pub mod serve;
@@ -40,6 +41,7 @@ pub use core::net::IpAddr;
 pub use edge_nal_embassy::{Tcp, TcpAccept, TcpBuffers};
 pub use embassy_time::Duration;
 pub use request::{RequestParts, extract_request_parts};
+pub use requests::RequestCounter;
 pub use response::{
     CONTENT_LENGTH_DECIMAL_DIGITS, MAX_EXTRA_STATUS_HEADERS, MAX_RESPONSE_HEADERS,
     format_content_length, read_body, start_response, write_json_response, write_message,

@@ -4456,9 +4456,11 @@ dependencies = [
  "embassy-time",
  "embedded-io-async 0.7.0",
  "heapless 0.9.4",
+ "portable-atomic",
  "static_cell",
  "ubos-core",
  "ubos-logging",
+ "ubos-metrics",
 ]
 
 [[package]]

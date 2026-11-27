@@ -75,6 +75,12 @@ The last call of `ttl`, `state` and `constant` wins.
 to the sync loop, so the series exist before the DHCP lease does, and no
 board has a spawn line for them.
 
+`ubos-http` serves every request, so it counts each one once. A pool has
+one counter, and `serve_http_pool!` declares it. The first worker of the
+pool joins the export loop to its accept loop. The label `port` names the
+listener, and the requests of the metrics port are counted too. A request
+count is at most one interval old at a scrape.
+
 ### Expiry
 
 A series leaves the exposition when its publisher stops pushing it. The

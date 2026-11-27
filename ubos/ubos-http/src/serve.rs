@@ -23,12 +23,14 @@
 //! `http_worker_task!`. Per-worker state lives in each task's own
 //! storage, so a pool that does not fit fails the link, not the board.
 
+use core::convert::Infallible;
 use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use edge_http::io::Error as HttpError;
 use edge_http::io::server::Connection;
 use edge_nal::{Close, TcpAccept as _, TcpBind as _, TcpShutdown as _};
 use edge_nal_embassy::{Tcp, TcpAccept};
+use embassy_futures::join::join;
 use embassy_time::{Duration, with_timeout};
 use embedded_io_async::{Read, Write};
 use ubos_logging::{Debug2Format, warn};
@@ -36,6 +38,7 @@ use ubos_logging::{Debug2Format, warn};
 use edge_nal::TcpSplit;
 
 use crate::request::RequestParts;
+use crate::requests::RequestCounter;
 
 #[cfg(test)]
 #[path = "tests/serve.rs"]
@@ -91,9 +94,38 @@ pub async fn bind_tcp(tcp: &'static Tcp<'static>, port: u16) -> TcpAccept<'stati
     tcp.bind(bind_addr).await.expect("BUG: TCP bind failed")
 }
 
-/// One accept-loop worker. A connection stays alive across requests
-/// until a response sends `Connection: close`, the peer idles past
-/// `idle_timeout`, or the request fails to parse.
+/// One worker of a pool. It counts each request it serves on `counter`,
+/// and the first worker of the pool also exports the count. The export
+/// is joined to the accept loop, so a long request does not stop it.
+pub async fn serve_worker<S>(
+    acceptor: TcpAccept<'static>,
+    parse_buffer: &'static mut [u8],
+    service: &'static S,
+    counter: &'static RequestCounter,
+    socket_timeout: Duration,
+    idle_timeout: Duration,
+) -> !
+where
+    S: Service,
+{
+    let accepting = accept_loop(
+        acceptor,
+        parse_buffer,
+        service,
+        counter,
+        socket_timeout,
+        idle_timeout,
+    );
+    match if counter.claim_export() {
+        join(accepting, counter.export()).await.0
+    } else {
+        accepting.await
+    } {}
+}
+
+/// The accept loop of one worker. A connection stays alive across
+/// requests until a response sends `Connection: close`, the peer idles
+/// past `idle_timeout`, or the request fails to parse.
 ///
 /// The exchange is driven here instead of by edge-http's
 /// `handle_connection` so the two waits carry separate bounds:
@@ -101,13 +133,14 @@ pub async fn bind_tcp(tcp: &'static Tcp<'static>, port: u16) -> TcpAccept<'stati
 /// freeze as long as bytes keep arriving, and `idle_timeout` bounds the
 /// wait for headers, so an abandoned browser socket frees its worker
 /// fast. One value cannot do both.
-pub async fn serve_worker<S>(
+async fn accept_loop<S>(
     mut acceptor: TcpAccept<'static>,
     parse_buffer: &'static mut [u8],
     service: &'static S,
+    counter: &RequestCounter,
     socket_timeout: Duration,
     idle_timeout: Duration,
-) -> !
+) -> Infallible
 where
     S: Service,
 {
@@ -129,6 +162,7 @@ where
                 &mut *parse_buffer,
                 &mut socket,
                 service,
+                counter,
                 peer_addr.ip(),
                 idle_timeout,
             )
@@ -181,6 +215,7 @@ async fn serve_one<S, T>(
     parse_buffer: &mut [u8],
     socket: T,
     service: &S,
+    counter: &RequestCounter,
     peer_ip: IpAddr,
     idle_timeout: Duration,
 ) -> Result<bool, Ended>
@@ -201,6 +236,9 @@ where
         }
         _ => return Err(Ended::Reset),
     };
+
+    // The headers parsed, so the request counts whatever its response does.
+    counter.record();
 
     // The extraction cannot fail straight after `new`, but the client is
     // owed a response either way, so it gets the 500.
@@ -270,7 +308,7 @@ pub fn split_work_buffer<const N: usize>(
 /// // Then in async main:
 /// for chunk in work_chunks {
 ///     spawner.spawn(unwrap!(metrics_worker_task(
-///         acceptor, chunk, service,
+///         acceptor, chunk, service, counter,
 ///         ubos_prometheus::Prometheus::SOCKET_TIMEOUT,
 ///         ubos_prometheus::Prometheus::IDLE_TIMEOUT,
 ///     )));
@@ -284,6 +322,7 @@ macro_rules! http_worker_task {
             acceptor: $crate::TcpAccept<'static>,
             parse_buffer: &'static mut [u8],
             service: &'static $service_type,
+            counter: &'static $crate::RequestCounter,
             socket_timeout: $crate::Duration,
             idle_timeout: $crate::Duration,
         ) -> ! {
@@ -291,6 +330,7 @@ macro_rules! http_worker_task {
                 acceptor,
                 parse_buffer,
                 service,
+                counter,
                 socket_timeout,
                 idle_timeout,
             )
@@ -328,6 +368,9 @@ macro_rules! serve_http_pool {
             [u8; <$consts>::REQUEST_BUFFER_SIZE * $pool],
         > = $crate::ConstStaticCell::new([0; <$consts>::REQUEST_BUFFER_SIZE * $pool]);
 
+        static COUNTER: $crate::RequestCounter =
+            $crate::RequestCounter::new(<$consts>::PORT);
+
         let tcp: &'static $crate::Tcp<'static> =
             TCP_NAL.init($crate::Tcp::new($stack, TCP_BUFFERS.take()));
         let acceptor = $crate::bind_tcp(tcp, <$consts>::PORT).await;
@@ -335,17 +378,17 @@ macro_rules! serve_http_pool {
             $crate::split_work_buffer::<{ $pool }>(WORK.take(), <$consts>::REQUEST_BUFFER_SIZE);
         for buffer in buffers {
             $crate::serve_http_pool!(
-                @spawn $mode; $spawner, $worker, acceptor, buffer, $service,
+                @spawn $mode; $spawner, $worker, acceptor, buffer, $service, &COUNTER,
                 <$consts>::SOCKET_TIMEOUT, <$consts>::IDLE_TIMEOUT
             );
         }
     }};
-    (@spawn spawn; $spawner:expr, $worker:ident, $acceptor:expr, $buffer:expr, $service:expr, $timeout:expr, $idle:expr) => {
+    (@spawn spawn; $spawner:expr, $worker:ident, $acceptor:expr, $buffer:expr, $service:expr, $counter:expr, $timeout:expr, $idle:expr) => {
         $spawner.spawn(::defmt::unwrap!($worker(
-            $acceptor, $buffer, $service, $timeout, $idle
+            $acceptor, $buffer, $service, $counter, $timeout, $idle
         )))
     };
-    (@spawn must_spawn; $spawner:expr, $worker:ident, $acceptor:expr, $buffer:expr, $service:expr, $timeout:expr, $idle:expr) => {
-        $spawner.must_spawn($worker($acceptor, $buffer, $service, $timeout, $idle))
+    (@spawn must_spawn; $spawner:expr, $worker:ident, $acceptor:expr, $buffer:expr, $service:expr, $counter:expr, $timeout:expr, $idle:expr) => {
+        $spawner.must_spawn($worker($acceptor, $buffer, $service, $counter, $timeout, $idle))
     };
 }

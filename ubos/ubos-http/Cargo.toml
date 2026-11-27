@@ -9,22 +9,24 @@ workspace = true
 
 [features]
 default = ["defmt"]
-defmt   = ["dep:defmt", "ubos-logging/defmt", "edge-http/defmt", "edge-nal-embassy/defmt"]
+defmt   = ["dep:defmt", "ubos-logging/defmt", "edge-http/defmt", "edge-nal-embassy/defmt", "ubos-metrics/defmt"]
 
 [dependencies]
 edge-http         = { workspace = true, features = ["io"] }
 edge-nal          = { workspace = true }
 edge-nal-embassy  = { workspace = true, features = ["tcp", "proto-ipv4", "medium-ethernet"] }
+embassy-futures   = { workspace = true }
 embassy-time      = { workspace = true }
 embedded-io-async = { workspace = true }
 heapless          = { workspace = true }
+portable-atomic   = { workspace = true }
 static_cell       = { workspace = true }
 defmt             = { workspace = true, optional = true }
 ubos-core         = { workspace = true }
 ubos-logging      = { workspace = true }
+ubos-metrics      = { workspace = true, default-features = false }
 
 [dev-dependencies]
-embassy-futures   = { workspace = true }
 embassy-time      = { workspace = true, features = ["std", "generic-queue-8"] }
 
 [package.metadata.cargo-machete]

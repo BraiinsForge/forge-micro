@@ -31,6 +31,7 @@ use super::{BAD_FRAMING_RESPONSE, Ended, Service, serve_one};
 use crate::consts::Http;
 use crate::mock_socket::{MockSocket, PEER_IP};
 use crate::request::RequestParts;
+use crate::requests::RequestCounter;
 
 /// A handler for requests that must be refused before one runs.
 struct Unreachable;
@@ -59,6 +60,7 @@ fn a_content_length_that_is_not_a_number_is_refused_with_a_400() {
         &mut parse_buffer,
         &mut socket,
         &Unreachable,
+        &RequestCounter::new(80),
         PEER_IP,
         Http::IDLE_TIMEOUT,
     ));
