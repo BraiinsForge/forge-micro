@@ -28,6 +28,8 @@
 #![no_std]
 
 pub mod boot;
+pub mod cpu_load;
+pub mod executor;
 pub mod fan;
 pub mod i2c;
 pub mod pio_tach;
@@ -35,6 +37,7 @@ pub mod rgb;
 pub mod uart;
 
 mod core1;
+mod cpu_idle;
 mod fault;
 mod reset;
 mod watchdog;

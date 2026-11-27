@@ -39,7 +39,7 @@
 ///     irqs = Irqs,
 ///     uart = (hw.uart, hw.uart_tx, hw.uart_rx),
 ///     run = |miner_serial| {
-///         ubos_metrics::cpu_load::run_cortex_m_executor::<1, _>(|spawner: Spawner| {
+///         ubos_rp::executor::run_cortex_m_executor::<1, _>(|spawner: Spawner| {
 ///             spawner.spawn(unwrap!(mining::serial_task(
 ///                 &mining::CHAINS[0],
 ///                 &PARK,

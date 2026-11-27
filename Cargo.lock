@@ -4597,6 +4597,7 @@ dependencies = [
  "cortex-m-rt",
  "defmt 1.2.0",
  "embassy-embedded-hal",
+ "embassy-executor",
  "embassy-net-wiznet",
  "embassy-rp",
  "embassy-sync 0.8.0",
@@ -4604,12 +4605,15 @@ dependencies = [
  "embedded-hal 1.0.0",
  "embedded-hal-async",
  "embedded-io-async 0.7.0",
+ "portable-atomic",
  "serial-baudrate",
  "smart-leds",
+ "static_cell",
  "ubos-api",
  "ubos-cooling",
  "ubos-core",
  "ubos-led",
+ "ubos-metrics",
  "ubos-ota",
 ]
 

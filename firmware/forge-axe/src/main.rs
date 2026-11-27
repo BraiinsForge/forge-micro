@@ -171,10 +171,7 @@ ubos_config::config_task!(
 
 ubos_cooling::cooling_task!(emc2302_1::Fan<i2c::Device>, emc2302_1::Tach<i2c::Device>);
 
-#[embassy_executor::task]
-async fn cpu_load_task() -> ! {
-    ubos_metrics::cpu_load::run_cpu_load::<2>().await
-}
+ubos_rp::cpu_load_task!(2);
 
 ubos_mining::miner_metrics_task!(POOL_SLOTS);
 
@@ -234,7 +231,7 @@ async fn stratum_client_task(
 
 #[cortex_m_rt::entry]
 fn main() -> ! {
-    ubos_metrics::cpu_load::run_cortex_m_executor::<0, _>(|spawner| {
+    ubos_rp::executor::run_cortex_m_executor::<0, _>(|spawner| {
         spawner.spawn(unwrap!(boot(spawner)));
     })
 }
@@ -367,7 +364,7 @@ async fn boot(spawner: Spawner) {
         irqs = Irqs,
         uart = (hw.uart, hw.uart_tx, hw.uart_rx),
         run = |miner_serial| {
-            ubos_metrics::cpu_load::run_cortex_m_executor::<1, _>(|core1_spawner: Spawner| {
+            ubos_rp::executor::run_cortex_m_executor::<1, _>(|core1_spawner: Spawner| {
                 core1_spawner.spawn(unwrap!(mining::serial_task(
                     &mining::CHAINS[0],
                     &PARK,

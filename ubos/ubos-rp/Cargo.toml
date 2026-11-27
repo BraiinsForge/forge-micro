@@ -17,12 +17,16 @@ workspace = true
 ubos-core = { workspace = true }
 ubos-led  = { workspace = true }
 ubos-cooling = { workspace = true }
+ubos-metrics = { workspace = true }
 ubos-api = { workspace = true, features = ["defmt"] }
 ubos-ota = { workspace = true, features = ["defmt", "rp"] }
 serial-baudrate = { workspace = true }
 embedded-io-async = { workspace = true }
 embassy-time = { workspace = true }
 embassy-sync = { workspace = true }
+embassy-executor = { workspace = true }
+static_cell = { workspace = true }
+portable-atomic = { workspace = true }
 embassy-embedded-hal = { version = "0.6.0", default-features = false }
 defmt = { workspace = true }
 
