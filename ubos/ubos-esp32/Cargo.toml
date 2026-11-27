@@ -22,6 +22,7 @@ embassy-sync = { workspace = true, features = ["defmt"] }
 embassy-embedded-hal = { version = "0.6.0", default-features = false, features = ["defmt"] }
 defmt = { workspace = true }
 static_cell = { workspace = true }
+portable-atomic = { workspace = true }
 tca9554 = { workspace = true, features = ["defmt"] }
 
 # The crate is ESP32-S3-only, so the chip feature is pinned here rather

@@ -100,10 +100,7 @@ async fn mdns_task(stack: embassy_net::Stack<'static>, hostname: &'static str) -
     .await
 }
 
-#[embassy_executor::task]
-async fn cpu_load_task() -> ! {
-    ubos_metrics::cpu_load::run_cpu_load::<2>().await
-}
+ubos_esp32::cpu_load_task!(2);
 
 ubos_mining::pool_weights_task!(&mining::CHAINS);
 

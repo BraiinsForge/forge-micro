@@ -35,7 +35,7 @@ impl<const CPU_INDEX: usize> IdleAccounting<CPU_INDEX> {
     pub const fn new() -> Self {
         const {
             assert!(
-                CPU_INDEX < ubos_metrics::cpu_load::MAX_CPUS,
+                CPU_INDEX < crate::cpu_idle::MAX_CPUS,
                 "CPU_INDEX exceeds MAX_CPUS"
             );
         }
@@ -53,7 +53,7 @@ impl<const CPU_INDEX: usize> Callbacks for IdleAccounting<CPU_INDEX> {
     fn before_poll(&mut self) {
         if let Some(start) = self.idle_start.take() {
             let elapsed = (Instant::now() - start).as_ticks();
-            ubos_metrics::cpu_load::record_idle(CPU_INDEX, elapsed);
+            crate::cpu_idle::record_idle(CPU_INDEX, elapsed);
         }
     }
 

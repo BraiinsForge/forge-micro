@@ -24,6 +24,7 @@
 
 #![no_std]
 
+pub mod cpu_load;
 pub mod expander;
 pub mod fan;
 pub mod i2c;
@@ -31,6 +32,7 @@ pub mod uart;
 pub mod watchdog;
 
 mod core1;
+mod cpu_idle;
 mod idle;
 mod reset;
 mod ring;
