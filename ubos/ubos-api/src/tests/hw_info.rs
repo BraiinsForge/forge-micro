@@ -27,7 +27,7 @@ fn publish_and_read_round_trip_each_cell() {
     let fan: HwString = "12.34.56 build 777".parse().expect("BUG: fits in HwString");
     let product: HwString = "Example Miner 1".parse().expect("BUG: fits in HwString");
     let brand: HwString = "Example Brand".parse().expect("BUG: fits in HwString");
-    let nominal: u64 = 175_000_000_000_000;
+    let nominal = Hashrate::from_hps(175_000_000_000_000);
     let mut ids: HashboardIds = Vec::new();
     ids.push(Some("SERIAL0".parse().expect("BUG: fits in HwString")))
         .expect("BUG: fits in HashboardIds");

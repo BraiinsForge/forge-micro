@@ -94,7 +94,7 @@ fn api_info_body_fits_in_buffer() {
                 .parse()
                 .expect("BUG: fills HwString exactly"),
         ),
-        nominal_hashrate: Some(u64::MAX),
+        nominal_hashrate: Some(Hashrate::from_hps(u64::MAX)),
         ota: Some(ApiInfoOta {
             running_slot: "INACTIVE",
             running_version: u32::MAX,

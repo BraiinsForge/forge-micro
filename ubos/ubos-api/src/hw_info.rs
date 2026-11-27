@@ -33,6 +33,7 @@
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::Watch;
 use heapless::{String, Vec};
+use ubos_core::units::Hashrate;
 
 #[cfg(test)]
 #[path = "tests/hw_info.rs"]
@@ -49,7 +50,7 @@ static BOOTLOADER_VERSION: Watch<CriticalSectionRawMutex, HwString, 1> = Watch::
 static FAN_CONTROLLER_VERSION: Watch<CriticalSectionRawMutex, HwString, 1> = Watch::new();
 static PRODUCT_NAME: Watch<CriticalSectionRawMutex, HwString, 1> = Watch::new();
 static BRAND_NAME: Watch<CriticalSectionRawMutex, HwString, 1> = Watch::new();
-static NOMINAL_HASHRATE: Watch<CriticalSectionRawMutex, u64, 1> = Watch::new();
+static NOMINAL_HASHRATE: Watch<CriticalSectionRawMutex, Hashrate, 1> = Watch::new();
 
 /// Per-slot hashboard serials, indexed by physical chain. A board with
 /// fewer chains leaves the tail empty.
@@ -96,14 +97,14 @@ pub(crate) fn brand_name() -> Option<HwString> {
     BRAND_NAME.try_get()
 }
 
-/// Publishes the hashrate the machine's maker rates it at, in hashes per
-/// second, so an operator can hold what the machine mines against its
-/// sticker. Called once at boot.
-pub fn publish_nominal_hashrate(hashes_per_second: u64) {
-    NOMINAL_HASHRATE.sender().send(hashes_per_second);
+/// Publishes the hashrate the machine's maker rates it at, so an
+/// operator can hold what the machine mines against its sticker. Called
+/// once at boot.
+pub fn publish_nominal_hashrate(nominal: Hashrate) {
+    NOMINAL_HASHRATE.sender().send(nominal);
 }
 
-pub(crate) fn nominal_hashrate() -> Option<u64> {
+pub(crate) fn nominal_hashrate() -> Option<Hashrate> {
     NOMINAL_HASHRATE.try_get()
 }
 

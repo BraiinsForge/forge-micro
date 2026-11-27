@@ -75,7 +75,7 @@ pub struct HwInfo {
     /// The hashrate the machine's maker rates it at, in hashes per
     /// second, or `null` before the boot-time read publishes it and on
     /// boards that publish none.
-    pub nominal_hashrate: Option<u64>,
+    pub nominal_hashrate: Option<Hashrate>,
     /// Bootloader CRC-32 fingerprint as 8-char lowercase hex, or `null`
     /// before the boot-time capture runs or on boards that do not
     /// publish one.

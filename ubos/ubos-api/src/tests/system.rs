@@ -759,7 +759,7 @@ fn system_info_hw_info_serializes_published_versions() {
     let hw_info = crate::schema::system_info::HwInfo {
         brand_name: Some("Example Brand".parse().expect("BUG: fits in HwString")),
         product_name: Some("Example Miner 1".parse().expect("BUG: fits in HwString")),
-        nominal_hashrate: Some(175_000_000_000_000),
+        nominal_hashrate: Some(Hashrate::from_hps(175_000_000_000_000)),
         bootloader_version: Some("deadbeef".parse().expect("BUG: fits in HwString")),
         fan_controller_version: Some("12.34.56 build 777".parse().expect("BUG: fits in HwString")),
         psu_model: Some("PSU3300 rev a".parse().expect("BUG: fits in HwString")),
@@ -826,7 +826,7 @@ fn worst_case_system_info_fits_the_scratch_buffer() {
                 .parse()
                 .expect("BUG: fills HwString exactly"),
         ),
-        nominal_hashrate: Some(u64::MAX),
+        nominal_hashrate: Some(Hashrate::from_hps(u64::MAX)),
         bootloader_version: Some(max_string.clone()),
         fan_controller_version: Some(max_string.clone()),
         psu_model: Some(max_string),

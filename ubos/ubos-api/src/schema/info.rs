@@ -114,7 +114,7 @@ pub struct ApiInfo {
     pub product_name: Option<HwString>,
     /// The hashrate the machine's maker rates it at, in hashes per second,
     /// or `null` before a board publishes one.
-    pub nominal_hashrate: Option<u64>,
+    pub nominal_hashrate: Option<Hashrate>,
     /// OTA slot and session state. The key is left out on a board with no
     /// OTA target, and the dashboard renders its firmware card only when
     /// the key is present.
