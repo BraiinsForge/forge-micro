@@ -1,0 +1,40 @@
+Generate the interrupt code in a fixed order.
+
+The macro collects the interrupt numbers in a HashMap and emits the
+match arms and the handler declarations in the map's iteration order,
+which changes on every compile. Each build of a crate that uses the
+macro then has a different crate hash, so a build on one host does
+not link against a crate that another host built, and the build stops
+with E0463. A BTreeMap emits the items in number order on every
+compile.
+
+Applies to riscv-macros 0.3.0 from crates.io; the pin and this patch
+are consumed by nix/patched-crates.nix.
+
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1,7 +1,7 @@
+ use proc_macro::TokenStream;
+ use proc_macro2::TokenStream as TokenStream2;
+ use quote::quote;
+-use std::collections::HashMap;
++use std::collections::BTreeMap;
+ use std::str::FromStr;
+ use syn::{
+     parse::{Parse, ParseStream},
+@@ -186,13 +186,13 @@
+     /// The maximum discriminant value
+     max_number: usize,
+     /// A map from discriminant values to variant names
+-    numbers: HashMap<usize, Ident>,
++    numbers: BTreeMap<usize, Ident>,
+ }
+ 
+ impl PacEnumItem {
+     fn new(input: &DeriveInput) -> Self {
+         let name = input.ident.clone();
+-        let (mut numbers, mut max_number) = (HashMap::new(), 0);
++        let (mut numbers, mut max_number) = (BTreeMap::new(), 0);
+ 
+         let variants = match &input.data {
+             Data::Enum(data) => &data.variants,

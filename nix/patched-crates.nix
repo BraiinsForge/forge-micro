@@ -88,6 +88,22 @@ in
     ];
   };
 
+  # riscv-macros 0.3.0 with its interrupt code generated in a fixed
+  # order, so that two builds of a crate using it are the same crate;
+  # see the patch preamble.
+  riscv-macros = pkgs.applyPatches {
+    name = "riscv-macros-0.3.0-patched";
+    src = pkgs.fetchzip {
+      name = "riscv-macros-0.3.0";
+      url = "https://static.crates.io/crates/riscv-macros/riscv-macros-0.3.0.crate";
+      extension = "tar.gz";
+      hash = "sha256-xnv7ptM3qxKQuFblommnT98SmmVMXJ9wGap5JOTEHeQ=";
+    };
+    patches = [
+      ../patches/riscv-macros-sorted-interrupts.patch
+    ];
+  };
+
   # edge-nal-embassy from the pinned edge-net rev with the local patch
   # series applied in order; each patch's preamble explains its change.
   # The series starts with the standalone-manifest rewrite because the

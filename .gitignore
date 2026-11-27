@@ -15,6 +15,7 @@ target/
 /patches/edge-nal-embassy
 /patches/esp-hal
 /patches/smoltcp
+/patches/riscv-macros
 
 # probe-rs-runner session logs, written to the project logs/ dir
 **/logs/*.log
