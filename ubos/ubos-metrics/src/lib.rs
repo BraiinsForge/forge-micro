@@ -17,8 +17,15 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Observability: the metrics store and its exposition, and the
-//! CPU-load gauge.
+//! Observability: the metric types, the metrics store and its
+//! exposition.
+//!
+//! The crate is the store alone, so it stays a leaf that every crate
+//! can push into. The module that owns a state calculates it and pushes
+//! it: an estimator, a sampler, a table of another module's state and a
+//! publisher task all live in the crate that owns the source. The miner
+//! holds the hashrate estimator and the accounting of each chain, and
+//! each platform crate holds its idle counter.
 //!
 //! The `metrics` feature keeps the store: the channel, the series map
 //! and the render buffer. A build without it frees the RAM they hold,
@@ -27,7 +34,6 @@
 
 pub mod catalog;
 pub mod consts;
-pub mod cpu_load;
 mod freshness;
 pub mod metrics;
 mod name;

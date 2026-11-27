@@ -4468,15 +4468,12 @@ dependencies = [
 name = "ubos-metrics"
 version = "0.1.0"
 dependencies = [
- "cortex-m",
  "critical-section",
  "defmt 1.2.0",
- "embassy-executor",
  "embassy-sync 0.8.0",
  "embassy-time",
  "heapless 0.9.4",
  "portable-atomic",
- "static_cell",
  "ubos-core",
  "ubos-logging",
 ]

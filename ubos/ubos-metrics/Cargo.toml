@@ -22,7 +22,6 @@ embassy-sync      = { workspace = true }
 embassy-time      = { workspace = true }
 heapless          = { workspace = true }
 portable-atomic   = { workspace = true }
-static_cell       = { workspace = true }
 defmt             = { workspace = true, optional = true }
 ubos-core         = { workspace = true }
 ubos-logging      = { workspace = true }
@@ -33,13 +32,6 @@ ubos-logging      = { workspace = true }
 # critical-section backend on the host.
 embassy-time     = { workspace = true, features = ["std"] }
 critical-section = { workspace = true, features = ["std"] }
-
-# Cortex-M boards drive embassy's `raw::Executor` directly via
-# `cpu_load::run_cortex_m_executor`. Gated to ARM so the ESP32-S3
-# build does not pull in the cortex-m crate.
-[target.'cfg(target_arch = "arm")'.dependencies]
-cortex-m          = "0.7"
-embassy-executor  = { workspace = true }
 
 # The `ubos_logging` macros expand to `defmt::` paths at the call site,
 # so defmt is a real dependency that no source here names.
