@@ -110,7 +110,7 @@ body {
      cap keeps a wide lockup from pushing the nav links off the bar;
      brand/README.md states the rule. */
   height: 24px;
-  max-width: 260px;
+  max-width: 290px;
   object-fit: contain;
   object-position: left;
   display: block;

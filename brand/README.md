@@ -83,12 +83,15 @@ different plan for the light theme.
 height the design site permits on a screen, and `.logo img` in
 `common.css` sets it.
 
-**The wordmark is no wider than 260px at that height.** The height is
+**The wordmark is no wider than 290px at that height.** The height is
 fixed and the width follows the file's aspect, so a wide lockup is what
-pushes the nav links off the bar and out of the login card. The two
-shipped wordmarks render 153px and 256px wide. `.logo img` caps the
-width and scales a wider file down inside the cap rather than moving
-the page, so a wordmark past the cap is shown too small, not rejected.
+pushes the nav links off the bar and out of the login card. The uBOS
+wordmarks render 153px wide. The Forge dashboard wordmark renders 256px
+wide and the Forge login wordmark 286px wide. The login card leaves
+296px inside its padding, so the cap stops short of it. `.logo img`
+caps the width and scales a wider file down inside the cap rather than
+moving the page, so a wordmark past the cap is shown too small, not
+rejected.
 
 **`accentText` must reach 4.5:1 against `accent` and against
 `accentHi`.** Three rules put text on an accent background, and two of
@@ -129,13 +132,14 @@ match the other.
 
 | Brand | Page |
 |-------|------|
-| Forge Firmware | `design.braiins.com/braiins-forge/logos/forge-firmware-logo` |
-| uBOS | `design.braiins.com/braiins/logos/braiins-logo` |
+| Forge Firmware, dashboard | `design.braiins.com/braiins-forge/logos/forge-firmware-logo` |
+| Forge Firmware, login page | `design.braiins.com/braiins-forge/logos/braiins-forge-logo-horizontal` |
+| uBOS, both pages | `design.braiins.com/braiins/logos/braiins-logo` |
 
 Each page publishes the lockup for a light background and the lockup for
 a dark background. Take the dark-background one: it is white, which is
 what the `invert()` rule needs. The tab icon is the icon that page shows
-in the browser tab.
+in the browser tab. The Forge tab icon comes from the login-page row.
 
 The design site also holds the colours. The uBOS accent is Violet 60
 and its hover colour is Violet 50, at
