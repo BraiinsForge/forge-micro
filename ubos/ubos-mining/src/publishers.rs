@@ -60,14 +60,14 @@ pub async fn run_miner_metrics_publisher(mining: MiningHandle, pool_slots: usize
                 .await;
             // The chain counts only the shares it found, so `valid` is the
             // one type of this series.
-            metric!("hashboard_shares", Count(stats.share_count()))
+            metric!("hashboard_shares", stats.share_count())
                 .label(HASHBOARD_LABEL, chain)
                 .label(TYPE_LABEL, "valid")
                 .push()
                 .await;
             let limit = pool_slots.min(crate::consts::MAX_POOL_SLOTS);
             for slot in 0..limit {
-                metric!("pool_work_shares", Count(stats.pool_shares(slot)))
+                metric!("pool_work_shares", stats.pool_shares(slot))
                     .label(HASHBOARD_LABEL, chain)
                     .label(POOL_LABEL, slot)
                     .push()

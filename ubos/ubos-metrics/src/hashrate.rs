@@ -23,6 +23,7 @@
 
 use embassy_time::Instant;
 use portable_atomic::{AtomicBool, AtomicU64, Ordering};
+use ubos_core::units::Shares;
 
 #[cfg(test)]
 #[path = "tests/hashrate.rs"]
@@ -39,16 +40,11 @@ const BUCKET_MS: u64 = 1_000;
 /// the residual at α = 1/8 rounds to zero in `u64` by then.
 const MAX_DECAY_STEPS: u64 = 64;
 
-/// Expected hashes behind one share, the unit every share counter reports
-/// in. A solution found against a difficulty `d` target counts as `d`
-/// shares, whatever filter the chip runs.
-pub const HASHES_PER_SHARE: u64 = 1 << 32;
-
 /// Bucketed EWMA hashrate accounting. Exactly one actor calls
 /// [`record_share`](Self::record_share); the load and store sequences
 /// below rely on that single writer.
 pub struct HashrateEstimator {
-    /// Total shares, in units of [`HASHES_PER_SHARE`].
+    /// Total work, in the unit of [`Shares`].
     share_count: AtomicU64,
     /// Smoothed hashrate in H/s, updated once per finalised bucket.
     ewma: AtomicU64,
@@ -75,8 +71,8 @@ impl HashrateEstimator {
     }
 
     #[must_use]
-    pub fn share_count(&self) -> u64 {
-        self.share_count.load(Ordering::Relaxed)
+    pub fn share_count(&self) -> Shares {
+        Shares::new(self.share_count.load(Ordering::Relaxed))
     }
 
     /// Credit one chip solution found against `target`: its difficulty in
@@ -84,10 +80,10 @@ impl HashrateEstimator {
     /// folds into the EWMA once the bucket has run for `BUCKET_MS`.
     /// Returns the share weight, so the caller can account the same
     /// solution in the same unit.
-    pub fn record_share(&self, target: &[u8; 32]) -> u64 {
+    pub fn record_share(&self, target: &[u8; 32]) -> Shares {
         let hashes = hashes_per_solution(target);
-        let shares = hashes / HASHES_PER_SHARE;
-        self.share_count.fetch_add(shares, Ordering::Relaxed);
+        let shares = Shares::new(hashes / Shares::HASHES_PER_SHARE);
+        self.share_count.fetch_add(shares.get(), Ordering::Relaxed);
 
         let now_ms = Instant::now().as_millis();
 

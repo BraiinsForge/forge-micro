@@ -29,7 +29,9 @@
 use core::fmt;
 use core::num::NonZeroU64;
 
-use ubos_core::units::{Current, FanPwm, FanRpm, Frequency, Power, Temperature, Voltage};
+use ubos_core::units::{
+    Current, Difficulty, FanPwm, FanRpm, Frequency, Power, Shares, Temperature, Voltage,
+};
 
 #[cfg(test)]
 #[path = "tests/value.rs"]
@@ -104,6 +106,10 @@ pub enum Value {
     FanRpm(FanRpm),
     /// A share of a whole, shown between 0 and 1.
     Ratio(Ratio),
+    /// Mining work, shown in difficulty-1 shares.
+    Shares(Shares),
+    /// The difficulty of a share target.
+    Difficulty(Difficulty),
     /// A condition that holds or does not, shown as 1 or 0.
     Flag(bool),
     /// A number with no unit, such as a counter.
@@ -126,6 +132,8 @@ impl fmt::Display for Value {
             Self::FanPwm(pwm) => pwm.percent().fmt(f),
             Self::FanRpm(rpm) => rpm.rpm().fmt(f),
             Self::Ratio(ratio) => ratio.fmt(f),
+            Self::Shares(shares) => shares.get().fmt(f),
+            Self::Difficulty(difficulty) => difficulty.get().fmt(f),
             Self::Flag(flag) => u8::from(*flag).fmt(f),
             Self::Count(count) => count.fmt(f),
         }
@@ -155,6 +163,8 @@ value_from_unit!(
     FanPwm,
     FanRpm,
     Ratio,
+    Shares,
+    Difficulty,
 );
 
 /// A number with no unit, such as a counter.

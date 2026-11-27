@@ -21,7 +21,9 @@
 //! unit and refuses each rule in turn. The tests call the `const fn` at
 //! run time, where a refused name is a panic that a test can expect.
 
-use ubos_core::units::{Current, FanPwm, FanRpm, Frequency, Power, Temperature, Voltage};
+use ubos_core::units::{
+    Current, Difficulty, FanPwm, FanRpm, Frequency, Power, Shares, Temperature, Voltage,
+};
 
 use super::Name;
 use crate::metric;
@@ -40,6 +42,8 @@ fn a_name_of_each_unit_is_accepted() {
     let _ = Name::<Current>::new("psu_current_amperes");
     let _ = Name::<Frequency>::new("frequency_hertz");
     let _ = Name::<Ratio>::new("cpu_busy_ratio");
+    let _ = Name::<Shares>::new("pool_shares");
+    let _ = Name::<Difficulty>::new("pool_difficulty");
     let _ = Name::<FanPwm>::new("fan_speed_control");
     let _ = Name::<FanRpm>::new("fan_rpm");
     let _ = Name::<Flag>::new("miner_state");
@@ -62,7 +66,7 @@ fn a_name_that_ends_in_total_is_accepted() {
 #[test]
 fn a_listed_hashboard_name_is_accepted() {
     let _ = Name::<Flag>::new("hashboard_present");
-    let _ = Name::<Count>::new("hashboard_shares");
+    let _ = Name::<Shares>::new("hashboard_shares");
 }
 
 #[test]
@@ -129,6 +133,18 @@ fn a_scale_word_is_refused() {
 #[should_panic(expected = "the name ends in a unit that does not fit the value")]
 fn a_count_that_states_a_unit_is_refused() {
     let _ = Name::<Count>::new("x_watts");
+}
+
+#[test]
+#[should_panic(expected = "the name ends in a unit that does not fit the value")]
+fn a_count_that_states_shares_is_refused() {
+    let _ = Name::<Count>::new("pool_shares");
+}
+
+#[test]
+#[should_panic(expected = "the name ends in a unit that does not fit the value")]
+fn a_count_that_states_a_difficulty_is_refused() {
+    let _ = Name::<Count>::new("pool_difficulty");
 }
 
 #[test]

@@ -49,7 +49,7 @@
 use crate::hashrate::HashrateEstimator;
 use portable_atomic::{AtomicI32, AtomicU8, AtomicU16, AtomicU32, AtomicU64, Ordering};
 use ubos_core::index::HashboardIndex;
-use ubos_core::units::{Frequency, Temperature, Voltage};
+use ubos_core::units::{Frequency, Shares, Temperature, Voltage};
 
 pub mod presence;
 
@@ -111,15 +111,14 @@ impl ChainStats {
 
     /// Record a chip solution found against `target`, crediting the
     /// estimator and, when `pool_slot` is in range, that slot's counter,
-    /// both as the solution's difficulty in shares of
-    /// [`HASHES_PER_SHARE`](crate::hashrate::HASHES_PER_SHARE) hashes.
+    /// both as the solution's difficulty in [`Shares`].
     /// The counter wraps, unlike [`Self::add_desync_bytes`]: a `u64` of
     /// shares cannot wrap in practice, and a compare-and-swap would cost
     /// every solution.
     pub fn record_share(&self, target: &[u8; 32], pool_slot: usize) {
         let shares = self.hashrate.record_share(target);
         if let Some(counter) = self.pool_shares.get(pool_slot) {
-            counter.fetch_add(shares, Ordering::Relaxed);
+            counter.fetch_add(shares.get(), Ordering::Relaxed);
         }
     }
 
@@ -140,16 +139,18 @@ impl ChainStats {
     }
 
     #[must_use]
-    pub fn share_count(&self) -> u64 {
+    pub fn share_count(&self) -> Shares {
         self.hashrate.share_count()
     }
 
     /// Zero when `slot` is out of range.
     #[must_use]
-    pub fn pool_shares(&self, slot: usize) -> u64 {
+    pub fn pool_shares(&self, slot: usize) -> Shares {
         self.pool_shares
             .get(slot)
-            .map_or(0, |counter| counter.load(Ordering::Relaxed))
+            .map_or_else(Shares::default, |counter| {
+                Shares::new(counter.load(Ordering::Relaxed))
+            })
     }
 
     #[must_use]
@@ -333,8 +334,8 @@ impl ChainStatsHandle {
 
     /// Saturating sum over the wired chains.
     #[must_use]
-    pub fn machine_share_count(&self) -> u64 {
-        self.chains().fold(0u64, |total, chain| {
+    pub fn machine_share_count(&self) -> Shares {
+        self.chains().fold(Shares::default(), |total, chain| {
             total.saturating_add(chain.share_count())
         })
     }

@@ -167,12 +167,12 @@ impl<const N: usize, const CHAINS: usize> PoolHandle<'_, N, CHAINS> {
                 .label(POOL_LABEL, self.slot)
                 .label(TYPE_LABEL, answer)
                 .try_push();
-            metric!("pool_shares", Count(work))
+            metric!("pool_shares", work)
                 .label(POOL_LABEL, self.slot)
                 .label(TYPE_LABEL, answer)
                 .try_push();
         }
-        metric!("pool_difficulty", Count(snapshot.difficulty))
+        metric!("pool_difficulty", snapshot.difficulty)
             .label(POOL_LABEL, self.slot)
             .try_push();
         metric!("pool_reconnects", Count(u64::from(snapshot.reconnects)))

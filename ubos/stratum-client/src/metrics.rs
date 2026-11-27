@@ -30,6 +30,7 @@
 
 use embassy_time::Duration;
 use portable_atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use ubos_core::units::{Difficulty, Shares};
 
 use crate::run::POOL_INDEX_SPACE;
 
@@ -119,9 +120,9 @@ impl PoolMetrics {
         PoolMetricsSnapshot {
             shares_accepted: self.shares_accepted.load(Ordering::Relaxed),
             shares_rejected: self.shares_rejected.load(Ordering::Relaxed),
-            work_accepted: self.work_accepted.load(Ordering::Relaxed),
-            work_rejected: self.work_rejected.load(Ordering::Relaxed),
-            difficulty: self.difficulty.load(Ordering::Relaxed),
+            work_accepted: Shares::new(self.work_accepted.load(Ordering::Relaxed)),
+            work_rejected: Shares::new(self.work_rejected.load(Ordering::Relaxed)),
+            difficulty: Difficulty::new(self.difficulty.load(Ordering::Relaxed)),
             reconnects: self.reconnects.load(Ordering::Relaxed),
             alive: self.alive.load(Ordering::Relaxed),
         }
@@ -133,9 +134,9 @@ impl PoolMetrics {
 pub struct PoolMetricsSnapshot {
     pub shares_accepted: u64,
     pub shares_rejected: u64,
-    pub work_accepted: u64,
-    pub work_rejected: u64,
-    pub difficulty: u64,
+    pub work_accepted: Shares,
+    pub work_rejected: Shares,
+    pub difficulty: Difficulty,
     pub reconnects: u32,
     pub alive: bool,
 }

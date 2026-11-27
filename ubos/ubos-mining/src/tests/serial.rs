@@ -410,12 +410,12 @@ fn process_solution_bumps_the_originating_slots_pool_work_share_counter() {
     );
 
     assert_eq!(
-        chain_stats.pool_shares(1),
+        chain_stats.pool_shares(1).get(),
         1,
         "the originating slot's counter records the diff-1 share"
     );
     assert_eq!(
-        chain_stats.pool_shares(2),
+        chain_stats.pool_shares(2).get(),
         0,
         "an unrelated slot's counter is untouched"
     );

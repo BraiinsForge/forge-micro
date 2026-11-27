@@ -48,9 +48,9 @@ fn record_share_bumps_share_count_and_pool_slot() {
     let stats = ChainStats::new();
     stats.record_share(&some_target(), 2);
 
-    assert_eq!(stats.share_count(), 1);
-    assert_eq!(stats.pool_shares(2), 1);
-    assert_eq!(stats.pool_shares(0), 0);
+    assert_eq!(stats.share_count().get(), 1);
+    assert_eq!(stats.pool_shares(2).get(), 1);
+    assert_eq!(stats.pool_shares(0).get(), 0);
 }
 
 // A solution found against a harder filter counts as that many shares in
@@ -61,8 +61,8 @@ fn record_share_weighs_a_solution_by_its_difficulty() {
     stats.record_share(&pow2_target(10), 1);
     stats.record_share(&some_target(), 1);
 
-    assert_eq!(stats.share_count(), 1024 + 1);
-    assert_eq!(stats.pool_shares(1), 1024 + 1);
+    assert_eq!(stats.share_count().get(), 1024 + 1);
+    assert_eq!(stats.pool_shares(1).get(), 1024 + 1);
 }
 
 #[test]
@@ -70,11 +70,11 @@ fn record_share_out_of_range_slot_still_counts_share() {
     let stats = ChainStats::new();
     stats.record_share(&some_target(), 99);
 
-    assert_eq!(stats.share_count(), 1);
+    assert_eq!(stats.share_count().get(), 1);
     for slot in 0..MAX_POOL_SLOTS {
-        assert_eq!(stats.pool_shares(slot), 0);
+        assert_eq!(stats.pool_shares(slot).get(), 0);
     }
-    assert_eq!(stats.pool_shares(99), 0);
+    assert_eq!(stats.pool_shares(99).get(), 0);
 }
 
 #[test]
@@ -129,8 +129,16 @@ fn clear_resets_bring_up_fields_but_not_lifetime_counters() {
 
     stats.clear();
 
-    assert_eq!(stats.share_count(), 1, "clear must not touch share_count");
-    assert_eq!(stats.pool_shares(0), 1, "clear must not touch pool_shares");
+    assert_eq!(
+        stats.share_count().get(),
+        1,
+        "clear must not touch share_count"
+    );
+    assert_eq!(
+        stats.pool_shares(0).get(),
+        1,
+        "clear must not touch pool_shares"
+    );
     assert_eq!(stats.chips(), 0);
     assert_eq!(stats.frequency().khz(), 0);
     assert_eq!(stats.hottest(), None);
@@ -178,7 +186,7 @@ fn handle_walks_no_slot_before_the_chain_count_is_published() {
     assert_eq!(handle.chain_count(), 0);
     assert_eq!(handle.chains().count(), 0);
     assert_eq!(handle.machine_hashrate(), 0);
-    assert_eq!(handle.machine_share_count(), 0);
+    assert_eq!(handle.machine_share_count().get(), 0);
 }
 
 #[test]
@@ -194,7 +202,7 @@ fn handle_walks_only_the_wired_prefix() {
     assert_eq!(handle.chain_count(), 2);
     assert_eq!(handle.chains().count(), 2);
     assert_eq!(handle.present_chain_count(), 0);
-    assert_eq!(handle.machine_share_count(), 0);
+    assert_eq!(handle.machine_share_count().get(), 0);
 }
 
 #[test]
@@ -235,10 +243,10 @@ fn share_counts_sum_across_chains() {
             .record_share(&some_target(), 0);
     }
 
-    assert_eq!(handle.machine_share_count(), 8);
-    assert_eq!(handle.chain(HashboardIndex(0)).share_count(), 3);
-    assert_eq!(handle.chain(HashboardIndex(1)).share_count(), 5);
-    assert_eq!(handle.chain(HashboardIndex(2)).share_count(), 0);
+    assert_eq!(handle.machine_share_count().get(), 8);
+    assert_eq!(handle.chain(HashboardIndex(0)).share_count().get(), 3);
+    assert_eq!(handle.chain(HashboardIndex(1)).share_count().get(), 5);
+    assert_eq!(handle.chain(HashboardIndex(2)).share_count().get(), 0);
 }
 
 #[test]

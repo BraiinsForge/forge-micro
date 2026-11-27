@@ -21,7 +21,7 @@
 
 use heapless::String;
 use serde::Serialize;
-use ubos_core::units::{FanPwm, FanRpm, Frequency, Voltage};
+use ubos_core::units::{FanPwm, FanRpm, Frequency, Shares, Voltage};
 
 use crate::hw_info::{HashboardIds, HwString};
 use crate::schema::state::{ApiMiningState, ApiPauseReason};
@@ -168,7 +168,7 @@ pub struct SystemInfo<'response> {
     pub shares_rejected: u64,
     /// Total chip shares since boot, in units of 2^32 expected
     /// hashes: a solution at chip difficulty `d` counts `d`.
-    pub shares_total: u64,
+    pub shares_total: Shares,
     /// Best difficulty nonce found since boot; zero until the
     /// scoreboard ring buffer is wired.
     pub best_nonce_diff: u64,

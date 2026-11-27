@@ -34,7 +34,7 @@ use edge_nal::TcpSplit;
 use embedded_io_async::{ErrorType, Read, Write};
 
 use rusty_fork::rusty_fork_test;
-use ubos_core::units::{FanPwm, FanRpm, Frequency, Voltage};
+use ubos_core::units::{FanPwm, FanRpm, Frequency, Shares, Voltage};
 use ubos_manager::{Message, PauseReason, PauseReasons, run_manager};
 
 use crate::ota::{OtaError, StagedConfig};
@@ -681,7 +681,7 @@ fn serialize_system_info_with_ota(
         default_voltage: Voltage::from_mv(u32::MAX),
         shares_accepted: 0,
         shares_rejected: 0,
-        shares_total: 0,
+        shares_total: Shares::default(),
         best_nonce_diff: 0,
         best_session_nonce_diff: 0,
         ota,

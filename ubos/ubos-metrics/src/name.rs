@@ -27,7 +27,9 @@
 
 use core::marker::PhantomData;
 
-use ubos_core::units::{Current, FanPwm, FanRpm, Frequency, Power, Temperature, Voltage};
+use ubos_core::units::{
+    Current, Difficulty, FanPwm, FanRpm, Frequency, Power, Shares, Temperature, Voltage,
+};
 
 use crate::value::{Count, Flag, Ratio, Value};
 
@@ -47,10 +49,16 @@ const AMPERES: &str = "_amperes";
 const HERTZ: &str = "_hertz";
 /// The suffix of a ratio series.
 const RATIO: &str = "_ratio";
+/// The suffix of a series of mining work.
+const SHARES: &str = "_shares";
+/// The suffix of a series of a target difficulty.
+const DIFFICULTY: &str = "_difficulty";
 
 /// Every suffix that states the unit of a typed value. A name whose unit
 /// has no suffix must end in none of them.
-const UNIT_SUFFIXES: [&str; 6] = [CELSIUS, VOLTS, WATTS, AMPERES, HERTZ, RATIO];
+const UNIT_SUFFIXES: [&str; 8] = [
+    CELSIUS, VOLTS, WATTS, AMPERES, HERTZ, RATIO, SHARES, DIFFICULTY,
+];
 
 /// The endings that state a scaled unit or a percentage. A series is in
 /// its base unit, so no name ends in one.
@@ -105,6 +113,14 @@ impl Unit for Frequency {
 
 impl Unit for Ratio {
     const SUFFIX: &'static str = RATIO;
+}
+
+impl Unit for Shares {
+    const SUFFIX: &'static str = SHARES;
+}
+
+impl Unit for Difficulty {
+    const SUFFIX: &'static str = DIFFICULTY;
 }
 
 impl Unit for FanPwm {

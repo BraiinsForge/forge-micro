@@ -223,8 +223,8 @@ rusty_fork_test! {
         });
 
         let snapshot = crate::metrics::for_slot(2).expect("slot 2 in range").snapshot();
-        assert_eq!(snapshot.work_accepted, 4024);
-        assert_eq!(snapshot.work_rejected, 512);
+        assert_eq!(snapshot.work_accepted.get(), 4024);
+        assert_eq!(snapshot.work_rejected.get(), 512);
         assert_eq!(snapshot.shares_accepted, 3);
         assert_eq!(snapshot.shares_rejected, 1);
     }
@@ -242,12 +242,12 @@ rusty_fork_test! {
         state.visit_session_update(SessionUpdate::SetTarget(&target));
         let after = crate::metrics::for_slot(3).expect("slot 3 in range").snapshot();
 
-        assert_eq!(after.difficulty, 8192);
+        assert_eq!(after.difficulty.get(), 8192);
         assert_eq!(
             PoolMetricsSnapshot { difficulty: before.difficulty, ..after },
             before,
         );
-        assert_eq!(crate::metrics::for_slot(0).expect("slot 0 in range").snapshot().difficulty, 0);
+        assert_eq!(crate::metrics::for_slot(0).expect("slot 0 in range").snapshot().difficulty.get(), 0);
     }
 }
 
@@ -261,7 +261,7 @@ rusty_fork_test! {
 
         session.pool_handle(0).clear_difficulty();
 
-        assert_eq!(crate::metrics::for_slot(0).expect("slot 0 in range").snapshot().difficulty, 0);
-        assert_eq!(crate::metrics::for_slot(1).expect("slot 1 in range").snapshot().difficulty, 8192);
+        assert_eq!(crate::metrics::for_slot(0).expect("slot 0 in range").snapshot().difficulty.get(), 0);
+        assert_eq!(crate::metrics::for_slot(1).expect("slot 1 in range").snapshot().difficulty.get(), 8192);
     }
 }
