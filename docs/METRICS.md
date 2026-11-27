@@ -142,9 +142,9 @@ Code: `ubos/ubos-firmware/src/serve.rs`, `ubos/ubos-metrics/src/lib.rs`,
 The cargo feature `metrics` keeps the store in a firmware image. Each
 board declares it as `metrics = ["ubos-firmware/metrics"]` and lists it
 in its default features, so every image has the store, except the
-`rp2040` image. With the store, the RAM that stays for the stack of
-that board is smaller than the stack that it uses at boot. The feature is
-temporary. It leaves the tree when the store moves to external RAM.
+`rp2040` and `esp32s3` images. With the store, the RAM that stays for
+the stack of those boards is smaller than the stack that they use at
+boot. The feature is temporary. It leaves the tree when the store moves to external RAM.
 
 A board with too little RAM can build without the feature. The command
 names the other default features of the board again:
@@ -174,9 +174,10 @@ The board budget in `MAX_METRICS`, `METRICS_RESPONSE_BYTES` and
 feature.
 
 The `board-metrics-feature` check fails when a board manifest does not
-hold the feature in its defaults. The checks `clippy-rp2040` and
-`build-rp2040` gate the build without the store, because that is the
-default build of the rp2040. The RAM that the store costs is in the size budget
+hold the feature in its defaults, and it skips the `rp2040` and the
+`esp32s3`. The checks `clippy-rp2040`, `build-rp2040`, `clippy-esp32s3`
+and `build-esp32s3` gate the build without the store, because that is
+the default build of those boards. The RAM that the store costs is in the size budget
 of [BOARDS.md](BOARDS.md).
 
 ## CPU busy ratio

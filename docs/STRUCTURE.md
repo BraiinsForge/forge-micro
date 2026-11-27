@@ -263,10 +263,10 @@ The rows for the evaluation and adapter boards live in
 Each board states the size of the Prometheus exposition map as
 `MAX_METRICS` and `METRICS_RESPONSE_BYTES` in its own `config.rs`, and
 `ubos_firmware::serve_all!` declares the statics from there. Every board
-in this tree holds 128 series, except `esp32s3`, which holds 64 because
-its RAM does not hold the larger map, and `rp2040`, which ships without
-the store and whose 64 have no effect unless it is built with the
-`metrics` feature. On every board, the buffer has `METRIC_LINE_BYTES`
+in this tree holds 128 series, except `esp32s3` and `rp2040`, which
+hold 64 because their RAM does not hold the larger map. Both ship
+without the store, so their 64 have no effect unless the board is built
+with the `metrics` feature. On every board, the buffer has `METRIC_LINE_BYTES`
 for each series, so it holds a full map.
 
 Reproduce with:

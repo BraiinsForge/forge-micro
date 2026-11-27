@@ -859,12 +859,14 @@ hostClippyChecks
 
   # Every board keeps the metrics store by default; see
   # `boardMetricsFeature` in nix/board-parity.nix. The bootloader crates
-  # push no metric and have no feature to hold. The rp2040 ships without
-  # the store, because with it the stack left in RAM is smaller than the
-  # stack the board uses at boot, and the overflow faults the board.
+  # push no metric and have no feature to hold. The rp2040 and the esp32s3
+  # ship without the store, because with it the stack left in RAM is
+  # smaller than the stack the board needs at boot, and the overflow
+  # faults the board.
   board-metrics-feature = boardParity.boardMetricsFeature {
     inherit root;
     exclude = [
+      "esp32s3"
       "esp32s3-bootloader"
       "rp2040"
       "rp2040-bootloader"
