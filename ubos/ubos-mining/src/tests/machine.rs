@@ -27,6 +27,7 @@ use crate::miner::states::{
     BringUp, Choose, Enable, ExitReset, Halted, PLAN_FAILURE_BUDGET, Pause, Recover, Reset, Run,
     Selected, StartWork, Step, WaitForPool,
 };
+use crate::miner::temperature::TemperatureWatch;
 use crate::scheduler::{FeeScheduler, RatioScheduler};
 use rusty_fork::rusty_fork_test;
 use ubos_config::DEVFEE;
@@ -40,6 +41,7 @@ fn run<M>(tuner: M) -> Run<M> {
         selected: fixed_selection(),
         failures: 0,
         pool: PoolWatch::default(),
+        temperature: TemperatureWatch::default(),
     }
 }
 
@@ -794,6 +796,7 @@ rusty_fork_test! {
                     delay: Duration::from_secs(1),
                 })),
                 until: Instant::now() + Duration::from_secs(1),
+                unreadable_grace: Duration::from_secs(5),
             });
             publish(ubos_config::Config {
                 miner: ubos_config::MinerConfig {
@@ -1202,6 +1205,33 @@ rusty_fork_test! {
 
 rusty_fork_test! {
     #[test]
+    fn temperature_watch_reports_only_after_an_uninterrupted_grace() {
+        let grace = Duration::from_secs(5);
+        let start = Instant::from_secs(1_000);
+        let mut watch = TemperatureWatch::default();
+        assert!(!watch.observe(false, start, grace));
+        assert!(!watch.observe(true, start, grace));
+        assert!(!watch.observe(true, start + Duration::from_secs(4), grace));
+        // A reading in between restarts the count.
+        assert!(!watch.observe(false, start + Duration::from_secs(4), grace));
+        assert!(!watch.observe(true, start + Duration::from_secs(5), grace));
+        assert!(watch.observe(true, start + Duration::from_secs(10), grace));
+    }
+
+    #[test]
+    fn temperature_watch_starts_over_after_a_gap_longer_than_the_grace() {
+        let grace = Duration::from_secs(5);
+        let start = Instant::from_secs(1_000);
+        let mut watch = TemperatureWatch::default();
+        assert!(!watch.observe(true, start, grace));
+        // Nothing asked thermal for six seconds, so the two silences are
+        // not one.
+        assert!(!watch.observe(true, start + Duration::from_secs(6), grace));
+        assert!(!watch.observe(true, start + Duration::from_secs(10), grace));
+        assert!(watch.observe(true, start + Duration::from_secs(11), grace));
+    }
+
+    #[test]
     fn the_dangerous_flag_halts_a_state_and_its_clearing_alone_starts_over() {
         use core::future::Future;
         use core::task::{Context, Poll, Waker};
@@ -1300,6 +1330,60 @@ rusty_fork_test! {
                 held.as_mut().poll(&mut context),
                 Poll::Ready(Some(MinerState::Choose(_)))
             ));
+        });
+    }
+
+    #[test]
+    fn a_pause_with_no_reading_left_cuts_the_rail_and_recovers() {
+        critical_section::with(|_| {
+            static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
+            static STATS: ChainStats = ChainStats::new();
+            static SESSION: AsicSession<1, 1> = AsicSession::new();
+            static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
+            let (psu_driver, psu) = test_psu(TestPsu {
+                mining: mining_handle(),
+                log: &LOG,
+                behavior: Cell::new(VoltageWrite::Succeed),
+                disable_fails: false,
+            });
+            let mut miner = test_miner::<OnePlanTuner, 1>(psu_driver, psu, [&ACTOR], [&STATS]);
+            let mut subscription = test_config().0;
+            thermal_runner().publish_filtered(None);
+            let paused = MinerState::Pause(Pause {
+                run: run(OnePlanTuner(Plan {
+                    rail: None,
+                    frequencies: [None; 1],
+                    delay: Duration::from_secs(1),
+                })),
+                until: Instant::now() + Duration::from_secs(60),
+                unreadable_grace: Duration::from_secs(5),
+            });
+            let exercise = async {
+                let recover = miner
+                    .advance(paused, &mut subscription)
+                    .await
+                    .expect("a silent sensor does not stop the machine");
+                assert!(matches!(recover, MinerState::Recover(_)));
+                LOG.lock(|log| assert_eq!(log.borrow().as_slice(), &[Write::Disable]));
+                ACTOR.terminate().await.expect("actor terminates");
+            };
+            let actor = ACTOR.run(
+                crate::fixture::park(),
+                QuietSerial,
+                &SESSION,
+                &BMM101_HASHBOARD,
+                BringUpDriver::new(&[4]),
+                RatioScheduler::<1>::new(),
+                &STATS,
+            );
+            let outcome = block_on_with(
+                psu,
+                select(
+                    join(exercise, actor),
+                    Timer::after(Duration::from_secs(10)),
+                ),
+            );
+            assert!(matches!(outcome, Either::First(_)));
         });
     }
 }

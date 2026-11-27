@@ -23,7 +23,7 @@
 use core::mem::{Discriminant, discriminant};
 
 use embassy_futures::join::join_array;
-use embassy_futures::select::{Either, Either3, select, select3};
+use embassy_futures::select::{Either, Either4, select, select4};
 use embassy_time::{Duration, Instant, Timer};
 use transitions::{State, successors};
 use ubos_config::{ConfigSubscription, Tuning};
@@ -32,7 +32,7 @@ use ubos_logging::{Debug2Format, error, info, warn};
 use super::BRING_UP_CYCLES;
 use super::machine::Context;
 use super::pool::{POOL_POLL_PERIOD, PoolWatch};
-use super::temperature::danger_cleared;
+use super::temperature::{TemperatureWatch, danger_cleared, unreadable_grace};
 use crate::chain::ChainHandle;
 use crate::control::Message;
 use crate::reset::ResetPin;
@@ -261,6 +261,7 @@ where
                 selected: Selected::of(&tuning),
                 failures: 0,
                 pool: PoolWatch::default(),
+                temperature: TemperatureWatch::default(),
             },
         })
     }
@@ -314,6 +315,7 @@ where
         StepNext::Applied(Pause {
             run,
             until: Instant::now() + plan.delay,
+            unreadable_grace: unreadable_grace(snapshot.thermal.sample_interval_ms),
         })
     }
 }
@@ -322,10 +324,17 @@ where
 pub(super) struct Pause<T> {
     pub(super) run: Run<T>,
     pub(super) until: Instant,
+    /// How long thermal may have no reading before the rail is cut.
+    pub(super) unreadable_grace: Duration,
 }
 
 successors! {
-    pub(super) enum PauseNext<T> { Elapsed(Step<T>), Superseded(Choose), PoolLost(Choose) }
+    pub(super) enum PauseNext<T> {
+        Elapsed(Step<T>),
+        Superseded(Choose),
+        PoolLost(Choose),
+        Unreadable(Recover),
+    }
 }
 
 impl<R, T, const CHAINS: usize> State<Context<'_, R, T, CHAINS>> for Pause<T>
@@ -336,22 +345,35 @@ where
     type Next = PauseNext<T>;
 
     /// A new target for the running tuner does not end the wait; it
-    /// reaches the tuner at the next step.
+    /// reaches the tuner at the next step. No temperature reading left to
+    /// watch the machine by leads to [`Recover`], because a halt that
+    /// waited for a reading could never end: the halt stops the readings.
     async fn run(self, context: &mut Context<'_, R, T, CHAINS>) -> PauseNext<T> {
-        let Self { mut run, until } = self;
-        match select3(
+        let Self {
+            mut run,
+            until,
+            unreadable_grace,
+        } = self;
+        let thermal = context.miner.thermal;
+        match select4(
             Timer::at(until),
             run.selected.superseded(context.config),
             run.pool.lost(context.miner.pool_serial()),
+            run.temperature.unreadable(thermal, unreadable_grace),
         )
         .await
         {
-            Either3::First(()) => PauseNext::Elapsed(Step { run }),
-            Either3::Second(()) => PauseNext::Superseded(Choose),
-            Either3::Third(()) => {
+            Either4::First(()) => PauseNext::Elapsed(Step { run }),
+            Either4::Second(()) => PauseNext::Superseded(Choose),
+            Either4::Third(()) => {
                 warn!("mining: no pool has held a job for the grace period; cutting rail");
                 crate::events::pool_lost();
                 PauseNext::PoolLost(Choose)
+            }
+            Either4::Fourth(()) => {
+                error!("mining: temperature unreadable; rail cut");
+                crate::events::temperature_unreadable();
+                PauseNext::Unreadable(Recover)
             }
         }
     }
@@ -470,6 +492,8 @@ pub(super) struct Run<T> {
     pub(super) selected: Selected,
     pub(super) failures: u8,
     pub(super) pool: PoolWatch,
+    /// How long thermal has had no reading to publish.
+    pub(super) temperature: TemperatureWatch,
 }
 
 /// A tuning variant, which stands for the tuner built from it. A new

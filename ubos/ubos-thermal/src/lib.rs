@@ -194,7 +194,8 @@ impl McuTemperatureSensor for NoMcu {
 }
 
 /// Subscriber capacity of each thermal watch. Four receivers cover
-/// today's consumers without enlarging a watch further.
+/// cooling, the API, the display and mining without enlarging a watch
+/// further for today's consumers.
 const WATCH_CAPACITY: usize = 4;
 
 static TAKEN: ubos_core::take_once::TakeOnce = ubos_core::take_once::TakeOnce::new("thermal");
@@ -291,6 +292,13 @@ impl Handle {
     #[must_use]
     pub fn filtered(&self) -> Option<TempSample> {
         WATCHES.filtered.try_get().flatten()
+    }
+
+    /// Whether thermal published that neither kind has a reading inside the
+    /// window. A thermal task that has not published yet reads as `false`.
+    #[must_use]
+    pub fn has_no_reading(&self) -> bool {
+        WATCHES.filtered.try_get() == Some(None)
     }
 
     /// The air around the board, or `None` when no ambient reading is

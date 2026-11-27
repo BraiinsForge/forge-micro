@@ -61,6 +61,7 @@ ubos_events::events! {
     miner_reset()                                 info  = "Miner reset",
     pool_available()                              info  = "A pool holds a job; starting",
     pool_lost()                                   warn  = "No pool holds a job; rail cut",
+    temperature_unreadable()                      error = "Temperature unreadable; rail cut",
     psu_enabled()                                 info  = "PSU enabled",
     work_initialized()                            info  = "Work initialized",
     work_initialization_failed()                  error = "Work initialization failed",
