@@ -20,11 +20,11 @@
 //! The state machine of the miner: the sum type over its states, the
 //! context they run against, and the one select that runs them.
 
-use core::future::poll_fn;
+use core::future::{Future, poll_fn};
 use core::pin::pin;
 use core::task::Poll;
 
-use embassy_futures::select::Either3;
+use embassy_futures::select::{Either, Either3, select};
 use embassy_time::{Duration, with_timeout};
 use transitions::{Lift, Machine, machine, successors};
 use ubos_config::ConfigSubscription;
@@ -35,6 +35,7 @@ use super::states::{
     BringUp, Choose, Enable, ExitReset, Halted, NoTuner, Pause, Recover, Reset, StartWork, Step,
     WaitForPool,
 };
+use super::temperature::danger_raised;
 use crate::control::MiningState;
 use crate::reset::ResetPin;
 use crate::tuner::MachineTuner;
@@ -95,7 +96,8 @@ where
     }
 
     /// Run `state` against STOP and HALT, and return the next state, or
-    /// `None` when STOP wins.
+    /// `None` when STOP wins. A HALT is a message from the manager or the
+    /// dangerous temperature flag.
     ///
     /// This is the only select of the machine. STOP and HALT are read here
     /// for every state, and the state's own work decides every other
@@ -118,19 +120,18 @@ where
         let grants_grace = state.grants_grace();
         let stop = self.mining.stopped();
         let halt = reads_halt.then(|| self.mining.halted());
+        let thermal = self.thermal;
         let mut context = Context {
             miner: self,
             config,
         };
         let mut work = pin!(state.run(&mut context));
         let mut stop = pin!(stop);
-        // A resume that arrives before a halt is dropped, because a
-        // machine that is not halted has nothing to resume.
         let mut halt = pin!(async {
-            if let Some(halt) = halt {
-                halt.await;
+            if let Some(from_manager) = halt {
+                next_halt(from_manager, thermal).await
             } else {
-                core::future::pending::<()>().await;
+                core::future::pending().await
             }
         });
         // Whether the work has waited on something, which a state that
@@ -140,8 +141,8 @@ where
             if let Poll::Ready(()) = stop.as_mut().poll(cx) {
                 return Poll::Ready(Either3::First(()));
             }
-            if let Poll::Ready(()) = halt.as_mut().poll(cx) {
-                return Poll::Ready(Either3::Second(()));
+            if let Poll::Ready(halted) = halt.as_mut().poll(cx) {
+                return Poll::Ready(Either3::Second(halted));
             }
             let polled = work.as_mut().poll(cx).map(Either3::Third);
             waited |= polled.is_pending();
@@ -153,9 +154,9 @@ where
                 info!("mining: stop signalled");
                 (None, true)
             }
-            Either3::Second(()) => {
+            Either3::Second(halted) => {
                 warn!("mining: halt asserted");
-                (Some(Anywhere::Halt(Halted).lift()), true)
+                (Some(Anywhere::Halt(halted).lift()), true)
             }
             Either3::Third(next) => (Some(next), false),
         };
@@ -169,6 +170,19 @@ where
             warn!("mining: tuner cancellation timed out");
         }
         next
+    }
+}
+
+/// Wait for what halts a machine that is not halted, and return the state
+/// it leads to. Only a halt from the manager needs a resume from the
+/// manager.
+async fn next_halt(
+    from_manager: impl Future<Output = ()>,
+    thermal: ubos_thermal::Handle,
+) -> Halted {
+    match select(from_manager, danger_raised(thermal)).await {
+        Either::First(()) => Halted::until_resume(),
+        Either::Second(()) => Halted::while_dangerous(),
     }
 }
 

@@ -645,7 +645,7 @@ fn main() {
                             .expect("BUG: miner_serial_task token"),
                     );
                 spawner.spawn(
-                    miner::miner_task(psu_handle, mining_runner, config_handle)
+                    miner::miner_task(psu_handle, mining_runner, thermal_handle, config_handle)
                         .expect("BUG: miner_task token"),
                 );
             }

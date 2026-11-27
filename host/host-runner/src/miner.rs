@@ -29,6 +29,7 @@ use crate::gpiod::{GpiodResetPin, RESET_LINE};
 pub async fn miner_task(
     psu_handle: ubos_psu::Handle,
     mining_runner: ubos_mining::Runner,
+    thermal_handle: ubos_thermal::Handle,
     config_handle: ubos_config::Handle,
 ) -> ! {
     let reset_pin = match GpiodResetPin::open(RESET_LINE) {
@@ -45,6 +46,7 @@ pub async fn miner_task(
         [(&crate::miner_serial::CHAINS[0], reset_pin)],
         || (),
         mining_runner,
+        thermal_handle,
     );
     miner.run(config_handle).await;
     info!("host-runner: miner exited; shutting down");

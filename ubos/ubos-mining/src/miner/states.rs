@@ -23,7 +23,7 @@
 use core::mem::{Discriminant, discriminant};
 
 use embassy_futures::join::join_array;
-use embassy_futures::select::{Either3, select3};
+use embassy_futures::select::{Either, Either3, select, select3};
 use embassy_time::{Duration, Instant, Timer};
 use transitions::{State, successors};
 use ubos_config::{ConfigSubscription, Tuning};
@@ -32,7 +32,9 @@ use ubos_logging::{Debug2Format, error, info, warn};
 use super::BRING_UP_CYCLES;
 use super::machine::Context;
 use super::pool::{POOL_POLL_PERIOD, PoolWatch};
+use super::temperature::danger_cleared;
 use crate::chain::ChainHandle;
+use crate::control::Message;
 use crate::reset::ResetPin;
 use crate::tuner::MachineTuner;
 
@@ -207,7 +209,7 @@ where
             BRING_UP_CYCLES
         );
         crate::events::chains_parked(BRING_UP_CYCLES);
-        BringUpNext::Park(Halted)
+        BringUpNext::Park(Halted::until_resume())
     }
 }
 
@@ -404,8 +406,31 @@ where
     }
 }
 
-/// Hold the rail off until a resume, after a halt or after a park.
-pub(super) struct Halted;
+/// Hold the rail off until nothing holds the machine: a resume, after a
+/// halt from the manager or after a park, and a clear dangerous temperature
+/// flag.
+pub(super) struct Halted {
+    /// Whether the manager still owes a resume. The flag of thermal is read
+    /// where it is kept, so the manager cannot resume a machine it holds.
+    awaits_resume: bool,
+}
+
+impl Halted {
+    /// The state after a halt from the manager or after a park.
+    pub(super) const fn until_resume() -> Self {
+        Self {
+            awaits_resume: true,
+        }
+    }
+
+    /// The state after the dangerous temperature flag was set, with no
+    /// halt from the manager.
+    pub(super) const fn while_dangerous() -> Self {
+        Self {
+            awaits_resume: false,
+        }
+    }
+}
 
 successors! { pub(super) enum HaltedNext { Resume(Choose) } }
 
@@ -420,7 +445,17 @@ where
     /// bring-up cycles again, so the count starts from zero.
     async fn run(self, context: &mut Context<'_, R, T, CHAINS>) -> HaltedNext {
         info!("mining: rail down; awaiting resume");
-        context.miner.mining.resumed().await;
+        let thermal = context.miner.thermal;
+        let mut awaits_resume = self.awaits_resume;
+        while awaits_resume || thermal.is_dangerous() {
+            if awaits_resume {
+                awaits_resume = matches!(context.miner.mining.next_message().await, Message::Halt);
+            } else if let Either::First(message) =
+                select(context.miner.mining.next_message(), danger_cleared(thermal)).await
+            {
+                awaits_resume = matches!(message, Message::Halt);
+            }
+        }
         info!("mining: resumed; restarting bring-up");
         context.miner.empty_cycles = 0;
         HaltedNext::Resume(Choose)

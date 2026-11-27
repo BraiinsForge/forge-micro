@@ -683,7 +683,7 @@ rusty_fork_test! {
             assert!(matches!(
                 block_on_with(
                     psu,
-                    miner.advance(MinerState::Halted(Halted), &mut subscription)
+                    miner.advance(MinerState::Halted(Halted::until_resume()), &mut subscription)
                 ),
                 Some(MinerState::Choose(_))
             ));
@@ -864,7 +864,7 @@ rusty_fork_test! {
             assert!(matches!(
                 block_on_with(
                     psu,
-                    miner.advance(MinerState::Halted(Halted), &mut subscription)
+                    miner.advance(MinerState::Halted(Halted::until_resume()), &mut subscription)
                 ),
                 Some(MinerState::Choose(_))
             ));
@@ -1197,6 +1197,110 @@ rusty_fork_test! {
         assert!(!watch.observe(false, start + Duration::from_secs(60), grace));
         assert!(!watch.observe(false, start + Duration::from_secs(119), grace));
         assert!(watch.observe(false, start + Duration::from_secs(120), grace));
+    }
+}
+
+rusty_fork_test! {
+    #[test]
+    fn the_dangerous_flag_halts_a_state_and_its_clearing_alone_starts_over() {
+        use core::future::Future;
+        use core::task::{Context, Poll, Waker};
+        critical_section::with(|_| {
+            static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
+            static STATS: ChainStats = ChainStats::new();
+            static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
+            let (psu_driver, psu) = test_psu(TestPsu {
+                mining: mining_handle(),
+                log: &LOG,
+                disable_fails: false,
+                behavior: Cell::new(VoltageWrite::Succeed),
+            });
+            let mut miner = test_miner::<OnePlanTuner, 1>(psu_driver, psu, [&ACTOR], [&STATS]);
+            let mut subscription = test_config().0;
+            let thermal = thermal_runner();
+            thermal.publish_dangerous(true);
+            let halted = block_on_with(
+                psu,
+                miner.advance(MinerState::Enable(Enable), &mut subscription),
+            )
+            .expect("a flag does not stop the machine");
+            assert!(matches!(halted, MinerState::Halted(_)));
+            LOG.lock(|log| assert_eq!(log.borrow().as_slice(), &[Write::Disable]));
+
+            let mut held = core::pin::pin!(miner.advance(halted, &mut subscription));
+            let mut context = Context::from_waker(Waker::noop());
+            assert!(held.as_mut().poll(&mut context).is_pending());
+            thermal.publish_dangerous(false);
+            assert!(matches!(
+                held.as_mut().poll(&mut context),
+                Poll::Ready(Some(MinerState::Choose(_)))
+            ));
+        });
+    }
+
+    #[test]
+    fn the_manager_cannot_resume_a_machine_the_flag_holds() {
+        use core::future::Future;
+        use core::task::{Context, Poll, Waker};
+        critical_section::with(|_| {
+            static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
+            static STATS: ChainStats = ChainStats::new();
+            static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
+            let (psu_driver, psu) = test_psu(TestPsu {
+                mining: mining_handle(),
+                log: &LOG,
+                disable_fails: false,
+                behavior: Cell::new(VoltageWrite::Succeed),
+            });
+            let mut miner = test_miner::<OnePlanTuner, 1>(psu_driver, psu, [&ACTOR], [&STATS]);
+            let mut subscription = test_config().0;
+            let thermal = thermal_runner();
+            thermal.publish_dangerous(true);
+            let halted = MinerState::Halted(Halted::until_resume());
+            let mut held = core::pin::pin!(miner.advance(halted, &mut subscription));
+            let mut context = Context::from_waker(Waker::noop());
+            assert!(crate::control::COMMAND_CHANNEL.try_send(Message::Resume).is_ok());
+            assert!(held.as_mut().poll(&mut context).is_pending());
+            thermal.publish_dangerous(false);
+            assert!(matches!(
+                held.as_mut().poll(&mut context),
+                Poll::Ready(Some(MinerState::Choose(_)))
+            ));
+        });
+    }
+
+    #[test]
+    fn a_clear_flag_does_not_resume_a_machine_the_manager_holds() {
+        use core::future::Future;
+        use core::task::{Context, Poll, Waker};
+        critical_section::with(|_| {
+            static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
+            static STATS: ChainStats = ChainStats::new();
+            static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
+            let (psu_driver, psu) = test_psu(TestPsu {
+                mining: mining_handle(),
+                log: &LOG,
+                disable_fails: false,
+                behavior: Cell::new(VoltageWrite::Succeed),
+            });
+            let mut miner = test_miner::<OnePlanTuner, 1>(psu_driver, psu, [&ACTOR], [&STATS]);
+            let mut subscription = test_config().0;
+            let thermal = thermal_runner();
+            thermal.publish_dangerous(true);
+            let halted = MinerState::Halted(Halted::while_dangerous());
+            let mut held = core::pin::pin!(miner.advance(halted, &mut subscription));
+            let mut context = Context::from_waker(Waker::noop());
+            // The manager halts while only the flag holds the machine.
+            assert!(crate::control::COMMAND_CHANNEL.try_send(Message::Halt).is_ok());
+            assert!(held.as_mut().poll(&mut context).is_pending());
+            thermal.publish_dangerous(false);
+            assert!(held.as_mut().poll(&mut context).is_pending());
+            assert!(crate::control::COMMAND_CHANNEL.try_send(Message::Resume).is_ok());
+            assert!(matches!(
+                held.as_mut().poll(&mut context),
+                Poll::Ready(Some(MinerState::Choose(_)))
+            ));
+        });
     }
 }
 

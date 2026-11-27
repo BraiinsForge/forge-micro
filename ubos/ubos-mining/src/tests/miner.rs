@@ -941,8 +941,28 @@ fn test_miner<T: MachineTuner<CHAINS, PlatformReadings = ()>, const CHAINS: usiz
         }),
         read_platform: || (),
         mining: psu_driver.mining.runner(),
+        thermal: test_thermal(),
         empty_cycles: 0,
     }
+}
+
+/// The thermal runner of the test, kept by [`test_thermal`] for a test that
+/// publishes as the thermal task would.
+static THERMAL_RUNNER: std::sync::OnceLock<ubos_thermal::Runner> = std::sync::OnceLock::new();
+
+/// The thermal handle a board takes in `main`. The test that calls this
+/// runs in a process of its own.
+fn test_thermal() -> ubos_thermal::Handle {
+    let (runner, handle) = ubos_thermal::Handle::take();
+    let _ = THERMAL_RUNNER.set(runner);
+    handle
+}
+
+/// The runner that [`test_thermal`] took.
+pub(crate) fn thermal_runner() -> &'static ubos_thermal::Runner {
+    THERMAL_RUNNER
+        .get()
+        .expect("BUG: the test has not built a miner yet")
 }
 
 fn test_config() -> (

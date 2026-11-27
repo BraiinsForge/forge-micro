@@ -201,11 +201,6 @@ impl Runner {
         async { while !matches!(COMMAND_CHANNEL.receive().await, Message::Halt) {} }
     }
 
-    /// Wait for a resume and drop every halt before it.
-    pub(crate) fn resumed(&self) -> impl Future<Output = ()> + use<> {
-        async { while !matches!(COMMAND_CHANNEL.receive().await, Message::Resume) {} }
-    }
-
     /// Take the next halt or resume.
     pub(crate) async fn next_message(&self) -> Message {
         COMMAND_CHANNEL.receive().await

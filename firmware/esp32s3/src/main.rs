@@ -468,6 +468,7 @@ async fn boot(spawner: Spawner) {
             handles.psu,
             ubos_mining::serial::Serial::wire(&mining::CHAINS, [reset]),
             runners.mining,
+            handles.thermal,
             handles.config
         )));
 

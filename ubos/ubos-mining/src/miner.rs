@@ -37,6 +37,7 @@ mod error;
 mod machine;
 mod pool;
 mod states;
+mod temperature;
 
 #[cfg(test)]
 #[path = "tests/miner.rs"]
@@ -97,6 +98,9 @@ where
     /// The mining handle the API reads; the miner publishes its lifecycle
     /// status and reads halt and resume through it.
     mining: Runner,
+    /// Where the miner reads the dangerous temperature flag and whether a
+    /// reading is left.
+    thermal: ubos_thermal::Handle,
     /// Bring-up cycles that found no chain since the last one that did.
     /// Counts toward `BRING_UP_CYCLES`, and is cleared by every cycle
     /// that brings a chain up and by every resume.
@@ -129,6 +133,7 @@ where
         chains: [(&'static Serial, R); CHAINS],
         read_platform: fn() -> T::PlatformReadings,
         mining: Runner,
+        thermal: ubos_thermal::Handle,
     ) -> Self {
         const {
             assert!(
@@ -165,6 +170,7 @@ where
             chains,
             read_platform,
             mining,
+            thermal,
             empty_cycles: 0,
         }
     }
@@ -335,13 +341,14 @@ macro_rules! miner_task {
             psu_handle: ubos_psu::Handle,
             chains: [(&'static ubos_mining::serial::Serial, $reset); $chains],
             mining: ubos_mining::Runner,
+            thermal: ubos_thermal::Handle,
             config: ubos_config::Handle,
         ) -> ! {
             /// Park interval after the state machine returns.
             const PARK_INTERVAL: embassy_time::Duration = embassy_time::Duration::from_secs(60);
 
             let mut miner = ubos_mining::Miner::<_, $tuner, { $chains }>::new(
-                psu_handle, $board, chains, $platform, mining,
+                psu_handle, $board, chains, $platform, mining, thermal,
             );
             miner.run(config).await;
             defmt::info!("ubos-mining miner exited");
