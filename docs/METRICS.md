@@ -202,7 +202,8 @@ check. It refuses a name that breaks one of these rules:
   if the hashboard is the noun of the series, as in `hashboard_present`.
 - A name does not end in a scaled unit such as `_mv` or `_percent`.
 - A name of a typed unit ends in the suffix of that unit: `_celsius`,
-  `_volts`, `_watts`, `_amperes`, `_hertz` or `_ratio`.
+  `_volts`, `_watts`, `_amperes`, `_hertz`, `_ratio`, `_shares`,
+  `_difficulty` or `_hps`.
 - A name of a count, a flag, a fan duty or a fan speed ends in none of
   these suffixes.
 
@@ -329,6 +330,18 @@ The other series carry no label, because a board has one of each.
 A series that has a unit is in the base unit that its name states. The
 base units are degrees Celsius, volts, watts, amps and hertz. A fan duty
 cycle is in percent, and a fan speed is in RPM.
+
+Three units are for the work of the miner. Each one holds a whole
+number, and the series shows that number:
+
+| Unit | Suffix | The number |
+|---|---|---|
+| `Shares` | `_shares` | work in difficulty-1 shares, each 2^32 expected hashes |
+| `Difficulty` | `_difficulty` | the difficulty of a share target |
+| `Hashrate` | `_hps` | hashes per second |
+
+A series that counts events stays a `Count`. `pool_submits` is one,
+because it counts the submits and not their work.
 
 The store holds each value as its typed unit, for example a
 `Temperature` in millicelsius. `Value` in `value.rs` is the only code
