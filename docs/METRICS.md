@@ -71,6 +71,15 @@ state that changes seldom can have a slow ticker and a long TTL.
 
 The last call of `ttl`, `state` and `constant` wins.
 
+Each series below has one owner, and the owner pushes it.
+
+| Series | Owner | Push |
+|--------|-------|------|
+| `uptime_seconds` | `ubos-net`, `ubos/ubos-net/src/net.rs` | each second, a state with a TTL of 3 seconds |
+| `ntp_synced` | `ubos-net`, `ubos/ubos-net/src/net.rs` | the same ticker. The value is 1 after the first NTP sync. |
+| `http_requests{port}` | `ubos-http`, `ubos/ubos-http/src/requests.rs` | each second, a state with a TTL of 3 seconds |
+| `metrics_dropped` | the store, `run_ingest` | a constant, written after each receive when the count changed |
+
 `ubos-net` owns the clock. Its `run_ntp_sync` task joins the export loop
 to the sync loop, so the series exist before the DHCP lease does, and no
 board has a spawn line for them.
