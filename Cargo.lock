@@ -1854,7 +1854,6 @@ dependencies = [
 name = "esp32s3"
 version = "0.1.0"
 dependencies = [
- "critical-section",
  "defmt 1.2.0",
  "defmt-rtt",
  "embassy-embedded-hal",

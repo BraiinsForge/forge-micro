@@ -45,7 +45,6 @@ ubos-mining            = { workspace = true, features = ["defmt"] }
 ubos-ota               = { workspace = true, features = ["defmt", "esp"] }
 embassy-embedded-hal   = { version = "0.6.0", default-features = false, features = ["defmt"] }
 embassy-sync           = { workspace = true, features = ["defmt"] }
-critical-section       = { version = "1" }
 esp-hal                = { version = "1.2.2", features = ["defmt", "esp32s3", "unstable"] }
 # 0.3 brought the stack-overflow detection and the multi-core
 # task-switch interrupt nesting that holds under load.
@@ -64,8 +63,3 @@ esp-storage            = { version = "0.10.0", default-features = false, feature
 
 [build-dependencies]
 ubos-build = { workspace = true }
-
-# critical-section is pulled in by esp-storage and esp-hal feature unification,
-# a real transitive requirement that machete flags as unused.
-[package.metadata.cargo-machete]
-ignored = ["critical-section"]
