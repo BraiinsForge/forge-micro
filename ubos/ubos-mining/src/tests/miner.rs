@@ -311,7 +311,7 @@ fn run_bring_up_chain(
             let terminate_result = fixture.actor.terminate().await;
             assert!(matches!(terminate_result, Ok(())));
         };
-        let run = fixture.actor.run(
+        let run = fixture.actor.run_with(
             crate::fixture::park(),
             QuietSerial,
             fixture.session,
@@ -567,7 +567,7 @@ rusty_fork_test! {
                 assert!(matches!(terminate_b, Ok(())));
                 bring_up_outcome
             };
-            let run_a = ACTOR_A.run(
+            let run_a = ACTOR_A.run_with(
                 crate::fixture::park(),
                 QuietSerial,
                 &SESSION,
@@ -576,7 +576,7 @@ rusty_fork_test! {
                 NoWork,
                 stats_handle.chain(HashboardIndex(0)),
             );
-            let run_b = ACTOR_B.run(
+            let run_b = ACTOR_B.run_with(
                 crate::fixture::park(),
                 QuietSerial,
                 &SESSION,
@@ -682,7 +682,7 @@ rusty_fork_test! {
                 bring_up_outcome
             };
             // Chain A comes up present; chain B stays absent.
-            let run_a = ACTOR_A.run(
+            let run_a = ACTOR_A.run_with(
                 crate::fixture::park(),
                 QuietSerial,
                 &SESSION,
@@ -691,7 +691,7 @@ rusty_fork_test! {
                 NoWork,
                 stats_handle.chain(HashboardIndex(0)),
             );
-            let run_b = ACTOR_B.run(
+            let run_b = ACTOR_B.run_with(
                 crate::fixture::park(),
                 QuietSerial,
                 &SESSION,
@@ -1045,7 +1045,7 @@ rusty_fork_test! {
                 A.terminate().await.expect("actor terminates");
                 B.terminate().await.expect("actor terminates");
             };
-            let run_a = A.run(
+            let run_a = A.run_with(
                 crate::fixture::park(),
                 QuietSerial,
                 &SESSION,
@@ -1054,7 +1054,7 @@ rusty_fork_test! {
                 NoWork,
                 &STATS[0],
             );
-            let run_b = B.run(
+            let run_b = B.run_with(
                 crate::fixture::park(),
                 QuietSerial,
                 &SESSION,

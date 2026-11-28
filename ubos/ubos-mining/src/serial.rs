@@ -635,8 +635,28 @@ impl Serial {
     /// `board` and `driver` must describe the same chip: a caller wiring
     /// a board descriptor against the wrong driver panics on the assert
     /// below instead of tuning the wrong chip's frequency envelope.
-    #[allow(clippy::too_many_lines, clippy::too_many_arguments)]
     pub async fn run<S, C, const N: usize, const CHAINS: usize, Sch: Scheduler<N>>(
+        &self,
+        park: &'static Park,
+        serial: S,
+        session: &'static AsicSession<N, CHAINS>,
+        board: &'static HashboardDescriptor,
+        driver: C,
+        scheduler: Sch,
+    ) -> Result<(), ErrorKind>
+    where
+        S: Read + Write + BaudRate,
+        C: ChainDriver,
+    {
+        let stats = crate::stats::handle().chain(self.chain());
+        self.run_with(park, serial, session, board, driver, scheduler, stats)
+            .await
+    }
+
+    /// [`Self::run`] over the accounting the caller names, so a test can
+    /// give the actor a table of its own.
+    #[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+    pub(crate) async fn run_with<S, C, const N: usize, const CHAINS: usize, Sch: Scheduler<N>>(
         &self,
         park: &'static Park,
         mut serial: S,
@@ -1203,15 +1223,7 @@ macro_rules! serial_task {
             const PARK_INTERVAL: embassy_time::Duration = embassy_time::Duration::from_secs(60);
 
             match actor
-                .run(
-                    park,
-                    serial,
-                    session,
-                    $board,
-                    driver,
-                    $scheduler,
-                    ubos_mining::stats::handle().chain(actor.chain()),
-                )
+                .run(park, serial, session, $board, driver, $scheduler)
                 .await
             {
                 Ok(()) => defmt::info!("ubos-mining serial actor terminated cleanly"),

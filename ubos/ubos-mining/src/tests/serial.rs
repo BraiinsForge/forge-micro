@@ -1327,7 +1327,7 @@ fn read_of_zero_bytes_ends_the_run_and_the_same_actor_serves_a_later_command() {
         let scheduler = Pinned::new(0);
         let serial = ScriptedSerial::new(ReadStep::Eof);
 
-        let result = block_on(actor.run(
+        let result = block_on(actor.run_with(
             crate::fixture::park(),
             serial,
             &SESSION,
@@ -1356,7 +1356,7 @@ fn read_of_zero_bytes_ends_the_run_and_the_same_actor_serves_a_later_command() {
 
         let (terminate_result, run_result) = block_on(join(
             actor.terminate(),
-            actor.run(
+            actor.run_with(
                 crate::fixture::park(),
                 serial,
                 &SESSION,
@@ -1394,7 +1394,7 @@ fn read_line_error_recovers_the_parser_and_the_actor_keeps_serving_commands() {
         };
         let (terminate_result, run_result) = block_on(join(
             caller,
-            actor.run(
+            actor.run_with(
                 crate::fixture::park(),
                 serial,
                 &SESSION,
@@ -1466,7 +1466,7 @@ fn a_poll_collects_a_solution_through_process_solutions_without_calling_ingest()
 
         let (solution, run_result) = block_on(join(
             caller,
-            actor.run(
+            actor.run_with(
                 crate::fixture::park(),
                 serial,
                 &SESSION,
@@ -1544,7 +1544,7 @@ fn run_clamps_a_driver_reporting_more_work_slots_than_the_registry_holds() {
 
         let ((), run_result) = block_on(join(
             caller,
-            actor.run(
+            actor.run_with(
                 crate::fixture::park(),
                 serial,
                 &SESSION,
@@ -1622,7 +1622,7 @@ fn published_pool_weights_reach_the_scheduler() {
 
         let ((), run_result) = block_on(join(
             caller,
-            actor.run(
+            actor.run_with(
                 crate::fixture::park(),
                 serial,
                 &SESSION,
@@ -1699,7 +1699,7 @@ fn a_command_waits_for_an_in_flight_poll_and_the_solution_survives() {
 
         let (solution, run_result) = block_on(join(
             caller,
-            actor.run(
+            actor.run_with(
                 crate::fixture::park(),
                 serial,
                 &SESSION,

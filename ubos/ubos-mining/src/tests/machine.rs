@@ -78,7 +78,7 @@ fn run_mining_with_driver<M: MachineTuner<1>>(
         actor.terminate().await.expect("actor terminates");
         outcome
     };
-    let run = actor.run(
+    let run = actor.run_with(
         crate::fixture::park(),
         QuietSerial,
         &SESSION,
@@ -1116,7 +1116,7 @@ rusty_fork_test! {
                 plan_log: Some((0, &LOG)),
                 ..BringUpDriver::new(&[4])
             };
-            let run = ACTOR.run(
+            let run = ACTOR.run_with(
                 crate::fixture::park(),
                 QuietSerial,
                 &SESSION,
@@ -1378,7 +1378,7 @@ rusty_fork_test! {
                 );
                 ACTOR.terminate().await.expect("actor terminates");
             };
-            let actor = ACTOR.run(
+            let actor = ACTOR.run_with(
                 crate::fixture::park(),
                 QuietSerial,
                 &SESSION,
@@ -1453,7 +1453,7 @@ rusty_fork_test! {
 
                 ACTOR.terminate().await.expect("actor terminates");
             };
-            let run = ACTOR.run(
+            let run = ACTOR.run_with(
                 crate::fixture::park(),
                 QuietSerial,
                 &SESSION,
@@ -1519,7 +1519,7 @@ rusty_fork_test! {
 
                 ACTOR.terminate().await.expect("actor terminates");
             };
-            let run = ACTOR.run(
+            let run = ACTOR.run_with(
                 crate::fixture::park(),
                 QuietSerial,
                 &SESSION,
