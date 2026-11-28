@@ -25,7 +25,6 @@
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::Watch;
-use embassy_time::{Duration, Instant};
 use ubos_config::{PidTarget, Source, Statistic};
 use ubos_core::units::Temperature;
 use ubos_temperature::{Reading, TempSource};
@@ -98,51 +97,57 @@ pub(crate) struct Temperatures {
 }
 
 impl Temperatures {
-    /// Filters for readings that arrive once in each `interval`.
-    pub(crate) const fn for_interval(interval: Duration) -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
-            hashboard: TempFilter::for_interval(interval),
-            chip: TempFilter::for_interval(interval),
-            ambient: TempFilter::for_interval(interval),
+            hashboard: TempFilter::new(),
+            chip: TempFilter::new(),
+            ambient: TempFilter::new(),
         }
+    }
+
+    /// End this sample in every filter, after its values were published.
+    pub(crate) fn end_sample(&mut self) {
+        self.hashboard.end_sample();
+        self.chip.end_sample();
+        self.ambient.end_sample();
     }
 
     /// Fold `reading` into the filter of its kind, whichever chain or
     /// sensor it names.
-    pub(crate) fn update(&mut self, reading: Reading, now: Instant) {
+    pub(crate) fn update(&mut self, reading: Reading) {
         let filter = match reading.source {
             TempSource::Hashboard { .. } => &mut self.hashboard,
             TempSource::Chip { .. } => &mut self.chip,
             TempSource::Ambient => &mut self.ambient,
             TempSource::Mcu | TempSource::ControlBoard | TempSource::Psu => return,
         };
-        filter.update(reading.value, now);
+        filter.update(reading.value);
     }
 
     /// Fold the hottest and the mean die of the chains of a tick into
     /// the chip filter. A chain reads each chip once in a pass, so its
     /// dies reach the filter as the summary of every tick.
-    pub(crate) fn update_dies(&mut self, dies: TempStats, now: Instant) {
-        self.chip.update_stats(dies, now);
+    pub(crate) fn update_dies(&mut self, dies: TempStats) {
+        self.chip.update_stats(dies);
     }
 
-    /// The chip and hashboard values at `now`, or `None` when neither has
+    /// The chip and hashboard values, or `None` when neither has
     /// a reading inside its window.
-    fn filtered(&self, now: Instant) -> Option<TempSample> {
-        let chip = self.chip.value(now);
-        let hashboard = self.hashboard.value(now);
+    fn filtered(&self) -> Option<TempSample> {
+        let chip = self.chip.value();
+        let hashboard = self.hashboard.value();
         (chip.is_some() || hashboard.is_some()).then_some(TempSample { chip, hashboard })
     }
 
-    /// The stats of `source` at `now`, or `None` when it has no reading
+    /// The stats of `source`, or `None` when it has no reading
     /// inside its window.
-    pub(crate) fn stats(&self, source: Source, now: Instant) -> Option<TempStats> {
-        self.filtered(now)?.temp_stats(source)
+    pub(crate) fn stats(&self, source: Source) -> Option<TempStats> {
+        self.filtered()?.temp_stats(source)
     }
 
     /// Publish the chip and hashboard values into `watches`.
-    pub(crate) fn publish_filtered(&self, now: Instant, watches: &Watches) {
-        watches.filtered.sender().send(self.filtered(now));
+    pub(crate) fn publish_filtered(&self, watches: &Watches) {
+        watches.filtered.sender().send(self.filtered());
     }
 
     /// Publish the temperature that the cooling PID follows into
@@ -150,12 +155,12 @@ impl Temperatures {
     /// or `None` when that kind has no reading inside its window. The
     /// selection is made here because thermal holds every filter, so the
     /// cooling loop wakes on the one value it steers by.
-    pub(crate) fn publish_pid(&self, now: Instant, target: PidTarget, watches: &Watches) {
+    pub(crate) fn publish_pid(&self, target: PidTarget, watches: &Watches) {
         let PidTarget {
             source, statistic, ..
         } = target;
         let temp = self
-            .filtered(now)
+            .filtered()
             .and_then(|filtered| filtered.temp_stats(source))
             .map(|stats| stats.temp(statistic));
         watches.pid.sender().send(PidTemperature {
@@ -168,8 +173,8 @@ impl Temperatures {
     /// Publish the ambient value into `watches`. It is apart from the
     /// chip and hashboard values because the loop reads the ambient
     /// sensor after they have gone out.
-    pub(crate) fn publish_ambient(&self, now: Instant, watches: &Watches) {
-        let ambient = self.ambient.value(now).map(|stats| stats.max);
+    pub(crate) fn publish_ambient(&self, watches: &Watches) {
+        let ambient = self.ambient.value().map(|stats| stats.max);
         watches.ambient.sender().send(ambient);
     }
 }

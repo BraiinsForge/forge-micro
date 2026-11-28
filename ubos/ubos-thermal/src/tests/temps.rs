@@ -27,8 +27,9 @@ use crate::TempStats;
 use ubos_config::{Source, Statistic};
 use ubos_core::index::{ChipAddress, HashboardIndex};
 
-/// The sample interval of the filters, which gives panes of 500 ms.
-const INTERVAL: Duration = Duration::from_millis(1000);
+/// Samples that end with no reading, which is enough for a reading
+/// before them to leave the window.
+const SILENT_SAMPLES: usize = 3;
 
 const fn reading(source: TempSource, celsius: i32) -> Reading {
     Reading {
@@ -53,17 +54,13 @@ fn published(watch: &TempWatch) -> Option<Temperature> {
 #[test]
 fn each_reading_reaches_the_watch_of_its_source() {
     static WATCHES: Watches = Watches::new();
-    let mut temperatures = Temperatures::for_interval(INTERVAL);
-    let now = Instant::from_millis(0);
+    let mut temperatures = Temperatures::new();
     let chain = HashboardIndex(0);
-    temperatures.update(
-        reading(TempSource::chip(chain, ChipAddress::One(1)), 80),
-        now,
-    );
-    temperatures.update(reading(TempSource::hashboard(chain, SENSOR), 60), now);
-    temperatures.update(reading(TempSource::Ambient, 25), now);
-    temperatures.publish_filtered(now, &WATCHES);
-    temperatures.publish_ambient(now, &WATCHES);
+    temperatures.update(reading(TempSource::chip(chain, ChipAddress::One(1)), 80));
+    temperatures.update(reading(TempSource::hashboard(chain, SENSOR), 60));
+    temperatures.update(reading(TempSource::Ambient, 25));
+    temperatures.publish_filtered(&WATCHES);
+    temperatures.publish_ambient(&WATCHES);
     let degrees = |celsius| Some(Temperature::from_celsius(celsius));
     assert_eq!(
         WATCHES.filtered.try_get().flatten(),
@@ -78,19 +75,12 @@ fn each_reading_reaches_the_watch_of_its_source() {
 #[test]
 fn the_sample_carries_the_hottest_and_the_mean_of_a_kind() {
     static WATCHES: Watches = Watches::new();
-    let mut temperatures = Temperatures::for_interval(INTERVAL);
-    let now = Instant::from_millis(0);
+    let mut temperatures = Temperatures::new();
     let chain = HashboardIndex(0);
-    temperatures.update(
-        reading(TempSource::chip(chain, ChipAddress::One(0)), 80),
-        now,
-    );
-    temperatures.update(
-        reading(TempSource::chip(chain, ChipAddress::One(1)), 70),
-        now,
-    );
-    temperatures.publish_filtered(now, &WATCHES);
-    temperatures.publish_ambient(now, &WATCHES);
+    temperatures.update(reading(TempSource::chip(chain, ChipAddress::One(0)), 80));
+    temperatures.update(reading(TempSource::chip(chain, ChipAddress::One(1)), 70));
+    temperatures.publish_filtered(&WATCHES);
+    temperatures.publish_ambient(&WATCHES);
     assert_eq!(
         WATCHES.filtered.try_get().flatten(),
         Some(TempSample {
@@ -103,26 +93,25 @@ fn the_sample_carries_the_hottest_and_the_mean_of_a_kind() {
 #[test]
 fn a_sample_with_neither_kind_inside_its_window_is_none() {
     static WATCHES: Watches = Watches::new();
-    let mut temperatures = Temperatures::for_interval(INTERVAL);
+    let mut temperatures = Temperatures::new();
     let chain = HashboardIndex(0);
-    temperatures.update(
-        reading(TempSource::chip(chain, ChipAddress::One(0)), 80),
-        Instant::from_millis(0),
-    );
-    temperatures.publish_filtered(Instant::from_millis(3000), &WATCHES);
-    temperatures.publish_ambient(Instant::from_millis(3000), &WATCHES);
+    temperatures.update(reading(TempSource::chip(chain, ChipAddress::One(0)), 80));
+    for _ in 0..SILENT_SAMPLES {
+        temperatures.end_sample();
+    }
+    temperatures.publish_filtered(&WATCHES);
+    temperatures.publish_ambient(&WATCHES);
     assert_eq!(WATCHES.filtered.try_get(), Some(None));
 }
 
 #[test]
 fn a_reading_with_no_filter_reaches_no_watch() {
     static WATCHES: Watches = Watches::new();
-    let mut temperatures = Temperatures::for_interval(INTERVAL);
-    let now = Instant::from_millis(0);
-    temperatures.update(reading(TempSource::ControlBoard, 50), now);
-    temperatures.update(reading(TempSource::Mcu, 50), now);
-    temperatures.publish_filtered(now, &WATCHES);
-    temperatures.publish_ambient(now, &WATCHES);
+    let mut temperatures = Temperatures::new();
+    temperatures.update(reading(TempSource::ControlBoard, 50));
+    temperatures.update(reading(TempSource::Mcu, 50));
+    temperatures.publish_filtered(&WATCHES);
+    temperatures.publish_ambient(&WATCHES);
     assert_eq!(WATCHES.filtered.try_get(), Some(None));
     assert_eq!(published(&WATCHES.ambient), None);
 }
@@ -130,10 +119,13 @@ fn a_reading_with_no_filter_reaches_no_watch() {
 #[test]
 fn a_silent_source_publishes_none() {
     static WATCHES: Watches = Watches::new();
-    let mut temperatures = Temperatures::for_interval(INTERVAL);
-    temperatures.update(reading(TempSource::Ambient, 25), Instant::from_millis(0));
-    temperatures.publish_filtered(Instant::from_millis(3000), &WATCHES);
-    temperatures.publish_ambient(Instant::from_millis(3000), &WATCHES);
+    let mut temperatures = Temperatures::new();
+    temperatures.update(reading(TempSource::Ambient, 25));
+    for _ in 0..SILENT_SAMPLES {
+        temperatures.end_sample();
+    }
+    temperatures.publish_filtered(&WATCHES);
+    temperatures.publish_ambient(&WATCHES);
     assert_eq!(published(&WATCHES.ambient), None);
 }
 
@@ -150,36 +142,29 @@ const fn target(source: Source, statistic: Statistic) -> PidTarget {
 #[test]
 fn the_pid_temperature_is_the_statistic_of_the_target_over_its_kind() {
     static WATCHES: Watches = Watches::new();
-    let mut temperatures = Temperatures::for_interval(INTERVAL);
-    let now = Instant::from_millis(0);
+    let mut temperatures = Temperatures::new();
     let chain = HashboardIndex(0);
-    temperatures.update(
-        reading(TempSource::chip(chain, ChipAddress::One(0)), 90),
-        now,
-    );
-    temperatures.update(
-        reading(TempSource::chip(chain, ChipAddress::One(1)), 70),
-        now,
-    );
-    temperatures.update(reading(TempSource::hashboard(chain, SENSOR), 60), now);
+    temperatures.update(reading(TempSource::chip(chain, ChipAddress::One(0)), 90));
+    temperatures.update(reading(TempSource::chip(chain, ChipAddress::One(1)), 70));
+    temperatures.update(reading(TempSource::hashboard(chain, SENSOR), 60));
     let pid = |source, statistic, celsius| PidTemperature {
         source,
         statistic,
         temp: Some(Temperature::from_celsius(celsius)),
     };
 
-    temperatures.publish_pid(now, target(Source::Chip, Statistic::Max), &WATCHES);
+    temperatures.publish_pid(target(Source::Chip, Statistic::Max), &WATCHES);
     assert_eq!(
         WATCHES.pid.try_get(),
         Some(pid(Source::Chip, Statistic::Max, 90))
     );
-    temperatures.publish_pid(now, target(Source::Chip, Statistic::Mean), &WATCHES);
+    temperatures.publish_pid(target(Source::Chip, Statistic::Mean), &WATCHES);
     assert_eq!(
         WATCHES.pid.try_get(),
         Some(pid(Source::Chip, Statistic::Mean, 80))
     );
     // The hashboard, even beside a hotter die.
-    temperatures.publish_pid(now, target(Source::Hashboard, Statistic::Max), &WATCHES);
+    temperatures.publish_pid(target(Source::Hashboard, Statistic::Max), &WATCHES);
     assert_eq!(
         WATCHES.pid.try_get(),
         Some(pid(Source::Hashboard, Statistic::Max, 60))
@@ -189,20 +174,18 @@ fn the_pid_temperature_is_the_statistic_of_the_target_over_its_kind() {
 #[test]
 fn the_pid_temperature_is_none_without_a_reading_of_the_target_kind() {
     static WATCHES: Watches = Watches::new();
-    let mut temperatures = Temperatures::for_interval(INTERVAL);
-    let now = Instant::from_millis(0);
+    let mut temperatures = Temperatures::new();
     let chain = HashboardIndex(0);
-    temperatures.update(
-        reading(TempSource::chip(chain, ChipAddress::One(0)), 90),
-        now,
-    );
+    temperatures.update(reading(TempSource::chip(chain, ChipAddress::One(0)), 90));
 
     // The die is never handed to a target that follows the hashboard.
-    temperatures.publish_pid(now, target(Source::Hashboard, Statistic::Max), &WATCHES);
+    temperatures.publish_pid(target(Source::Hashboard, Statistic::Max), &WATCHES);
     assert_eq!(WATCHES.pid.try_get().and_then(|pid| pid.temp), None);
 
     // The chip reading has left its window.
-    let later = Instant::from_millis(3000);
-    temperatures.publish_pid(later, target(Source::Chip, Statistic::Max), &WATCHES);
+    for _ in 0..SILENT_SAMPLES {
+        temperatures.end_sample();
+    }
+    temperatures.publish_pid(target(Source::Chip, Statistic::Max), &WATCHES);
     assert_eq!(WATCHES.pid.try_get().and_then(|pid| pid.temp), None);
 }

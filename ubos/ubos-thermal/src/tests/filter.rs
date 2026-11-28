@@ -17,104 +17,98 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Unit tests for the window filter. They drive the filter with plain
-//! instants, so no embassy executor or clock is involved.
+//! Unit tests for the window filter.
 
 use super::*;
-
-/// The sample interval of the filters, which gives panes of 500 ms.
-const INTERVAL: Duration = Duration::from_millis(1000);
 
 const fn degrees(celsius: i32) -> Temperature {
     Temperature::from_celsius(celsius)
 }
 
-const fn at(millis: u64) -> Instant {
-    Instant::from_millis(millis)
-}
-
 #[test]
 fn a_burst_of_four_sensors_gives_the_hottest_and_the_mean() {
-    let mut filter = TempFilter::for_interval(INTERVAL);
-    for (index, celsius) in [(0, 60), (1, 64), (2, 58), (3, 62)] {
-        filter.update(degrees(celsius), at(10 * index));
+    let mut filter = TempFilter::new();
+    for celsius in [60, 64, 58, 62] {
+        filter.update(degrees(celsius));
     }
-    let stats = filter.value(at(100)).expect("four readings are inside");
+    let stats = filter.value().expect("four readings are inside");
     assert_eq!(stats.max, degrees(64));
     assert_eq!(stats.mean, degrees(61));
 }
 
 #[test]
 fn a_rising_ramp_never_reads_below_the_last_reading() {
-    let mut filter = TempFilter::for_interval(INTERVAL);
-    for second in 0..60u64 {
-        let celsius = 40 + i32::try_from(second).expect("BUG: 60 fits an i32");
-        filter.update(degrees(celsius), at(1000 * second));
-        let stats = filter.value(at(1000 * second)).expect("a reading is in");
+    let mut filter = TempFilter::new();
+    for celsius in 40..100 {
+        filter.update(degrees(celsius));
+        let stats = filter.value().expect("a reading is in");
         assert!(stats.max >= degrees(celsius));
+        filter.end_sample();
     }
 }
 
 #[test]
 fn a_falling_ramp_reads_high_by_at_most_two_samples() {
-    let mut filter = TempFilter::for_interval(INTERVAL);
-    for second in 0..60u64 {
-        let celsius = 100 - i32::try_from(second).expect("BUG: 60 fits an i32");
-        filter.update(degrees(celsius), at(1000 * second));
-        let stats = filter.value(at(1000 * second)).expect("a reading is in");
+    let mut filter = TempFilter::new();
+    for celsius in (40..100).rev() {
+        filter.update(degrees(celsius));
+        let stats = filter.value().expect("a reading is in");
         assert!(stats.max <= degrees(celsius + 2));
+        filter.end_sample();
     }
 }
 
 #[test]
 fn a_silent_source_gives_none_after_the_window() {
-    let mut filter = TempFilter::for_interval(INTERVAL);
-    filter.update(degrees(60), at(0));
-    assert!(filter.value(at(1000)).is_some(), "still inside the window");
+    let mut filter = TempFilter::new();
+    filter.update(degrees(60));
+    filter.end_sample();
     assert!(
-        filter.value(at(2000)).is_some(),
-        "one missed poll leaves the reading inside the window"
+        filter.value().is_some(),
+        "one missed read keeps the reading"
     );
-    assert!(
-        filter.value(at(2500)).is_some(),
-        "a tick that is late across a pane boundary still reads it"
-    );
-    assert_eq!(filter.value(at(3000)), None, "six widths have passed");
+    filter.end_sample();
+    assert!(filter.value().is_some(), "and so does a second");
+    filter.end_sample();
+    assert_eq!(filter.value(), None, "the third sample leaves it behind");
 }
 
 #[test]
 fn a_pane_that_comes_round_again_starts_afresh() {
-    let mut filter = TempFilter::for_interval(INTERVAL);
-    filter.update(degrees(90), at(0));
-    // Six widths later the same pane holds a new epoch.
-    filter.update(degrees(50), at(3000));
-    let stats = filter.value(at(3000)).expect("a reading is in");
+    let mut filter = TempFilter::new();
+    filter.update(degrees(90));
+    for _ in 0..SAMPLES {
+        filter.end_sample();
+    }
+    filter.update(degrees(50));
+    let stats = filter.value().expect("a reading is in");
     assert_eq!(stats.max, degrees(50), "the old reading is gone");
 }
 
 #[test]
 fn six_hundred_chips_fit_in_the_fixed_memory() {
-    let mut filter = TempFilter::for_interval(INTERVAL);
+    let mut filter = TempFilter::new();
     let size = core::mem::size_of::<TempFilter>();
     for index in 0..600i32 {
-        filter.update(degrees(40 + index / 20), at(0));
+        filter.update(degrees(40 + index / 20));
     }
     assert_eq!(core::mem::size_of::<TempFilter>(), size);
-    let stats = filter.value(at(0)).expect("readings are in");
+    let stats = filter.value().expect("readings are in");
     assert_eq!(stats.max, degrees(69));
     assert_eq!(stats.mean, Temperature::from_millicelsius(54_500));
 }
 
 #[test]
-fn the_stats_of_a_tick_count_as_one_reading() {
-    let mut filter = TempFilter::for_interval(INTERVAL);
-    let tick = |max, mean| TempStats {
+fn the_stats_of_a_sample_count_as_one_reading() {
+    let mut filter = TempFilter::new();
+    let sample = |max, mean| TempStats {
         max: degrees(max),
         mean: degrees(mean),
     };
-    filter.update_stats(tick(70, 60), at(0));
-    filter.update_stats(tick(66, 64), at(1000));
-    let stats = filter.value(at(1000)).expect("two ticks are inside");
+    filter.update_stats(sample(70, 60));
+    filter.end_sample();
+    filter.update_stats(sample(66, 64));
+    let stats = filter.value().expect("two samples are inside");
     assert_eq!(stats.max, degrees(70));
     assert_eq!(stats.mean, degrees(62));
 }

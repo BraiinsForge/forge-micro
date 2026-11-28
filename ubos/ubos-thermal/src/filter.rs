@@ -20,11 +20,10 @@
 //! The window filter of one kind of temperature source.
 //!
 //! A [`TempFilter`] yields the maximum and the mean of the temperatures
-//! it is given over a sliding window. It cuts the window into
-//! equal panes and keeps one summary for each, so the memory of a filter
-//! does not grow with the number of sensors or chips behind the source.
+//! it is given over a window of the last samples. It keeps one summary
+//! for each sample, so the memory of a filter does not grow with the
+//! number of sensors or chips behind the source.
 
-use embassy_time::{Duration, Instant};
 use ubos_core::units::Temperature;
 
 use crate::TempStats;
@@ -33,36 +32,26 @@ use crate::TempStats;
 #[path = "tests/filter.rs"]
 mod tests;
 
-/// The number of panes that one sample interval spans. Two panes keep a
-/// reading in the pane of its own tick while a tick that falls late still
-/// lands in the next one.
-const PANES_PER_INTERVAL: u32 = 2;
+/// The number of samples in the window. A reading stands for the sample
+/// that took it and the two after it, so a sensor that misses two reads
+/// in a row keeps its value.
+const SAMPLES: usize = 3;
 
-/// The number of panes in the ring. The window is between
-/// `PANES - 1` and `PANES` pane widths long. A pane is half a sample
-/// interval, see [`PANES_PER_INTERVAL`], so the reading before one missed
-/// poll is four panes old at the next tick, and five when that tick falls
-/// late across a pane boundary. A sixth pane keeps it inside the window in
-/// both cases.
-const PANES: usize = 6;
-
-/// The temperatures of one pane width, folded into the values that merge
-/// by one operation each.
+/// The temperatures of one sample, folded into the values that merge by
+/// one operation each.
 #[derive(Clone, Copy)]
 struct Pane {
     max: Temperature,
     sum: i64,
     count: u32,
-    epoch: u64,
 }
 
 impl Pane {
-    fn start(stats: TempStats, epoch: u64) -> Self {
+    fn start(stats: TempStats) -> Self {
         Self {
             max: stats.max,
             sum: i64::from(stats.mean.millicelsius()),
             count: 1,
-            epoch,
         }
     }
 
@@ -73,68 +62,48 @@ impl Pane {
     }
 }
 
-/// A sliding window over the temperatures of one kind of source. It keeps
-/// a ring of panes, so one ring gives the maximum and the mean without a
-/// history. A kind that is silent for the length of the window
-/// yields `None` and needs no timer. The owner of the filter chooses which
-/// readings it takes.
+/// A window over the temperatures of one kind of source. It keeps a ring
+/// of one pane for each sample, so one ring gives the maximum and the
+/// mean without a history. The window counts samples and reads no clock,
+/// so a sample that takes long costs no reading its place. A kind that is
+/// silent for [`SAMPLES`] samples yields `None`.
 pub(crate) struct TempFilter {
-    width: Duration,
-    panes: [Option<Pane>; PANES],
+    panes: [Option<Pane>; SAMPLES],
+    /// The index of the pane of the sample that is being taken.
+    current: usize,
 }
 
 impl TempFilter {
-    /// A filter for readings that arrive once in each `interval`. The
-    /// shortest window is `PANES - 1` pane widths, and it must hold the
-    /// last reading of every sensor of the kind.
-    pub(crate) const fn for_interval(interval: Duration) -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
-            width: Duration::from_ticks(interval.as_ticks() / PANES_PER_INTERVAL as u64),
-            panes: [None; PANES],
+            panes: [None; SAMPLES],
+            current: 0,
         }
     }
 
-    /// The pane number of `now`, which counts widths since the clock began.
-    /// An interval below two ticks gives a width of zero, which counts as
-    /// one tick.
-    fn epoch(&self, now: Instant) -> u64 {
-        now.as_ticks() / self.width.as_ticks().max(1)
-    }
-
-    /// Fold `value` into the pane of `now`.
-    pub(crate) fn update(&mut self, value: Temperature, now: Instant) {
-        let stats = TempStats {
+    /// Fold `value` into the pane of this sample.
+    pub(crate) fn update(&mut self, value: Temperature) {
+        self.update_stats(TempStats {
             max: value,
             mean: value,
-        };
-        self.update_stats(stats, now);
+        });
     }
 
-    /// Fold the maximum and the mean of one tick into the pane of `now`,
-    /// as one reading. A source that already holds both for the tick
-    /// hands them over whole, so the filter takes one value where the
-    /// source read many.
-    pub(crate) fn update_stats(&mut self, stats: TempStats, now: Instant) {
-        let epoch = self.epoch(now);
-        let pane = Pane::start(stats, epoch);
-        // The modulo keeps the index below `PANES`.
-        #[allow(clippy::cast_possible_truncation)]
-        let slot = &mut self.panes[(epoch % PANES as u64) as usize];
-        match slot {
-            Some(live) if live.epoch == epoch => live.merge(&pane),
-            _ => *slot = Some(pane),
+    /// Fold the maximum and the mean of one sample into its pane, as one
+    /// reading. A source that already holds both hands them over whole,
+    /// so the filter takes one value where the source read many.
+    pub(crate) fn update_stats(&mut self, stats: TempStats) {
+        let pane = Pane::start(stats);
+        match &mut self.panes[self.current] {
+            Some(live) => live.merge(&pane),
+            empty => *empty = Some(pane),
         }
     }
 
-    /// The maximum and the mean of the panes of the last `PANES` widths,
-    /// or `None` if no temperature fell inside them.
-    pub(crate) fn value(&self, now: Instant) -> Option<TempStats> {
-        let epoch = self.epoch(now);
-        let mut live = self
-            .panes
-            .iter()
-            .flatten()
-            .filter(|pane| pane.epoch <= epoch && epoch - pane.epoch < PANES as u64);
+    /// The maximum and the mean of the window, or `None` if no
+    /// temperature fell inside it.
+    pub(crate) fn value(&self) -> Option<TempStats> {
+        let mut live = self.panes.iter().flatten();
         let mut total = *live.next()?;
         for pane in live {
             total.merge(pane);
@@ -145,5 +114,12 @@ impl TempFilter {
             #[allow(clippy::cast_possible_truncation)]
             mean: Temperature::from_millicelsius((total.sum / i64::from(total.count)) as i32),
         })
+    }
+
+    /// End this sample and start the next one, whose pane takes the place
+    /// of the oldest.
+    pub(crate) fn end_sample(&mut self) {
+        self.current = (self.current + 1) % SAMPLES;
+        self.panes[self.current] = None;
     }
 }

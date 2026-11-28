@@ -23,11 +23,7 @@
 const SENSOR: u8 = 0x48;
 
 use super::*;
-use embassy_time::Duration;
 use ubos_core::index::{ChipAddress, HashboardIndex};
-
-const INTERVAL: Duration = Duration::from_millis(1000);
-const NOW: Instant = Instant::from_millis(0);
 
 const fn degrees(celsius: i32) -> Temperature {
     Temperature::from_celsius(celsius)
@@ -92,18 +88,20 @@ fn a_hot_reading_sets_the_flag_at_once() {
 fn a_tick_clears_the_flag_when_the_fresh_temperature_cooled() {
     static WATCH: FlagWatch = FlagWatch::new();
     let mut danger = Danger::new(&WATCH, dangerous());
-    let mut temperatures = Temperatures::for_interval(INTERVAL);
+    let mut temperatures = Temperatures::new();
     danger.on_reading(chip(95));
-    temperatures.update(chip(95), NOW);
-    danger.on_tick(&temperatures, degrees(45), NOW);
+    temperatures.update(chip(95));
+    danger.on_tick(&temperatures, degrees(45));
     assert!(flag(&WATCH), "still hot");
-    let later = Instant::from_millis(600);
-    temperatures.update(chip(40), later);
-    danger.on_tick(&temperatures, degrees(45), later);
+    temperatures.end_sample();
+    temperatures.update(chip(40));
+    danger.on_tick(&temperatures, degrees(45));
     assert!(flag(&WATCH), "the hot pane is still inside the window");
-    let after = Instant::from_millis(3100);
-    temperatures.update(chip(40), after);
-    danger.on_tick(&temperatures, degrees(45), after);
+    for _ in 0..2 {
+        temperatures.end_sample();
+        temperatures.update(chip(40));
+    }
+    danger.on_tick(&temperatures, degrees(45));
     assert!(!flag(&WATCH));
 }
 
@@ -111,18 +109,15 @@ fn a_tick_clears_the_flag_when_the_fresh_temperature_cooled() {
 fn a_kind_with_no_limit_does_not_hold_the_flag_up() {
     static WATCH: FlagWatch = FlagWatch::new();
     let mut danger = Danger::new(&WATCH, dangerous());
-    let mut temperatures = Temperatures::for_interval(INTERVAL);
+    let mut temperatures = Temperatures::new();
     danger.on_reading(chip(95));
-    temperatures.update(chip(40), NOW);
-    temperatures.update(
-        Reading {
-            source: TempSource::ControlBoard,
-            value: degrees(70),
-        },
-        NOW,
-    );
-    danger.on_tick(&temperatures, degrees(45), NOW);
-    danger.on_tick(&temperatures, degrees(45), NOW);
+    temperatures.update(chip(40));
+    temperatures.update(Reading {
+        source: TempSource::ControlBoard,
+        value: degrees(70),
+    });
+    danger.on_tick(&temperatures, degrees(45));
+    danger.on_tick(&temperatures, degrees(45));
     assert!(!flag(&WATCH));
 }
 
@@ -130,16 +125,16 @@ fn a_kind_with_no_limit_does_not_hold_the_flag_up() {
 fn the_tick_of_a_hot_chip_does_not_clear_the_flag_against_cool_dies() {
     static WATCH: FlagWatch = FlagWatch::new();
     let mut danger = Danger::new(&WATCH, dangerous());
-    let mut temperatures = Temperatures::for_interval(INTERVAL);
-    temperatures.update(chip(40), NOW);
+    let mut temperatures = Temperatures::new();
+    temperatures.update(chip(40));
     danger.on_reading(chip(95));
-    danger.on_tick(&temperatures, degrees(45), NOW);
+    danger.on_tick(&temperatures, degrees(45));
     assert!(flag(&WATCH), "the hot die is in no filter");
     // The flag is set already, and a second hot die still holds it.
     danger.on_reading(chip(95));
-    danger.on_tick(&temperatures, degrees(45), NOW);
+    danger.on_tick(&temperatures, degrees(45));
     assert!(flag(&WATCH));
-    danger.on_tick(&temperatures, degrees(45), NOW);
+    danger.on_tick(&temperatures, degrees(45));
     assert!(
         !flag(&WATCH),
         "a tick with no hot reading judges the filter"
@@ -150,17 +145,14 @@ fn the_tick_of_a_hot_chip_does_not_clear_the_flag_against_cool_dies() {
 fn a_kind_still_hot_holds_the_flag_though_the_other_cooled() {
     static WATCH: FlagWatch = FlagWatch::new();
     let mut danger = Danger::new(&WATCH, dangerous());
-    let mut temperatures = Temperatures::for_interval(INTERVAL);
+    let mut temperatures = Temperatures::new();
     danger.on_reading(chip(95));
-    temperatures.update(chip(40), NOW);
-    temperatures.update(
-        Reading {
-            source: TempSource::hashboard(HashboardIndex(0), SENSOR),
-            value: degrees(70),
-        },
-        NOW,
-    );
-    danger.on_tick(&temperatures, degrees(45), NOW);
+    temperatures.update(chip(40));
+    temperatures.update(Reading {
+        source: TempSource::hashboard(HashboardIndex(0), SENSOR),
+        value: degrees(70),
+    });
+    danger.on_tick(&temperatures, degrees(45));
     assert!(flag(&WATCH));
 }
 
@@ -168,16 +160,13 @@ fn a_kind_still_hot_holds_the_flag_though_the_other_cooled() {
 fn a_cool_kind_does_not_clear_the_flag_that_an_unread_kind_set() {
     static WATCH: FlagWatch = FlagWatch::new();
     let mut danger = Danger::new(&WATCH, dangerous());
-    let mut temperatures = Temperatures::for_interval(INTERVAL);
+    let mut temperatures = Temperatures::new();
     danger.on_reading(chip(95));
-    temperatures.update(
-        Reading {
-            source: TempSource::hashboard(HashboardIndex(0), SENSOR),
-            value: degrees(40),
-        },
-        NOW,
-    );
-    danger.on_tick(&temperatures, degrees(45), NOW);
+    temperatures.update(Reading {
+        source: TempSource::hashboard(HashboardIndex(0), SENSOR),
+        value: degrees(40),
+    });
+    danger.on_tick(&temperatures, degrees(45));
     assert!(flag(&WATCH), "no chip has a reading");
     danger.acknowledge();
     assert!(!flag(&WATCH));
@@ -187,9 +176,9 @@ fn a_cool_kind_does_not_clear_the_flag_that_an_unread_kind_set() {
 fn silence_does_not_clear_the_flag() {
     static WATCH: FlagWatch = FlagWatch::new();
     let mut danger = Danger::new(&WATCH, dangerous());
-    let temperatures = Temperatures::for_interval(INTERVAL);
+    let temperatures = Temperatures::new();
     danger.on_reading(chip(95));
-    danger.on_tick(&temperatures, degrees(45), NOW);
+    danger.on_tick(&temperatures, degrees(45));
     assert!(flag(&WATCH));
 }
 
@@ -197,9 +186,9 @@ fn silence_does_not_clear_the_flag() {
 fn the_acknowledge_clears_the_flag_and_a_hot_reading_sets_it_again() {
     static WATCH: FlagWatch = FlagWatch::new();
     let mut danger = Danger::new(&WATCH, dangerous());
-    let temperatures = Temperatures::for_interval(INTERVAL);
+    let temperatures = Temperatures::new();
     danger.on_reading(chip(95));
-    danger.on_tick(&temperatures, degrees(45), NOW);
+    danger.on_tick(&temperatures, degrees(45));
     danger.acknowledge();
     assert!(!flag(&WATCH));
     danger.on_reading(chip(95));
@@ -210,14 +199,14 @@ fn the_acknowledge_clears_the_flag_and_a_hot_reading_sets_it_again() {
 fn the_acknowledge_clears_the_flag_though_a_fresh_value_is_at_its_limit() {
     static WATCH: FlagWatch = FlagWatch::new();
     let mut danger = Danger::new(&WATCH, dangerous());
-    let mut temperatures = Temperatures::for_interval(INTERVAL);
+    let mut temperatures = Temperatures::new();
     let hashboard = Reading {
         source: TempSource::hashboard(HashboardIndex(0), SENSOR),
         value: degrees(85),
     };
     danger.on_reading(hashboard);
-    temperatures.update(hashboard, NOW);
-    danger.on_tick(&temperatures, degrees(45), NOW);
+    temperatures.update(hashboard);
+    danger.on_tick(&temperatures, degrees(45));
     assert!(flag(&WATCH));
     danger.acknowledge();
     assert!(!flag(&WATCH), "the operator decides");
@@ -229,13 +218,13 @@ fn the_acknowledge_clears_the_flag_though_a_fresh_value_is_at_its_limit() {
 fn the_acknowledge_leaves_the_flag_set_when_a_reading_at_its_limit_came_this_tick() {
     static WATCH: FlagWatch = FlagWatch::new();
     let mut danger = Danger::new(&WATCH, dangerous());
-    let temperatures = Temperatures::for_interval(INTERVAL);
+    let temperatures = Temperatures::new();
     danger.on_reading(chip(95));
-    danger.on_tick(&temperatures, degrees(45), NOW);
+    danger.on_tick(&temperatures, degrees(45));
     danger.on_reading(chip(95));
     danger.acknowledge();
     assert!(flag(&WATCH));
-    danger.on_tick(&temperatures, degrees(45), NOW);
+    danger.on_tick(&temperatures, degrees(45));
     danger.acknowledge();
     assert!(!flag(&WATCH));
 }
@@ -244,13 +233,13 @@ fn the_acknowledge_leaves_the_flag_set_when_a_reading_at_its_limit_came_this_tic
 fn a_subscriber_wakes_once_for_each_edge() {
     static WATCH: FlagWatch = FlagWatch::new();
     let mut danger = Danger::new(&WATCH, dangerous());
-    let temperatures = Temperatures::for_interval(INTERVAL);
+    let temperatures = Temperatures::new();
     let mut receiver = WATCH.receiver().expect("a free receiver");
     danger.on_reading(chip(95));
     assert_eq!(receiver.try_changed(), Some(true));
     danger.on_reading(chip(95));
     assert_eq!(receiver.try_changed(), None);
-    danger.on_tick(&temperatures, degrees(45), NOW);
+    danger.on_tick(&temperatures, degrees(45));
     danger.acknowledge();
     assert_eq!(receiver.try_changed(), Some(false));
     danger.acknowledge();

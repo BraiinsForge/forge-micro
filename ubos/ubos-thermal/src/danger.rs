@@ -26,7 +26,6 @@
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::Watch;
-use embassy_time::Instant;
 use ubos_config::TemperatureDescriptor;
 use ubos_core::units::Temperature;
 use ubos_logging::{error, info};
@@ -87,11 +86,11 @@ impl Tripped {
     }
 
     /// Whether every kind that set the flag has a reading inside its
-    /// window at `now`.
-    fn is_read(&self, temperatures: &Temperatures, now: Instant) -> bool {
+    /// window.
+    fn is_read(&self, temperatures: &Temperatures) -> bool {
         KINDS
             .into_iter()
-            .all(|kind| !self.holds(kind) || temperatures.stats(kind, now).is_some())
+            .all(|kind| !self.holds(kind) || temperatures.stats(kind).is_some())
     }
 }
 
@@ -173,14 +172,14 @@ impl Danger {
         self.set(true);
     }
 
-    /// The hottest fresh value at `now` of the kinds that have a limit,
+    /// The hottest fresh value of the kinds that have a limit,
     /// or `None` when no such kind has a value. A kind with no limit
     /// cannot hold the flag up.
-    fn hottest_judged(&self, temperatures: &Temperatures, now: Instant) -> Option<Temperature> {
+    fn hottest_judged(&self, temperatures: &Temperatures) -> Option<Temperature> {
         KINDS
             .into_iter()
             .filter(|kind| self.limits.temp(*kind).is_some())
-            .filter_map(|kind| temperatures.stats(kind, now))
+            .filter_map(|kind| temperatures.stats(kind))
             .map(|fresh| fresh.max)
             .max()
     }
@@ -190,18 +189,13 @@ impl Danger {
     /// give no reading after the rail is cut, so a flag that a chip set
     /// stays for the operator. A tick that took a reading at its limit
     /// clears nothing.
-    pub(crate) fn on_tick(
-        &mut self,
-        temperatures: &Temperatures,
-        cooldown: Temperature,
-        now: Instant,
-    ) {
+    pub(crate) fn on_tick(&mut self, temperatures: &Temperatures, cooldown: Temperature) {
         let exceeded = core::mem::take(&mut self.exceeded);
-        if exceeded || !self.is_set || !self.tripped.is_read(temperatures, now) {
+        if exceeded || !self.is_set || !self.tripped.is_read(temperatures) {
             return;
         }
         if let Some(hottest) = self
-            .hottest_judged(temperatures, now)
+            .hottest_judged(temperatures)
             .filter(|hottest| *hottest <= cooldown)
         {
             info!("thermal: cooled to {} °C", hottest);

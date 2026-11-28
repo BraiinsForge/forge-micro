@@ -400,64 +400,60 @@ struct Folds {
 }
 
 impl Folds {
-    const fn new(interval: Duration, dangerous: TemperatureDescriptor) -> Self {
+    const fn new(dangerous: TemperatureDescriptor) -> Self {
         Self {
-            temperatures: Temperatures::for_interval(interval),
+            temperatures: Temperatures::new(),
             danger: Danger::new(&WATCHES.danger, dangerous),
         }
     }
 }
 
-/// Take everything that a source submits as input of the tick at
-/// `tick`, and never return. A sensor awaits on a full channel and a
+/// Take everything that a source submits, and never return. A sensor awaits on a full channel and a
 /// driver submits a chip at any moment, so this runs beside every await
 /// of the loop, through [`draining`]. It yields after each input, so
 /// the ingest task drains the metrics channel while a backlog of chips is
 /// written.
-async fn drain_input(folds: &mut Folds, tick: Instant) -> Infallible {
+async fn drain_input(folds: &mut Folds) -> Infallible {
     loop {
-        take_submitted(INPUT.receive().await, folds, tick);
+        take_submitted(INPUT.receive().await, folds);
         yield_now().await;
     }
 }
 
-/// Await `work` and answer what it gives, taking the input of the tick
-/// at `tick` for as long as it runs. A chain driver submits its chips
+/// Await `work` and answer what it gives, taking the input for as long
+/// as it runs. A chain driver submits its chips
 /// faster than the channel is deep while the loop waits on a sensor, so
 /// every await of the loop goes through here.
-async fn draining<T>(work: impl Future<Output = T>, folds: &mut Folds, tick: Instant) -> T {
-    match select(work, drain_input(folds, tick)).await {
+async fn draining<T>(work: impl Future<Output = T>, folds: &mut Folds) -> T {
+    match select(work, drain_input(folds)).await {
         Either::First(output) => output,
         Either::Second(never) => match never {},
     }
 }
 
-/// Give `submitted` its series, its place in a filter at `tick`, or
+/// Give `submitted` its series, its place in a filter, or
 /// both, as its variant says, and check it against the limit of its
 /// kind. The check is here so that a hot reading sets the flag when it
 /// arrives and not on the next tick.
-fn take_submitted(submitted: Submitted, folds: &mut Folds, tick: Instant) {
+fn take_submitted(submitted: Submitted, folds: &mut Folds) {
     match submitted {
-        Submitted::Reading(reading) => take(reading, folds, tick),
+        Submitted::Reading(reading) => take(reading, folds),
         Submitted::Chip(reading) => {
             publish_reading(reading);
             folds.danger.on_reading(reading);
         }
         Submitted::Dies(dies) => {
-            folds.temperatures.update_dies(dies, tick);
+            folds.temperatures.update_dies(dies);
             folds.danger.on_value(Source::Chip, dies.max);
         }
     }
 }
 
-/// Write the metric of a submitted reading, fold it into the filters at
-/// `tick`, the time of the tick that took it, and check it against its
-/// limit. A sample can take longer than the window of a filter, so a
-/// reading stamped with the time it arrived at could leave the window
-/// before its own tick publishes.
-fn take(reading: TempReading, folds: &mut Folds, tick: Instant) {
+/// Write the metric of a submitted reading, fold it into the filters,
+/// and check it against its limit.
+fn take(reading: TempReading, folds: &mut Folds) {
     publish_reading(reading);
-    folds.temperatures.update(reading, tick);
+    folds.temperatures.update(reading);
     folds.danger.on_reading(reading);
 }
 
@@ -465,15 +461,14 @@ fn take(reading: TempReading, folds: &mut Folds, tick: Instant) {
 /// nothing, so it is read after every decision a tick makes: a slow sensor
 /// must not hold up the sample the halt turns on. Every tick reads it, since
 /// the chip sensor's silence says nothing about this one.
-async fn read_ambient<A: AmbientSensor>(ambient: &mut A, folds: &mut Folds, tick: Instant) {
-    if let Some(value) = draining(ambient.ambient(), folds, tick).await {
+async fn read_ambient<A: AmbientSensor>(ambient: &mut A, folds: &mut Folds) {
+    if let Some(value) = draining(ambient.ambient(), folds).await {
         take(
             TempReading {
                 source: TempSource::Ambient,
                 value,
             },
             folds,
-            tick,
         );
     }
 }
@@ -501,20 +496,19 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatu
     let mut ticker = Ticker::every(sample_interval);
     let mut late_threshold = sample_interval * 2;
 
-    let mut folds = Folds::new(sample_interval, config.dangerous);
+    let mut folds = Folds::new(config.dangerous);
     folds.danger.publish();
     let mut prev_tick = Instant::now();
 
     info!("thermal: started");
 
     loop {
-        draining(ticker.next(), &mut folds, prev_tick).await;
+        draining(ticker.next(), &mut folds).await;
         if let Some(updated) = config_subscription.try_changed() {
             let new_thermal = updated.thermal;
             if new_thermal.sample_interval_ms != config.sample_interval_ms {
                 sample_interval = Duration::from_millis(u64::from(new_thermal.sample_interval_ms));
                 ticker = Ticker::every(sample_interval);
-                folds.temperatures = Temperatures::for_interval(sample_interval);
                 late_threshold = sample_interval * 2;
                 prev_tick = Instant::now();
                 info!(
@@ -533,7 +527,7 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatu
         }
         prev_tick = now;
 
-        draining(sensor.sample(), &mut folds, now).await;
+        draining(sensor.sample(), &mut folds).await;
         // The sample left its last readings queued, and this tick publishes
         // them. The count is taken once, so chips that keep arriving wait
         // for the drain of the next await and the publish starts on time.
@@ -541,35 +535,34 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatu
             let Ok(submitted) = INPUT.try_receive() else {
                 break;
             };
-            take_submitted(submitted, &mut folds, now);
+            take_submitted(submitted, &mut folds);
             yield_now().await;
         }
-        // The readings carry the time of this tick, so the filters are
-        // read at that time and hold every reading of this tick, however
-        // long the sample took.
-        folds.temperatures.publish_filtered(now, &WATCHES);
-        folds.temperatures.publish_pid(now, pid_target, &WATCHES);
+        // The pane of this sample holds every reading of this tick,
+        // however long the sample took.
+        folds.temperatures.publish_filtered(&WATCHES);
+        folds.temperatures.publish_pid(pid_target, &WATCHES);
         if ACKNOWLEDGE.try_take().is_some() {
             folds.danger.acknowledge();
         }
         folds
             .danger
-            .on_tick(&folds.temperatures, config.cooldown_temp, now);
-        read_ambient(&mut ambient, &mut folds, now).await;
-        folds.temperatures.publish_ambient(now, &WATCHES);
+            .on_tick(&folds.temperatures, config.cooldown_temp);
+        read_ambient(&mut ambient, &mut folds).await;
+        folds.temperatures.publish_ambient(&WATCHES);
         // Read last, after the sample the cooling loop turns on has gone out,
         // and dropped on a full channel: this safety loop must not wait on the
         // metrics.
-        if let Some(value) = draining(mcu.read(), &mut folds, now).await {
+        if let Some(value) = draining(mcu.read(), &mut folds).await {
             take(
                 TempReading {
                     source: TempSource::Mcu,
                     value,
                 },
                 &mut folds,
-                now,
             );
         }
+        folds.temperatures.end_sample();
     }
 }
 
