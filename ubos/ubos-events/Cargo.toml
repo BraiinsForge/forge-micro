@@ -18,4 +18,4 @@ embassy-sync = { workspace = true }
 ubos-logging = { workspace = true }
 
 [dev-dependencies]
-critical-section = { version = "1.2", features = ["std"] }
+critical-section = { workspace = true, features = ["std"] }

@@ -30,5 +30,5 @@ ubos-temperature = { workspace = true }
 # the standard time driver, and its mutex needs a critical-section
 # backend on the host.
 embassy-time     = { workspace = true, features = ["std"] }
-critical-section = { version = "1.2", features = ["std"] }
+critical-section = { workspace = true, features = ["std"] }
 mining-protocol  = { workspace = true }

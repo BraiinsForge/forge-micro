@@ -48,7 +48,7 @@ ubos-logging       = { workspace = true }
 # ticks with no real delay; it replaces the `std` driver rather than
 # joining it; a build cannot link two time drivers.
 embassy-time     = { workspace = true, features = ["generic-queue-8", "mock-driver"] }
-critical-section = { version = "1.2", features = ["std"] }
+critical-section = { workspace = true, features = ["std"] }
 # The accounting handle the tests build takes its wired-chain count as an
 # atomic of the same crate `ubos-metrics` uses.
 portable-atomic  = { workspace = true }

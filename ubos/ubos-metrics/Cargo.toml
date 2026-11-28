@@ -32,7 +32,7 @@ ubos-logging      = { workspace = true }
 # so the host tests need the standard time driver, and the table's atomics
 # need a critical-section backend on the host.
 embassy-time     = { workspace = true, features = ["std"] }
-critical-section = { version = "1.2", features = ["std"] }
+critical-section = { workspace = true, features = ["std"] }
 
 # Cortex-M boards drive embassy's `raw::Executor` directly via
 # `cpu_load::run_cortex_m_executor`. Gated to ARM so the ESP32-S3

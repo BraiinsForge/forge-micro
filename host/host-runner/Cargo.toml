@@ -13,7 +13,7 @@ workspace = true
 # `CriticalSectionRawMutex` in the ubos-* libraries needs an impl
 # linked; firmware gets it from cortex-m/embassy-rp/esp-hal, the host
 # binary must pick the std backend explicitly.
-critical-section   = { version = "1.2", features = ["std"] }
+critical-section   = { workspace = true, features = ["std"] }
 ctrlc              = "3"
 edge-nal-embassy   = { workspace = true, features = ["tcp", "proto-ipv4", "medium-ethernet"] }
 embassy-executor     = { workspace = true, features = ["platform-std", "executor-thread", "log"] }

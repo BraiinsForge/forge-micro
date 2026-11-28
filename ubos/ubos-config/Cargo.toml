@@ -50,7 +50,7 @@ embassy-futures        = { workspace = true }
 # Driving `factory_reset` publishes on the `CriticalSectionRawMutex`-backed
 # `STATE_WATCH`, so the host test binary needs a linkable critical-section
 # implementation. The std impl is host-only and never reaches firmware.
-critical-section       = { version = "1.2", features = ["std"] }
+critical-section       = { workspace = true, features = ["std"] }
 # A test that takes the handle runs in a process of its own.
 rusty-fork             = { workspace = true }
 # Exercises the exact wire codec `ubos-api` uses for `POST /api/config`
