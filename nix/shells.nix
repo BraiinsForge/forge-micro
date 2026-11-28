@@ -106,6 +106,9 @@ pkgs.lib.mapAttrs (_: helpers.withWebuiDist) {
         zopfli
         # Unused-dependency lint, matching the cargo-machete check.
         cargo-machete
+        # Licence, duplicate-version and source lint, matching the
+        # cargo-deny check.
+        cargo-deny
         # Builds combined BOOTSEL UF2 images from app and bootloader.
         picotool
         # Automatic fixup commits for the documented fixup workflow.
@@ -189,6 +192,9 @@ pkgs.lib.mapAttrs (_: helpers.withWebuiDist) {
       pkgs.cargo-llvm-cov
       # Unused-dependency lint, matching the cargo-machete check.
       pkgs.cargo-machete
+      # Licence, duplicate-version and source lint, matching the
+      # cargo-deny check.
+      pkgs.cargo-deny
       # Brings up tap0 for the native host-runner path.
       setupNetwork
     ];

@@ -716,6 +716,16 @@ hostClippyChecks
         touch $out
       '';
 
+  # Holds the crate graph to the licences, the duplicate versions and
+  # the sources deny.toml allows. Crane vendors the graph from the
+  # lockfile, so cargo resolves it with no network. A warning fails the
+  # run, because a skip or a licence that deny.toml lists and the graph
+  # has dropped is only a warning.
+  cargo-deny = craneLib.cargoDeny {
+    inherit src;
+    cargoDenyChecks = "-D warnings bans licenses sources";
+  };
+
   # nix/webui.nix admits only the files it lists into the dashboard
   # build, and build.rs lists the same files as its rebuild triggers.
   # Neither can read the other, and a file added to build.rs alone is

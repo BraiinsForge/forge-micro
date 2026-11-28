@@ -9,12 +9,12 @@
 
 # Run the staged flake checks on the default branch for full coverage
 # at merge, and on an MR only when a change can affect one of them: the
-# Rust sources, manifests, lockfile, cargo config, linker scripts,
-# build scripts, embedded assets, and test fixtures the clippy and
-# check builds consume, plus any Nix file, since every check derivation
-# is defined in one. A docs-only MR skips them. A Nix-only MR also
-# triggers clippy, which ignores those inputs, so that job resolves to
-# cache hits.
+# Rust sources, manifests, lockfile, cargo-deny policy, cargo config,
+# linker scripts, build scripts, embedded assets, and test fixtures the
+# clippy and check builds consume, plus any Nix file, since every check
+# derivation is defined in one. A docs-only MR skips them. A Nix-only MR
+# also triggers clippy, which ignores those inputs, so that job resolves
+# to cache hits.
 .rust-rules:
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
@@ -23,6 +23,7 @@
         - "**/*.rs"
         - "**/Cargo.toml"
         - "Cargo.lock"
+        - "deny.toml"
         - "**/.cargo/config.toml"
         - "**/*.x"
         - "**/build.rs"

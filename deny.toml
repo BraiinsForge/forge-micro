@@ -1,0 +1,72 @@
+# The cargo-deny configuration of this workspace, which the `cargo-deny`
+# check in nix/checks.nix runs over licences, duplicate versions and
+# sources. That check has no network, so the advisory database is not
+# among them.
+
+[graph]
+# A dependency behind a feature no default selects ships on some board
+# all the same, so the graph is the one with every feature on.
+all-features = true
+
+[licenses]
+# The licences a third-party crate may carry. All of them are
+# permissive, because the crates here are also linked into products
+# that are not open, and a copyleft dependency would bind those.
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "CC0-1.0",
+    "ISC",
+    "MIT",
+    "Unicode-3.0",
+]
+
+# The crates of this workspace are GPL-3.0-or-later, which the list
+# above leaves out. Each one is marked `publish = false`, and that mark
+# is what exempts it here, so a crate added without the mark fails.
+[licenses.private]
+ignore = true
+
+[bans]
+multiple-versions = "deny"
+
+# Each entry is an old version that an upstream crate still asks for.
+# The reason names that crate, and the entry goes when its release
+# moves on.
+skip = [
+    { crate = "bitfield@0.13", reason = "held by cortex-m" },
+    { crate = "bitflags@1", reason = "held by defmt and smoltcp" },
+    { crate = "block-buffer@0.10", reason = "held by digest 0.10" },
+    { crate = "cpufeatures@0.2", reason = "held by keccak and sha2 0.10" },
+    { crate = "crypto-common@0.1", reason = "held by digest 0.10" },
+    { crate = "darling@0.20", reason = "held by embassy-executor-macros" },
+    { crate = "darling@0.21", reason = "held by enumset_derive" },
+    { crate = "darling_core@0.20", reason = "held by darling 0.20" },
+    { crate = "darling_core@0.21", reason = "held by darling 0.21" },
+    { crate = "darling_macro@0.20", reason = "held by darling 0.20" },
+    { crate = "darling_macro@0.21", reason = "held by darling 0.21" },
+    { crate = "defmt@0.3", reason = "held by embassy-net-driver, embedded-io 0.6 and smoltcp" },
+    { crate = "digest@0.10", reason = "held by embassy-boot, esp-hal, sha3 and sha2 0.10" },
+    { crate = "embassy-hal-internal@0.4", reason = "held by embassy-embedded-hal" },
+    { crate = "embassy-sync@0.6", reason = "held by esp-sync" },
+    { crate = "embassy-sync@0.7", reason = "held by esp-sync" },
+    { crate = "embedded-hal@0.2", reason = "held by cortex-m, embassy-rp, embassy-time and embassy-embedded-hal" },
+    { crate = "embedded-io@0.6", reason = "held by esp-hal and embedded-io-async 0.6" },
+    { crate = "embedded-io-async@0.6", reason = "held by esp-hal, embassy-usb-driver and embassy-sync 0.7" },
+    { crate = "heapless@0.8", reason = "held by embassy-sync 0.7" },
+    { crate = "jiff@0.2", reason = "held by domain and esp-bootloader-esp-idf" },
+    { crate = "jiff-core@0.1", reason = "held by jiff 0.2" },
+    { crate = "nb@0.1", reason = "held by embedded-hal 0.2" },
+    { crate = "rand_core@0.6", reason = "held by embassy-rp and esp-hal" },
+    { crate = "rand_core@0.9", reason = "held by embassy-rp and esp-hal" },
+    { crate = "sha2@0.10", reason = "held by bs58" },
+    { crate = "syn@2", reason = "held by the derive crates that have not moved to syn 3, embassy-executor-macros among them" },
+    { crate = "windows-link@0.2", reason = "held by windows-sys and parking_lot_core" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+# The edge-net crates are pinned to a commit that no release carries.
+allow-git = ["https://github.com/ivmarkov/edge-net"]
