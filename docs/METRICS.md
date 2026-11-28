@@ -36,8 +36,9 @@ the NTP epoch offset, so the store has no clock of its own.
 
 `ubos-metrics` is a leaf. It has the metric types, the store and the
 render. It pushes no series of another module, and it reads no state of
-another module. The module that owns a state pushes it. See "State
-series".
+another module. It also calculates no value and holds no state of
+another module. The module that owns a state calculates it, holds it and
+pushes it. See "State series".
 
 Every push of a measured series is one sample of one value, and it
 carries the time of the push. A sample says nothing about the value
@@ -182,11 +183,15 @@ of [BOARDS.md](BOARDS.md).
 
 ## CPU busy ratio
 
-Code: `ubos/ubos-metrics/src/cpu_load.rs`.
+Code: `ubos/ubos-rp/src/cpu_idle.rs`, `ubos/ubos-rp/src/cpu_load.rs`,
+`ubos/ubos-rp/src/executor.rs`, `ubos/ubos-esp32/src/cpu_idle.rs`,
+`ubos/ubos-esp32/src/cpu_load.rs`.
 
 Each board brackets its executor's idle wait with `Instant::now()` and
-adds the elapsed ticks to the per-core slot through `record_idle`. The publisher
-task periodically diffs each slot against wall-clock ticks and pushes
+adds the elapsed ticks to the per-core slot through `record_idle`. Each
+platform crate holds its own slots and its own `CpuSampler`, which
+compares each slot with the wall-clock ticks. The `cpu_load_task!` of
+the platform crate pushes
 the busy ticks over the elapsed ticks as `cpu_busy_ratio`, labelled
 `cpu="0"`, `cpu="1"`, ..., up to the per-board active-core count. The
 value is a `Ratio` in thousandths, and the math uses integers only. The
@@ -194,7 +199,7 @@ ratio is 0 when no time elapsed between two samples.
 
 Two seams exist depending on the runtime:
 
-- On Cortex-M boards, `run_cortex_m_executor` drives
+- On Cortex-M boards, `ubos_rp::executor::run_cortex_m_executor` drives
   `raw::Executor::poll()` under `#[cortex_m_rt::entry]` and brackets
   `cortex_m::asm::wfe()` with `Instant::now()` reads.
 - On the ESP32-S3, `esp_rtos::embassy::Executor::run_with_callbacks`
@@ -475,7 +480,7 @@ writes it:
   between these series is the work split that the dispatch scheduler
   delivered. The `hashboard` label names the hashboard that found the
   shares, because a board can own more than one. See
-  `ubos_metrics::chain`.
+  `ubos_mining::stats`.
 
 It pushes this series for every slot the board compiles in, so a slot
 with no pool in the config still has it.
@@ -587,7 +592,7 @@ need a workaround:
 
 ## Hashrate
 
-Code: `ubos/ubos-metrics/src/hashrate.rs`, `ubos/ubos-metrics/src/chain.rs`.
+Code: `ubos/ubos-mining/src/hashrate.rs`, `ubos/ubos-mining/src/stats.rs`.
 
 `HashrateEstimator::record_share` feeds a solution's difficulty into an
 EWMA-smoothed bucketed estimator over 1-second buckets with α = 1/8
@@ -598,7 +603,8 @@ when solutions stop arriving. Each board hashboard chain owns one
 estimator, inside that chain's `ChainStats`; the ubos-mining serial
 actor calls `record_share` on its own chain's `ChainStats` for every
 chip solution it consumes.
-`ChainStatsHandle::machine_hashrate` and `machine_share_count`, in the
-same module,
-sum every chain's estimator for the board-wide figures the REST API and
-the OLED display show.
+The miner publishes a snapshot of every chain on its metrics ticker,
+and a consumer reads it through `ubos_mining::Handle::chains`.
+`Chains::machine_hashrate` and `Chains::machine_share_count` add the
+chains of that snapshot. The REST API and the OLED display show those
+totals.

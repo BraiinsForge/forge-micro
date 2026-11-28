@@ -37,4 +37,4 @@ Every board drives a real BM13xx hashboard via the `ubos-mining`
 crate. The backend pushes shares into the
 `stratum-client::AsicSession` solution channel that the V1 and V2
 client tasks drain, and its accumulated hashes feed the EWMA hashrate
-in `ubos-metrics`. See [MINING.md](MINING.md).
+estimator of the same crate. See [MINING.md](MINING.md).

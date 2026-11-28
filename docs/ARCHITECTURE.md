@@ -94,12 +94,21 @@ map and the dependency direction.
     `Command` enum. Thermal takes readings where another module takes
     commands: its handle submits each reading to a private input
     channel, and its state is one private watch for each filtered
-    temperature and one for the dangerous flag. The handle takes one
-    command, the acknowledge of that flag, through a private `Signal`.
+    temperature and one for the dangerous flag. The hottest die and
+    the voltage sum of each chain are a private table of atomics and no
+    watch, because no task waits for them: the chain sensor writes the
+    table, and the API and the tuner read it through the handle. The
+    handle takes one command, the acknowledge of that flag, through a
+    private `Signal`.
     Mining keeps a second private watch beside `STATE_WATCH`. It says
     whether the miner holds the rail off because no temperature reading
     was left. The lifecycle status cannot say this, because the miner is
-    `Stopped` for the retry delay, as after any failed bring-up.
+    `Stopped` for the retry delay, as after any failed bring-up. A
+    third private watch carries the snapshot of the chains, which the
+    API and the display read through the handle. Two tasks of the crate
+    send it, the metrics publisher on its ticker and the miner when the
+    presence of a chain changes, and both send the snapshot of the one
+    accounting table.
 11. **One consumer per channel.** Exactly one task, `run`, drains each
     module's `COMMAND_CHANNEL` and owns that module's policy. Slow
     work delegates inside the module via a sibling `Signal` or worker

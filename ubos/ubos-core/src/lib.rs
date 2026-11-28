@@ -22,6 +22,13 @@
 //! the seeds a board draws at boot. The "core" of the firmware
 //! framework: the shared values and task shells the board-facing ubos-*
 //! crates build on.
+//!
+//! The crate stays thin, because every crate depends on it. It holds
+//! the units, the indices, the constants and the task shells that have
+//! no owner among the subsystems. An estimator, a sampler, a counter
+//! and a publisher belong to the subsystem that owns the source: the
+//! hashrate estimator to `ubos-mining`, and the idle counter of a core
+//! to its platform crate.
 #![no_std]
 
 pub mod button;

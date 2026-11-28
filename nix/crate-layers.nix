@@ -60,9 +60,9 @@ let
       "ubos-core"
       "ubos-temperature"
     ];
-    # The metrics store holds the metric types, the store and the render,
-    # and no module that pushes into it. A module that owns a series
-    # depends on this crate, so an edge back would close a cycle.
+    # The metrics store holds the metric types, the store and the render.
+    # A module that owns a state calculates it, holds it and pushes it,
+    # and depends on this crate, so an edge back would close a cycle.
     ubos-metrics = [
       "ubos-core"
       "ubos-logging"

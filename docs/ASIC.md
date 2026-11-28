@@ -74,11 +74,11 @@ over a `Transport` (`write_all` / `flush` / `read` / `set_baud` /
   temperature of all present chains. It judges a chain and not one chip: a chip
   answers a turn only once per pass, which is minutes on a long chain. A
   chain is silent only if no chip of that chain has answered for 60
-  seconds. It reads only the chains that `ChainStats` reports as present,
+  seconds. It reads only the chains that the miner reports as present,
   because an absent connector has no chip to run a PVT block and must not
-  halt the board. Each present chain's hottest die goes back into that
-  chain's `ChainStats`, which is the temperature the API and the dashboard
-  show per chain. The sensor publishes each chain's core voltage and
+  halt the board. The sensor stores the hottest die of each present chain
+  behind the thermal handle. The API and the dashboard show that
+  temperature for each chain. The sensor publishes each chain's core voltage and
   writes a summary to the log from inside `sample`, so no task exists for
   reporting alone.
 

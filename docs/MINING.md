@@ -391,11 +391,12 @@ the setter divides by the rate and would otherwise panic.
 ## Multiple chains and the core-1 park
 
 A board owns a static array of `Serial`, one per hashboard chain it
-wires up; `ubos_metrics::chain` holds one `ChainStats`
-per chain in the same order, so each chain's hashrate, share count, and
-desync bytes are tracked and published separately. The table has
-`ubos_machine::MAX_CHAINS` slots; `ChainStatsHandle::chain_count` says
-how many of them the board wired up, and `GET /api/info` carries a
+wires up. `ubos_mining::stats` holds one `ChainStats` for each chain in
+the same order. The miner tracks and publishes the hashrate, the share
+count and the desync bytes of each chain separately. The table has
+`ubos_machine::MAX_CHAINS` slots, and `ChainStatsHandle::chain_count`
+gives the number that the board wired up. A consumer outside the miner
+reads the table as a snapshot, through `Handle::chains`. `GET /api/info` carries a
 `chains` array with one entry per wired chain, so a single-chain board
 reports one entry and never a phantom chain. The dashboard's Hashboards
 card renders this array. `Serial::new(chain,

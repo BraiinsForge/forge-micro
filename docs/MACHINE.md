@@ -30,11 +30,11 @@ the crate that owns the component:
 chains the machine has. Every chain carries the same `hashboard`, so
 `chains` is a count rather than a per-chain descriptor list. Every
 descriptor asserts `chains <= ubos_machine::MAX_CHAINS` at compile time.
-`MAX_CHAINS` is owned by `ubos-metrics`, beside the per-chain table it
-sizes, and re-exported here for the descriptors. It is the ceiling
-every per-chain table in `ubos/` sizes itself to: that chain
-accounting, the hashboard serial vector in `ubos-api`, and the work
-receiver budget in `stratum-client`. A machine with more chains raises
+`ubos-machine` defines `MAX_CHAINS`. It is the ceiling
+every per-chain table in `ubos/` sizes itself to: the chain
+accounting in `ubos-mining`, the chain readings in `ubos-thermal`, the
+hashboard serial vector in `ubos-api`, and the work receiver budget in
+`stratum-client`. A machine with more chains raises
 `MAX_CHAINS` and nothing else.
 
 Two placements are deliberate:

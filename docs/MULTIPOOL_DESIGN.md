@@ -364,7 +364,7 @@ prometheus exposition and the logs:
   arrays in code, so its schema is unchanged.
 - `ubos-mining` counts delivered shares, in units of 2^32 expected
   hashes, per chain and per originating slot (the `pool_shares`
-  array in `ChainStats`, bumped next to the scheduler's
+  array in `ubos_mining::stats::ChainStats`, bumped next to the scheduler's
   `accumulate_share`) and publishes
   `pool_work_shares{hashboard="0",pool="0"}` — the ratio
   between these series is the split the scheduler actually

@@ -63,18 +63,22 @@ on. The `crate-layers` check fails when a manifest of a base crate
 lists a workspace crate that its row does not name.
 
 The chain `(core + logging + config) ← ubos-net` runs strictly one-way
-above them. `ubos-net`, `ubos-http` and `ubos-display` depend on
+above them. `ubos-net` and `ubos-http` depend on
 `ubos-metrics`, and it depends on none of them. `ubos-manager` sits beside the chain
 and drives the mining handle from the pause reasons it aggregates;
 hardware and protocol crates sit beside the chain without participating
-in it. `ubos-machine`'s pure descriptor data sits below the mining and
-protocol crates that read it: `ubos-mining`, `stratum-client`, and
-`ubos-api` each depend on `ubos-machine` for `MAX_CHAINS` and the
-per-board descriptor. `ubos-metrics` owns the per-chain accounting table
-and its `MAX_CHAINS` ceiling, so `ubos-mining` writes it, `ubos-thermal`
-stores the hottest die temperature and the voltage sum of each chain in
-it, and `ubos-api` and `ubos-display` read it, all without depending on
-the mining crate.
+in it. `ubos-machine`'s pure descriptor data sits below the crates
+that read it: `ubos-mining` and `ubos-thermal` each depend on
+`ubos-machine` for `MAX_CHAINS`.
+
+Each crate holds the state that it produces, and a consumer reads that
+state through the handle of the crate. `ubos-mining` holds the hashrate
+estimator and the accounting of each chain. `ubos-thermal` holds the
+hottest die temperature and the voltage sum of each chain. `ubos-api`
+reads both through the mining handle and the thermal handle, and
+`ubos-display` reads the accounting through the mining handle.
+`ubos-metrics` holds the metric store and no state of another
+crate.
 
 `ubos-auth` depends on `ubos-logging` only and holds the shared HTTP
 middleware (allow-list, auth, sessions, CSRF, CSPRNG). Both handler
@@ -112,12 +116,12 @@ typed `TaskPool` static and so rejects generic task functions.
 | `ubos-prometheus`  | Prometheus scrape service on port 8081 and its `PROMETHEUS_SERVICE` mDNS entry |
 | `ubos-webui`       | Zopfli-gzipped `index.html`, `login.html`, `dashboard-logo.svg` and `login-logo.svg`; dashboard handler and `WEBUI_SERVICE` mDNS entry on port 80 |
 | `ubos-mdns`        | DNS-SD responder; per-service `declare_service!` macro composed by firmware |
-| `ubos-metrics`     | metric store and ingest task, exposition render, hashrate EWMA, CPU-load gauge |
+| `ubos-metrics`     | metric types, metric store and ingest task, exposition render. It holds no state of another crate and calculates no value |
 | `ubos-display`     | SH1106 OLED driver and render task                 |
 | `ubos-logging`     | `defmt`/`log` macro facade                         |
-| `ubos-thermal`     | `TemperatureSensor` and `McuTemperatureSensor` traits, descriptor-driven sensor fusion, sample loop, window filter, the series of every temperature reading, `ThermalHandle` publisher of the filtered temperatures, thermal guard |
+| `ubos-thermal`     | `TemperatureSensor` and `McuTemperatureSensor` traits, descriptor-driven sensor fusion, sample loop, window filter, the series of every temperature reading, `ThermalHandle` publisher of the filtered temperatures, the hottest die and the voltage sum of each chain, thermal guard |
 | `ubos-cooling`     | fan control task, PID or fixed duty, `FanOutput` HAL trait, EMC2302-1 fan controller driver |
-| `ubos-mining`      | BM13xx chip-serial actor, miner state machine, `MiningHandle` |
+| `ubos-mining`      | BM13xx chip-serial actor, miner state machine, `MiningHandle`, the hashrate estimator, the accounting of each chain and its snapshot on the handle |
 | `ubos-asic`        | pure chip-protocol library: the vendor-neutral `ChainDriver` seam plus the BM13xx chip family |
 | `ubos-tuner`       | the tuner trait and the types it takes and returns. No loop and no tuner |
 | `ubos-eeprom`      | hashboard EEPROM read trait and the BOS-compatible wire format |
@@ -133,10 +137,10 @@ typed `TaskPool` static and so rejects generic task functions.
 | `transitions`      | state machine types: states own their data and name the states they lead to, checked for unreachable states and dead ends |
 | `ubos-psu`         | async PSU drivers over I2C, and the PSU task every other task reaches through its handle |
 | `ubos-temperature` | LM75A, TMP102, TMP461 and TMP464 drivers, the `Reading` every sensor yields, and the sensor descriptor types a board declares its topology with. No task and no metric |
-| `ubos-machine`     | per-board `MachineDescriptor` consts composing the hashboard, PSU, and sensor descriptors with a control-board and platform descriptor; pure const data read by firmware and the host runner |
-| `ubos-rp`          | per-platform support for the RP2040 and RP2350 control boards: the `#[panic_handler]` and `HardFault` symbols, reset diagnostic, `BoardWatchdog`, fan PWM and tachometer, the shared I2C bus aliases, `MinerUart`, the WS2812 adapter for the breathing status LED, the boot glue for the MAC, the seeds and the WIZnet bring-up, and the `spawn_miner_core1!` macro |
+| `ubos-machine`     | per-board `MachineDescriptor` consts composing the hashboard, PSU, and sensor descriptors with a control-board and platform descriptor; pure const data read by firmware and the host runner, and the `MAX_CHAINS` ceiling |
+| `ubos-rp`          | per-platform support for the RP2040 and RP2350 control boards: the `#[panic_handler]` and `HardFault` symbols, reset diagnostic, `BoardWatchdog`, fan PWM and tachometer, the shared I2C bus aliases, `MinerUart`, the WS2812 adapter for the breathing status LED, the boot glue for the MAC, the seeds and the WIZnet bring-up, the Cortex-M executor shell `run_cortex_m_executor`, the idle counter of each core, the `cpu_load_task!` macro, and the `spawn_miner_core1!` macro |
 | `rp-bootloader`    | the `embassy-boot-rp` swap sequence shared by `rp2040-bootloader` and `rp2350-bootloader`; no `ubos` library above it |
-| `ubos-esp32`       | per-platform support for the ESP32-S3 control board: reset diagnostic, idle-accounting executor callbacks, the persistent event ring, `BoardWatchdog`, `MinerUart`, fan PWM and tachometer, the shared I2C bus aliases, the expander-driven reset pin, and the `spawn_miner_core1!` macro |
+| `ubos-esp32`       | per-platform support for the ESP32-S3 control board: reset diagnostic, idle-accounting executor callbacks, the persistent event ring, `BoardWatchdog`, `MinerUart`, fan PWM and tachometer, the shared I2C bus aliases, the expander-driven reset pin, the idle counter of each core, the `cpu_load_task!` macro, and the `spawn_miner_core1!` macro |
 | `ubos-firmware`    | top-of-graph assembly: `events::install`, the `Handles` of a board taken once in `main`, `net::bring_up`, shared stratum session, task-shell macros, the `serve_all!` listener macro; consumed only by the `firmware/<board>` binaries |
 
 ## `host/` — std crates
