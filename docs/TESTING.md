@@ -188,7 +188,8 @@ were taken at.
 
 ## Coverage reporting
 
-Coverage is reported per crate. There is no global threshold.
+Coverage is reported per crate, and each crate has its own floor. There
+is no global threshold.
 
 Each `test-*` row has a `coverage-*` check with the same name after the
 prefix. The check builds the crate's own units with
@@ -210,6 +211,19 @@ nix build $plan .#checks.x86_64-linux.coverage-ubos-config
 The `$plan` option is the one in `CLAUDE.md`. Two patches to rostnix in
 `nix/` make this possible. One adds `rustflags` to a `crateOverrides`
 entry. The other keeps the profiles and the executables of a test run.
+
+The `line-coverage-floors` check holds each row to a minimum share of
+covered lines. The floors are in `nix/coverage-floors.nix`, in percent.
+The check prints the covered lines and the floor of every row, and it
+fails when a row is below its floor.
+
+- A crate that can damage a board has a target of 85%.
+- A crate of protocol or state logic has a target of 80%.
+- A crate around a socket, a file or a device has no line target.
+
+A row below its target has its present coverage as its floor. When you
+add tests to such a row, raise its floor in the same change. A new row
+must have a floor, or the evaluation stops.
 
 For a fast local loop, `cargo-llvm-cov` is in the host devshell:
 
@@ -285,6 +299,8 @@ Completed:
 - Every `test-*` row has a `coverage-*` check that writes an lcov file, an
   HTML report and a summary. `cargo-llvm-cov` is in the host devshell for
   local use.
+- The `line-coverage-floors` check fails when the line coverage of a row
+  is below its floor in `nix/coverage-floors.nix`.
 - `stratum-v2` has pure `V2SessionState` tests for defaults, job-id ring
   rotation, unknown job-id lookup, sequence wrapping, and pending future jobs.
 - `stratum-v2` has frame and error-path integration tests covering future-job

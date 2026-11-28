@@ -279,6 +279,7 @@ let
       removeAttrs hostTestRows [ "test-ubos-tuner" ]
     );
     fee = fee.on;
+    inherit (import ./coverage-floors.nix) floors;
     skipped = {
       # The file store builds only with the `std` feature, which these
       # two rows do not turn on. The `ubos-config-std` row scores it.

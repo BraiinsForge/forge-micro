@@ -17,9 +17,10 @@
 # to this program, or any part thereof, under any terms, and such a grant
 # shall be considered distinct from the grant above.
 
-# The line coverage of the host test rows, and the CRAP score of each
-# function from it. A tree states its rows to `coverageSuite` and gets
-# a `coverage-<row>` check for each.
+# The coverage checks of the host test rows: the line coverage of each
+# row with the CRAP score of each function, and a floor of covered
+# lines. A tree states its rows to `coverageSuite` and gets both, so a
+# row cannot have one without the other.
 {
   pkgs,
   src,
@@ -130,28 +131,77 @@ let
             (.entries | map(del(.uncovered) | tojson) | join(",\n")), "]}"' > "$out/crap.json"
       '';
 
+  # The line-coverage floors of a tree: one check that fails when a row
+  # of `reports`, the `coverageReport` of each row by name, covers a
+  # smaller share of its lines than `floors` asks of it in percent, or
+  # has no lines to cover while its floor is above zero. It prints every
+  # row, so one run names each row that fell. The two sets name the same
+  # rows, or the evaluation stops, so a new row cannot go without a
+  # floor and a floor cannot outlive its row.
+  coverageFloors =
+    reports: floors:
+    let
+      rows = lib.attrNames reports;
+      floored = lib.attrNames floors;
+    in
+    assert lib.assertMsg (rows == floored) ''
+      The coverage rows and the coverage floors do not match.
+      Rows without a floor: ${toString (lib.subtractLists floored rows)}
+      Floors without a row: ${toString (lib.subtractLists rows floored)}
+    '';
+    pkgs.runCommand "line-coverage-floors" { } ''
+      fail=0
+      check() {
+        local row=$1 lcov=$2 floor=$3 hit found
+        read -r hit found < <(awk -F: '/^LH:/ { hit += $2 } /^LF:/ { found += $2 } END { print hit + 0, found + 0 }' "$lcov")
+        printf '%-24s %6d of %6d lines, floor %3d%%\n' "$row" "$hit" "$found" "$floor"
+        if [ "$found" -eq 0 ] && [ "$floor" -gt 0 ]; then
+          echo "ERROR: The report of $row has no lines. Check that its tests ran." >&2
+          fail=1
+        elif [ $((hit * 100)) -lt $((floor * found)) ]; then
+          echo "ERROR: The tests of $row cover less than $floor% of its lines. Add tests for the new code." >&2
+          fail=1
+        fi
+      }
+      ${lib.concatStrings (
+        lib.mapAttrsToList (row: report: ''
+          check ${row} ${report}/lcov.info ${toString floors.${row}}
+        '') reports
+      )}
+      [ "$fail" -eq 0 ]
+      touch $out
+    '';
 in
 {
-  # The `coverage-<row>` check of each of `rows`, the `hostPlan` rows by
-  # name, with `fee` as the default fee switch of each. `skipped` lists
-  # the globs a row leaves out of its CRAP scores; a skip list without a
-  # row stops the evaluation.
+  # The checks of a tree's host test rows: `coverage-<row>` and
+  # `line-coverage-floors`.
+  #
+  # - `rows` are the `hostPlan` rows by name, and `fee` is the default
+  #   fee switch of each.
+  # - `floors` are the percentages for `coverageFloors`, by row.
+  # - `skipped` lists the globs a row leaves out of its CRAP scores.
+  #
+  # A row without a floor, a floor without a row and a skip list without
+  # a row each stop the evaluation, so none can outlive or go without
+  # the other.
   coverageSuite =
     {
       rows,
+      floors,
       fee ? { },
       skipped ? { },
     }:
     let
+      reports = lib.mapAttrs (
+        row: spec: coverageReport (skipped.${row} or [ ]) "coverage-${row}" ({ inherit fee; } // spec)
+      ) rows;
       unknownSkips = lib.subtractLists (lib.attrNames rows) (lib.attrNames skipped);
     in
     assert lib.assertMsg (
       unknownSkips == [ ]
     ) "A skip list has no coverage row: ${toString unknownSkips}.";
-    lib.mapAttrs' (
-      row: spec:
-      lib.nameValuePair "coverage-${row}" (
-        coverageReport (skipped.${row} or [ ]) "coverage-${row}" ({ inherit fee; } // spec)
-      )
-    ) rows;
+    lib.mapAttrs' (row: report: lib.nameValuePair "coverage-${row}" report) reports
+    // {
+      line-coverage-floors = coverageFloors reports floors;
+    };
 }
