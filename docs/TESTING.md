@@ -194,11 +194,14 @@ Each `test-*` row has a `coverage-*` check with the same name after the
 prefix. The check builds the crate's own units with
 `-C instrument-coverage` and runs its tests. Every dependency unit is
 the same store path as in the `test-*` check, so only the crate itself
-builds again. The result holds three files:
+builds again. The result holds four files:
 
 - `lcov.info`, with paths relative to the workspace root.
 - `html/index.html`, the report for a browser.
 - `summary.txt`, the table of regions, functions and lines per file.
+- `crap.json`, the CRAP score of each function from cargo-crap. The
+  score is high when a function is complex and its tests do not run
+  most of its lines. No check reads this file.
 
 ```sh
 nix build $plan .#checks.x86_64-linux.coverage-ubos-config

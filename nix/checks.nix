@@ -279,6 +279,18 @@ let
       removeAttrs hostTestRows [ "test-ubos-tuner" ]
     );
     fee = fee.on;
+    skipped = {
+      # The file store builds only with the `std` feature, which these
+      # two rows do not turn on. The `ubos-config-std` row scores it.
+      ubos-config = [ "**/file_storage.rs" ];
+      ubos-config-off = [ "**/file_storage.rs" ];
+      # Each function of these two files is `main` or a task that runs
+      # against the TAP interface or the serial port of a real host.
+      host-runner = [
+        "**/main.rs"
+        "**/miner_serial.rs"
+      ];
+    };
   };
 
   # One row per ARM board, generating clippy-<name> and build-<name> with
