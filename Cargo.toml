@@ -111,7 +111,7 @@ serde             = { version = "1", default-features = false, features = ["deri
 serde_json        = "1"
 serde-json-core   = "0.7"
 rusty-fork        = "0.3"
-postcard               = { version = "1.2", default-features = false, features = ["heapless"] }
+postcard               = { version = "1.2", default-features = false }
 postcard-schema        = { version = "0.2", default-features = false, features = ["derive", "heapless-v0_9"] }
 sequential-storage     = { version = "8.0", default-features = false }
 embedded-storage       = { version = "0.3", default-features = false }
