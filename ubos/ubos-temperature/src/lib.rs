@@ -20,9 +20,10 @@
 //! Board-temperature hardware drivers and the descriptor types a board
 //! uses to declare its sensor topology. [`Sensor::read_temperatures`]
 //! takes the [`Readings`] of whichever driver a descriptor names.
-//! `ubos-thermal` folds those readings, owns the sensor trait and the
-//! sample loop, and writes every metric; nothing here decides or
-//! publishes anything.
+//! [`SensorArray`] reads a board's table of them, and [`run`] samples a
+//! [`ReadingSource`] on each sample interval and hands the readings to
+//! `ubos-thermal`, which folds them and writes every metric. Nothing here
+//! decides or publishes anything.
 
 #![no_std]
 #![allow(clippy::missing_errors_doc)]
@@ -31,12 +32,14 @@
 #[cfg(test)]
 extern crate std;
 
+mod array;
 pub mod lm75a;
 mod source;
 pub mod tmp102;
 pub mod tmp461;
 pub mod tmp464;
 
+pub use array::SensorArray;
 pub use source::{Handle, ReadingSource, Receiver, Runner, Sampled, run};
 
 use embedded_hal_async::i2c::{I2c, SevenBitAddress};
