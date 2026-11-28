@@ -150,7 +150,10 @@ let
     clippy-stratum-v2.crate = "stratum-v2";
     clippy-transitions.crate = "transitions";
     clippy-stratum-client.crate = "stratum-client";
-    clippy-ubos-temperature.crate = "ubos-temperature";
+    clippy-ubos-temperature = {
+      crate = "ubos-temperature";
+      tests = false;
+    };
     clippy-ubos-display = {
       crate = "ubos-display";
       tests = false;
@@ -228,7 +231,10 @@ let
     test-ubos-asic.crate = "ubos-asic";
     test-ubos-tuner.crate = "ubos-tuner";
     test-ubos-machine.crate = "ubos-machine";
-    test-ubos-temperature.crate = "ubos-temperature";
+    test-ubos-temperature = {
+      crate = "ubos-temperature";
+      noDefaultFeatures = true;
+    };
     test-ubos-http = {
       crate = "ubos-http";
       noDefaultFeatures = true;

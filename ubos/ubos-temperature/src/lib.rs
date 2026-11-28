@@ -28,10 +28,16 @@
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::missing_panics_doc)]
 
+#[cfg(test)]
+extern crate std;
+
 pub mod lm75a;
+mod source;
 pub mod tmp102;
 pub mod tmp461;
 pub mod tmp464;
+
+pub use source::{Handle, ReadingSource, Receiver, Runner, Sampled, run};
 
 use embedded_hal_async::i2c::{I2c, SevenBitAddress};
 use heapless::Vec;

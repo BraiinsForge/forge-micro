@@ -10,14 +10,34 @@ workspace = true
 
 [features]
 default = ["defmt"]
-defmt   = ["dep:defmt", "ubos-core/defmt", "ubos-logging/defmt"]
+defmt   = [
+    "dep:defmt",
+    "embassy-time/defmt",
+    "ubos-config/defmt",
+    "ubos-core/defmt",
+    "ubos-logging/defmt",
+]
 
 [dependencies]
 defmt              = { workspace = true, optional = true }
+embassy-futures    = { workspace = true }
+embassy-sync       = { workspace = true }
+embassy-time       = { workspace = true }
 embedded-hal-async = { workspace = true }
 heapless           = { workspace = true }
+ubos-config        = { workspace = true, default-features = false }
 ubos-core          = { workspace = true }
 ubos-logging       = { workspace = true }
+
+[dev-dependencies]
+# The sources wait on timers, which need a time driver and a timer queue
+# on the host, and the channel of readings needs a critical-section
+# backend.
+embassy-time     = { workspace = true, features = ["generic-queue-8", "mock-driver"] }
+critical-section = { workspace = true, features = ["std"] }
+# The tests of the sources take the handle of the readings, which a
+# process gives out once, so each runs in a process of its own.
+rusty-fork       = { workspace = true }
 
 [package.metadata.cargo-shear]
 ignored = ["defmt"]
