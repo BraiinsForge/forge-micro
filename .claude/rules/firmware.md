@@ -12,7 +12,7 @@ Conventions for the firmware crates and the shared `ubos/` libraries.
   target.
 - The cortex-m firmware uses `#[cortex_m_rt::entry]` and drives
   `embassy_executor::raw::Executor` through
-  `ubos_metrics::cpu_load::run_cortex_m_executor`, which brackets `wfe`
+  `ubos_rp::executor::run_cortex_m_executor`, which brackets `wfe`
   with `Instant::now()` reads for the busy-ratio metric. bmm-pico keeps
   `#[embassy_executor::main]` because its core 1 runs a second,
   hand-managed executor for the `ubos-mining` serial worker, and it has
