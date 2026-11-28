@@ -72,8 +72,8 @@ pub use temps::PidTemperature;
 use ubos_temperature::{Reading, Sampled, TempSource};
 
 #[cfg(test)]
-#[path = "tests/run_thermal.rs"]
-mod tests_run_thermal;
+#[path = "tests/run_thermal_awaited.rs"]
+mod tests_run_thermal_awaited;
 
 /// Serialises every test that reads the mock clock: they share the
 /// clock, the config watch and the global gauge channel.
