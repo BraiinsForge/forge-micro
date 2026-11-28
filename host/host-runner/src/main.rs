@@ -277,18 +277,20 @@ async fn network_control_task(
 
 #[embassy_executor::task]
 async fn thermal_task(
-    sensor: temperature::HashboardTemperature,
+    mut readings: ubos_temperature::Receiver,
     mut thermal_runner: ubos_thermal::Runner,
     config_handle: ubos_config::Handle,
 ) -> ! {
-    ubos_thermal::run_thermal(
-        sensor,
-        ubos_thermal::NoAmbient,
-        ubos_thermal::NoMcu,
-        &mut thermal_runner,
-        config_handle,
-    )
-    .await
+    ubos_thermal::run(&mut readings, &mut thermal_runner, config_handle).await
+}
+
+#[embassy_executor::task]
+async fn temperature_task(
+    sensor: temperature::HashboardTemperature,
+    mut temperature_runner: ubos_temperature::Runner,
+    config_handle: ubos_config::Handle,
+) -> ! {
+    ubos_temperature::run(sensor, &mut temperature_runner, config_handle).await
 }
 
 #[embassy_executor::task]
@@ -455,6 +457,7 @@ fn main() {
 
     let (mining_runner, mining_handle) = ubos_mining::Handle::take();
     let (thermal_runner, thermal_handle) = ubos_thermal::Handle::take();
+    let (temperature_runner, readings, temperature_handle) = ubos_temperature::Handle::take();
     let (cooling_runner, cooling_handle) = ubos_cooling::Handle::take();
     let (net_publisher, net_handle) = ubos_net::net::Handle::take();
     let (manager_runner, manager_handle) = ubos_manager::Handle::take();
@@ -627,11 +630,15 @@ fn main() {
         }
 
         match fan::FanHwmonController::open() {
-            Some(controller) => match temperature::HashboardTemperature::open(thermal_handle) {
+            Some(controller) => match temperature::open(temperature_handle) {
                 Some(sensor) => {
                     spawner.spawn(
-                        thermal_task(sensor, thermal_runner, config_handle)
+                        thermal_task(readings, thermal_runner, config_handle)
                             .expect("BUG: thermal_task token"),
+                    );
+                    spawner.spawn(
+                        temperature_task(sensor, temperature_runner, config_handle)
+                            .expect("BUG: temperature_task token"),
                     );
                     spawner.spawn(
                         fan::pid_fan_task(controller, cooling_runner, thermal_handle, config_handle)

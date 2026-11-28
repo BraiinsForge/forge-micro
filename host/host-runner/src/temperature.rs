@@ -29,61 +29,42 @@
 use embedded_i2c_unix::I2c as HostI2c;
 use log::{error, info};
 use ubos_asic::BMM101_HASHBOARD;
-use ubos_temperature::Sensor;
-use ubos_thermal::{Handle as ThermalHandle, TemperatureSensor};
+use ubos_temperature::{Handle, SensorArray};
 
 use crate::psu::I2C_BUS_ENV;
 
-pub struct HashboardTemperature {
-    sensors: Vec<Sensor<HostI2c>>,
-    /// Where each reading is submitted, so thermal filters it and writes
-    /// its series.
-    thermal: ThermalHandle,
-}
+/// The LM75A sensors of the hashboard, each read through a handle of its
+/// own to the bus.
+pub type HashboardTemperature = SensorArray<{ BMM101_HASHBOARD.temp.len() }, HostI2c>;
 
-impl HashboardTemperature {
-    /// Opens a handle per sensor to the bus the PSU uses. Returns `None`
-    /// if `UBOS_I2C_BUS` is set but empty, or the bus cannot be opened.
-    /// Each reading goes to `thermal`.
-    pub fn open(thermal: ThermalHandle) -> Option<Self> {
-        let env_path = std::env::var(I2C_BUS_ENV);
-        let path = env_path.as_deref().unwrap_or("/dev/i2c-0");
-        if path.is_empty() {
+/// Opens a handle per sensor to the bus the PSU uses. Returns `None`
+/// if `UBOS_I2C_BUS` is set but empty, or the bus cannot be opened. Each
+/// reading goes to `readings`.
+pub fn open(readings: Handle) -> Option<HashboardTemperature> {
+    let env_path = std::env::var(I2C_BUS_ENV);
+    let path = env_path.as_deref().unwrap_or("/dev/i2c-0");
+    if path.is_empty() {
+        return None;
+    }
+    let buses: Result<Vec<HostI2c>, _> = BMM101_HASHBOARD
+        .temp
+        .iter()
+        .map(|_| HostI2c::open(path))
+        .collect();
+    let mut buses = match buses {
+        Ok(buses) => buses.into_iter(),
+        Err(error) => {
+            error!("temperature: cannot open {path}: {error}");
             return None;
         }
-        let sensors = BMM101_HASHBOARD
-            .temp
-            .iter()
-            .map(|desc| HostI2c::open(path).map(|bus| Sensor::new(desc, bus)))
-            .collect();
-        let sensors = match sensors {
-            Ok(sensors) => sensors,
-            Err(error) => {
-                error!("temperature: cannot open {path}: {error}");
-                return None;
-            }
-        };
-        info!(
-            "temperature: opened {path} for {} LM75A sensor(s)",
-            BMM101_HASHBOARD.temp.len()
-        );
-        Some(Self { sensors, thermal })
-    }
-}
-
-impl TemperatureSensor for HashboardTemperature {
-    async fn sample(&mut self) {
-        for sensor in &mut self.sensors {
-            let address = sensor.descriptor().address();
-            for result in sensor.read_temperatures().await {
-                match result {
-                    Ok(reading) => self.thermal.submit(reading).await,
-                    Err(error) => error!(
-                        "temperature: {:?} {address:#x} error: {:?}",
-                        error.source, error.fault
-                    ),
-                }
-            }
-        }
-    }
+    };
+    info!(
+        "temperature: opened {path} for {} LM75A sensor(s)",
+        BMM101_HASHBOARD.temp.len()
+    );
+    Some(SensorArray::new(BMM101_HASHBOARD.temp, readings, || {
+        buses
+            .next()
+            .expect("BUG: one bus was opened for each sensor")
+    }))
 }
