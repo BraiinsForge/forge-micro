@@ -62,7 +62,7 @@ use ubos_core::index::HashboardIndex;
 use ubos_core::units::Frequency;
 use ubos_logging::{Debug2Format, error, info, trace, warn};
 
-use ubos_metrics::chain::ChainStats;
+use crate::stats::ChainStats;
 
 #[cfg(test)]
 #[path = "tests/serial.rs"]
@@ -269,7 +269,7 @@ pub struct Serial {
     /// This actor's index among the machine's hashboards, used to
     /// partition a pool-granted version-rolling mask so sibling chains
     /// never hash identical headers, and to index into
-    /// `ubos_metrics::chain`.
+    /// `crate::stats`.
     chain: HashboardIndex,
     /// Total hashboard count this machine has wired up, the other half
     /// of the version-mask partition.
@@ -389,7 +389,7 @@ impl Serial {
     /// The repeat expression builds `N` actors that all claim chain
     /// zero, and the loop then writes each its own index. Only the index
     /// is assigned, so nothing the repeat built is overwritten whole and
-    /// const evaluation has no value to drop. `ubos_metrics::chain`'s
+    /// const evaluation has no value to drop. `crate::stats`'s
     /// `CHAIN_STATS` table is built the same way.
     #[must_use]
     pub const fn table<const N: usize>() -> [Self; N] {
@@ -1167,7 +1167,7 @@ enum ResultEvent {
 ///
 /// `actor` is which entry of `chains` this instance of the task
 /// drives, and the task asks
-/// [`ubos_metrics::chain::ChainStatsHandle::chain`] for
+/// [`crate::stats::ChainStatsHandle::chain`] for
 /// `actor.chain()` to find that chain's accounting. The session and
 /// driver types are parameters rather than names in this crate, because
 /// the board composes both: the session's capacity is a per-board
@@ -1210,7 +1210,7 @@ macro_rules! serial_task {
                     $board,
                     driver,
                     $scheduler,
-                    ubos_metrics::chain::handle().chain(actor.chain()),
+                    ubos_mining::stats::handle().chain(actor.chain()),
                 )
                 .await
             {

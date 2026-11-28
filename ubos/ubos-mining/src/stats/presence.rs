@@ -18,8 +18,7 @@
 // shall be considered distinct from the grant above.
 
 //! A chain's enumeration outcome and its packed storage form. The
-//! decision table that produces one is the miner's, in
-//! `ubos_mining::chain::presence`.
+//! decision table that produces one is [`crate::chain::presence`].
 
 #[cfg(test)]
 #[path = "tests/presence.rs"]

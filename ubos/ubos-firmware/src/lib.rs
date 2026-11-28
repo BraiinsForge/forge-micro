@@ -47,7 +47,7 @@ pub use stratum_client::{NoExtension, SessionExtension};
 /// work receiver budget, one per chain up to the machine ceiling, so the
 /// protocol crate never reads the hardware descriptor.
 pub type AsicSession<const N: usize> =
-    stratum_client::AsicSession<N, { ubos_metrics::chain::MAX_CHAINS }>;
+    stratum_client::AsicSession<N, { ubos_mining::stats::MAX_CHAINS }>;
 /// Re-exported for the same reason: `serve_all` names the merged
 /// listener's port, buffer sizes and timeouts through this path.
 pub use ubos_http::consts as http_consts;

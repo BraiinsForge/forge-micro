@@ -54,7 +54,7 @@ static NOMINAL_HASHRATE: Watch<CriticalSectionRawMutex, Hashrate, 1> = Watch::ne
 
 /// Per-slot hashboard serials, indexed by physical chain. A board with
 /// fewer chains leaves the tail empty.
-pub type HashboardIds = Vec<Option<HwString>, { ubos_metrics::chain::MAX_CHAINS }>;
+pub type HashboardIds = Vec<Option<HwString>, { ubos_mining::stats::MAX_CHAINS }>;
 
 static HASHBOARD_IDS: Watch<CriticalSectionRawMutex, HashboardIds, 1> = Watch::new();
 
@@ -117,7 +117,7 @@ pub fn publish_hashboard_ids(ids: HashboardIds) {
 /// board calls [`publish_hashboard_ids`].
 pub fn publish_hashboard_id(serial: Option<HwString>) {
     const _: () = assert!(
-        ubos_metrics::chain::MAX_CHAINS >= 1,
+        ubos_mining::stats::MAX_CHAINS >= 1,
         "one slot must fit the one serial"
     );
     let mut ids = HashboardIds::new();

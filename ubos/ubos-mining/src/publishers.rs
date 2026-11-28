@@ -31,8 +31,8 @@ use ubos_metrics::catalog::{HASHBOARD_LABEL, POOL_LABEL, TYPE_LABEL};
 use ubos_metrics::metric;
 use ubos_metrics::value::{Count, Flag};
 
+use crate::stats;
 use crate::{Handle as MiningHandle, MiningState};
-use ubos_metrics::chain as stats;
 
 #[cfg(test)]
 #[path = "tests/publishers.rs"]

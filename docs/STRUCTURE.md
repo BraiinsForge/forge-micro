@@ -79,8 +79,8 @@ the mining crate.
 `ubos-auth` depends on `ubos-logging` only and holds the shared HTTP
 middleware (allow-list, auth, sessions, CSRF, CSPRNG). Both handler
 crates `ubos-webui` and `ubos-api` depend on `ubos-auth`, `ubos-http`
-and `ubos-mdns`, and `ubos-api` also depends on `ubos-net` and
-`ubos-metrics`; neither handler crate depends on the other. They share
+and `ubos-mdns`, and `ubos-api` also depends on `ubos-net`; neither
+handler crate depends on the other. They share
 one listener on port 80 behind `ubos_http::PrefixRouter`, which
 `ubos-firmware` wires. `ubos-prometheus` is a third handler crate. It
 depends on `ubos-http`, `ubos-mdns`, `ubos-net` and `ubos-metrics`, and

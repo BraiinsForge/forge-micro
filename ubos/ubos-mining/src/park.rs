@@ -34,7 +34,7 @@ use embassy_sync::watch::Watch;
 use portable_atomic::{AtomicU32, AtomicUsize, Ordering};
 
 /// One wake receiver for each chain that a board can run.
-const WAKE_RECEIVERS: usize = ubos_metrics::chain::MAX_CHAINS;
+const WAKE_RECEIVERS: usize = crate::stats::MAX_CHAINS;
 
 /// The receiver a serial worker awaits the park wake on, from
 /// [`Park::join`].

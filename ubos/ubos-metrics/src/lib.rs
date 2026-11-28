@@ -17,8 +17,8 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Observability: the metrics store and its exposition, the hashrate
-//! estimator, the per-chain table, and the CPU-load gauge.
+//! Observability: the metrics store and its exposition, and the
+//! CPU-load gauge.
 //!
 //! The `metrics` feature keeps the store: the channel, the series map
 //! and the render buffer. A build without it frees the RAM they hold,
@@ -26,11 +26,9 @@
 #![no_std]
 
 pub mod catalog;
-pub mod chain;
 pub mod consts;
 pub mod cpu_load;
 mod freshness;
-pub mod hashrate;
 pub mod metrics;
 mod name;
 #[cfg(feature = "metrics")]

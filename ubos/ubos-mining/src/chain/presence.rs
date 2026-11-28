@@ -30,7 +30,7 @@
 #[path = "tests/presence.rs"]
 mod tests;
 
-use ubos_metrics::chain::ChainPresence;
+use crate::stats::ChainPresence;
 
 /// Reset and enumerate attempts a chain gets before its answer is
 /// treated as final.

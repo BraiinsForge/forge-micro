@@ -26,5 +26,4 @@ ubos-asic        = { workspace = true }
 ubos-core        = { workspace = true }
 ubos-eeprom      = { workspace = true }
 ubos-psu         = { workspace = true }
-ubos-metrics     = { workspace = true, default-features = false }
 ubos-temperature = { workspace = true }

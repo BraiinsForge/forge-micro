@@ -69,7 +69,7 @@ use ubos_asic::{
 };
 use ubos_core::units::{FrequencyRange, Voltage};
 
-use ubos_metrics::chain::ChainStats;
+use crate::stats::ChainStats;
 
 /// Shared `ChainStats` for the tests that drive `Serial::run` and don't
 /// care about its contents beyond having somewhere to report to.

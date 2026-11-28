@@ -689,7 +689,7 @@ fn bounded_arrays_state_their_capacity() {
     );
     assert_eq!(
         schemas["HwInfo"]["properties"]["hashboardIds"]["maxItems"],
-        json!(ubos_metrics::chain::MAX_CHAINS)
+        json!(ubos_mining::stats::MAX_CHAINS)
     );
     assert_eq!(
         schemas["SystemNetwork"]["properties"]["dns"]["maxItems"],

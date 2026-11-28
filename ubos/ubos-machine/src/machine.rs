@@ -32,11 +32,11 @@ use crate::control_board::{
     CONTROL_BOARD_RP2350, ControlBoardDescriptor,
 };
 
-/// The most chains one machine drives, re-exported from the crate that
-/// owns the per-chain table it sizes. Every descriptor here asserts its
-/// `chains` fits under it at compile time; a machine with more chains
-/// raises it there and nowhere else.
-pub use ubos_metrics::chain::MAX_CHAINS;
+/// The most chains one machine drives. The library crates cannot see a
+/// board's descriptor, so their per-chain tables are sized to this, and
+/// every descriptor here asserts its `chains` fits under it at compile
+/// time.
+pub const MAX_CHAINS: usize = 3;
 
 /// A complete miner: the control board plus the hashboard, PSU, and
 /// temperature-sensor group it drives.

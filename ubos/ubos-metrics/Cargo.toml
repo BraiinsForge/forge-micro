@@ -28,9 +28,9 @@ ubos-core         = { workspace = true }
 ubos-logging      = { workspace = true }
 
 [dev-dependencies]
-# The chain table tests record shares, which stamps them with `Instant`,
-# so the host tests need the standard time driver, and the table's atomics
-# need a critical-section backend on the host.
+# The store tests stamp samples with `Instant`, so the host tests need
+# the standard time driver, and the atomics of the store need a
+# critical-section backend on the host.
 embassy-time     = { workspace = true, features = ["std"] }
 critical-section = { workspace = true, features = ["std"] }
 

@@ -19,7 +19,7 @@
 
 //! Lifecycle status and commands for the mining subsystem.
 //!
-//! Chain frequencies belong to `ubos_metrics::chain`; the shared rail
+//! Chain frequencies belong to `crate::stats`; the shared rail
 //! setpoint belongs to `ubos_psu`. Only the miner writes lifecycle status.
 
 use embassy_futures::select::{Either, select};
@@ -196,10 +196,7 @@ impl Handle {
 /// The chain sensor of thermal asks the miner which chains are present.
 impl ubos_thermal::PresentChains for Handle {
     fn is_present(&self, chain: ubos_core::index::HashboardIndex) -> bool {
-        ubos_metrics::chain::handle()
-            .chain(chain)
-            .presence()
-            .is_present()
+        crate::stats::handle().chain(chain).presence().is_present()
     }
 }
 

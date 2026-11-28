@@ -175,7 +175,7 @@ impl RestApiService {
     /// reports. Each read is a lock-free snapshot, so an upload holding
     /// the OTA target mutex never blocks the dashboard's poll.
     fn info(&self) -> ApiInfo {
-        let chain_stats = ubos_metrics::chain::handle();
+        let chain_stats = ubos_mining::stats::handle();
         let chain_readings = self.thermal.chains();
         let fan = self.cooling.current();
         let psu_reading = self.psu.current();

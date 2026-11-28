@@ -45,11 +45,11 @@ mod tests;
 
 use core::cmp::Ordering;
 
+use crate::stats::ChainPresence;
 use embassy_time::{Duration, Instant};
 use ubos_asic::HashboardDescriptor;
 use ubos_core::units::{Frequency, Temperature, Voltage};
 use ubos_logging::{Debug2Format, info, warn};
-use ubos_metrics::chain::ChainPresence;
 use ubos_psu::Handle as PsuHandle;
 use ubos_tuner::{ChainReadings, Plan, Readings};
 
@@ -124,7 +124,7 @@ where
     /// counts the machine's chains differently partitions the version
     /// mask differently, and two chains would hash the same headers.
     /// Both fire in a release build, because a machine that is wired
-    /// wrong must not mine. `CHAINS` above `ubos_metrics::chain::MAX_CHAINS`,
+    /// wrong must not mine. `CHAINS` above `crate::stats::MAX_CHAINS`,
     /// which the per-chain accounting table has no slot for, fails to
     /// compile.
     pub fn new(
@@ -137,7 +137,7 @@ where
     ) -> Self {
         const {
             assert!(
-                CHAINS <= ubos_metrics::chain::MAX_CHAINS,
+                CHAINS <= crate::stats::MAX_CHAINS,
                 "the machine has more chains than MAX_CHAINS"
             );
         }
@@ -160,10 +160,10 @@ where
         }
         let chains = chains.map(|(serial, reset)| ChainHandle {
             serial,
-            stats: ubos_metrics::chain::handle().chain(serial.chain()),
+            stats: crate::stats::handle().chain(serial.chain()),
             reset,
         });
-        ubos_metrics::chain::set_chain_count(CHAINS);
+        crate::stats::set_chain_count(CHAINS);
         Self {
             psu_handle,
             board,

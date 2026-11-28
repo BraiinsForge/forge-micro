@@ -14,6 +14,7 @@ defmt   = [
     "ubos-core/defmt",
     "ubos-events/defmt",
     "ubos-logging/defmt",
+    "ubos-machine/defmt",
     "ubos-psu/defmt",
     "ubos-thermal/defmt",
 ]
@@ -46,6 +47,7 @@ stratum-client    = { workspace = true }
 transitions       = { workspace = true }
 ubos-asic         = { workspace = true }
 ubos-logging      = { workspace = true }
+ubos-machine      = { workspace = true }
 ubos-psu          = { workspace = true }
 ubos-tuner        = { workspace = true }
 ubos-thermal      = { workspace = true, default-features = false }

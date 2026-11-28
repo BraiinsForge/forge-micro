@@ -35,8 +35,8 @@ use crate::rest::{API_INFO_BODY_BUFFER_SIZE, CONFIG_RESPONSE_BUFFER_SIZE};
 use crate::schema::info::{ApiInfo, ApiInfoChain, ApiInfoOta};
 use crate::schema::state::{ApiChainState, ApiMiningState, ApiPauseReason};
 use ubos_manager::PauseReason;
-use ubos_metrics::chain::ChainPresence;
 use ubos_mining::MiningState;
+use ubos_mining::stats::ChainPresence;
 
 // --- N6: API_INFO_BODY_BUFFER_SIZE covers the worst-case body ---
 
@@ -54,7 +54,7 @@ fn leaked(text: &str, len: usize) -> &'static str {
 #[allow(clippy::too_many_lines)]
 fn api_info_body_fits_in_buffer() {
     let chain_hottest_c = i32::MIN / 1000;
-    let chains = (0..ubos_metrics::chain::MAX_CHAINS)
+    let chains = (0..ubos_mining::stats::MAX_CHAINS)
         .map(|chain| ApiInfoChain {
             chain: u8::try_from(chain).expect("MAX_CHAINS fits a byte"),
             state: ApiChainState::Unknown,
@@ -141,7 +141,7 @@ fn api_info_body_fits_in_buffer() {
          \"pause_reason\":\"temperatureUnreadable\",\
          \"chains\":["
     );
-    for chain in 0..ubos_metrics::chain::MAX_CHAINS {
+    for chain in 0..ubos_mining::stats::MAX_CHAINS {
         if chain > 0 {
             expected.push(',');
         }
@@ -355,13 +355,13 @@ fn config_response_body_fits_in_buffer() {
 
 #[test]
 fn api_info_chain_renders_each_chain() {
-    static CHAINS: [ubos_metrics::chain::ChainStats; 2] = [
-        ubos_metrics::chain::ChainStats::new(),
-        ubos_metrics::chain::ChainStats::new(),
+    static CHAINS: [ubos_mining::stats::ChainStats; 2] = [
+        ubos_mining::stats::ChainStats::new(),
+        ubos_mining::stats::ChainStats::new(),
     ];
-    CHAINS[0].set_presence(ubos_metrics::chain::ChainPresence::Present { chips: 105 });
+    CHAINS[0].set_presence(ubos_mining::stats::ChainPresence::Present { chips: 105 });
     CHAINS[0].set_frequency(ubos_core::units::Frequency::from_mhz(650));
-    CHAINS[1].set_presence(ubos_metrics::chain::ChainPresence::Absent);
+    CHAINS[1].set_presence(ubos_mining::stats::ChainPresence::Absent);
 
     let chains: heapless::Vec<ApiInfoChain, 2> = CHAINS
         .iter()

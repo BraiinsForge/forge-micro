@@ -16,5 +16,5 @@ embedded-hal-async = { workspace = true }
 format_no_std     = { workspace = true }
 profont           = { workspace = true }
 ubos-cooling      = { workspace = true, default-features = false }
-ubos-metrics      = { workspace = true, default-features = false }
+ubos-mining       = { workspace = true, default-features = false }
 ubos-net          = { workspace = true, default-features = false }

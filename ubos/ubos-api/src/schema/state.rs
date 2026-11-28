@@ -25,8 +25,8 @@
 
 use serde::Serialize;
 use ubos_manager::PauseReason;
-use ubos_metrics::chain::ChainPresence;
 use ubos_mining::MiningState;
+use ubos_mining::stats::ChainPresence;
 
 /// A chain's presence as the `/api/info` `chains[].state` string.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]

@@ -17,16 +17,8 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Per-chain accounting, one instance per chain slot, and [`MAX_CHAINS`],
-//! the ceiling it is sized to. This crate sits below every consumer of
-//! the table, which is why both live here.
-//!
-//! [`MAX_CHAINS`] lives here because this table is what it sizes, and
-//! this crate sits below every consumer of the table: `ubos-mining`
-//! writes it, `ubos-display` and `ubos-api` read it, and
-//! `ubos-machine` re-exports the ceiling for the descriptors that assert
-//! against it.
-//!
+//! Per-chain accounting, one instance per chain slot. The table is
+//! sized to [`MAX_CHAINS`], the ceiling of `ubos-machine`.
 //!
 //! Each `ChainStats` is owned by the board. That chain's serial actor
 //! and the miner write it, and the API, the display and the metrics
@@ -42,6 +34,7 @@
 //! [`ChainStatsHandle`], which [`handle`] returns. The static itself is
 //! private, so no consumer holds a second door to it.
 
+use crate::consts::MAX_POOL_SLOTS;
 use crate::hashrate::HashrateEstimator;
 use portable_atomic::{AtomicU8, AtomicU16, AtomicU32, AtomicU64, Ordering};
 use ubos_core::index::HashboardIndex;
@@ -50,18 +43,11 @@ use ubos_core::units::{Frequency, Hashrate, Shares};
 pub mod presence;
 
 pub use presence::ChainPresence;
+pub use ubos_machine::MAX_CHAINS;
 
 #[cfg(test)]
-#[path = "chain/tests/stats.rs"]
+#[path = "stats/tests/stats.rs"]
 mod tests;
-
-/// The most chains one machine drives. The library crates cannot see a
-/// board's descriptor, so their per-chain tables are sized to this, and
-/// every machine descriptor asserts its chain count fits under it.
-pub const MAX_CHAINS: usize = 3;
-
-/// Pool slots a chain's share accounting and the scheduler weights span.
-pub const MAX_POOL_SLOTS: usize = 8;
 
 /// Sentinel stored in `active_pool` while the chain is mining no pool's
 /// work. It lies past [`MAX_POOL_SLOTS`], so no real slot can collide.

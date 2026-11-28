@@ -4181,7 +4181,6 @@ dependencies = [
  "ubos-logging",
  "ubos-manager",
  "ubos-mdns",
- "ubos-metrics",
  "ubos-mining",
  "ubos-net",
  "ubos-psu",
@@ -4301,7 +4300,7 @@ dependencies = [
  "format_no_std",
  "profont",
  "ubos-cooling",
- "ubos-metrics",
+ "ubos-mining",
  "ubos-net",
 ]
 
@@ -4427,7 +4426,6 @@ dependencies = [
  "ubos-asic",
  "ubos-core",
  "ubos-eeprom",
- "ubos-metrics",
  "ubos-psu",
  "ubos-temperature",
 ]
@@ -4507,6 +4505,7 @@ dependencies = [
  "ubos-core",
  "ubos-events",
  "ubos-logging",
+ "ubos-machine",
  "ubos-metrics",
  "ubos-psu",
  "ubos-thermal",

@@ -28,7 +28,7 @@ use heapless::{String, Vec};
 use serde::Serialize;
 use ubos_config::POOL_SLOTS;
 use ubos_core::units::{FanPwm, FanRpm, Frequency, Hashrate, Power, Temperature, Voltage};
-use ubos_metrics::chain::{ChainStats, MAX_CHAINS};
+use ubos_mining::stats::{ChainStats, MAX_CHAINS};
 
 use crate::hw_info::HwString;
 use crate::ota::{OtaPhase, OtaSessionSnapshot, OtaWritePhase, ResetDiag, ResetReason};

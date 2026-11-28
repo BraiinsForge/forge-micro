@@ -86,7 +86,7 @@ pub fn render<D: DrawTarget<Color = BinaryColor>>(
 
     // Line 4: current hashrate. Its text switches to GH/s at 1 GH/s, so
     // 24 bytes covers both representations.
-    let hashrate = ubos_metrics::chain::handle().machine_hashrate();
+    let hashrate = ubos_mining::stats::handle().machine_hashrate();
     let mut hashrate_buffer = [0u8; 24];
     if let Ok(text) = format_no_std::show(&mut hashrate_buffer, format_args!("{hashrate}")) {
         Text::new(text, Point::new(0, 61), style).draw(display)?;

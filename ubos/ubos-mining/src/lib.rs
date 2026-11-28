@@ -41,6 +41,7 @@ mod control;
 #[cfg(test)]
 #[path = "tests/fixture.rs"]
 mod fixture;
+mod hashrate;
 pub mod miner;
 mod park;
 pub mod publishers;
@@ -48,6 +49,7 @@ mod registry;
 pub mod reset;
 pub mod scheduler;
 pub mod serial;
+pub mod stats;
 pub mod tuner;
 
 pub use chain::ChainHandle;

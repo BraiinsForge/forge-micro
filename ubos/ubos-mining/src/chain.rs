@@ -26,7 +26,7 @@
 //! applies tuner plans through [`ChainControl`], which the submodule
 //! [`control`] defines. [`presence`] is the pure decision
 //! table the enumeration loop drives. The per-chain accounting the API,
-//! the display and the metrics publisher read is `ubos_metrics::chain`.
+//! the display and the metrics publisher read is `crate::stats`.
 
 use embassy_time::{Duration, Timer};
 use ubos_core::index::HashboardIndex;
@@ -36,7 +36,7 @@ use ubos_logging::{Debug2Format, error, warn};
 use crate::miner::MinerError;
 use crate::reset::ResetPin;
 use crate::serial::Serial;
-use ubos_metrics::chain::{ChainPresence, ChainStats};
+use crate::stats::{ChainPresence, ChainStats};
 
 pub mod control;
 pub mod presence;

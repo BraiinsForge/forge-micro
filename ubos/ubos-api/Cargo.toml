@@ -10,7 +10,7 @@ workspace = true
 
 [features]
 default = ["defmt"]
-defmt   = ["dep:defmt", "embassy-net/defmt", "stratum-client/defmt", "ubos-auth/defmt", "ubos-config/defmt", "ubos-cooling/defmt", "ubos-events/defmt", "ubos-logging/defmt", "ubos-mdns/defmt", "ubos-net/defmt", "ubos-http/defmt", "ubos-manager/defmt", "ubos-metrics/defmt", "ubos-mining/defmt", "ubos-psu/defmt", "ubos-thermal/defmt"]
+defmt   = ["dep:defmt", "embassy-net/defmt", "stratum-client/defmt", "ubos-auth/defmt", "ubos-config/defmt", "ubos-cooling/defmt", "ubos-events/defmt", "ubos-logging/defmt", "ubos-mdns/defmt", "ubos-net/defmt", "ubos-http/defmt", "ubos-manager/defmt", "ubos-mining/defmt", "ubos-psu/defmt", "ubos-thermal/defmt"]
 # Host-only: JSON Schema derives the OpenAPI document is built from.
 schema = ["dep:schemars", "ubos-config/schema"]
 
@@ -38,7 +38,6 @@ ubos-http         = { workspace = true, default-features = false }
 ubos-mdns         = { workspace = true, default-features = false }
 ubos-logging      = { workspace = true }
 ubos-manager      = { workspace = true, default-features = false }
-ubos-metrics      = { workspace = true, default-features = false }
 ubos-mining       = { workspace = true, default-features = false }
 ubos-net          = { workspace = true, default-features = false }
 ubos-psu          = { workspace = true, default-features = false }

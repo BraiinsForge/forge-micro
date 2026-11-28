@@ -52,13 +52,13 @@ use ubos_core::units::{Power, Voltage};
 use ubos_psu::{Error as PsuError, PowerSupply, Psu, StatusFlags, VoltageSource};
 use ubos_tuner::{Plan, Readings};
 
+use crate::stats::{ChainPresence, ChainStats, ChainStatsHandle};
 use embassy_futures::block_on;
 use embassy_futures::join::{join, join3};
 use ubos_asic::{BMM101_HASHBOARD, ChainDriver, ChipDescriptor, ChipError, HashboardDescriptor};
 use ubos_asic::{PollBatch, PollProgress, ResultMode, ShareTarget, SolutionBatch, Transport};
 use ubos_core::index::HashboardIndex;
 use ubos_core::units::Frequency;
-use ubos_metrics::chain::{ChainPresence, ChainStats, ChainStatsHandle};
 
 use crate::chain::ChainHandle;
 use crate::reset::ResetPin;

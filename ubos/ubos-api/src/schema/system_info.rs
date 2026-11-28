@@ -101,7 +101,7 @@ pub struct HwInfo {
     /// stays `null` forever on a board with no EEPROM producer wired up.
     #[cfg_attr(
         feature = "schema",
-        schemars(with = "Option<&[Option<&str>]>", length(max = ubos_metrics::chain::MAX_CHAINS))
+        schemars(with = "Option<&[Option<&str>]>", length(max = ubos_mining::stats::MAX_CHAINS))
     )]
     pub hashboard_ids: Option<HashboardIds>,
     /// Count of chains whose most recently recorded presence is
