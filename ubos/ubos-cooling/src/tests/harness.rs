@@ -26,7 +26,7 @@
 //! number of times to let the resulting chain of awaits settle before the
 //! commanded PWM is asserted through the fan handle.
 //!
-//! A reading comes from the real `run_thermal` over a sensor that submits
+//! A reading comes from the real `run` over a sensor that submits
 //! it once, and a config change from the real config task over a file store,
 //! so the loop is driven by what the firmware runs. Each test takes the
 //! handles as a board does and runs in a process of its own.
@@ -45,11 +45,9 @@ use ubos_config::{
 };
 use ubos_core::index::HashboardIndex;
 use ubos_core::units::{FanPwm, FanRpm, Temperature};
+use ubos_temperature::{Handle as Readings, Receiver, Runner as SamplingRunner};
 use ubos_temperature::{Reading as TempReading, TempSource};
-use ubos_thermal::{
-    Handle as ThermalHandle, NoAmbient, NoMcu, Runner as ThermalRunner, TemperatureSensor,
-    run_thermal,
-};
+use ubos_thermal::{Handle as ThermalHandle, Runner as ThermalRunner, run};
 
 use crate::{FanOutput, Handle, Runner, TachReader};
 
@@ -58,14 +56,23 @@ use crate::{FanOutput, Handle, Runner, TachReader};
 pub(crate) struct Rig {
     pub(crate) fan: Handle,
     pub(crate) thermal: ThermalHandle,
+    pub(crate) readings: Readings,
     pub(crate) config: ConfigHandle,
     dir: std::path::PathBuf,
+}
+
+/// What [`publish_reading`] runs the thermal task with.
+pub(crate) struct Thermal {
+    runner: ThermalRunner,
+    readings: Receiver,
+    /// Ends the sample of each reading that a test hands in itself.
+    sampling: SamplingRunner,
 }
 
 /// Apart from [`Rig`], because each task borrows its runner mutably.
 pub(crate) struct Runners {
     pub(crate) fan: Runner,
-    pub(crate) thermal: ThermalRunner,
+    pub(crate) thermal: Thermal,
     pub(crate) config: ConfigRunner,
 }
 
@@ -80,16 +87,22 @@ impl Rig {
         ));
         let (fan_runner, fan) = Handle::take();
         let (thermal_runner, thermal) = ThermalHandle::take();
+        let (sampling_runner, receiver, readings) = Readings::take();
         let (config_runner, config) = ConfigHandle::take();
         let rig = Self {
             fan,
             thermal,
+            readings,
             config,
             dir,
         };
         let runners = Runners {
             fan: fan_runner,
-            thermal: thermal_runner,
+            thermal: Thermal {
+                runner: thermal_runner,
+                readings: receiver,
+                sampling: sampling_runner,
+            },
             config: config_runner,
         };
         (rig, runners)
@@ -99,29 +112,6 @@ impl Rig {
 impl Drop for Rig {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.dir);
-    }
-}
-
-/// A sensor that answers once. It submits the reading it was given, as a
-/// source does, so the temperature that cooling reads comes through the
-/// filter of thermal. With no reading it submits nothing, as a board that has
-/// nothing to measure.
-struct OneReading {
-    reading: Option<TempReading>,
-    thermal: ThermalHandle,
-    answered: bool,
-}
-
-impl TemperatureSensor for OneReading {
-    async fn sample(&mut self) {
-        assert!(
-            !self.answered,
-            "BUG: test drove run_thermal past its one reading"
-        );
-        self.answered = true;
-        if let Some(reading) = self.reading {
-            self.thermal.submit(reading).await;
-        }
     }
 }
 
@@ -171,7 +161,7 @@ pub(crate) static METRICS_STATICS: ubos_metrics::metrics::MetricsStatics<
     METRICS_RESPONSE_BYTES,
 > = ubos_metrics::metrics::MetricsStatics::new();
 
-/// Polls per phase. Wider than `run_thermal`'s, because a phase here
+/// Polls per phase. Wider than `run`'s, because a phase here
 /// advances the clock by one `stale_timeout` and the loop then works off
 /// every catch-up control tick in that window before it parks.
 pub(crate) const POLL_BUDGET: usize = 64;
@@ -184,14 +174,14 @@ pub(crate) fn settle<F: Future>(future: &mut Pin<&mut F>) {
     }
 }
 
-/// Publish `reading` through a `run_thermal` that starts now, sees one
-/// sample interval pass on the mock clock and samples once.
+/// Publish `reading` through a `run` that starts now and takes one
+/// sample, with `reading` submitted as a source does, and let one sample
+/// interval pass on the mock clock.
 ///
-/// A new task per reading owes no ticks for a long silence before it.
 /// `rest` polls the tasks that react, after the clock has moved.
 pub(crate) fn publish_reading(
     rig: &Rig,
-    runner: &mut ThermalRunner,
+    thermal: &mut Thermal,
     driver: &MockDriver,
     reading: Option<TempReading>,
     mut rest: impl FnMut(),
@@ -201,17 +191,18 @@ pub(crate) fn publish_reading(
             .thermal
             .sample_interval_ms,
     );
-    let mut thermal = pin!(run_thermal(
-        OneReading {
-            reading,
-            thermal: rig.thermal,
-            answered: false,
-        },
-        NoAmbient,
-        NoMcu,
-        runner,
-        rig.config
-    ));
+    let mut cx = Context::from_waker(Waker::noop());
+    if let Some(reading) = reading {
+        assert!(
+            pin!(rig.readings.submit(reading)).poll(&mut cx).is_ready(),
+            "the channel of readings is full"
+        );
+    }
+    assert!(
+        pin!(thermal.sampling.end_sample()).poll(&mut cx).is_ready(),
+        "the channel of readings is full"
+    );
+    let mut thermal = pin!(run(&mut thermal.readings, &mut thermal.runner, rig.config));
     settle(&mut thermal);
     driver.advance(Duration::from_millis(interval));
     let mut cx = Context::from_waker(Waker::noop());

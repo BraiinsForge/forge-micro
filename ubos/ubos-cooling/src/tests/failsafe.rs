@@ -53,7 +53,7 @@ rusty_fork_test! {
         let driver = MockDriver::get();
         driver.reset();
 
-        // `run_thermal` and `run_cooling` wait for the config that this task
+        // `run` and `run_cooling` wait for the config that this task
         // publishes on its first poll.
         let mut config_task = pin!(run_config(&rig, &mut runners.config));
         drive!(config_task);
