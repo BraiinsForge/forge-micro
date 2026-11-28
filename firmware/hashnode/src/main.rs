@@ -76,7 +76,7 @@ static CORE1_STACK: ConstStaticCell<embassy_rp::multicore::Stack<{ config::Core1
 const PARK_POLL_DELAY_CYCLES: u32 = 15_000;
 
 static OTA_TARGET: StaticCell<
-    ubos_ota::RpOtaTarget<{ config::Flash::SIZE }, PARK_POLL_DELAY_CYCLES>,
+    ubos_rp::ota::RpOtaTarget<{ config::Flash::SIZE }, PARK_POLL_DELAY_CYCLES>,
 > = StaticCell::new();
 
 /// Placed in `.uninit`, which the startup code does not zero, so the ring
@@ -153,7 +153,7 @@ ubos_manager::manager_task!();
 /// lives in the `'static` mutex the OTA updater also partitions, so both
 /// reach the single FLASH peripheral.
 type BoardConfigStorage =
-    FlashStorage<SyncFlash<ubos_ota::SharedBlockingFlash<{ config::Flash::SIZE }>>>;
+    FlashStorage<SyncFlash<ubos_rp::ota::SharedBlockingFlash<{ config::Flash::SIZE }>>>;
 
 ubos_config::config_task!(
     BoardConfigStorage,
@@ -252,10 +252,10 @@ async fn boot(spawner: Spawner) {
     // The board has one FLASH peripheral, so the config backend and the OTA
     // partitions borrow one driver from this mutex, which serialises their
     // flash ops.
-    static SHARED_FLASH: StaticCell<ubos_ota::SharedFlashMutex<{ config::Flash::SIZE }>> =
+    static SHARED_FLASH: StaticCell<ubos_rp::ota::SharedFlashMutex<{ config::Flash::SIZE }>> =
         StaticCell::new();
-    let shared_flash: &'static ubos_ota::SharedFlashMutex<{ config::Flash::SIZE }> = SHARED_FLASH
-        .init(BlockingMutex::new(RefCell::new(Flash::<
+    let shared_flash: &'static ubos_rp::ota::SharedFlashMutex<{ config::Flash::SIZE }> =
+        SHARED_FLASH.init(BlockingMutex::new(RefCell::new(Flash::<
             _,
             FlashBlocking,
             { config::Flash::SIZE },
@@ -269,10 +269,10 @@ async fn boot(spawner: Spawner) {
 
     // Called before core 1 starts, so the core-1 park the flash op performs
     // has nothing to pause.
-    ubos_ota::mark_booted(shared_flash);
+    ubos_rp::ota::mark_booted(shared_flash);
 
     let ota_target = OTA_TARGET.init(ubos_ota::OtaEngine::new(
-        ubos_ota::RpBackend::new(shared_flash),
+        ubos_rp::ota::RpBackend::new(shared_flash),
         &PARK,
         config::FIRMWARE_VERSION,
         config::Ota::MAX_IMAGE_BYTES,
@@ -376,7 +376,7 @@ async fn boot(spawner: Spawner) {
     )));
 
     let config_storage = FlashStorage::new(
-        SyncFlash(ubos_ota::SharedBlockingFlash::new(shared_flash, &PARK)),
+        SyncFlash(ubos_rp::ota::shared_blocking_flash(shared_flash, &PARK)),
         config::Flash::CONFIG_RANGE,
     );
     spawner.spawn(unwrap!(config_task(runners.config, config_storage, None)));

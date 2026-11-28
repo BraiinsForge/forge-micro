@@ -10,35 +10,7 @@ workspace = true
 
 [features]
 default = ["defmt"]
-# `?` weak features only enable a backend dep's defmt when that backend is
-# itself selected, so a non-RP build (e.g. esp32s3) never pulls embassy-rp.
-defmt = [
-    "dep:defmt",
-    "ubos-api/defmt",
-    "ubos-mining/defmt",
-    "embassy-rp?/defmt",
-    "embassy-boot?/defmt",
-    "embassy-boot-rp?/defmt",
-    "embassy-embedded-hal?/defmt",
-    "esp-hal?/defmt",
-    "esp-bootloader-esp-idf?/defmt",
-]
-# RP boards (rp2040, rp2350, bmm-pico): embassy-boot swap-based OTA backend.
-rp = [
-    "dep:embassy-rp",
-    "dep:embassy-boot",
-    "dep:embassy-boot-rp",
-    "dep:embassy-embedded-hal",
-    "dep:cortex-m",
-]
-# esp32s3: esp-idf otadata two-slot OTA backend. The chip feature
-# (esp-hal/esp32s3 etc.) is supplied by the consumer or the flake check on the
-# CLI, matching the rp backend's embassy-rp chip-feature handling.
-esp = [
-    "dep:esp-hal",
-    "dep:esp-storage",
-    "dep:esp-bootloader-esp-idf",
-]
+defmt = ["dep:defmt", "ubos-api/defmt", "ubos-mining/defmt"]
 
 [dependencies]
 ubos-api = { workspace = true, default-features = false }
@@ -46,16 +18,3 @@ ubos-mining = { workspace = true, default-features = false }
 embassy-sync = { workspace = true }
 embedded-storage = { workspace = true }
 defmt = { workspace = true, optional = true }
-
-# RP backend only (feature `rp`).
-embassy-rp = { version = "0.10.0", default-features = false, features = ["unstable-pac"], optional = true }
-embassy-boot = { version = "0.7.0", default-features = false, optional = true }
-embassy-boot-rp = { version = "0.10.0", default-features = false, optional = true }
-embassy-embedded-hal = { version = "0.6.0", default-features = false, optional = true }
-cortex-m = { version = "0.7", features = ["inline-asm"], optional = true }
-
-# ESP backend only (feature `esp`). No chip feature declared here; the consumer
-# or flake check supplies esp-hal/esp32s3 etc. on the CLI.
-esp-hal = { version = "1.2.2", default-features = false, optional = true }
-esp-storage = { version = "0.10.0", default-features = false, features = ["embedded-storage"], optional = true }
-esp-bootloader-esp-idf = { version = "0.6.0", default-features = false, features = ["embedded-storage"], optional = true }

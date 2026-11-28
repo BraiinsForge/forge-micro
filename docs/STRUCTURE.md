@@ -126,7 +126,7 @@ typed `TaskPool` static and so rejects generic task functions.
 | `ubos-tuner`       | the tuner trait and the types it takes and returns. No loop and no tuner |
 | `ubos-eeprom`      | hashboard EEPROM read trait and the BOS-compatible wire format |
 | `ubos-events`      | user-facing event log: a fixed-capacity RAM ring of encoded records, readable over HTTP |
-| `ubos-ota`         | board-agnostic OTA flash-write engine; each board supplies a backend |
+| `ubos-ota`         | board-agnostic OTA flash-write engine; each platform crate supplies a backend |
 | `mining-protocol`  | protocol-agnostic mining client trait and the stratum-to-chip boundary types |
 | `stratum-client`   | integration layer between the protocol adapters and `AsicSession`: job ring, work ring, work generator |
 | `stratum-v1`       | no_std Stratum V1 wire types, parser, and adapter |
@@ -138,9 +138,9 @@ typed `TaskPool` static and so rejects generic task functions.
 | `ubos-psu`         | async PSU drivers over I2C, and the PSU task every other task reaches through its handle |
 | `ubos-temperature` | LM75A, TMP102, TMP461 and TMP464 drivers, the `Reading` every sensor yields, and the sensor descriptor types a board declares its topology with. No task and no metric |
 | `ubos-machine`     | per-board `MachineDescriptor` consts composing the hashboard, PSU, and sensor descriptors with a control-board and platform descriptor; pure const data read by firmware and the host runner, and the `MAX_CHAINS` ceiling |
-| `ubos-rp`          | per-platform support for the RP2040 and RP2350 control boards: the `#[panic_handler]` and `HardFault` symbols, reset diagnostic, `BoardWatchdog`, fan PWM and tachometer, the shared I2C bus aliases, `MinerUart`, the WS2812 adapter for the breathing status LED, the boot glue for the MAC, the seeds and the WIZnet bring-up, the Cortex-M executor shell `run_cortex_m_executor`, the idle counter of each core, the `cpu_load_task!` macro, and the `spawn_miner_core1!` macro |
+| `ubos-rp`          | per-platform support for the RP2040 and RP2350 control boards: the `#[panic_handler]` and `HardFault` symbols, reset diagnostic, `BoardWatchdog`, fan PWM and tachometer, the shared I2C bus aliases, `MinerUart`, the WS2812 adapter for the breathing status LED, the boot glue for the MAC, the seeds and the WIZnet bring-up, the Cortex-M executor shell `run_cortex_m_executor`, the idle counter of each core, the `cpu_load_task!` macro, the `embassy-boot` OTA backend, and the `spawn_miner_core1!` macro |
 | `rp-bootloader`    | the `embassy-boot-rp` swap sequence shared by `rp2040-bootloader` and `rp2350-bootloader`; no `ubos` library above it |
-| `ubos-esp32`       | per-platform support for the ESP32-S3 control board: reset diagnostic, idle-accounting executor callbacks, the persistent event ring, `BoardWatchdog`, `MinerUart`, fan PWM and tachometer, the shared I2C bus aliases, the expander-driven reset pin, the idle counter of each core, the `cpu_load_task!` macro, and the `spawn_miner_core1!` macro |
+| `ubos-esp32`       | per-platform support for the ESP32-S3 control board: reset diagnostic, idle-accounting executor callbacks, the persistent event ring, `BoardWatchdog`, `MinerUart`, fan PWM and tachometer, the shared I2C bus aliases, the expander-driven reset pin, the idle counter of each core, the esp-idf OTA backend, the `cpu_load_task!` macro, and the `spawn_miner_core1!` macro |
 | `ubos-firmware`    | top-of-graph assembly: `events::install`, the `Handles` of a board taken once in `main`, `net::bring_up`, shared stratum session, task-shell macros, the `serve_all!` listener macro; consumed only by the `firmware/<board>` binaries |
 
 ## `host/` — std crates

@@ -257,7 +257,7 @@ that espflash and probe-rs bundle has rollback **disabled**, so the
 
 #### Backend and boot
 
-`EspBackend` (`ubos/ubos-ota/src/esp.rs`, feature `esp`) implements `OtaBackend`
+`EspBackend` (`ubos/ubos-esp32/src/ota.rs`) implements `OtaBackend`
 over `esp-bootloader-esp-idf`'s `OtaUpdater`:
 
 1. `write` streams chunks into the inactive slot. `esp-storage`'s `Storage::write`
@@ -268,13 +268,13 @@ over `esp-bootloader-esp-idf`'s `OtaUpdater`:
    as `PendingVerify` and reverts on the next reset unless it is confirmed.
 3. `reboot` calls `esp_hal::system::software_reset()`.
 
-At boot, `ubos_ota::confirm_running` marks a `PendingVerify` slot `Valid`,
+At boot, `ubos_esp32::ota::confirm_running` marks a `PendingVerify` slot `Valid`,
 cancelling the pending revert — the analogue of the RP `mark_booted`. A crash or
 hang before that call leaves the slot unconfirmed, so the next reset reverts to
 the previous slot.
 
 The single `esp-storage` flash driver is shared between the config store and the
-OTA writer through `ubos_ota::EspFlashMutex`; `multicore_auto_park` halts core 1
+OTA writer through `ubos_esp32::ota::EspFlashMutex`; `multicore_auto_park` halts core 1
 around each flash op so a write never races the mining serial worker. The
 core-1 park that the engine performs before an upload still applies.
 

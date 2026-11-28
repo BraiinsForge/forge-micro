@@ -23,7 +23,7 @@ use defmt::info;
 
 /// Capture the watchdog reset reason and OTA breadcrumb before anything else
 /// touches the watchdog registers. Call this first in `boot`, before
-/// `ubos_ota::mark_booted`, because `mark_booted` performs a flash op that
+/// `crate::ota::mark_booted`, because `mark_booted` performs a flash op that
 /// feeds the watchdog and the reason register is read-once: a debugger warm
 /// reset clears it.
 pub fn capture_reset_diag() {
@@ -44,7 +44,7 @@ pub fn capture_reset_diag() {
         ResetReason::Clean
     };
 
-    let ota_was_active = scratch0 == ubos_ota::OTA_BREADCRUMB_MAGIC;
+    let ota_was_active = scratch0 == crate::ota::OTA_BREADCRUMB_MAGIC;
     let ota_offset = if ota_was_active { scratch1 } else { 0 };
 
     let write_phase = OtaWritePhase::from_u32(scratch2);

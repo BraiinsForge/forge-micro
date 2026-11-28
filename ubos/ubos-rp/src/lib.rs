@@ -22,8 +22,8 @@
 //! The `#[panic_handler]` and the `HardFault` exception are library symbols
 //! here, so a board must name the crate for the linker to take them from it.
 //!
-//! `ubos-ota/rp` owns the OTA flash backend and the breadcrumb API; this
-//! crate owns the platform boot, fault and watchdog code.
+//! The `ota` module owns the OTA flash backend and the breadcrumb API; the
+//! other modules own the platform boot, fault and watchdog code.
 
 #![no_std]
 
@@ -32,6 +32,7 @@ pub mod cpu_load;
 pub mod executor;
 pub mod fan;
 pub mod i2c;
+pub mod ota;
 pub mod pio_tach;
 pub mod rgb;
 pub mod uart;

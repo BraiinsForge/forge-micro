@@ -19,7 +19,8 @@ ubos-led  = { workspace = true }
 ubos-cooling = { workspace = true }
 ubos-metrics = { workspace = true }
 ubos-api = { workspace = true, features = ["defmt"] }
-ubos-ota = { workspace = true, features = ["defmt", "rp"] }
+ubos-ota = { workspace = true, features = ["defmt"] }
+ubos-mining = { workspace = true, features = ["defmt"] }
 serial-baudrate = { workspace = true }
 embedded-io-async = { workspace = true }
 embassy-time = { workspace = true }
@@ -28,6 +29,9 @@ embassy-executor = { workspace = true }
 static_cell = { workspace = true }
 portable-atomic = { workspace = true }
 embassy-embedded-hal = { version = "0.6.0", default-features = false }
+embassy-boot = { version = "0.7.0", default-features = false, features = ["defmt"] }
+embassy-boot-rp = { version = "0.10.0", default-features = false, features = ["defmt"] }
+embedded-storage = { workspace = true }
 defmt = { workspace = true }
 
 # No chip feature here: the crate builds under both rp2040 (thumbv6m) and

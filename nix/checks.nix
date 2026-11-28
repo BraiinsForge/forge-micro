@@ -119,6 +119,7 @@ let
       crate = "ubos-core";
       features = [ "schema" ];
     };
+    clippy-ubos-ota.crate = "ubos-ota";
     clippy-ubos-led.crate = "ubos-led";
     clippy-ubos-http = {
       crate = "ubos-http";
@@ -475,22 +476,6 @@ let
     # project changes.
     build-esp32s3-bootloader = esp32s3Bootloader;
 
-    # The esp backend of ubos-ota. Cargo clippy lints the top crate
-    # alone, so the esp32s3 build compiles this code without linting it.
-    clippy-ubos-ota-esp = espCraneLib.cargoClippy (
-      espCommon
-      // {
-        src = srcFor [ "ubos-ota" ];
-        cargoArtifacts = deps.espArtifacts;
-        cargoExtraArgs =
-          "-p ubos-ota --target xtensa-esp32s3-none-elf -Z build-std=core "
-          + "--features esp,esp-hal/esp32s3,esp-hal/unstable,esp-storage/esp32s3,"
-          + "esp-storage/critical-section,esp-bootloader-esp-idf/esp32s3";
-        cargoClippyExtraArgs = "-- -D warnings";
-      }
-      // webuiHostEnv
-    );
-
     clippy-esp32s3-tsens = espCraneLib.cargoClippy {
       src = srcFor [ "esp32s3-tsens" ];
       cargoArtifacts = deps.espArtifacts;
@@ -529,19 +514,6 @@ hostClippyChecks
   build-rp235x-sha256 = mkLibraryCheck "build-rp235x-sha256" {
     name = "rp235x-sha256";
     target = "thumbv8m.main-none-eabihf";
-  };
-
-  # A crate every board depends on carries no build check of its own:
-  # each board build compiles it, so a breakage still fails the gate.
-  # This is the rp backend; the esp one is clippy-ubos-ota-esp above.
-  clippy-ubos-ota = mkLibraryCheck "clippy-ubos-ota" {
-    name = "ubos-ota";
-    target = "thumbv8m.main-none-eabihf";
-    features = [
-      "rp"
-      "embassy-rp/rp235xa"
-      "embassy-rp/imagedef-none"
-    ];
   };
 
   # The rp235xa half. The rp2040 board builds lint the rp2040 half,

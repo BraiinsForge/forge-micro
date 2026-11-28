@@ -29,3 +29,8 @@ tca9554 = { workspace = true, features = ["defmt"] }
 # than selected by the board.
 esp-hal = { version = "1.2.2", features = ["defmt", "esp32s3", "unstable"] }
 esp-rtos = { version = "0.4.0", features = ["embassy", "esp32s3", "defmt"] }
+# The esp-idf OTA backend of `ubos-ota`, in the `ota` module.
+ubos-ota = { workspace = true, features = ["defmt"] }
+embedded-storage = { workspace = true }
+esp-storage = { version = "0.10.0", default-features = false, features = ["esp32s3", "critical-section", "embedded-storage"] }
+esp-bootloader-esp-idf = { version = "0.6.0", default-features = false, features = ["esp32s3", "defmt", "embedded-storage"] }

@@ -30,7 +30,7 @@
 /// forever.
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
-    ubos_ota::record_panic_breadcrumb();
+    crate::ota::record_panic_breadcrumb();
     defmt::error!("firmware panic");
     loop {
         cortex_m::asm::wfi();

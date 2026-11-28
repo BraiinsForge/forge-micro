@@ -17,18 +17,18 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! RP backend for the OTA engine, shared by all RP board firmware crates.
+//! RP backend for the `ubos-ota` engine, shared by all RP board firmware crates.
 //!
-//! [`RpBackend`] implements [`crate::OtaBackend`] on top of `embassy-boot`'s
+//! [`RpBackend`] implements [`ubos_ota::OtaBackend`] on top of `embassy-boot`'s
 //! [`BlockingFirmwareUpdater`]. The updater writes the incoming image into the
 //! DFU partition and flips the bootloader state partition's magic; the RP
 //! bootloader performs the active/DFU swap on the next boot. The backend is
-//! wrapped in an [`OtaEngine`](crate::OtaEngine), constructed once at boot,
+//! wrapped in an [`OtaEngine`](ubos_ota::OtaEngine), constructed once at boot,
 //! registered with [`ubos_api::register_ota_target`], and then driven through
 //! the REST handler's `dyn OtaTarget` reference.
 //!
 //! The DFU and STATE partitions are [`BlockingPartition`]s over the one
-//! shared `'static` flash mutex (see [`crate::shared_flash`]). Their offsets
+//! shared `'static` flash mutex (see [`ubos_ota::shared_flash`]). Their offsets
 //! and sizes come from the `__bootloader_dfu_*` / `__bootloader_state_*`
 //! linker symbols defined in `memory.x`, matching the layout the bootloader
 //! links against.
@@ -38,7 +38,7 @@
 //! over 15 s when core 1's executor is mid-`AtomicU64` seqlock (the
 //! `portable-atomic` fallback disables interrupts, blocking the
 //! `SIO_IRQ_FIFO` pause handshake), tripping the watchdog before the write
-//! completes. The [`OtaEngine`](crate::OtaEngine) parks core 1 before the
+//! completes. The [`OtaEngine`](ubos_ota::OtaEngine) parks core 1 before the
 //! first flash access and holds the park across the whole upload, polling
 //! [`RpBackend::park_poll_delay`] between park-ack checks.
 //!
@@ -74,15 +74,16 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embedded_storage::nor_flash::ReadNorFlash;
 use ubos_api::{OtaError as ApiError, OtaWritePhase};
 
-use crate::OtaBackend;
-use crate::shared_flash::{FlashGuard, SharedFlash};
+use ubos_ota::OtaBackend;
+use ubos_ota::OtaEngine;
+use ubos_ota::shared_flash::{FlashGuard, SharedFlash};
 
 /// The RP blocking flash driver over the one QSPI `FLASH` peripheral.
 pub type RpFlash<const FLASH_SIZE: usize> = Flash<'static, FLASH, Blocking, FLASH_SIZE>;
 
-/// [`crate::shared_flash::SharedFlashMutex`] over the RP [`Flash`] driver.
+/// [`ubos_ota::shared_flash::SharedFlashMutex`] over the RP [`Flash`] driver.
 pub type SharedFlashMutex<const FLASH_SIZE: usize> =
-    crate::shared_flash::SharedFlashMutex<RpFlash<FLASH_SIZE>>;
+    ubos_ota::shared_flash::SharedFlashMutex<RpFlash<FLASH_SIZE>>;
 
 /// `Copy` handle to the shared blocking [`Flash`] driver, parking the core-1
 /// serial worker around each write and erase.
@@ -121,17 +122,15 @@ const PARK_RESIGNAL_SPINS: u32 = 0xFFFF;
 #[derive(Clone, Copy)]
 pub struct RpGuard(&'static ubos_mining::Park);
 
-impl<const FLASH_SIZE: usize> SharedBlockingFlash<FLASH_SIZE> {
-    /// Wraps the `'static` flash mutex in a handle that parks through `park`
-    /// around each write and erase. It is the one constructor of the guard,
-    /// so an RP flash handle always parks.
-    #[must_use]
-    pub const fn new(
-        mutex: &'static SharedFlashMutex<FLASH_SIZE>,
-        park: &'static ubos_mining::Park,
-    ) -> Self {
-        Self::with_guard(mutex, RpGuard(park))
-    }
+/// Wraps the `'static` flash mutex in a handle that parks through `park`
+/// around each write and erase. It is the one constructor of the guard, so
+/// an RP flash handle always parks.
+#[must_use]
+pub const fn shared_blocking_flash<const FLASH_SIZE: usize>(
+    mutex: &'static SharedFlashMutex<FLASH_SIZE>,
+    park: &'static ubos_mining::Park,
+) -> SharedBlockingFlash<FLASH_SIZE> {
+    SharedBlockingFlash::with_guard(mutex, RpGuard(park))
 }
 
 impl FlashGuard<flash::Error> for RpGuard {
@@ -313,7 +312,7 @@ fn build_updater<'a, const FLASH_SIZE: usize>(
 /// Holds the shared flash mutex and a scratch buffer for the STATE partition.
 /// The [`BlockingFirmwareUpdater`] is rebuilt for each operation: it owns only
 /// the partition handles and the scratch buffer, both cheap to reconstruct,
-/// and the DFU write offset is tracked by the [`OtaEngine`](crate::OtaEngine)
+/// and the DFU write offset is tracked by the [`OtaEngine`](ubos_ota::OtaEngine)
 /// rather than inside the updater so a fresh updater never re-erases an
 /// already-written sector.
 ///
@@ -506,3 +505,9 @@ pub fn mark_booted<const FLASH_SIZE: usize>(flash: &'static SharedFlashMutex<FLA
         );
     }
 }
+
+/// The RP OTA target: the board-agnostic [`OtaEngine`] over the RP
+/// `embassy-boot` [`RpBackend`]. Generic over flash size and the core-1 park
+/// poll delay, matching the backend.
+pub type RpOtaTarget<const FLASH_SIZE: usize, const PARK_POLL_DELAY_CYCLES: u32> =
+    OtaEngine<RpBackend<FLASH_SIZE, PARK_POLL_DELAY_CYCLES>>;

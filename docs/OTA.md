@@ -13,7 +13,7 @@ The upload flow, WebUI behaviour, CSRF handling, session lifecycle, and HTTP
 diagnostics are board-agnostic and described once below. The flash mechanism is
 board-specific and lives behind the `ubos_ota::OtaBackend` trait: the RP boards
 use an `embassy-boot` swap bootloader (the sections immediately following), and
-`ubos-ota`'s `esp` feature carries a second backend over the ESP-IDF
+`ubos-esp32`'s `ota` module holds a second backend over the ESP-IDF
 bootloader's `otadata` two-slot scheme, documented in
 [BOARDS.md](BOARDS.md). The board-agnostic `ubos_ota::OtaEngine`
 drives either backend and implements `ubos_api::OtaTarget`, so the REST and
@@ -76,18 +76,18 @@ The board-agnostic upload orchestration lives in `ubos/ubos-ota/src/engine.rs`:
 `OtaEngine<B>` implements `ubos_api::OtaTarget` and owns the write-offset
 tracking, breadcrumb-phase ordering, and core-1 park lifecycle. The RP flash
 mechanism is the `OtaBackend` implementation `RpBackend` in
-`ubos/ubos-ota/src/rp.rs` (feature `rp`), which wraps an `embassy-boot`
+`ubos/ubos-rp/src/ota.rs`, which wraps an `embassy-boot`
 `BlockingFirmwareUpdater` over the DFU and STATE partitions. The partitions are
 `BlockingPartition` slices over the single shared flash mutex
-(`ubos_ota::SharedFlashMutex`) that the ubos-config store also uses.
+(`ubos_rp::ota::SharedFlashMutex`) that the ubos-config store also uses.
 `RpOtaTarget` is the type alias `OtaEngine<RpBackend<…>>`.
 
 A board can also implement `ubos_api::OtaTarget` directly, without the
 engine. The engine assumes a staging slot and a swap on the next boot; a
 board whose stock bootloader mirrors one live slot and verifies it on boot
 has neither, so it writes the payload in place and answers the trait
-itself. Such a target still shares `ubos_ota::SharedFlashMutex` with the
-config store, because that is what keeps two drivers off one chip.
+itself. Such a target still shares `ubos_ota::shared_flash::SharedFlashMutex`
+with the config store, because that is what keeps two drivers off one chip.
 
 ## Upload flow
 
@@ -238,7 +238,7 @@ On the reset that follows a completed upload:
    each block.
 2. The bootloader jumps to `ACTIVE`. The new image starts executing.
 3. Early in `boot()`, before core 1 starts, the firmware calls
-   `ota_target::mark_booted(shared_flash)`. This calls `updater.mark_booted()`,
+   `ubos_rp::ota::mark_booted(shared_flash)`. This calls `updater.mark_booted()`,
    which writes the confirmed boot state into STATE and clears the swap magic.
    The firmware logs `"boot: firmware v{}"` with `config::FIRMWARE_VERSION`
    immediately before this call so the version change is visible on the defmt
@@ -352,7 +352,7 @@ The watchdog scratch registers (SCRATCH0–SCRATCH2) survive a warm reset but ar
 cleared by a power-on reset. `begin()` writes the magic and initial phase;
 `write_chunk()` updates SCRATCH1 (offset) and SCRATCH2 (phase) around each
 flash call; `finish()` clears SCRATCH0 and SCRATCH2. The panic handler
-(`ota_target::record_panic_breadcrumb`) writes `WRITE_PHASE_PANIC` (3) into
+(`ubos_rp::ota::record_panic_breadcrumb`) writes `WRITE_PHASE_PANIC` (3) into
 SCRATCH2 from any panic, not only during an OTA session. At boot, `main.rs`
 reads and publishes all four values, then clears SCRATCH0 and SCRATCH2, so the
 diagnostics survive exactly one boot cycle. SCRATCH1 (offset) is left untouched;

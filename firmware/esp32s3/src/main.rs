@@ -124,7 +124,7 @@ ubos_manager::manager_task!();
 
 /// Storage chain behind [`config_task`]: `esp-storage FlashStorage →
 /// SyncFlash → ubos-config FlashStorage`.
-type BoardConfigStorage = FlashStorage<SyncFlash<ubos_ota::EspSharedFlash>>;
+type BoardConfigStorage = FlashStorage<SyncFlash<ubos_esp32::ota::EspSharedFlash>>;
 
 ubos_config::config_task!(
     BoardConfigStorage,
@@ -276,15 +276,16 @@ async fn boot(spawner: Spawner) {
     // The chip has one flash peripheral, so the config store and the OTA
     // writer share this driver; `multicore_auto_park` parks core 1 around
     // each op so a flash write never races the mining serial worker.
-    static SHARED_FLASH: StaticCell<ubos_ota::EspFlashMutex> = StaticCell::new();
-    let shared_flash: &'static ubos_ota::EspFlashMutex =
-        SHARED_FLASH.init(ubos_ota::EspFlashMutex::new(core::cell::RefCell::new(
+    static SHARED_FLASH: StaticCell<ubos_esp32::ota::EspFlashMutex> = StaticCell::new();
+    let shared_flash: &'static ubos_esp32::ota::EspFlashMutex = SHARED_FLASH.init(
+        ubos_esp32::ota::EspFlashMutex::new(core::cell::RefCell::new(
             esp_storage::FlashStorage::new(hw.flash).multicore_auto_park(),
-        )));
+        )),
+    );
 
     // Run before the watchdog is armed and before the first yield, so the
     // synchronous otadata write stays off the watchdog's clock.
-    ubos_ota::confirm_running(ubos_ota::EspSharedFlash::new(shared_flash));
+    ubos_esp32::ota::confirm_running(ubos_esp32::ota::EspSharedFlash::new(shared_flash));
 
     // Before every pusher, for the reason `ubos_metrics::metrics::run_ingest`
     // gives.
@@ -343,14 +344,14 @@ async fn boot(spawner: Spawner) {
     spawner.spawn(unwrap!(ethernet_task(runner)));
 
     let config_storage = FlashStorage::new(
-        SyncFlash(ubos_ota::EspSharedFlash::new(shared_flash)),
+        SyncFlash(ubos_esp32::ota::EspSharedFlash::new(shared_flash)),
         config::Flash::CONFIG_RANGE,
     );
     spawner.spawn(unwrap!(config_task(runners.config, config_storage, None)));
 
-    static OTA_TARGET: StaticCell<ubos_ota::EspOtaTarget> = StaticCell::new();
+    static OTA_TARGET: StaticCell<ubos_esp32::ota::EspOtaTarget> = StaticCell::new();
     let ota_target = OTA_TARGET.init(ubos_ota::OtaEngine::new(
-        ubos_ota::EspBackend::new(ubos_ota::EspSharedFlash::new(shared_flash)),
+        ubos_esp32::ota::EspBackend::new(ubos_esp32::ota::EspSharedFlash::new(shared_flash)),
         &PARK,
         config::FIRMWARE_VERSION,
         config::Ota::MAX_IMAGE_BYTES,

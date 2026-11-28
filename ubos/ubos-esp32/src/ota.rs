@@ -19,7 +19,7 @@
 
 //! ESP backend for the OTA engine.
 //!
-//! [`EspBackend`] implements [`crate::OtaBackend`] over the esp-idf OTA
+//! [`EspBackend`] implements [`ubos_ota::OtaBackend`] over the esp-idf OTA
 //! partition scheme via `esp-bootloader-esp-idf`'s [`OtaUpdater`]. The incoming
 //! image is written into the inactive `ota_N` app slot; [`activate`] flips the
 //! `otadata` partition to boot it and marks it [`OtaImageState::New`], so the
@@ -34,11 +34,11 @@
 //! than on the stack because each flash op already needs `esp-storage`'s 4 KiB
 //! sector buffer on the stack.
 //!
-//! Core 1 runs the ubos-mining serial worker; the [`OtaEngine`](crate::OtaEngine)
+//! Core 1 runs the ubos-mining serial worker; the [`OtaEngine`](ubos_ota::OtaEngine)
 //! parks it before any flash access, polling [`EspBackend::park_poll_delay`]
 //! between park-ack checks.
 //!
-//! [`activate`]: crate::OtaBackend::activate
+//! [`activate`]: ubos_ota::OtaBackend::activate
 
 use core::cell::RefCell;
 
@@ -53,13 +53,14 @@ use esp_bootloader_esp_idf::partitions::{
     AppPartitionSubType, Error as PtError, PARTITION_TABLE_MAX_LEN,
 };
 use ubos_api::{OtaError as ApiError, OtaWritePhase};
+use ubos_ota::{OtaBackend, OtaEngine};
 
 /// Microseconds spun per core-1 park-ack poll, matching the per-poll delay
 /// `PARK_POLL_MAX_ATTEMPTS`'s budget assumes.
 const PARK_POLL_DELAY_US: u32 = 100;
 
 /// Type of the `'static` mutex guarding the one `esp-storage` flash driver;
-/// see [`crate::shared_flash`] for why one mutex serves both consumers.
+/// see [`ubos_ota::shared_flash`] for why one mutex serves both consumers.
 ///
 /// Exposed so `main` can declare the backing `static`.
 pub type EspFlashMutex =
@@ -189,7 +190,7 @@ impl EspBackend {
     }
 }
 
-impl crate::OtaBackend for EspBackend {
+impl OtaBackend for EspBackend {
     /// Validates the partition table (otadata plus at least two OTA slots) by
     /// constructing the updater. Erase happens lazily inside
     /// [`write`](Self::write) via `esp-storage`, so there is nothing to
@@ -322,3 +323,7 @@ pub fn confirm_running(flash: EspSharedFlash) {
         ),
     }
 }
+
+/// The ESP OTA target: the board-agnostic [`OtaEngine`] over the esp-idf
+/// [`EspBackend`].
+pub type EspOtaTarget = OtaEngine<EspBackend>;

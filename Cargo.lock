@@ -4329,8 +4329,11 @@ dependencies = [
  "embassy-sync 0.8.0",
  "embassy-time",
  "embedded-io-async 0.7.0",
+ "embedded-storage",
+ "esp-bootloader-esp-idf",
  "esp-hal",
  "esp-rtos",
+ "esp-storage",
  "portable-atomic",
  "serial-baudrate",
  "static_cell",
@@ -4341,6 +4344,7 @@ dependencies = [
  "ubos-events",
  "ubos-metrics",
  "ubos-mining",
+ "ubos-ota",
 ]
 
 [[package]]
@@ -4534,17 +4538,9 @@ dependencies = [
 name = "ubos-ota"
 version = "0.1.0"
 dependencies = [
- "cortex-m",
  "defmt 1.2.0",
- "embassy-boot",
- "embassy-boot-rp",
- "embassy-embedded-hal",
- "embassy-rp",
  "embassy-sync 0.8.0",
  "embedded-storage",
- "esp-bootloader-esp-idf",
- "esp-hal",
- "esp-storage",
  "ubos-api",
  "ubos-mining",
 ]
@@ -4594,6 +4590,8 @@ dependencies = [
  "cortex-m",
  "cortex-m-rt",
  "defmt 1.2.0",
+ "embassy-boot",
+ "embassy-boot-rp",
  "embassy-embedded-hal",
  "embassy-executor",
  "embassy-net-wiznet",
@@ -4603,6 +4601,7 @@ dependencies = [
  "embedded-hal 1.0.0",
  "embedded-hal-async",
  "embedded-io-async 0.7.0",
+ "embedded-storage",
  "portable-atomic",
  "serial-baudrate",
  "smart-leds",
@@ -4612,6 +4611,7 @@ dependencies = [
  "ubos-core",
  "ubos-led",
  "ubos-metrics",
+ "ubos-mining",
  "ubos-ota",
 ]
 

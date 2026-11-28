@@ -19,8 +19,8 @@
 
 //! Per-platform support for the Xtensa ESP32-S3 control board.
 //!
-//! `ubos-ota/esp` owns the OTA flash backend; this crate owns the platform
-//! boot, idle and watchdog code.
+//! The `ota` module owns the OTA flash backend; the other modules own the
+//! platform boot, idle and watchdog code.
 
 #![no_std]
 
@@ -28,6 +28,7 @@ pub mod cpu_load;
 pub mod expander;
 pub mod fan;
 pub mod i2c;
+pub mod ota;
 pub mod uart;
 pub mod watchdog;
 

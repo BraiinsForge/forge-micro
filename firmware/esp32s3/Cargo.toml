@@ -42,7 +42,7 @@ ubos-eeprom            = { workspace = true, features = ["defmt"] }
 ubos-cooling           = { workspace = true, features = ["defmt"] }
 ubos-psu               = { workspace = true, features = ["defmt"] }
 ubos-mining            = { workspace = true, features = ["defmt"] }
-ubos-ota               = { workspace = true, features = ["defmt", "esp"] }
+ubos-ota               = { workspace = true, features = ["defmt"] }
 embassy-embedded-hal   = { version = "0.6.0", default-features = false, features = ["defmt"] }
 embassy-sync           = { workspace = true, features = ["defmt"] }
 esp-hal                = { version = "1.2.2", features = ["defmt", "esp32s3", "unstable"] }
@@ -53,7 +53,7 @@ esp-backtrace          = { version = "0.20.0", features = ["defmt", "esp32s3", "
 defmt-rtt              = "1.3.1"
 # default-features = false drops the `validation` feature. It is on by
 # default and, through feature unification, would re-enable the partition-table
-# MD5 check that `ubos-ota` deliberately disables: the crate's check rejects our
+# MD5 check that `ubos-esp32` deliberately disables: the crate's check rejects our
 # otherwise-valid table, so `OtaUpdater::new` returns `Invalid` and the OTA
 # parse fails at boot. The second-stage bootloader already MD5-validates the
 # table before booting, so the app re-validating it is redundant. Only

@@ -18,45 +18,20 @@
 // shall be considered distinct from the grant above.
 
 #![no_std]
-//! OTA flash-write targets for the ubos board firmware.
+//! The board-agnostic OTA engine of the ubos board firmware.
 //!
-//! The board-agnostic [`OtaEngine`] implements [`ubos_api::OtaTarget`] by
-//! driving an [`OtaBackend`]; each board supplies a backend. The RP backend
-//! ([`RpBackend`], feature `rp`) drives `embassy-boot`'s swap-based updater;
-//! the ESP backend (feature `esp`) drives the esp-idf OTA partitions. The
-//! engine owns the shared orchestration — write-offset tracking, breadcrumb
-//! phase ordering, and the core-1 park lifecycle — so no board can diverge
-//! from it.
+//! [`OtaEngine`] implements [`ubos_api::OtaTarget`] by driving an
+//! [`OtaBackend`], which each platform supplies: `ubos-rp` drives
+//! `embassy-boot`'s swap-based updater and `ubos-esp32` the esp-idf OTA
+//! partitions. The engine owns the shared orchestration, which is
+//! write-offset tracking, breadcrumb phase ordering, and the core-1 park
+//! lifecycle, so no board can diverge from it. It names no hardware
+//! crate, so it builds on every target and tests on the host.
 
 mod engine;
 pub use engine::{OtaBackend, OtaEngine};
 
 pub mod shared_flash;
-
-#[cfg(feature = "rp")]
-mod rp;
-#[cfg(feature = "rp")]
-pub use rp::{
-    OTA_BREADCRUMB_MAGIC, RpBackend, SharedBlockingFlash, SharedFlashMutex, mark_booted,
-    record_panic_breadcrumb,
-};
-
-/// The RP OTA target: the board-agnostic [`OtaEngine`] over the RP
-/// `embassy-boot` [`RpBackend`]. Generic over flash size and the core-1 park
-/// poll delay, matching the backend.
-#[cfg(feature = "rp")]
-pub type RpOtaTarget<const FLASH_SIZE: usize, const PARK_POLL_DELAY_CYCLES: u32> =
-    OtaEngine<RpBackend<FLASH_SIZE, PARK_POLL_DELAY_CYCLES>>;
-
-#[cfg(feature = "esp")]
-mod esp;
-#[cfg(feature = "esp")]
-pub use esp::{EspBackend, EspFlashMutex, EspSharedFlash, confirm_running};
-
-/// The ESP OTA target: the board-agnostic [`OtaEngine`] over the esp-idf
-/// [`EspBackend`].
-#[cfg(feature = "esp")]
-pub type EspOtaTarget = OtaEngine<EspBackend>;
 
 /// Parses a decimal `u32` from a build-time version string at compile time.
 ///

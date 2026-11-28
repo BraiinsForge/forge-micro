@@ -36,8 +36,8 @@
 //! The type is generic over the flash driver `F`, so each MCU family names its
 //! own driver, and over a [`FlashGuard`] run around each write and erase. A
 //! family that must quiesce other work before a flash write supplies a guard;
-//! [`NoGuard`] runs the operation directly. The RP family's guard lives in the
-//! `rp` module and parks the core-1 serial worker.
+//! [`NoGuard`] runs the operation directly. The RP family's guard is
+//! `ubos_rp::ota::RpGuard`, built by `ubos_rp::ota::shared_blocking_flash`, and parks the core-1 serial worker.
 
 use core::cell::RefCell;
 

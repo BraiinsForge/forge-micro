@@ -199,7 +199,7 @@ pub enum ResetReason {
 /// Where in the OTA write sequence the board was when it reset, read
 /// back from the watchdog SCRATCH2 register. It tells a flash write that
 /// ran long from a panic. The discriminants must match the
-/// `WRITE_PHASE_*` constants in `ubos/ubos-ota/src/rp.rs`.
+/// `WRITE_PHASE_*` constants in `ubos/ubos-rp/src/ota.rs`.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(
     feature = "schema",
