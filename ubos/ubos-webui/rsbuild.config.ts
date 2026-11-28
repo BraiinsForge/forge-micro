@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import type { ClientRequest } from 'node:http';
-import { join } from 'node:path';
+import { extname, join } from 'node:path';
 import { defineConfig } from '@rsbuild/core';
 import { pluginPreact } from '@rsbuild/plugin-preact';
 import { mockApi } from './dev/mock';
@@ -28,6 +28,12 @@ const BRAND_TOKENS = {
   brandIcon: '@UBOS_BRAND_ICON@',
 };
 
+// The tab icon types build.rs accepts, keyed by file extension.
+const ICON_MIME: Record<string, string> = {
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+};
+
 const brandDir = () => {
   const dir = process.env.UBOS_BRAND;
   if (!dir) {
@@ -45,7 +51,7 @@ const brandOf = (env: string) => {
     brandAccent: brand.accent,
     brandAccentHi: brand.accentHi,
     brandAccentText: brand.accentText,
-    brandIcon: `data:image/png;base64,${readFileSync(join(brandDir(), 'icon.png')).toString('base64')}`,
+    brandIcon: `data:${ICON_MIME[extname(brand.icon)]};base64,${readFileSync(join(brandDir(), brand.icon)).toString('base64')}`,
   };
 };
 

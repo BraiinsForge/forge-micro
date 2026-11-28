@@ -135,7 +135,9 @@ A client is not one connection. A browser opens a second one for the
 burst at page load. It is only a second one, because the `build.rs` of
 `ubos-webui` puts the CSS and the JS inside the gzipped HTML, so a page
 load is `/` and one logo and nothing more. Count two connections for
-each browser and one for each machine client.
+each browser and one for each machine client. Safari on the Forge brand
+is the exception. It can also ask for `/favicon.ico`, because it does not
+show the SVG tab icon that the page carries.
 
 `StackResources<N>` must cover the continuously held sockets plus the
 TIME_WAIT backlog. The client is now the active closer, so the client

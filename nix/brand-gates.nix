@@ -64,7 +64,12 @@ let
     "accent"
     "accentHi"
     "accentText"
+    "icon"
   ];
+
+  # build.rs takes the icon's MIME type from its extension and knows
+  # these two.
+  brandIconPattern = "favicon\\.(png|svg)";
 
   # The form each value must take. `name` reaches a <title> and an alt
   # attribute, and the three colours reach a style block in the same
@@ -118,9 +123,15 @@ let
     ++ lib.optional (
       !builtins.pathExists (root + "/${dir}/login-logo.svg")
     ) "${dir} has no login-logo.svg, which is the wordmark the login page serves"
+    ++ lib.optional (malformed brand "icon" brandIconPattern) (
+      "${dir}/brand.json: `icon` is neither favicon.png nor favicon.svg; "
+      + "build.rs reads the icon's type from its extension"
+    )
     ++ lib.optional (
-      !builtins.pathExists (root + "/${dir}/icon.png")
-    ) "${dir} has no icon.png, which is the tab icon every page links"
+      brand ? icon
+      && !(malformed brand "icon" brandIconPattern)
+      && !builtins.pathExists (root + "/${dir}/${brand.icon}")
+    ) "${dir} has no ${brand.icon}, which brand.json names as the tab icon every page links"
     ++ map (key: "${dir}/brand.json has no `${key}` key, which the pages need") (
       lib.filter (key: !(brand ? ${key})) brandKeys
     )

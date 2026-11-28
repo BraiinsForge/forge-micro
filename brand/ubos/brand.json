@@ -2,5 +2,6 @@
   "name": "uBOS",
   "accent": "#6b50ff",
   "accentHi": "#8b7cff",
-  "accentText": "#ffffff"
+  "accentText": "#ffffff",
+  "icon": "favicon.png"
 }

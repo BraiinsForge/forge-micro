@@ -44,6 +44,7 @@ through this submodule and leaves that half to the call here.
 | `accent` | `--accent`, the brand colour |
 | `accentHi` | `--accent-hi`, the hover colour |
 | `accentText` | `--accent-text`, the text colour on an accent background |
+| `icon` | the file name of the tab icon in this directory, `favicon.png` or `favicon.svg` |
 
 Every key is required. `ubos/ubos-webui/build.rs` reads the file and
 fails the build when a key is absent.
@@ -54,22 +55,42 @@ fails the build when a key is absent.
 |------|-----|
 | `dashboard-logo.svg` | the wordmark of the dashboard, gzipped and served at `/dashboard-logo.svg` |
 | `login-logo.svg` | the wordmark of the login page, gzipped and served at `/login-logo.svg` |
-| `icon.png` | the tab icon, encoded into each page as a `data:` URI |
+| the file that `icon` names | the tab icon, encoded into each page as a `data:` URI |
 
 `build.rs` reads all three. A wordmark is the published asset, taken from
-the brand's page on the design site and not redrawn. The icon is that
-page's own tab icon, scaled down to 32x32 and not redrawn either.
+the brand's page on the design site and not redrawn.
+
+The icon is a `.png` or an `.svg` file. `build.rs` gets the type of the
+`data:` URI from the extension, and it stops the build on any other
+extension. The two brands use different types:
+
+| Brand | Icon | Source |
+|-------|------|--------|
+| Forge Firmware | `favicon.svg` | the published white symbol on a black square |
+| uBOS | `favicon.png` | the tab icon of the logo page, scaled down to 32x32 |
+
+The Forge icon is the published white symbol on a black square. The
+design site publishes the symbol in black and in white, and each one
+has no background, so one colour is lost on a light tab bar or on a dark
+tab bar. The square is not published. It lets the icon show on the two
+tab bars, and the symbol itself is not redrawn. To make the icon follow
+the colour scheme instead, remove the square and add a
+`prefers-color-scheme` rule that sets the fill of the symbol. Safari
+does not show an SVG tab icon, so Safari shows no Forge icon. Safari can
+then ask the board for `/favicon.ico`, which is the third request that
+the next paragraph describes. The Forge brand accepts this cost.
 
 Keep the icon inside the page. A board answers as few as two requests at
 once, so a page that loads its icon from a path needs a third request
 and loses its wordmark instead. A page that offers no icon at all is no
 better: the browser then asks for `/favicon.ico` by itself.
 
-Keep the icon at 32x32. Every byte of it is in both pages, both pages
+Keep the icon small. Every byte of it is in both pages, both pages
 are in flash, and `ubos/ubos-webui/src/tests/dashboard.rs` holds a size
-budget over each one. The design site publishes each icon at 192x192
-and at 512x512, and either one at full size puts both pages over
-budget.
+budget over each one. Keep a PNG icon at 32x32. The design site
+publishes each icon at 192x192 and at 512x512, and either one at full
+size puts both pages over budget. Remove the IDs and the size
+attributes from an SVG icon, and do not change its paths.
 
 ## Four rules a new brand must obey
 
@@ -134,12 +155,13 @@ match the other.
 |-------|------|
 | Forge Firmware, dashboard | `design.braiins.com/braiins-forge/logos/forge-firmware-logo` |
 | Forge Firmware, login page | `design.braiins.com/braiins-forge/logos/braiins-forge-logo-horizontal` |
+| Forge Firmware, tab icon | `design.braiins.com/braiins-forge/logos/braiins-forge-symbol` |
 | uBOS, both pages | `design.braiins.com/braiins/logos/braiins-logo` |
 
 Each page publishes the lockup for a light background and the lockup for
 a dark background. Take the dark-background one: it is white, which is
-what the `invert()` rule needs. The tab icon is the icon that page shows
-in the browser tab. The Forge tab icon comes from the login-page row.
+what the `invert()` rule needs. The uBOS tab icon is the icon that page
+shows in the browser tab.
 
 The design site also holds the colours. The uBOS accent is Violet 60
 and its hover colour is Violet 50, at

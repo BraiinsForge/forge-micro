@@ -109,6 +109,8 @@ struct Brand {
     accent: String,
     accent_hi: String,
     accent_text: String,
+    /// The tab icon's file name inside the brand directory.
+    icon: String,
 }
 
 /// Read the declared brand. Every key is required: a default here would
@@ -131,6 +133,7 @@ fn read_brand(dir: &Path) -> Brand {
         accent: string("accent"),
         accent_hi: string("accentHi"),
         accent_text: string("accentText"),
+        icon: string("icon"),
     }
 }
 
@@ -150,13 +153,17 @@ fn stamp(html: &str, brand: &Brand, icon: &str) -> String {
 /// the smallest pool is two, and an icon linked by path costs a third
 /// request on every page load. A browser offered no icon asks for
 /// `/favicon.ico` by itself, so only a `data:` URI costs nothing.
-fn icon_data_uri(dir: &Path) -> String {
+fn icon_data_uri(path: &Path) -> String {
     use base64::Engine as _;
 
-    let path = dir.join("icon.png");
-    let bytes = fs::read(&path).unwrap_or_else(|_| panic!("BUG: read {}", path.display()));
+    let mime = match path.extension().and_then(|ext| ext.to_str()) {
+        Some("png") => "image/png",
+        Some("svg") => "image/svg+xml",
+        _ => panic!("BUG: {} is not a PNG or an SVG file", path.display()),
+    };
+    let bytes = fs::read(path).unwrap_or_else(|_| panic!("BUG: read {}", path.display()));
     let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
-    format!("data:image/png;base64,{encoded}")
+    format!("data:{mime};base64,{encoded}")
 }
 
 /// Run `npm run build` in the crate directory. Installs dependencies
@@ -195,7 +202,8 @@ fn main() {
         "BUG: UBOS_BRAND is not set. Declare the brand directory in the board's .cargo/config.toml",
     ));
     let brand = read_brand(&brand_dir);
-    let icon = icon_data_uri(&brand_dir);
+    let icon_path = brand_dir.join(&brand.icon);
+    let icon = icon_data_uri(&icon_path);
 
     let dist_dir = if let Some(dir) = env::var_os("UBOS_WEBUI_DIST") {
         PathBuf::from(dir)
@@ -265,8 +273,5 @@ fn main() {
     for logo_path in &logo_paths {
         println!("cargo:rerun-if-changed={}", logo_path.display());
     }
-    println!(
-        "cargo:rerun-if-changed={}",
-        brand_dir.join("icon.png").display()
-    );
+    println!("cargo:rerun-if-changed={}", icon_path.display());
 }

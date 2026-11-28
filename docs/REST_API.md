@@ -39,7 +39,7 @@ change.
 | `ubos-auth`       | shared HTTP middleware: allow-list, auth, sessions, CSRF, CSPRNG          |
 | `ubos-api`        | REST handlers, `REST_API_SERVICE` mDNS entry, schema types                |
 | `ubos-prometheus` | the port 8081 scrape service and its `_prometheus` mDNS entry             |
-| `ubos-webui`      | Zopfli-gzipped `index.html` / `login.html`, `dashboard-logo.svg` and `login-logo.svg`, with `icon.png` inlined into each page; dashboard handler; `WEBUI_SERVICE` mDNS entry |
+| `ubos-webui`      | Zopfli-gzipped `index.html` / `login.html`, `dashboard-logo.svg` and `login-logo.svg`, with the brand's tab icon inlined into each page; dashboard handler; `WEBUI_SERVICE` mDNS entry |
 | `ubos-mdns`       | DNS-SD responder; per-service registration via `declare_service!`         |
 | `ubos-metrics`    | Metric types, the metric store and its render                             |
 
@@ -366,14 +366,17 @@ the `MDNS_HOSTNAME_BASE` const and the last MAC byte.
 | Login form       | `ubos-webui/login.html`      | gzip     | `Cache-Control: no-store`   |
 | Dashboard logo   | `$UBOS_BRAND/dashboard-logo.svg` | gzip | `public, max-age=86400`     |
 | Login logo       | `$UBOS_BRAND/login-logo.svg` | gzip     | `public, max-age=86400`     |
-| Tab icon         | `$UBOS_BRAND/icon.png`       | inlined  | rides inside each page      |
+| Tab icon         | `$UBOS_BRAND/favicon.*`      | inlined  | rides inside each page      |
 
 Assets are Zopfli-gzipped at build time by `ubos-webui/build.rs` and
 embedded via `include_bytes!`; no runtime compression cost. The tab icon
 is the exception. It has no path of its own: `build.rs` encodes it into
 a `data:` URI that each page links, so a page load asks for the page and
 the wordmark and nothing more. A board answers as few as two requests at
-once, and a third request costs the page its wordmark.
+once, and a third request costs the page its wordmark. Safari is the
+exception on the Forge brand. It does not show an SVG tab icon, and it
+can ask the board for `/favicon.ico` instead. `brand/README.md` gives
+the reason that the Forge brand accepts this cost.
 
 ## Limits and timeouts
 
