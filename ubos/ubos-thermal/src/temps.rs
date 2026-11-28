@@ -153,11 +153,6 @@ impl Temperatures {
         watches.ambient.sender().send(ambient);
     }
 
-    /// Publish the chip and hashboard values into `watches`.
-    pub(crate) fn publish_filtered(&self, watches: &Watches) {
-        watches.filtered.sender().send(self.filtered());
-    }
-
     /// Publish the temperature that the cooling PID follows into
     /// `watches`: the statistic of `target` over the readings of its kind,
     /// or `None` when that kind has no reading inside its window. The
@@ -176,13 +171,5 @@ impl Temperatures {
             statistic,
             temp,
         });
-    }
-
-    /// Publish the ambient value into `watches`. It is apart from the
-    /// chip and hashboard values because the loop reads the ambient
-    /// sensor after they have gone out.
-    pub(crate) fn publish_ambient(&self, watches: &Watches) {
-        let ambient = self.ambient.value().map(|stats| stats.max);
-        watches.ambient.sender().send(ambient);
     }
 }

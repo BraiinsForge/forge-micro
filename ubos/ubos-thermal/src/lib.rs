@@ -25,12 +25,13 @@
 //! `ubos-mining` halts the machine while the flag is set, see "The
 //! overheat halt" in `docs/MINING.md`.
 //!
-//! A source hands each reading to the task through [`Handle::submit`]
-//! and judges none of them, and the driver of a chain hands over the die
-//! of a chip through [`Handle::submit_chip`] when the chip answers. The
-//! task writes the series of that reading in `metrics`, filters the
-//! readings by kind, and publishes the filtered temperatures once on each
-//! tick. The API reads them through [`Handle::filtered`] and
+//! A source of `ubos-temperature` hands each reading over through the
+//! handle of that crate and judges none of them, and the driver of a
+//! chain hands over the die of a chip through [`Handle::submit_chip`] when
+//! the chip answers. The task writes the series of that reading in
+//! `metrics`, filters the readings by kind, and publishes the filtered
+//! temperatures once for each sample, when the sampling task ends it,
+//! which is the tick of this crate. The API reads them through [`Handle::filtered`] and
 //! [`Handle::ambient`]. Cooling subscribes to the one temperature that
 //! its PID follows, through [`Handle::subscribe_pid_temperature`].
 //!
@@ -41,11 +42,9 @@
 //! through [`PresentChains`].
 //!
 //! A sensor of a board with nothing powered submits nothing, which is no
-//! fault: "Chain presence" in `docs/MINING.md`. This task also
-//! writes the series of the ambient sensor, and the MCU temperature
-//! gauge, which it reads from the board's [`McuTemperatureSensor`] on
-//! each tick. `array` reads a board's I2C sensor table through the
-//! drivers and the descriptor types in `ubos-temperature`.
+//! fault: "Chain presence" in `docs/MINING.md`. The sources and the task
+//! that samples them are in `ubos-temperature`; `chain` is the one source
+//! that is here, because it reads the PVT blocks of `ubos-asic`.
 
 #![no_std]
 #![allow(clippy::missing_errors_doc)]
@@ -57,7 +56,6 @@ extern crate std;
 
 pub mod chain;
 pub use chain::{ChainTemperature, PresentChains};
-mod array;
 mod chain_readings;
 mod danger;
 mod filter;
@@ -65,7 +63,6 @@ mod metrics;
 mod stats;
 mod temps;
 
-pub use array::SensorArray;
 pub use chain_readings::ChainReadings;
 pub use stats::{Accumulator, TempStats};
 pub use temps::PidTemperature;
@@ -74,10 +71,6 @@ use ubos_temperature::{Reading, Sampled, TempSource};
 #[cfg(test)]
 #[path = "tests/run_thermal.rs"]
 mod tests_run_thermal;
-
-#[cfg(test)]
-#[path = "tests/run_thermal_awaited.rs"]
-mod tests_run_thermal_awaited;
 
 /// Serialises every test that reads the mock clock: they share the
 /// clock, the config watch and the global gauge channel.
@@ -105,7 +98,6 @@ fn default_config() -> ubos_config::Config {
 use crate::danger::Danger;
 use crate::metrics::publish_reading;
 use crate::temps::{Temperatures, Watches};
-use core::convert::Infallible;
 
 use embassy_futures::select::{Either3, select3};
 use embassy_futures::yield_now;
@@ -113,12 +105,10 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::signal::Signal;
 use embassy_sync::watch::Receiver;
-use embassy_time::{Duration, Instant, Ticker};
 use ubos_config::Handle as ConfigHandle;
-use ubos_config::{PidTarget, TemperatureDescriptor, ThermalConfig};
 use ubos_core::index::{ChipAddress, HashboardIndex};
 use ubos_core::units::Temperature;
-use ubos_logging::{info, warn};
+use ubos_logging::info;
 
 ubos_events::events! {
     dangerous_temperature(temp: Temperature)  error = "Critical temperature {} °C, mining halted",
@@ -154,56 +144,6 @@ impl TempSample {
     }
 }
 
-/// Board temperature sensor. One [`sample`](Self::sample) reads the
-/// sensors and hands each reading to thermal through its [`Handle`]. It
-/// answers nothing: a sensor with nothing to read submits nothing, and
-/// each consumer of the published temperatures decides what that means.
-#[allow(async_fn_in_trait)]
-pub trait TemperatureSensor {
-    async fn sample(&mut self);
-}
-
-/// The ambient temperature sensor. There is no default, so a board
-/// states that it has none by handing [`NoAmbient`].
-///
-/// The reading is for the operator and the metrics. Nothing in this
-/// crate decides on it: it gates no halt and drives no fan. This is the
-/// one statement of that; every other mention points here.
-#[allow(async_fn_in_trait)]
-pub trait AmbientSensor {
-    /// `None` when the read failed. The wait is the implementor's to
-    /// bound: the loop awaits this unbounded, so a sensor that never
-    /// answers ends the ticks and every judgement they carry.
-    async fn ambient(&mut self) -> Option<Temperature>;
-}
-
-/// The ambient sensor of a board that has none.
-pub struct NoAmbient;
-
-impl AmbientSensor for NoAmbient {
-    async fn ambient(&mut self) -> Option<Temperature> {
-        None
-    }
-}
-
-/// The thermometer on the MCU die, which measures the control board. A board
-/// whose MCU has none hands [`NoMcu`]. The reading feeds its series and no
-/// control loop.
-#[allow(async_fn_in_trait)]
-pub trait McuTemperatureSensor {
-    /// `None` if the reading failed.
-    async fn read(&mut self) -> Option<Temperature>;
-}
-
-/// Reads `None`, so its series is never written.
-pub struct NoMcu;
-
-impl McuTemperatureSensor for NoMcu {
-    async fn read(&mut self) -> Option<Temperature> {
-        None
-    }
-}
-
 /// Subscriber capacity of each thermal watch. Four receivers cover
 /// cooling, the API, the display and mining without enlarging a watch
 /// further for today's consumers.
@@ -211,18 +151,15 @@ const WATCH_CAPACITY: usize = 4;
 
 static TAKEN: ubos_core::take_once::TakeOnce = ubos_core::take_once::TakeOnce::new("thermal");
 
-/// Depth of the input channel. [`run_thermal`] drains it at every await
-/// of its loop, so the depth holds what the drivers submit between two
-/// polls of the thermal task. A chip that finds it full is dropped, see
+/// Depth of the input channel. The loop takes one input at a time and
+/// yields after each, so the depth holds what the drivers submit while it
+/// yields. A chip that finds it full is dropped, see
 /// [`Handle::submit_chip`].
 const INPUT_DEPTH: usize = 64;
 
-/// What a source hands to thermal.
+/// What a chain driver and the chain source hand to thermal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Submitted {
-    /// The reading of one sensor. It gets a series of its own and goes
-    /// into the filter of its kind.
-    Reading(Reading),
     /// The die of one chip of a chain, handed in by the driver when the
     /// chip answers. It gets a series of its own, and the filter takes
     /// the dies of the chain from [`Submitted::Dies`].
@@ -233,15 +170,17 @@ enum Submitted {
     Dies(TempStats),
 }
 
-/// What sources hand to thermal, through the submit methods of
-/// [`Handle`]. [`run_thermal`] is the only reader.
+/// What the chain hands to thermal, through the submit methods of
+/// [`Handle`]. The loop of [`run`] is the only reader.
 static INPUT: Channel<CSMutex, Submitted, INPUT_DEPTH> = Channel::new();
 
 /// The filtered temperatures the firmware's one thermal task publishes.
 static WATCHES: Watches = Watches::new();
 
 /// The operator's acknowledge of the dangerous temperature flag, from
-/// [`Handle::acknowledge`]. The loop takes it on its next tick.
+/// [`Handle::acknowledge`]. The loop takes it at the end of a sample,
+/// after the readings of that sample, so a board that is still hot keeps
+/// the flag.
 static ACKNOWLEDGE: Signal<CSMutex, ()> = Signal::new();
 
 /// Per-task subscription returned by
@@ -259,7 +198,7 @@ pub type FlagSubscription = Receiver<'static, CSMutex, bool, WATCH_CAPACITY>;
 #[derive(Clone, Copy)]
 pub struct Handle(());
 
-/// The right to run the task that reads the sensors.
+/// The right to run the task that filters the readings.
 ///
 /// It is not `Copy`, so a firmware that gives it to one task cannot give
 /// it to a second.
@@ -367,16 +306,10 @@ impl Handle {
             .expect("BUG: Handle receiver slots exhausted; raise WATCH_CAPACITY")
     }
 
-    /// Clear the flag on the operator's word. Thermal takes the
-    /// acknowledge on its next tick, and a reading that reaches its limit
-    /// afterwards sets the flag again.
+    /// Clear the flag on the operator's word. A reading that reaches its
+    /// limit afterwards sets the flag again.
     pub fn acknowledge(&self) {
         ACKNOWLEDGE.signal(());
-    }
-
-    /// Hand one reading to thermal. Waits while the input channel is full.
-    pub async fn submit(&self, reading: Reading) {
-        INPUT.send(Submitted::Reading(reading)).await;
     }
 
     /// Hand the die temperature that `chip` of `chain` just reported to
@@ -397,55 +330,12 @@ impl Handle {
     }
 }
 
-/// What the loop folds each submitted input into.
-struct Folds {
-    temperatures: Temperatures,
-    danger: Danger,
-}
-
-impl Folds {
-    const fn new(dangerous: TemperatureDescriptor) -> Self {
-        Self {
-            temperatures: Temperatures::new(),
-            danger: Danger::new(&WATCHES.danger, dangerous),
-        }
-    }
-}
-
-/// Take everything that a source submits, and never return. A sensor awaits on a full channel and a
-/// driver submits a chip at any moment, so this runs beside every await
-/// of the loop, through [`draining`]. It yields after each input, so
-/// the ingest task drains the metrics channel while a backlog of chips is
-/// written.
-async fn drain_input(folds: &mut Folds) -> Infallible {
-    loop {
-        take_submitted(
-            INPUT.receive().await,
-            &mut folds.temperatures,
-            &mut folds.danger,
-        );
-        yield_now().await;
-    }
-}
-
-/// Await `work` and answer what it gives, taking the input for as long
-/// as it runs. A chain driver submits its chips
-/// faster than the channel is deep while the loop waits on a sensor, so
-/// every await of the loop goes through here.
-async fn draining<T>(work: impl Future<Output = T>, folds: &mut Folds) -> T {
-    match select(work, drain_input(folds)).await {
-        Either::First(output) => output,
-        Either::Second(never) => match never {},
-    }
-}
-
-/// Give `submitted` its series, its place in a filter, or
-/// both, as its variant says, and check it against the limit of its
-/// kind. The check is here so that a hot reading sets the flag when it
-/// arrives and not on the next tick.
+/// Give `submitted` its series, its place in a filter, or both, as its
+/// variant says, and check it against the limit of its kind. The check is
+/// here so that a hot reading sets the flag when it arrives and not at
+/// the end of the sample.
 fn take_submitted(submitted: Submitted, temperatures: &mut Temperatures, danger: &mut Danger) {
     match submitted {
-        Submitted::Reading(reading) => take_reading(reading, temperatures, danger),
         Submitted::Chip(reading) => {
             publish_reading(reading);
             danger.on_reading(reading);
@@ -454,123 +344,6 @@ fn take_submitted(submitted: Submitted, temperatures: &mut Temperatures, danger:
             temperatures.update_dies(dies);
             danger.on_value(Source::Chip, dies.max);
         }
-    }
-}
-
-/// Write the metric of a submitted reading, fold it into the filters,
-/// and check it against its limit.
-fn take(reading: Reading, folds: &mut Folds) {
-    publish_reading(reading);
-    folds.temperatures.update(reading);
-    folds.danger.on_reading(reading);
-}
-
-/// Read the ambient temperature and take it as a submitted reading. It gates
-/// nothing, so it is read after every decision a tick makes: a slow sensor
-/// must not hold up the sample the halt turns on. Every tick reads it, since
-/// the chip sensor's silence says nothing about this one.
-async fn read_ambient<A: AmbientSensor>(ambient: &mut A, folds: &mut Folds) {
-    if let Some(value) = draining(ambient.ambient(), folds).await {
-        take(
-            Reading {
-                source: TempSource::Ambient,
-                value,
-            },
-            folds,
-        );
-    }
-}
-
-/// Run the thermal monitoring loop forever.
-///
-/// `mcu` is the MCU die thermometer, whose reading goes to the metrics on each
-/// tick. Each submitted reading goes to the metrics and the filters, and each
-/// tick publishes the filtered temperatures and checks the dangerous
-/// temperature flag. `_runner` is borrowed mutably, so one runner runs one
-/// loop at a time.
-pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatureSensor>(
-    mut sensor: S,
-    mut ambient: A,
-    mut mcu: M,
-    _runner: &mut Runner,
-    config_handle: ConfigHandle,
-) -> ! {
-    let mut config_subscription = config_handle.subscribe();
-    let current = config_handle.current().await;
-    let mut config: ThermalConfig = current.thermal;
-    let mut pid_target: PidTarget = current.cooling.target;
-
-    let mut sample_interval = Duration::from_millis(u64::from(config.sample_interval_ms));
-    let mut ticker = Ticker::every(sample_interval);
-    let mut late_threshold = sample_interval * 2;
-
-    let mut folds = Folds::new(config.dangerous);
-    folds.danger.publish();
-    let mut prev_tick = Instant::now();
-
-    info!("thermal: started");
-
-    loop {
-        draining(ticker.next(), &mut folds).await;
-        if let Some(updated) = config_subscription.try_changed() {
-            let new_thermal = updated.thermal;
-            if new_thermal.sample_interval_ms != config.sample_interval_ms {
-                sample_interval = Duration::from_millis(u64::from(new_thermal.sample_interval_ms));
-                ticker = Ticker::every(sample_interval);
-                late_threshold = sample_interval * 2;
-                prev_tick = Instant::now();
-                info!(
-                    "thermal: sample interval updated to {} ms",
-                    new_thermal.sample_interval_ms
-                );
-            }
-            config = new_thermal;
-            folds.danger.set_limits(config.dangerous);
-            pid_target = updated.cooling.target;
-        }
-        let now = Instant::now();
-        let elapsed = now.duration_since(prev_tick);
-        if elapsed > late_threshold {
-            warn!("thermal: tick late by {} ms", elapsed.as_millis());
-        }
-        prev_tick = now;
-
-        draining(sensor.sample(), &mut folds).await;
-        // The sample left its last readings queued, and this tick publishes
-        // them. The count is taken once, so chips that keep arriving wait
-        // for the drain of the next await and the publish starts on time.
-        for _ in 0..INPUT.len() {
-            let Ok(submitted) = INPUT.try_receive() else {
-                break;
-            };
-            take_submitted(submitted, &mut folds.temperatures, &mut folds.danger);
-            yield_now().await;
-        }
-        // The pane of this sample holds every reading of this tick,
-        // however long the sample took.
-        folds.temperatures.publish_filtered(&WATCHES);
-        folds.temperatures.publish_pid(pid_target, &WATCHES);
-        if ACKNOWLEDGE.try_take().is_some() {
-            folds.danger.acknowledge();
-        }
-        folds
-            .danger
-            .on_tick(&folds.temperatures, config.cooldown_temp);
-        read_ambient(&mut ambient, &mut folds).await;
-        folds.temperatures.publish_ambient(&WATCHES);
-        // Read last, after the sample the cooling loop turns on has gone out,
-        // and dropped on a full channel: this safety loop must not wait on the
-        // metrics.
-        if let Some(value) = draining(mcu.read(), &mut folds).await {
-            take(
-                Reading {
-                    source: TempSource::Mcu,
-                    value,
-                },
-                &mut folds,
-            );
-        }
-        folds.temperatures.end_sample();
     }
 }
 
@@ -643,8 +416,7 @@ pub async fn run(
     }
 }
 
-/// Task shell around [`run_thermal`]. Neither the ambient nor the MCU sensor
-/// type has a default, for the reason [`AmbientSensor`] gives.
+/// Task shell around [`run`].
 #[macro_export]
 macro_rules! thermal_task {
     () => {
@@ -655,18 +427,6 @@ macro_rules! thermal_task {
             config_handle: ubos_config::Handle,
         ) -> ! {
             ubos_thermal::run(&mut readings, &mut runner, config_handle).await
-        }
-    };
-    ($sensor:ty, $ambient:ty, $mcu:ty) => {
-        #[embassy_executor::task]
-        async fn thermal_task(
-            sensor: $sensor,
-            ambient: $ambient,
-            mcu: $mcu,
-            mut runner: ubos_thermal::Runner,
-            config_handle: ubos_config::Handle,
-        ) -> ! {
-            ubos_thermal::run_thermal(sensor, ambient, mcu, &mut runner, config_handle).await
         }
     };
 }

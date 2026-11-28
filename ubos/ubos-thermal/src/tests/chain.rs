@@ -37,7 +37,9 @@ fn sampled<S: ReadingSource>(sensor: &mut S) -> Option<TempStats> {
     while let Ok(submitted) = crate::INPUT.try_receive() {
         match submitted {
             crate::Submitted::Dies(stats) => dies = Some(stats),
-            other => panic!("a chain sensor submits its dies only, got {other:?}"),
+            crate::Submitted::Chip(reading) => {
+                panic!("a chain sensor submits its dies only, got {reading:?}")
+            }
         }
     }
     dies

@@ -123,7 +123,9 @@ pub enum TempSource {
         chain: HashboardIndex,
         chip: ChipAddress,
     },
-    /// The air around the board.
+    /// The air around the board. The reading is for the operator and the
+    /// metrics. Nothing in `ubos-thermal` decides on it: it gates no halt
+    /// and drives no fan.
     Ambient,
     /// The thermometer on the die of the MCU.
     Mcu,

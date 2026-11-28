@@ -229,14 +229,6 @@ impl<P: PresentChains, const CHIPS: usize, const CHAINS: usize> ChainTemperature
     }
 }
 
-impl<P: PresentChains, const CHIPS: usize, const CHAINS: usize> crate::TemperatureSensor
-    for ChainTemperature<P, CHIPS, CHAINS>
-{
-    async fn sample(&mut self) {
-        ReadingSource::sample(self).await;
-    }
-}
-
 impl<P: PresentChains, const CHIPS: usize, const CHAINS: usize> ReadingSource
     for ChainTemperature<P, CHIPS, CHAINS>
 {

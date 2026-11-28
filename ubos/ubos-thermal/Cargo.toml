@@ -31,7 +31,6 @@ embassy-sync       = { workspace = true }
 embassy-time       = { workspace = true }
 embedded-hal-async = { workspace = true }
 defmt              = { workspace = true, optional = true }
-heapless           = { workspace = true }
 portable-atomic    = { workspace = true }
 ubos-asic          = { workspace = true }
 ubos-config        = { workspace = true, default-features = false }
