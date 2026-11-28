@@ -67,6 +67,7 @@ exclude = ["micro-sv2"]
 license = "GPL-3.0-or-later"
 version = "0.0.1"
 edition = "2024"
+publish = false
 
 [workspace.metadata.crane]
 name = "ubos-main"

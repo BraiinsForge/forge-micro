@@ -1,4 +1,5 @@
 [package]
+publish.workspace = true
 license.workspace = true
 name    = "rp2040-bootloader"
 edition.workspace = true
