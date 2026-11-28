@@ -185,12 +185,12 @@ let
 
   testsOf =
     plan: name: lib.attrValues (lib.filterAttrs (_: test: test.packageName == name) plan.tests);
-in
-{
+
   # A plan over one host crate, as `cargo test -p` plans it, in the dev
   # profile so debug_assert! and overflow checks fire. One crate per
   # plan, because cargo unifies the features of what it plans together,
-  # and the host crates disagree on them.
+  # and the host crates disagree on them. `overrides` adds crateOverrides
+  # entries to those of every host plan.
   hostPlan =
     {
       crate,
@@ -199,6 +199,7 @@ in
       tests ? true,
       checkFlags ? [ ],
       fee ? { },
+      overrides ? { },
     }:
     host.buildRustApplication {
       pname = crate;
@@ -211,12 +212,15 @@ in
       packages = [ crate ];
       profile = "dev";
       doCheck = tests;
-      crateOverrides = feeOverride fee // {
-        ubos-webui = {
-          env = webuiHostEnv;
-          optional = true;
-        };
-      };
+      crateOverrides = lib.recursiveUpdate (
+        feeOverride fee
+        // {
+          ubos-webui = {
+            env = webuiHostEnv;
+            optional = true;
+          };
+        }
+      ) overrides;
     };
 
   # One crate's release build for a board target, with the image at
@@ -270,6 +274,22 @@ in
           };
         };
     };
-
-  inherit unitsOf testsOf;
+in
+{
+  inherit
+    hostPlan
+    boardPlan
+    unitsOf
+    testsOf
+    ;
+}
+// import ./coverage.nix {
+  inherit
+    pkgs
+    src
+    hostRustToolchain
+    hostPlan
+    packageOf
+    testsOf
+    ;
 }

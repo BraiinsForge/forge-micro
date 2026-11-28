@@ -208,7 +208,7 @@ let
     clippy-host-runner.crate = "host-runner";
   };
 
-  hostTestChecks = builtins.mapAttrs mkHostTest {
+  hostTestRows = {
     test-ubos-core.crate = "ubos-core";
     test-ubos-mdns.crate = "ubos-mdns";
     test-ubos-net.crate = "ubos-net";
@@ -267,6 +267,18 @@ let
       crate = "ubos-events";
       features = [ "std" ];
     };
+  };
+  hostTestChecks = builtins.mapAttrs mkHostTest hostTestRows;
+
+  # The coverage checks of the host test rows; see `coverageSuite` in
+  # nix/coverage.nix. ubos-tuner is left out, because its code is a trait
+  # and its types, which only doc tests exercise, so its test run has
+  # nothing to count.
+  coverageChecks = units.coverageSuite {
+    rows = lib.mapAttrs' (name: lib.nameValuePair (lib.removePrefix "test-" name)) (
+      removeAttrs hostTestRows [ "test-ubos-tuner" ]
+    );
+    fee = fee.on;
   };
 
   # One row per ARM board, generating clippy-<name> and build-<name> with
@@ -500,6 +512,7 @@ let
 in
 hostClippyChecks
 // hostTestChecks
+// coverageChecks
 // boardChecks
 // feeOnChecks
 // lib.optionalAttrs (hasCrate "rp2350-bootloader") rp2350BootloaderChecks

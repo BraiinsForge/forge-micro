@@ -188,11 +188,27 @@ were taken at.
 
 ## Coverage reporting
 
-Use `cargo-llvm-cov` from the Nix devshell for host-testable crates only.
-Report per-crate coverage instead of one global threshold.
+Coverage is reported per crate. There is no global threshold.
 
-Run coverage from the host devshell and keep the same per-package isolation as
-the fast host layer:
+Each `test-*` row has a `coverage-*` check with the same name after the
+prefix. The check builds the crate's own units with
+`-C instrument-coverage` and runs its tests. Every dependency unit is
+the same store path as in the `test-*` check, so only the crate itself
+builds again. The result holds three files:
+
+- `lcov.info`, with paths relative to the workspace root.
+- `html/index.html`, the report for a browser.
+- `summary.txt`, the table of regions, functions and lines per file.
+
+```sh
+nix build $plan .#checks.x86_64-linux.coverage-ubos-config
+```
+
+The `$plan` option is the one in `CLAUDE.md`. Two patches to rostnix in
+`nix/` make this possible. One adds `rustflags` to a `crateOverrides`
+entry. The other keeps the profiles and the executables of a test run.
+
+For a fast local loop, `cargo-llvm-cov` is in the host devshell:
 
 ```sh
 nix develop .#host -c cargo llvm-cov -p ubos-config --html
@@ -263,8 +279,9 @@ Completed:
   checks and the `firmware-builds` aggregate.
 - Web UI and native host-runner tests are covered by the `web-host` aggregate
   with the hermetic webui dist supplied by the flake.
-- `cargo-llvm-cov` is available in the host devshell for per-crate coverage
-  reporting.
+- Every `test-*` row has a `coverage-*` check that writes an lcov file, an
+  HTML report and a summary. `cargo-llvm-cov` is in the host devshell for
+  local use.
 - `stratum-v2` has pure `V2SessionState` tests for defaults, job-id ring
   rotation, unknown job-id lookup, sequence wrapping, and pending future jobs.
 - `stratum-v2` has frame and error-path integration tests covering future-job
