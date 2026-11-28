@@ -340,7 +340,7 @@
             "minimum": 0,
             "type": "integer"
           },
-          "hottest_c": {
+          "hottest_chip_c": {
             "description": "The chain's hottest die in whole degrees Celsius, or `null` before\na reading lands.",
             "format": "int32",
             "type": [
@@ -369,7 +369,7 @@
           "chips",
           "frequency_khz",
           "hashrate",
-          "hottest_c",
+          "hottest_chip_c",
           "pool"
         ],
         "type": "object"

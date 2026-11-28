@@ -92,10 +92,10 @@ function temperatures() {
 // is one more than MAX_CHAINS allows; a real board never reports the
 // fourth. The mock runs the whole card, not the machine limit.
 const CHAINS: ChainInfo[] = [
-  { chain: 0, state: 'present', chips: 105, frequency_khz: 500000, hashrate: 6e11, hottest_c: 68, pool: 0 },
-  { chain: 1, state: 'absent', chips: 0, frequency_khz: 0, hashrate: 0, hottest_c: null, pool: null },
-  { chain: 2, state: 'faulted', chips: 0, frequency_khz: 0, hashrate: 0, hottest_c: null, pool: null },
-  { chain: 3, state: 'unknown', chips: 0, frequency_khz: 0, hashrate: 0, hottest_c: null, pool: null },
+  { chain: 0, state: 'present', chips: 105, frequency_khz: 500000, hashrate: 6e11, hottest_chip_c: 68, pool: 0 },
+  { chain: 1, state: 'absent', chips: 0, frequency_khz: 0, hashrate: 0, hottest_chip_c: null, pool: null },
+  { chain: 2, state: 'faulted', chips: 0, frequency_khz: 0, hashrate: 0, hottest_chip_c: null, pool: null },
+  { chain: 3, state: 'unknown', chips: 0, frequency_khz: 0, hashrate: 0, hottest_chip_c: null, pool: null },
 ];
 
 const CONFIG = {

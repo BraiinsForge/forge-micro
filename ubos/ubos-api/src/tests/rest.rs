@@ -42,7 +42,7 @@ use ubos_mining::stats::ChainPresence;
 
 /// Pinned exactly, so a field addition that still fits the buffer is
 /// noticed here.
-const WORST_CASE_INFO_BODY_LEN: usize = 1712;
+const WORST_CASE_INFO_BODY_LEN: usize = 1727;
 
 /// A `&'static str` of `len` copies of `text`. [`ApiInfo`] takes
 /// `&'static str`, and a leak in a test costs nothing.
@@ -61,7 +61,7 @@ fn api_info_body_fits_in_buffer() {
             chips: u16::MAX,
             frequency: Frequency::from_khz(u32::MAX),
             hashrate: Hashrate::from_hps(u64::MAX),
-            hottest_c: Some(chain_hottest_c),
+            hottest_chip_c: Some(chain_hottest_c),
             pool: None,
         })
         .collect();
@@ -152,7 +152,7 @@ fn api_info_body_fits_in_buffer() {
              \"chips\":{},\
              \"frequency_khz\":{max_u32},\
              \"hashrate\":{max_u64},\
-             \"hottest_c\":{chain_hottest_c},\
+             \"hottest_chip_c\":{chain_hottest_c},\
              \"pool\":null}}",
             u16::MAX,
         );
@@ -381,8 +381,8 @@ fn api_info_chain_renders_each_chain() {
         "chain 0 fields missing or wrong: {json}"
     );
     assert!(
-        json.contains("\"hottest_c\":72,\"pool\":null}"),
-        "chain 0 hottest_c or pool missing or wrong: {json}"
+        json.contains("\"hottest_chip_c\":72,\"pool\":null}"),
+        "chain 0 hottest_chip_c or pool missing or wrong: {json}"
     );
     assert!(
         json.contains("{\"chain\":1,\"state\":\"absent\",\"chips\":0"),

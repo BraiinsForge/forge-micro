@@ -303,7 +303,7 @@ export default function Dashboard({ shown }: DashboardProps) {
                 <span>{present ? chain.chips : '—'}</span>
                 <span>{present ? chain.frequency_khz / 1000 + ' MHz' : '—'}</span>
                 <span>{present ? fmtHr(chain.hashrate) : '—'}</span>
-                <span>{chain.hottest_c == null ? '—' : chain.hottest_c + ' °C'}</span>
+                <span>{chain.hottest_chip_c == null ? '—' : chain.hottest_chip_c + ' °C'}</span>
                 <StatusDot text={st.text} dot={st.dot} />
               </div>
             );

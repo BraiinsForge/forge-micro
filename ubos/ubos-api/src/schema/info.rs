@@ -150,7 +150,7 @@ pub struct ApiInfoChain {
     pub hashrate: Hashrate,
     /// The chain's hottest die in whole degrees Celsius, or `null` before
     /// a reading lands.
-    pub hottest_c: Option<i32>,
+    pub hottest_chip_c: Option<i32>,
     /// The pool slot the chain mines for, or `null` when it mines for none.
     pub pool: Option<u8>,
 }
@@ -164,7 +164,7 @@ impl ApiInfoChain {
             chips: stats.chips(),
             frequency: stats.frequency,
             hashrate: stats.hashrate,
-            hottest_c: hottest.map(Temperature::celsius_i32),
+            hottest_chip_c: hottest.map(Temperature::celsius_i32),
             pool: stats.active_pool.map(index_u8),
         }
     }

@@ -26,7 +26,7 @@ export interface ChainInfo {
   chips: number;
   frequency_khz: number;
   hashrate: number;
-  hottest_c: number | null;
+  hottest_chip_c: number | null;
   /** The pool slot whose work the chain was last given; `null` when it has none. */
   pool?: number | null;
 }
