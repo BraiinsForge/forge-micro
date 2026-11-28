@@ -37,6 +37,12 @@ licence, and each keeps its own licence text next to it:
 The manifests are the other half of the statement. Every crate spells
 `license.workspace = true` and the root `[workspace.package]` supplies
 `GPL-3.0-or-later`, so a new member inherits the terms by saying nothing.
+Every member also spells `publish.workspace = true`, and the root
+supplies `publish = false`, because nothing here is released as a crate.
+The `micro-sv2` crates are outside this workspace, so each one spells
+`publish = false` itself. That mark is what lets `cargo-deny` hold the
+third-party graph to permissive licences while it passes ours, so a
+crate without it fails that check.
 
 The rule is gated rather than trusted. `license-headers` in
 `nix/checks.nix` reads the head of every file in the eight extensions
