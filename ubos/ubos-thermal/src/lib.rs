@@ -34,6 +34,12 @@
 //! [`Handle::ambient`]. Cooling subscribes to the one temperature that
 //! its PID follows, through [`Handle::subscribe_pid_temperature`].
 //!
+//! [`ChainTemperature`] is the sensor of a board whose chips are its
+//! thermometer. It also keeps the hottest die and the voltage sum of
+//! each chain, which the API and the tuner read through
+//! [`Handle::chains`], and it asks the miner which chains are present
+//! through [`PresentChains`].
+//!
 //! A sensor of a board with nothing powered submits nothing, which is no
 //! fault: "Chain presence" in `docs/MINING.md`. This task also
 //! writes the series of the ambient sensor, and the MCU temperature
@@ -50,8 +56,9 @@
 extern crate std;
 
 pub mod chain;
-pub use chain::ChainTemperature;
+pub use chain::{ChainTemperature, PresentChains};
 mod array;
+mod chain_readings;
 mod danger;
 mod filter;
 mod metrics;
@@ -59,6 +66,7 @@ mod stats;
 mod temps;
 
 pub use array::SensorArray;
+pub use chain_readings::ChainReadings;
 pub use stats::{Accumulator, TempStats};
 pub use temps::PidTemperature;
 
@@ -299,6 +307,13 @@ impl Handle {
     #[must_use]
     pub fn has_no_reading(&self) -> bool {
         WATCHES.filtered.try_get() == Some(None)
+    }
+
+    /// The hottest die and the voltage sum of each chain, as the chain
+    /// sensor last read them.
+    #[must_use]
+    pub fn chains(&self) -> ChainReadings {
+        ChainReadings::board()
     }
 
     /// The air around the board, or `None` when no ambient reading is

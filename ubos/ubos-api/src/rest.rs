@@ -30,6 +30,7 @@ use edge_nal::TcpSplit;
 use embassy_net::Stack;
 use embassy_time::{Duration, Instant, Timer};
 use embedded_io_async::{Read, Write};
+use ubos_core::index::HashboardIndex;
 use ubos_core::units::{FanPwm, FanRpm, Power, Voltage};
 use ubos_logging::{info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
@@ -175,6 +176,7 @@ impl RestApiService {
     /// the OTA target mutex never blocks the dashboard's poll.
     fn info(&self) -> ApiInfo {
         let chain_stats = ubos_metrics::chain::handle();
+        let chain_readings = self.thermal.chains();
         let fan = self.cooling.current();
         let psu_reading = self.psu.current();
         let (paused, pause_reason) = pause_state(
@@ -201,7 +203,7 @@ impl RestApiService {
             psu_voltage_set: psu_reading.map_or_else(Voltage::default, |r| r.output_voltage_set),
             psu_voltage_measured: psu_reading
                 .map_or_else(Voltage::default, |r| r.output_voltage_measured),
-            chain_voltage: chain_stats.lowest_voltage().unwrap_or_default(),
+            chain_voltage: chain_readings.lowest_voltage().unwrap_or_default(),
             psu_fault: psu_reading.is_some_and(|r| r.sensor_fault),
             pools: self.stratum.pool_alive_bitmap(),
             net_confirm_seconds: self.config.pending_seconds_remaining(),
@@ -216,7 +218,10 @@ impl RestApiService {
             chains: chain_stats
                 .chains()
                 .enumerate()
-                .map(|(chain, stats)| ApiInfoChain::new(chain, stats))
+                .zip(HashboardIndex::range(chain_readings.slots()))
+                .map(|((chain, stats), index)| {
+                    ApiInfoChain::new(chain, stats, chain_readings.hottest(index))
+                })
                 .collect(),
             ip: crate::system::build_ip_string(self.net),
             mac: crate::system::build_mac_string(self.net),

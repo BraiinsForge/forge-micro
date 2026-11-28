@@ -23,20 +23,16 @@
 //!
 //! [`MAX_CHAINS`] lives here because this table is what it sizes, and
 //! this crate sits below every consumer of the table: `ubos-mining`
-//! writes it, `ubos-thermal`, `ubos-display` and `ubos-api` read it, and
+//! writes it, `ubos-display` and `ubos-api` read it, and
 //! `ubos-machine` re-exports the ceiling for the descriptors that assert
 //! against it.
 //!
 //!
 //! Each `ChainStats` is owned by the board. That chain's serial actor
-//! and the miner write it, the thermal loop is the one producer of the
-//! [`ChainStats::hottest`] and [`ChainStats::voltage`] readings, and the
-//! API, the display and the metrics publisher read it. The serial actor's
-//! `Reset` command also runs [`ChainStats::clear`], which puts every
-//! per-bring-up field back to its initial value, `hottest` included, so
-//! a reading never outlives the bring-up that produced it. `voltage`
-//! is the exception: the thermal loop stores `None` for a silent chain,
-//! so it stays the only writer of that field. The chip count has one
+//! and the miner write it, and the API, the display and the metrics
+//! publisher read it. The serial actor's `Reset` command also runs
+//! [`ChainStats::clear`], which puts every per-bring-up field back to
+//! its initial value. The chip count has one
 //! writer, the miner, which stores it with the enumeration outcome that
 //! produced it; the serial actor reports the count it read to the miner
 //! and writes nothing here, so the count and the presence can never
@@ -47,9 +43,9 @@
 //! private, so no consumer holds a second door to it.
 
 use crate::hashrate::HashrateEstimator;
-use portable_atomic::{AtomicI32, AtomicU8, AtomicU16, AtomicU32, AtomicU64, Ordering};
+use portable_atomic::{AtomicU8, AtomicU16, AtomicU32, AtomicU64, Ordering};
 use ubos_core::index::HashboardIndex;
-use ubos_core::units::{Frequency, Hashrate, Shares, Temperature, Voltage};
+use ubos_core::units::{Frequency, Hashrate, Shares};
 
 pub mod presence;
 
@@ -67,14 +63,6 @@ pub const MAX_CHAINS: usize = 3;
 /// Pool slots a chain's share accounting and the scheduler weights span.
 pub const MAX_POOL_SLOTS: usize = 8;
 
-/// Sentinel in `hottest_mc` before any reading lands; no sensor reports
-/// it.
-const NO_TEMPERATURE: i32 = i32::MIN;
-
-/// Sentinel stored in `voltage_mv` when the chain has no complete
-/// voltage sum. It is far above any rail voltage in millivolts.
-const NO_VOLTAGE: u32 = u32::MAX;
-
 /// Sentinel stored in `active_pool` while the chain is mining no pool's
 /// work. It lies past [`MAX_POOL_SLOTS`], so no real slot can collide.
 const NO_POOL: u8 = u8::MAX;
@@ -85,8 +73,6 @@ pub struct ChainStats {
     desync_bytes: AtomicU32,
     pool_shares: [AtomicU64; MAX_POOL_SLOTS],
     frequency_khz: AtomicU32,
-    hottest_mc: AtomicI32,
-    voltage_mv: AtomicU32,
     active_pool: AtomicU8,
     /// [`ChainPresence::as_code`] in the high byte and
     /// [`ChainPresence::payload`] in the low byte, so one store keeps
@@ -102,8 +88,6 @@ impl ChainStats {
             desync_bytes: AtomicU32::new(0),
             pool_shares: [const { AtomicU64::new(0) }; MAX_POOL_SLOTS],
             frequency_khz: AtomicU32::new(0),
-            hottest_mc: AtomicI32::new(NO_TEMPERATURE),
-            voltage_mv: AtomicU32::new(NO_VOLTAGE),
             active_pool: AtomicU8::new(NO_POOL),
             presence: AtomicU16::new(0),
         }
@@ -174,36 +158,6 @@ impl ChainStats {
         Frequency::from_khz(self.frequency_khz.load(Ordering::Relaxed))
     }
 
-    /// `None` clears the reading.
-    pub fn set_hottest(&self, value: Option<Temperature>) {
-        self.hottest_mc.store(
-            value.map_or(NO_TEMPERATURE, Temperature::millicelsius),
-            Ordering::Relaxed,
-        );
-    }
-
-    /// `None` until a reading lands.
-    #[must_use]
-    pub fn hottest(&self) -> Option<Temperature> {
-        let stored = self.hottest_mc.load(Ordering::Relaxed);
-        (stored != NO_TEMPERATURE).then(|| Temperature::from_millicelsius(stored))
-    }
-
-    /// Record the sum of the core voltages that the chips of this chain
-    /// report, or clear it with `None`.
-    pub fn set_voltage(&self, value: Option<Voltage>) {
-        self.voltage_mv
-            .store(value.map_or(NO_VOLTAGE, Voltage::mv), Ordering::Relaxed);
-    }
-
-    /// The sum of the core voltages that the chips of this chain report,
-    /// or `None` if the chain has no complete sum.
-    #[must_use]
-    pub fn voltage(&self) -> Option<Voltage> {
-        let stored = self.voltage_mv.load(Ordering::Relaxed);
-        (stored != NO_VOLTAGE).then(|| Voltage::from_mv(stored))
-    }
-
     /// Record the pool slot whose work the chain was last given, or
     /// `None` when a work tick dispatched nothing.
     pub fn set_active_pool(&self, slot: Option<usize>) {
@@ -237,7 +191,6 @@ impl ChainStats {
     /// this runs on every chain reset.
     pub fn clear(&self) {
         self.frequency_khz.store(0, Ordering::Relaxed);
-        self.hottest_mc.store(NO_TEMPERATURE, Ordering::Relaxed);
         self.active_pool.store(NO_POOL, Ordering::Relaxed);
         self.presence
             .store(presence_word(ChainPresence::Unknown), Ordering::Relaxed);
@@ -314,15 +267,6 @@ impl ChainStatsHandle {
     /// Every wired chain's accounting, in chain order.
     pub fn chains(&self) -> impl Iterator<Item = &'static ChainStats> {
         self.stats.iter().take(self.chain_count())
-    }
-
-    /// The lowest voltage sum that a wired chain reports, or `None` when
-    /// no chain has a complete sum. The chains of one board share a rail,
-    /// so the lowest sum is the reading that shows the droop of the board,
-    /// and a higher sum of another chain would hide it.
-    #[must_use]
-    pub fn lowest_voltage(&self) -> Option<Voltage> {
-        self.chains().filter_map(ChainStats::voltage).min()
     }
 
     /// Saturating sum over the wired chains.

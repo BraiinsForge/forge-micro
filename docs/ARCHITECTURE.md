@@ -37,7 +37,13 @@ map and the dependency direction.
      The module owns its state in private statics. The handle holds no
      data, so it is a `Copy` token, and its methods are the API of the
      module. Consumers take the concrete handle, not a trait. Nothing
-     outside the module reads or writes a static.
+     outside the module reads or writes a static. There is one
+     exception. A crate cannot name the handle of a crate that depends
+     on it, so it declares a trait for the fact that it reads, the handle
+     implements the trait, and the firmware passes the handle in.
+     `ubos_thermal::PresentChains` is that trait: `ubos-mining` depends
+     on `ubos-thermal`, and the chain sensor of thermal reads which
+     chains the miner found present.
    - **Runner.** `Handle::take` returns the handle and a `Runner`. The
      runner is the right to run the task of the subsystem. It is not
      `Copy`, and the task function borrows it or takes it by value, so a

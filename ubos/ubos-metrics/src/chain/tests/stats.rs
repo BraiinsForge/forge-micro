@@ -78,31 +78,6 @@ fn record_share_out_of_range_slot_still_counts_share() {
 }
 
 #[test]
-fn hottest_round_trips_none_and_some() {
-    let stats = ChainStats::new();
-    assert_eq!(stats.hottest(), None);
-
-    let temperature = ubos_core::units::Temperature::from_millicelsius(42);
-    stats.set_hottest(Some(temperature));
-    assert_eq!(stats.hottest(), Some(temperature));
-
-    stats.set_hottest(None);
-    assert_eq!(stats.hottest(), None);
-}
-
-#[test]
-fn voltage_round_trips_none_and_some() {
-    let stats = ChainStats::new();
-    assert_eq!(stats.voltage(), None);
-
-    stats.set_voltage(Some(Voltage::from_mv(1215)));
-    assert_eq!(stats.voltage(), Some(Voltage::from_mv(1215)));
-
-    stats.set_voltage(None);
-    assert_eq!(stats.voltage(), None);
-}
-
-#[test]
 fn active_pool_round_trips_and_rejects_out_of_range_slots() {
     let stats = ChainStats::new();
     assert_eq!(stats.active_pool(), None);
@@ -124,7 +99,6 @@ fn clear_resets_bring_up_fields_but_not_lifetime_counters() {
     stats.record_share(&some_target(), 0);
     stats.set_presence(ChainPresence::Present { chips: 120 });
     stats.set_frequency(Frequency::from_khz(500_000));
-    stats.set_hottest(Some(ubos_core::units::Temperature::from_millicelsius(85)));
     stats.set_active_pool(Some(1));
 
     stats.clear();
@@ -141,7 +115,6 @@ fn clear_resets_bring_up_fields_but_not_lifetime_counters() {
     );
     assert_eq!(stats.chips(), 0);
     assert_eq!(stats.frequency().khz(), 0);
-    assert_eq!(stats.hottest(), None);
     assert_eq!(stats.active_pool(), None);
     assert_eq!(
         stats.presence(),
@@ -247,21 +220,6 @@ fn share_counts_sum_across_chains() {
     assert_eq!(handle.chain(HashboardIndex(0)).share_count().get(), 3);
     assert_eq!(handle.chain(HashboardIndex(1)).share_count().get(), 5);
     assert_eq!(handle.chain(HashboardIndex(2)).share_count().get(), 0);
-}
-
-#[test]
-fn the_lowest_voltage_is_the_lowest_sum_of_a_chain_that_has_one() {
-    let handle = table(3);
-    assert_eq!(handle.lowest_voltage(), None);
-
-    handle
-        .chain(HashboardIndex(0))
-        .set_voltage(Some(Voltage::from_mv(1215)));
-    handle
-        .chain(HashboardIndex(2))
-        .set_voltage(Some(Voltage::from_mv(1200)));
-    // Chain 1 has no complete sum, so it does not count as the lowest.
-    assert_eq!(handle.lowest_voltage(), Some(Voltage::from_mv(1200)));
 }
 
 #[test]

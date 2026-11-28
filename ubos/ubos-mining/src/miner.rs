@@ -249,7 +249,7 @@ where
                 chain.is_present().then(|| ChainReadings {
                     chips: chain.stats.chips(),
                     frequency: chain.stats.frequency(),
-                    hottest: chain.stats.hottest(),
+                    hottest: self.thermal.chains().hottest(chain.chain()),
                     hashrate: chain.stats.hashrate(),
                 })
             }),

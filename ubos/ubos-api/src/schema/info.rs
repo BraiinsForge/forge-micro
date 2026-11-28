@@ -157,14 +157,14 @@ pub struct ApiInfoChain {
 
 impl ApiInfoChain {
     #[must_use]
-    pub fn new(chain: usize, stats: &ChainStats) -> Self {
+    pub fn new(chain: usize, stats: &ChainStats, hottest: Option<Temperature>) -> Self {
         Self {
             chain: index_u8(chain),
             state: stats.presence().into(),
             chips: stats.chips(),
             frequency: stats.frequency(),
             hashrate: stats.hashrate(),
-            hottest_c: stats.hottest().map(Temperature::celsius_i32),
+            hottest_c: hottest.map(Temperature::celsius_i32),
             pool: stats.active_pool().map(index_u8),
         }
     }

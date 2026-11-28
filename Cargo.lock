@@ -4651,6 +4651,7 @@ dependencies = [
  "ubos-core",
  "ubos-events",
  "ubos-logging",
+ "ubos-machine",
  "ubos-metrics",
  "ubos-temperature",
 ]

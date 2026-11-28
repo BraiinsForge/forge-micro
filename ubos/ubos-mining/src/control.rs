@@ -193,6 +193,16 @@ impl Handle {
     }
 }
 
+/// The chain sensor of thermal asks the miner which chains are present.
+impl ubos_thermal::PresentChains for Handle {
+    fn is_present(&self, chain: ubos_core::index::HashboardIndex) -> bool {
+        ubos_metrics::chain::handle()
+            .chain(chain)
+            .presence()
+            .is_present()
+    }
+}
+
 /// Each method takes the runner, so only its holder can call it.
 #[allow(clippy::unused_self)]
 impl Runner {

@@ -41,6 +41,7 @@
 //! chip that answers once in a pass would leave its window between two
 //! turns.
 
+use crate::chain_readings::ChainReadings;
 use crate::{Accumulator, Handle, TemperatureSensor};
 use embassy_futures::poll_once;
 use embassy_time::{Duration, Instant, Ticker};
@@ -49,7 +50,6 @@ use ubos_core::index::HashboardIndex;
 use ubos_core::units::Voltage;
 use ubos_logging::{debug, warn};
 use ubos_metrics::catalog::HASHBOARD_LABEL;
-use ubos_metrics::chain::ChainStatsHandle;
 use ubos_metrics::metric;
 
 #[cfg(test)]
@@ -72,14 +72,22 @@ pub const SILENT_TICKS_BEFORE_FAULT: u8 = 2;
 
 const REPORT_INTERVAL: Duration = Duration::from_secs(10);
 
+/// Which chains the miner found present. The miner owns that fact and
+/// depends on this crate, so the board hands its answer in through this
+/// trait.
+pub trait PresentChains {
+    fn is_present(&self, chain: HashboardIndex) -> bool;
+}
+
 /// The thermal loop's view of a board whose chips are its thermometer.
-/// Each present chain's own hottest chip is written into that chain's
-/// accounting, the one field of it no other producer writes.
-pub struct ChainTemperature<const CHIPS: usize, const CHAINS: usize> {
+/// Each present chain's own hottest chip and voltage sum are written
+/// into [`ChainReadings`].
+pub struct ChainTemperature<P: PresentChains, const CHIPS: usize, const CHAINS: usize> {
     pvt: &'static [ChainPvt<CHIPS>; CHAINS],
+    presence: P,
     /// Sized to `ubos_machine::MAX_CHAINS`, not this board's `CHAINS`,
     /// so [`Self::new`] asserts it is long enough to index by chain.
-    stats: ChainStatsHandle,
+    readings: ChainReadings,
     /// Where the dies of every sample are submitted, so thermal filters
     /// them.
     thermal: Handle,
@@ -100,25 +108,22 @@ pub struct ChainTemperature<const CHIPS: usize, const CHAINS: usize> {
     silent_ticks: [u8; CHAINS],
 }
 
-impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
+impl<P: PresentChains, const CHIPS: usize, const CHAINS: usize> ChainTemperature<P, CHIPS, CHAINS> {
     /// # Panics
     ///
-    /// Panics if `stats` holds fewer than `CHAINS` slots: the board's
-    /// accounting table must be at least as long as the board's chain
-    /// count for every chain to have a slot.
+    /// Panics if the readings of `thermal` hold fewer than `CHAINS`
+    /// slots: every chain of the board needs a slot.
     #[must_use]
-    pub fn new(
-        pvt: &'static [ChainPvt<CHIPS>; CHAINS],
-        stats: ChainStatsHandle,
-        thermal: Handle,
-    ) -> Self {
+    pub fn new(pvt: &'static [ChainPvt<CHIPS>; CHAINS], presence: P, thermal: Handle) -> Self {
+        let readings = thermal.chains();
         assert!(
-            stats.slots() >= CHAINS,
-            "BUG: fewer ChainStats slots than the board's chains"
+            readings.slots() >= CHAINS,
+            "BUG: fewer chain reading slots than the board's chains"
         );
         Self {
             pvt,
-            stats,
+            presence,
+            readings,
             thermal,
             started: Instant::now(),
             report_ticker: Ticker::every(REPORT_INTERVAL),
@@ -170,7 +175,7 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
         // loop cannot make this fire repeatedly to catch up.
         self.report_ticker.reset();
         for chain in HashboardIndex::range(CHAINS) {
-            if self.stats.chain(chain).presence().is_present() {
+            if self.presence.is_present(chain) {
                 self.report_chain(chain);
             }
         }
@@ -179,7 +184,7 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
     /// The sum of the core voltages of `chain`, or `None` when the chain
     /// is absent, silent, or has not reported every chip.
     fn voltage_of(&self, chain: HashboardIndex, now: Instant) -> Option<Voltage> {
-        if !self.stats.chain(chain).presence().is_present() || self.chain_is_silent(chain, now) {
+        if !self.presence.is_present(chain) || self.chain_is_silent(chain, now) {
             return None;
         }
         let voltage = self.pvt[chain.slot()].voltage_summary()?;
@@ -223,8 +228,8 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
     }
 }
 
-impl<const CHIPS: usize, const CHAINS: usize> TemperatureSensor
-    for ChainTemperature<CHIPS, CHAINS>
+impl<P: PresentChains, const CHIPS: usize, const CHAINS: usize> TemperatureSensor
+    for ChainTemperature<P, CHIPS, CHAINS>
 {
     async fn sample(&mut self) {
         self.report();
@@ -233,11 +238,11 @@ impl<const CHIPS: usize, const CHAINS: usize> TemperatureSensor
         let mut any_present = false;
         for chain in HashboardIndex::range(CHAINS) {
             let slot = chain.slot();
-            let present = self.stats.chain(chain).presence().is_present();
+            let present = self.presence.is_present(chain);
             self.track_presence(chain, now, present);
             if !present {
-                self.stats.chain(chain).set_hottest(None);
-                self.stats.chain(chain).set_voltage(None);
+                self.readings.set_hottest(chain, None);
+                self.readings.set_voltage(chain, None);
                 self.silent_ticks[slot] = 0;
                 continue;
             }
@@ -251,12 +256,10 @@ impl<const CHIPS: usize, const CHAINS: usize> TemperatureSensor
             let summary = (!silent)
                 .then(|| self.pvt[slot].temperature_summary())
                 .flatten();
-            self.stats
-                .chain(chain)
-                .set_hottest(summary.map(|summary| summary.highest));
-            self.stats
-                .chain(chain)
-                .set_voltage(self.voltage_of(chain, now));
+            self.readings
+                .set_hottest(chain, summary.map(|summary| summary.highest));
+            self.readings
+                .set_voltage(chain, self.voltage_of(chain, now));
             if let Some(summary) = summary {
                 chips = chips
                     .map(|acc| acc.include(summary))
