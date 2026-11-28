@@ -125,13 +125,13 @@ owns the loop the shell calls, beside the loop itself:
 `ubos_core::watchdog::run_watchdog`. Two shells belong to no such
 crate and stay in `ubos/ubos-firmware/src/tasks.rs`.
 
-Four names are the exception, and a board can still declare them by hand:
+Three names are the exception, and a board can still declare them by hand:
 
-`boot`, `cpu_load_task`, `mdns_task`, `stratum_client_task`.
+`boot`, `mdns_task`, `stratum_client_task`.
 
-`boot` is the composition root itself. `mdns_task` and `cpu_load_task`
-name per-board consts, and `stratum_client_task` needs the board's own
-session type and pool size.
+`boot` is the composition root itself. `mdns_task` names per-board
+consts, and `stratum_client_task` needs the board's own session type
+and pool size.
 
 The `board-skeleton-parity` check holds boards to that list. It also
 fails a board that does not name `ubos_firmware::net::bring_up`,

@@ -45,13 +45,11 @@ let
   # in a board crate must expand from a macro in the crate that owns the
   # loop it calls.
   #
-  # `boot` is the composition root itself. `mdns_task` and
-  # `cpu_load_task` name per-board consts, and `stratum_client_task`
-  # needs the board's own session type and pool size. docs/MACHINE.md
-  # carries this list in prose.
+  # `boot` is the composition root itself. `mdns_task` names per-board
+  # consts, and `stratum_client_task` needs the board's own session type
+  # and pool size. docs/MACHINE.md carries this list in prose.
   fleetShells = [
     "boot"
-    "cpu_load_task"
     "mdns_task"
     "stratum_client_task"
   ];
