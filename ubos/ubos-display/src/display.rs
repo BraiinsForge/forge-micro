@@ -45,6 +45,7 @@ pub fn render<D: DrawTarget<Color = BinaryColor>>(
     display: &mut D,
     cooling: ubos_cooling::Handle,
     net: ubos_net::net::Handle,
+    mining: ubos_mining::Handle,
 ) -> Result<(), D::Error> {
     display.clear(BinaryColor::Off)?;
 
@@ -86,7 +87,7 @@ pub fn render<D: DrawTarget<Color = BinaryColor>>(
 
     // Line 4: current hashrate. Its text switches to GH/s at 1 GH/s, so
     // 24 bytes covers both representations.
-    let hashrate = ubos_mining::stats::handle().machine_hashrate();
+    let hashrate = mining.chains().machine_hashrate();
     let mut hashrate_buffer = [0u8; 24];
     if let Ok(text) = format_no_std::show(&mut hashrate_buffer, format_args!("{hashrate}")) {
         Text::new(text, Point::new(0, 61), style).draw(display)?;
@@ -107,8 +108,9 @@ macro_rules! blocking_display_task {
             #[allow(clippy::used_underscore_binding)] _reset_pin: $reset,
             cooling: ubos_cooling::Handle,
             net: ubos_net::net::Handle,
+            mining: ubos_mining::Handle,
         ) -> ! {
-            display.run_blocking(cooling, net).await
+            display.run_blocking(cooling, net, mining).await
         }
     };
 }
@@ -128,8 +130,9 @@ macro_rules! display_task {
             #[allow(clippy::used_underscore_binding)] _reset_pin: $reset,
             cooling: ubos_cooling::Handle,
             net: ubos_net::net::Handle,
+            mining: ubos_mining::Handle,
         ) -> ! {
-            display.run(cooling, net).await
+            display.run(cooling, net, mining).await
         }
     };
 }

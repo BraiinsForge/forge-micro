@@ -191,11 +191,11 @@ async fn net_task(mut runner: Runner<'static, HostDevice>) -> ! {
 }
 
 #[embassy_executor::task]
-async fn heartbeat_task(stack: Stack<'static>) {
+async fn heartbeat_task(stack: Stack<'static>, mining: MiningHandle) {
     loop {
         Timer::after(Duration::from_secs(10)).await;
         let address = stack.config_v4().map(|config| config.address);
-        let hashrate = ubos_mining::stats::handle().machine_hashrate();
+        let hashrate = mining.chains().machine_hashrate();
         info!("host-runner: tick, address={address:?}, hashrate={hashrate}");
     }
 }
@@ -493,7 +493,9 @@ fn main() {
         // SpawnError only fires on reuse of a task token; each constructor
         // invocation mints a fresh one, so a first-time spawn cannot fail.
         spawner.spawn(net_task(runner).expect("BUG: net_task token"));
-        spawner.spawn(heartbeat_task(stack).expect("BUG: heartbeat_task token"));
+        spawner.spawn(
+            heartbeat_task(stack, mining_handle).expect("BUG: heartbeat_task token"),
+        );
         spawner.spawn(
             stratum_client_task(stack, config_handle)
                 .expect("BUG: stratum_client_task token"),

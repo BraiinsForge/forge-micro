@@ -434,7 +434,8 @@ async fn boot(spawner: Spawner) {
         display,
         reset,
         handles.cooling,
-        handles.net
+        handles.net,
+        handles.mining
     )));
 
     spawner.spawn(unwrap!(miner_metrics_task(handles.mining)));

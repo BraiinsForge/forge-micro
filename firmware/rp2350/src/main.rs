@@ -441,7 +441,8 @@ async fn boot(spawner: Spawner) {
         display,
         reset,
         handles.cooling,
-        handles.net
+        handles.net,
+        handles.mining
     )));
 
     info!("waiting for dhcp");

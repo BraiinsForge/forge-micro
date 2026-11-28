@@ -30,9 +30,9 @@
 //! and writes nothing here, so the count and the presence can never
 //! disagree.
 //!
-//! Everything outside this crate reaches the table through
-//! [`ChainStatsHandle`], which [`handle`] returns. The static itself is
-//! private, so no consumer holds a second door to it.
+//! The table is private to this crate, and [`ChainStatsHandle`] is how
+//! the miner and the serial actors reach it. A consumer outside the crate
+//! reads a [`Chains`] snapshot from `Handle::chains`.
 
 use crate::consts::MAX_POOL_SLOTS;
 use crate::hashrate::HashrateEstimator;
@@ -173,6 +173,24 @@ impl ChainStats {
         ChainPresence::from_code((word >> 8) as u8, word as u8)
     }
 
+    /// Every field at this moment.
+    #[must_use]
+    pub fn snapshot(&self) -> ChainSnapshot {
+        let mut pool_shares = [Shares::default(); MAX_POOL_SLOTS];
+        for (slot, shares) in pool_shares.iter_mut().enumerate() {
+            *shares = self.pool_shares(slot);
+        }
+        ChainSnapshot {
+            presence: self.presence(),
+            frequency: self.frequency(),
+            hashrate: self.hashrate(),
+            shares: self.share_count(),
+            pool_shares,
+            desync_bytes: self.desync_bytes(),
+            active_pool: self.active_pool(),
+        }
+    }
+
     /// Reset the per-bring-up fields. The lifetime counters stay, since
     /// this runs on every chain reset.
     pub fn clear(&self) {
@@ -193,6 +211,75 @@ impl Default for ChainStats {
     }
 }
 
+/// The accounting of one chain at one moment, as a consumer outside the
+/// miner reads it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ChainSnapshot {
+    pub presence: ChainPresence,
+    /// The last frequency the serial actor of the chain confirmed.
+    pub frequency: Frequency,
+    /// The smoothed hashrate of the chain.
+    pub hashrate: Hashrate,
+    /// The lifetime chip shares of the chain.
+    pub shares: Shares,
+    /// The lifetime chip shares that each pool slot was credited.
+    pub pool_shares: [Shares; MAX_POOL_SLOTS],
+    pub desync_bytes: u32,
+    /// The pool slot the chain is mining, or `None` if it has no work.
+    pub active_pool: Option<usize>,
+}
+
+impl ChainSnapshot {
+    /// Chip count of a `Present` chain, zero for any other state.
+    #[must_use]
+    pub fn chips(&self) -> u16 {
+        u16::from(self.presence.chips())
+    }
+}
+
+/// Every wired chain at one moment, in chain order.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Chains(heapless::Vec<ChainSnapshot, MAX_CHAINS>);
+
+impl Chains {
+    pub fn iter(&self) -> impl Iterator<Item = &ChainSnapshot> {
+        self.0.iter()
+    }
+
+    /// Saturating sum over the wired chains.
+    #[must_use]
+    pub fn machine_hashrate(&self) -> Hashrate {
+        self.iter().fold(Hashrate::default(), |total, chain| {
+            total.saturating_add(chain.hashrate)
+        })
+    }
+
+    /// Saturating sum over the wired chains.
+    #[must_use]
+    pub fn machine_share_count(&self) -> Shares {
+        self.iter().fold(Shares::default(), |total, chain| {
+            total.saturating_add(chain.shares)
+        })
+    }
+
+    #[must_use]
+    pub fn present_chain_count(&self) -> u8 {
+        let count = self
+            .iter()
+            .filter(|chain| chain.presence.is_present())
+            .count();
+        u8::try_from(count).unwrap_or(u8::MAX)
+    }
+}
+
+impl FromIterator<ChainSnapshot> for Chains {
+    /// Chains past [`MAX_CHAINS`] are dropped, because no machine wires
+    /// more.
+    fn from_iter<I: IntoIterator<Item = ChainSnapshot>>(chains: I) -> Self {
+        Self(chains.into_iter().take(MAX_CHAINS).collect())
+    }
+}
+
 static CHAIN_STATS: [ChainStats; MAX_CHAINS] = [const { ChainStats::new() }; MAX_CHAINS];
 
 /// How many slots the machine wired up. Zero until the miner stores its
@@ -201,11 +288,11 @@ static ACTIVE_CHAINS: AtomicU8 = AtomicU8::new(0);
 
 /// Called once by `ubos_mining::Miner::new`, the one place that knows the
 /// chain count.
-pub fn set_chain_count(chains: usize) {
+pub(crate) fn set_chain_count(chains: usize) {
     ACTIVE_CHAINS.store(u8::try_from(chains).unwrap_or(u8::MAX), Ordering::Relaxed);
 }
 
-/// A board's per-chain accounting as consumers see it. The accessors
+/// A board's per-chain accounting as this crate sees it. The accessors
 /// hand back the [`ChainStats`] itself, not a snapshot: each reader wants
 /// a different subset, and each field is one relaxed load.
 #[derive(Clone, Copy)]
@@ -218,8 +305,9 @@ pub struct ChainStatsHandle {
 impl ChainStatsHandle {
     /// A handle over a caller-owned table; for tests that need a table
     /// of their own. A board uses [`handle`].
+    #[cfg(test)]
     #[must_use]
-    pub const fn new(stats: &'static [ChainStats], active: &'static AtomicU8) -> Self {
+    pub(crate) const fn new(stats: &'static [ChainStats], active: &'static AtomicU8) -> Self {
         Self { stats, active }
     }
 
@@ -255,36 +343,17 @@ impl ChainStatsHandle {
         self.stats.iter().take(self.chain_count())
     }
 
-    /// Saturating sum over the wired chains.
+    /// Every wired chain at this moment.
     #[must_use]
-    pub fn machine_hashrate(&self) -> Hashrate {
-        self.chains().fold(Hashrate::default(), |total, chain| {
-            total.saturating_add(chain.hashrate())
-        })
-    }
-
-    /// Saturating sum over the wired chains.
-    #[must_use]
-    pub fn machine_share_count(&self) -> Shares {
-        self.chains().fold(Shares::default(), |total, chain| {
-            total.saturating_add(chain.share_count())
-        })
-    }
-
-    #[must_use]
-    pub fn present_chain_count(&self) -> u8 {
-        let count = self
-            .chains()
-            .filter(|chain| chain.presence().is_present())
-            .count();
-        u8::try_from(count).unwrap_or(u8::MAX)
+    pub fn snapshot(&self) -> Chains {
+        self.chains().map(ChainStats::snapshot).collect()
     }
 }
 
 /// The board's per-chain accounting. Free because `CHAIN_STATS` is a
 /// private static with one instance.
 #[must_use]
-pub fn handle() -> ChainStatsHandle {
+pub(crate) fn handle() -> ChainStatsHandle {
     ChainStatsHandle {
         stats: &CHAIN_STATS,
         active: &ACTIVE_CHAINS,

@@ -355,15 +355,18 @@ fn config_response_body_fits_in_buffer() {
 
 #[test]
 fn api_info_chain_renders_each_chain() {
-    static CHAINS: [ubos_mining::stats::ChainStats; 2] = [
+    let table = [
         ubos_mining::stats::ChainStats::new(),
         ubos_mining::stats::ChainStats::new(),
     ];
-    CHAINS[0].set_presence(ubos_mining::stats::ChainPresence::Present { chips: 105 });
-    CHAINS[0].set_frequency(ubos_core::units::Frequency::from_mhz(650));
-    CHAINS[1].set_presence(ubos_mining::stats::ChainPresence::Absent);
+    table[0].set_presence(ubos_mining::stats::ChainPresence::Present { chips: 105 });
+    table[0].set_frequency(ubos_core::units::Frequency::from_mhz(650));
+    table[1].set_presence(ubos_mining::stats::ChainPresence::Absent);
+    let snapshots = table
+        .each_ref()
+        .map(ubos_mining::stats::ChainStats::snapshot);
 
-    let chains: heapless::Vec<ApiInfoChain, 2> = CHAINS
+    let chains: heapless::Vec<ApiInfoChain, 2> = snapshots
         .iter()
         .enumerate()
         .zip([Some(ubos_core::units::Temperature::from_celsius(72)), None])

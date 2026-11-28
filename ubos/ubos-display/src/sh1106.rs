@@ -162,10 +162,11 @@ impl<SPI: embedded_hal::spi::SpiDevice, DC: OutputPin> Sh1106<SPI, DC> {
         &mut self,
         cooling: ubos_cooling::Handle,
         net: ubos_net::net::Handle,
+        mining: ubos_mining::Handle,
     ) -> ! {
         let _ = self.init();
         loop {
-            let _ = crate::display::render(self, cooling, net);
+            let _ = crate::display::render(self, cooling, net, mining);
             let _ = self.flush();
             embassy_time::Timer::after(RENDER_INTERVAL).await;
         }
@@ -174,9 +175,14 @@ impl<SPI: embedded_hal::spi::SpiDevice, DC: OutputPin> Sh1106<SPI, DC> {
 
 impl<SPI: embedded_hal_async::spi::SpiDevice, DC: OutputPin> Sh1106<SPI, DC> {
     /// Run the display loop forever, rendering once per second.
-    pub async fn run(&mut self, cooling: ubos_cooling::Handle, net: ubos_net::net::Handle) -> ! {
+    pub async fn run(
+        &mut self,
+        cooling: ubos_cooling::Handle,
+        net: ubos_net::net::Handle,
+        mining: ubos_mining::Handle,
+    ) -> ! {
         loop {
-            let _ = crate::display::render(self, cooling, net);
+            let _ = crate::display::render(self, cooling, net, mining);
             let _ = self.flush_async().await;
             embassy_time::Timer::after(RENDER_INTERVAL).await;
         }

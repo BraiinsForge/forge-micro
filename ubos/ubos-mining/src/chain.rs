@@ -95,6 +95,8 @@ impl<R: ResetPin> ChainHandle<R> {
         let mut attempt = 1u8;
         let (presence, found) = loop {
             let _ = self.serial.reset().await;
+            // The reset cleared the presence of the chain.
+            crate::control::publish_chains();
             let found = self.serial.reset_and_enumerate().await;
             // Every attempt, so a chain that came up short of its
             // descriptor is readable from the event log rather than only
@@ -142,6 +144,7 @@ impl<R: ResetPin> ChainHandle<R> {
             }
         };
         self.stats.set_presence(presence);
+        crate::control::publish_chains();
         crate::publishers::chips_discovered(index, found)
             .push()
             .await;

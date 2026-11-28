@@ -164,6 +164,9 @@ where
             reset,
         });
         crate::stats::set_chain_count(CHAINS);
+        // So a reader sees every wired chain before the first tick of
+        // the publisher.
+        crate::control::publish_chains();
         Self {
             psu_handle,
             board,
@@ -210,6 +213,7 @@ where
                 chain.stats.set_presence(ChainPresence::Unknown);
             }
         }
+        crate::control::publish_chains();
         if let Err(error) = self.psu_handle.disable().await {
             warn!("psu disable failed: {:?}", Debug2Format(&error));
         }

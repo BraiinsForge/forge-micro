@@ -29,6 +29,8 @@ use embassy_sync::signal::Signal;
 use embassy_sync::watch::{Receiver, Watch};
 use embassy_time::{Duration, Timer};
 
+use crate::stats::Chains;
+
 type CSMutex = CriticalSectionRawMutex;
 
 /// Capacity for lifecycle subscriptions, including the OTA wait.
@@ -46,6 +48,11 @@ type CommandChannel = Channel<CSMutex, Message, CMD_CHANNEL_DEPTH>;
 type StopSignal = Signal<CSMutex, ()>;
 
 static STATE_WATCH: StateWatch = Watch::new();
+
+/// The accounting of every wired chain, as the consumers outside this
+/// crate read it. The metrics publisher sends it on its ticker, and the
+/// miner sends it when the presence of a chain changes.
+static CHAINS_WATCH: Watch<CSMutex, Chains, 0> = Watch::new();
 
 /// Whether the miner holds the rail off because no temperature reading
 /// was left. The lifecycle status cannot say it: the miner is `Stopped`
@@ -104,6 +111,14 @@ pub enum Message {
 /// Per-task subscription returned by [`Handle::subscribe`].
 pub type MiningSubscription = Receiver<'static, CSMutex, MiningState, WATCH_CAPACITY>;
 
+/// Send the accounting of every wired chain to the readers of
+/// [`Handle::chains`].
+pub(crate) fn publish_chains() {
+    CHAINS_WATCH
+        .sender()
+        .send(crate::stats::handle().snapshot());
+}
+
 static TAKEN: ubos_core::take_once::TakeOnce = ubos_core::take_once::TakeOnce::new("mining");
 
 /// Consumer-side handle. It holds no data: a firmware takes it once and
@@ -156,6 +171,13 @@ impl Handle {
         STATE_WATCH
             .receiver()
             .expect("BUG: Handle receiver slots exhausted; raise WATCH_CAPACITY")
+    }
+
+    /// The accounting of every wired chain, as last published. Empty
+    /// before the first publish.
+    #[must_use]
+    pub fn chains(&self) -> Chains {
+        CHAINS_WATCH.try_get().unwrap_or_default()
     }
 
     /// Queue a halt of the work loop. Idempotent.

@@ -253,7 +253,7 @@ where
         ..
     } = *service;
     let uptime_seconds = Instant::now().as_secs();
-    let chain_stats = ubos_mining::stats::handle();
+    let chain_stats = service.mining.chains();
     let hashrate_hps = chain_stats.machine_hashrate();
     let fan = service.cooling.current();
     let fan_speed = fan.map_or_else(FanRpm::default, |f| f.rpm);

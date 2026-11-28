@@ -28,7 +28,7 @@ use heapless::{String, Vec};
 use serde::Serialize;
 use ubos_config::POOL_SLOTS;
 use ubos_core::units::{FanPwm, FanRpm, Frequency, Hashrate, Power, Temperature, Voltage};
-use ubos_mining::stats::{ChainStats, MAX_CHAINS};
+use ubos_mining::stats::{ChainSnapshot, MAX_CHAINS};
 
 use crate::hw_info::HwString;
 use crate::ota::{OtaPhase, OtaSessionSnapshot, OtaWritePhase, ResetDiag, ResetReason};
@@ -157,15 +157,15 @@ pub struct ApiInfoChain {
 
 impl ApiInfoChain {
     #[must_use]
-    pub fn new(chain: usize, stats: &ChainStats, hottest: Option<Temperature>) -> Self {
+    pub fn new(chain: usize, stats: &ChainSnapshot, hottest: Option<Temperature>) -> Self {
         Self {
             chain: index_u8(chain),
-            state: stats.presence().into(),
+            state: stats.presence.into(),
             chips: stats.chips(),
-            frequency: stats.frequency(),
-            hashrate: stats.hashrate(),
+            frequency: stats.frequency,
+            hashrate: stats.hashrate,
             hottest_c: hottest.map(Temperature::celsius_i32),
-            pool: stats.active_pool().map(index_u8),
+            pool: stats.active_pool.map(index_u8),
         }
     }
 }

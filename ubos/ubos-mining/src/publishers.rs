@@ -24,6 +24,7 @@
 //! spawn `run_miner_metrics_publisher` from their own
 //! `#[embassy_executor::task]` wrapper.
 
+use embassy_futures::join::join;
 use embassy_time::{Duration, Ticker};
 use ubos_asic::HashboardDescriptor;
 use ubos_metrics::Metric;
@@ -31,7 +32,6 @@ use ubos_metrics::catalog::{HASHBOARD_LABEL, POOL_LABEL, TYPE_LABEL};
 use ubos_metrics::metric;
 use ubos_metrics::value::{Count, Flag};
 
-use crate::stats;
 use crate::{Handle as MiningHandle, MiningState};
 
 #[cfg(test)]
@@ -68,42 +68,63 @@ pub(crate) async fn publish_machine_facts(board: &HashboardDescriptor, chains: u
         .await;
 }
 
+/// How often the chain snapshot and the metrics are published.
+const PUBLISH_INTERVAL: Duration = Duration::from_secs(2);
+
 /// Publish the miner state and the confirmed accounting of each hashboard
-/// every two seconds. A hashboard series carries the `hashboard` label,
-/// and the pool work shares also carry the `pool` label.
-/// The PSU publishes its own commanded and measured rail voltages.
+/// every [`PUBLISH_INTERVAL`], to the metrics store and to the readers of
+/// [`MiningHandle::chains`]. The two run as separate loops, because a
+/// metric push waits while the metrics channel is full and the snapshot
+/// must not wait with it.
 pub async fn run_miner_metrics_publisher(mining: MiningHandle, pool_slots: usize) -> ! {
-    let mut ticker = Ticker::every(Duration::from_secs(2));
+    join(publish_chains(), push_metrics(mining, pool_slots))
+        .await
+        .0
+}
+
+async fn publish_chains() -> ! {
+    let mut ticker = Ticker::every(PUBLISH_INTERVAL);
     loop {
         ticker.next().await;
-        let stats_handle = stats::handle();
-        for (chain, stats) in stats_handle.chains().enumerate() {
-            metric!("frequency_hertz", stats.frequency())
+        crate::control::publish_chains();
+    }
+}
+
+/// A hashboard series carries the `hashboard` label, and the pool work
+/// shares also carry the `pool` label. The PSU publishes its own commanded
+/// and measured rail voltages.
+async fn push_metrics(mining: MiningHandle, pool_slots: usize) -> ! {
+    let mut ticker = Ticker::every(PUBLISH_INTERVAL);
+    loop {
+        ticker.next().await;
+        let chains = mining.chains();
+        for (chain, stats) in chains.iter().enumerate() {
+            metric!("frequency_hertz", stats.frequency)
                 .label(HASHBOARD_LABEL, chain)
                 .push()
                 .await;
-            metric!("uart_desync_bytes", Count(u64::from(stats.desync_bytes())))
+            metric!("uart_desync_bytes", Count(u64::from(stats.desync_bytes)))
                 .label(HASHBOARD_LABEL, chain)
                 .push()
                 .await;
-            metric!("hashboard_present", Flag(stats.presence().is_present()))
+            metric!("hashboard_present", Flag(stats.presence.is_present()))
                 .label(HASHBOARD_LABEL, chain)
                 .push()
                 .await;
-            metric!("hashrate_hps", stats.hashrate())
+            metric!("hashrate_hps", stats.hashrate)
                 .label(HASHBOARD_LABEL, chain)
                 .push()
                 .await;
             // The chain counts only the shares it found, so `valid` is the
             // one type of this series.
-            metric!("hashboard_shares", stats.share_count())
+            metric!("hashboard_shares", stats.shares)
                 .label(HASHBOARD_LABEL, chain)
                 .label(TYPE_LABEL, "valid")
                 .push()
                 .await;
             let limit = pool_slots.min(crate::consts::MAX_POOL_SLOTS);
-            for slot in 0..limit {
-                metric!("pool_work_shares", stats.pool_shares(slot))
+            for (slot, shares) in stats.pool_shares.iter().take(limit).enumerate() {
+                metric!("pool_work_shares", *shares)
                     .label(HASHBOARD_LABEL, chain)
                     .label(POOL_LABEL, slot)
                     .push()

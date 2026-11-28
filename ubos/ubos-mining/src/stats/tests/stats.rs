@@ -158,8 +158,8 @@ fn handle_walks_no_slot_before_the_chain_count_is_published() {
     assert_eq!(handle.slots(), 3);
     assert_eq!(handle.chain_count(), 0);
     assert_eq!(handle.chains().count(), 0);
-    assert_eq!(handle.machine_hashrate().hps(), 0);
-    assert_eq!(handle.machine_share_count().get(), 0);
+    assert_eq!(handle.snapshot().machine_hashrate().hps(), 0);
+    assert_eq!(handle.snapshot().machine_share_count().get(), 0);
 }
 
 #[test]
@@ -174,8 +174,8 @@ fn handle_walks_only_the_wired_prefix() {
 
     assert_eq!(handle.chain_count(), 2);
     assert_eq!(handle.chains().count(), 2);
-    assert_eq!(handle.present_chain_count(), 0);
-    assert_eq!(handle.machine_share_count().get(), 0);
+    assert_eq!(handle.snapshot().present_chain_count(), 0);
+    assert_eq!(handle.snapshot().machine_share_count().get(), 0);
 }
 
 #[test]
@@ -199,7 +199,7 @@ fn present_chain_count_counts_only_present() {
         .chain(HashboardIndex(2))
         .set_presence(ChainPresence::Faulted { found: 5 });
 
-    assert_eq!(handle.present_chain_count(), 1);
+    assert_eq!(handle.snapshot().present_chain_count(), 1);
 }
 
 #[test]
@@ -216,7 +216,7 @@ fn share_counts_sum_across_chains() {
             .record_share(&some_target(), 0);
     }
 
-    assert_eq!(handle.machine_share_count().get(), 8);
+    assert_eq!(handle.snapshot().machine_share_count().get(), 8);
     assert_eq!(handle.chain(HashboardIndex(0)).share_count().get(), 3);
     assert_eq!(handle.chain(HashboardIndex(1)).share_count().get(), 5);
     assert_eq!(handle.chain(HashboardIndex(2)).share_count().get(), 0);
@@ -228,4 +228,28 @@ fn desync_bytes_saturate_instead_of_wrapping() {
     stats.add_desync_bytes(u32::MAX - 1);
     stats.add_desync_bytes(8);
     assert_eq!(stats.desync_bytes(), u32::MAX);
+}
+
+#[test]
+fn a_snapshot_carries_the_fields_of_each_wired_chain() {
+    let handle = table(2);
+    let chain = handle.chain(HashboardIndex(1));
+    chain.set_presence(ChainPresence::Present { chips: 4 });
+    chain.set_frequency(Frequency::from_khz(500_000));
+    chain.set_active_pool(Some(1));
+    chain.record_share(&some_target(), 1);
+    chain.add_desync_bytes(3);
+
+    let chains = handle.snapshot();
+    let snapshots: std::vec::Vec<_> = chains.iter().collect();
+
+    assert_eq!(snapshots.len(), 2);
+    assert_eq!(snapshots[0].presence, ChainPresence::Unknown);
+    assert_eq!(snapshots[1].chips(), 4);
+    assert_eq!(snapshots[1].frequency.khz(), 500_000);
+    assert_eq!(snapshots[1].active_pool, Some(1));
+    assert_eq!(snapshots[1].shares.get(), 1);
+    assert_eq!(snapshots[1].pool_shares[1].get(), 1);
+    assert_eq!(snapshots[1].desync_bytes, 3);
+    assert_eq!(chains.present_chain_count(), 1);
 }

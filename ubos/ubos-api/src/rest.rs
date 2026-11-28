@@ -175,7 +175,7 @@ impl RestApiService {
     /// reports. Each read is a lock-free snapshot, so an upload holding
     /// the OTA target mutex never blocks the dashboard's poll.
     fn info(&self) -> ApiInfo {
-        let chain_stats = ubos_mining::stats::handle();
+        let chains = self.mining.chains();
         let chain_readings = self.thermal.chains();
         let fan = self.cooling.current();
         let psu_reading = self.psu.current();
@@ -194,7 +194,7 @@ impl RestApiService {
         });
         ApiInfo {
             name: self.board_name,
-            hashrate: chain_stats.machine_hashrate(),
+            hashrate: chains.machine_hashrate(),
             uptime: Instant::now().as_secs(),
             fan_rpm: fan.map_or_else(FanRpm::default, |f| f.rpm),
             fan_pwm: fan.map_or_else(FanPwm::default, |f| f.pwm),
@@ -211,12 +211,11 @@ impl RestApiService {
             mining_state: mining_state.map(ApiMiningState::from),
             paused,
             pause_reason,
-            // One entry per chain the board wired up, so a single-chain
-            // board reports no phantom chains for the empty slots of the
-            // table behind `chain_stats`. That table is `MAX_CHAINS` slots
-            // long, so `collect` cannot overflow the vector.
-            chains: chain_stats
-                .chains()
+            // One entry per chain the board wired up. The snapshot holds
+            // at most `MAX_CHAINS` of them, so `collect` cannot overflow
+            // the vector.
+            chains: chains
+                .iter()
                 .enumerate()
                 .zip(HashboardIndex::range(chain_readings.slots()))
                 .map(|((chain, stats), index)| {
