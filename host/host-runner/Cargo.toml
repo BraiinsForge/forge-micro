@@ -66,8 +66,3 @@ embassy-net-tuntap   = "0.1"
 
 [build-dependencies]
 ubos-build = { workspace = true }
-
-# critical-section is depended on only for its std impl symbols, linked
-# but never named in source, so machete cannot see the use.
-[package.metadata.cargo-machete]
-ignored = ["critical-section"]

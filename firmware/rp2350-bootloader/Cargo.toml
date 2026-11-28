@@ -25,6 +25,6 @@ defmt   = [
 
 # embassy-rp is named only to select the chip feature the shared boot
 # sequence compiles against; the source imports nothing from it, so
-# machete would report it unused.
-[package.metadata.cargo-machete]
+# cargo-shear would report it unused.
+[package.metadata.cargo-shear]
 ignored = ["embassy-rp"]

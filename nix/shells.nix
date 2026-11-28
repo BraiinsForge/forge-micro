@@ -104,8 +104,8 @@ pkgs.lib.mapAttrs (_: helpers.withWebuiDist) {
         # crate's build.rs embeds Zopfli-gzipped bytes, so the CLI must
         # match the encoder to make the crate CLAUDE.md numbers honest.
         zopfli
-        # Unused-dependency lint, matching the cargo-machete check.
-        cargo-machete
+        # Unused-dependency lint, matching the cargo-shear check.
+        cargo-shear
         # Licence, duplicate-version and source lint, matching the
         # cargo-deny check.
         cargo-deny
@@ -190,8 +190,8 @@ pkgs.lib.mapAttrs (_: helpers.withWebuiDist) {
     buildInputs = [
       hostRustToolchain
       pkgs.cargo-llvm-cov
-      # Unused-dependency lint, matching the cargo-machete check.
-      pkgs.cargo-machete
+      # Unused-dependency lint, matching the cargo-shear check.
+      pkgs.cargo-shear
       # Licence, duplicate-version and source lint, matching the
       # cargo-deny check.
       pkgs.cargo-deny

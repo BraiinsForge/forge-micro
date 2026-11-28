@@ -26,6 +26,3 @@ zerocopy           = { workspace = true }
 [dev-dependencies]
 embedded-hal-mock = { version = "0.11", default-features = false, features = ["embedded-hal-async", "eh1"] }
 embassy-futures   = { workspace = true }
-
-[package.metadata.cargo-machete]
-ignored = ["defmt"]

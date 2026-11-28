@@ -29,6 +29,3 @@ ubos-metrics      = { workspace = true, default-features = false }
 
 [dev-dependencies]
 embassy-time      = { workspace = true, features = ["std", "generic-queue-8"] }
-
-[package.metadata.cargo-machete]
-ignored = ["defmt"]

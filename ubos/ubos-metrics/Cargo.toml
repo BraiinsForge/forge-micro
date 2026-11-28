@@ -41,7 +41,7 @@ critical-section = { workspace = true, features = ["std"] }
 cortex-m          = "0.7"
 embassy-executor  = { workspace = true }
 
-# defmt is an optional dep gated behind the defmt feature flag; machete
-# does not follow feature-gated paths.
-[package.metadata.cargo-machete]
+# The `ubos_logging` macros expand to `defmt::` paths at the call site,
+# so defmt is a real dependency that no source here names.
+[package.metadata.cargo-shear]
 ignored = ["defmt"]

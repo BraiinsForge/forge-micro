@@ -35,5 +35,5 @@ rusty-fork         = { workspace = true }
 default = []
 defmt   = ["dep:defmt", "ubos-events/defmt", "ubos-logging/defmt", "ubos-metrics/defmt"]
 
-[package.metadata.cargo-machete]
+[package.metadata.cargo-shear]
 ignored = ["defmt"]

@@ -54,5 +54,5 @@ ubos-metrics     = { workspace = true, default-features = false, features = ["me
 # Each test takes its handles in a process of its own.
 rusty-fork       = { workspace = true }
 
-[package.metadata.cargo-machete]
+[package.metadata.cargo-shear]
 ignored = ["defmt"]

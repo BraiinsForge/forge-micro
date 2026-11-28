@@ -695,26 +695,36 @@ hostClippyChecks
           > "$out/README"
       '';
 
-  # Default mode parses every Cargo.toml and greps its source, so the
-  # gate needs no network and no Cargo.lock resolution. An optional dep
-  # wired only into a feature reads as unused and is exempted per crate
-  # through the [package.metadata.cargo-machete] ignored list.
-  cargo-machete =
-    pkgs.runCommand "cargo-machete"
-      {
-        nativeBuildInputs = [ pkgs.cargo-machete ];
-      }
-      ''
-        # Scan a copy with patches/ removed. Machete's static import scan
-        # misfires on the generated and macro-only code in those upstream
-        # trees, and silencing it there would mean editing vendored
-        # manifests beyond the one change each patch file documents.
-        cp -a ${src} ./scan-src
-        chmod -R u+w ./scan-src
-        rm -rf ./scan-src/patches
-        cargo-machete ./scan-src
-        touch $out
-      '';
+  # Fail the build on an unused dependency so dead deps cannot
+  # accumulate. A dependency no parser can see is exempted per crate in
+  # [package.metadata.cargo-shear] with its reason beside it, and a bare
+  # `defmt` entry stands for the `ubos_logging` macros, which expand to
+  # `defmt::` paths at the call site.
+  cargo-shear = craneLib.mkCargoDerivation {
+    inherit src;
+    pnameSuffix = "-shear";
+    cargoArtifacts = null;
+    doInstallCargoArtifacts = false;
+    nativeBuildInputs = [ pkgs.cargo-shear ];
+    buildPhaseCargoCommand = "cargo shear --deny-warnings --offline";
+  };
+
+  # The root workspace excludes micro-sv2, so the run above reads none
+  # of its manifests and this one vendors that workspace's own lockfile.
+  cargo-shear-micro-sv2 = craneLib.mkCargoDerivation {
+    src = lib.cleanSourceWith {
+      src = root + "/micro-sv2";
+      filter = craneLib.filterCargoSources;
+      name = "source";
+    };
+    pname = "micro-sv2";
+    version = "0";
+    pnameSuffix = "-shear";
+    cargoArtifacts = null;
+    doInstallCargoArtifacts = false;
+    nativeBuildInputs = [ pkgs.cargo-shear ];
+    buildPhaseCargoCommand = "cargo shear --deny-warnings --offline";
+  };
 
   # Holds the crate graph to the licences, the duplicate versions and
   # the sources deny.toml allows. Crane vendors the graph from the

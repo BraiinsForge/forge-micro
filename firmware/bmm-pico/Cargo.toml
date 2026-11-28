@@ -15,9 +15,9 @@ metrics = ["ubos-firmware/metrics"]
 
 # cortex-m-rt is named only by the `#[embassy_executor::main]` expansion, which
 # this board uses instead of `#[cortex_m_rt::entry]`. That reference vanished
-# from the source when the `HardFault` handler moved to ubos-rp, so machete no
+# from the source when the `HardFault` handler moved to ubos-rp, so cargo-shear no
 # longer sees the crate even though the entry macro still links it.
-[package.metadata.cargo-machete]
+[package.metadata.cargo-shear]
 ignored = ["cortex-m-rt"]
 
 [dependencies]

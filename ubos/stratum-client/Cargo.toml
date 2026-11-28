@@ -38,6 +38,3 @@ rusty-fork = { workspace = true }
 # with `embassy_time::Instant::now()`. The std time driver is
 # host-only and never reaches firmware.
 embassy-time     = { workspace = true, features = ["std", "generic-queue-8"] }
-
-[package.metadata.cargo-machete]
-ignored = ["defmt"]

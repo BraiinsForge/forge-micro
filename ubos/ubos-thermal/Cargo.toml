@@ -58,5 +58,5 @@ ubos-config      = { workspace = true, default-features = false, features = ["st
 # out once, so each runs in a process of its own.
 rusty-fork       = { workspace = true }
 
-[package.metadata.cargo-machete]
+[package.metadata.cargo-shear]
 ignored = ["defmt"]

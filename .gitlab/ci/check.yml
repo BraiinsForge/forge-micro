@@ -49,7 +49,7 @@ clippy:
 
 # Stage 3: everything else `nix flake check` covers - host tests,
 # firmware release builds with their flash-size and pool-worker guards,
-# cargo-machete, and the OTA image-limit guard. This is the
+# cargo-shear, and the OTA image-limit guard. This is the
 # comprehensive backstop; clippy already passed.
 check:
   stage: check

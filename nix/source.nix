@@ -20,7 +20,7 @@
 # Cleaned source trees for the crane builds.
 #
 # `src` is the whole cleaned workspace, used by the workspace-wide gates,
-# such as fmt and cargo-machete, that legitimately read every crate.
+# such as fmt and cargo-shear, that legitimately read every crate.
 # `srcFor names` returns a source in which only the named crates'
 # transitive path-dependency closure carries real code; see
 # nix/crate-graph.nix. Every other workspace member is reduced to a crane

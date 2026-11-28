@@ -72,6 +72,13 @@ publish = false
 [workspace.metadata.crane]
 name = "ubos-main"
 
+# The host tests take their critical-section implementation from a
+# `critical-section` dev-dependency with the `std` feature. The crate
+# links the lock and no source names it, so cargo-shear reports it
+# unused in every crate that tests on the host.
+[workspace.metadata.cargo-shear]
+ignored = ["critical-section"]
+
 [workspace.dependencies]
 embassy-executor  = { version = "0.10.0", default-features = false }
 embassy-sync      = { version = "0.8", default-features = false }

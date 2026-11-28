@@ -47,6 +47,6 @@ critical-section = { workspace = true, features = ["std"] }
 
 # defmt is gated behind the defmt feature; ubos-logging is pulled only to
 # wire its defmt feature and provide the global logger, never referenced by
-# name in source. machete cannot see either use, so both are ignored.
-[package.metadata.cargo-machete]
+# name in source. cargo-shear cannot see either use, so both are ignored.
+[package.metadata.cargo-shear]
 ignored = ["defmt", "ubos-logging"]

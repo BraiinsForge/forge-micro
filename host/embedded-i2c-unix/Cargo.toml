@@ -14,6 +14,6 @@ embedded-hal       = { workspace = true }
 embedded-hal-async = { workspace = true }
 libc               = "0.2"
 
-# embedded-hal is used for trait bounds; machete does not see trait-only usage.
-[package.metadata.cargo-machete]
+# embedded-hal is used for trait bounds; cargo-shear does not see trait-only usage.
+[package.metadata.cargo-shear]
 ignored = ["embedded-hal"]

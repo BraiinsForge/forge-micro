@@ -72,9 +72,3 @@ ubos-net       = { workspace = true, default-features = false }
 ubos-prometheus = { workspace = true, optional = true, default-features = false }
 ubos-psu       = { workspace = true, default-features = false }
 ubos-thermal   = { workspace = true, default-features = false }
-
-# `defmt` is a facade/macro-expansion dependency (the macros expand to
-# `::defmt::` paths under the `defmt` feature), so it has no direct code
-# reference for machete to see. It is real and gated by the feature.
-[package.metadata.cargo-machete]
-ignored = ["defmt"]
