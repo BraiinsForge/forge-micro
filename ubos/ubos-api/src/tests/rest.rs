@@ -369,7 +369,7 @@ fn api_info_chain_renders_each_chain() {
     let chains: heapless::Vec<ApiInfoChain, 2> = snapshots
         .iter()
         .enumerate()
-        .zip([Some(ubos_core::units::Temperature::from_celsius(72)), None])
+        .zip([72, 60].map(|celsius| Some(ubos_core::units::Temperature::from_celsius(celsius))))
         .map(|((chain, stats), hottest)| ApiInfoChain::new(chain, stats, hottest))
         .collect();
     let mut buffer = [0u8; 512];
@@ -387,6 +387,10 @@ fn api_info_chain_renders_each_chain() {
     assert!(
         json.contains("{\"chain\":1,\"state\":\"absent\",\"chips\":0"),
         "chain 1 fields missing or wrong: {json}"
+    );
+    assert!(
+        json.contains("\"hottest_chip_c\":null,\"pool\":null}"),
+        "chain 1 is absent and must not show a temperature: {json}"
     );
 }
 

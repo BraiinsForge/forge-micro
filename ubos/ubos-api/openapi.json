@@ -341,7 +341,7 @@
             "type": "integer"
           },
           "hottest_chip_c": {
-            "description": "The chain's hottest die in whole degrees Celsius, or `null` before\na reading lands.",
+            "description": "The chain's hottest die in whole degrees Celsius, or `null` before\na reading lands and while the chain is not present.",
             "format": "int32",
             "type": [
               "integer",

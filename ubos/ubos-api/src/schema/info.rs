@@ -149,7 +149,7 @@ pub struct ApiInfoChain {
     /// The chain's smoothed hashrate in hashes per second.
     pub hashrate: Hashrate,
     /// The chain's hottest die in whole degrees Celsius, or `null` before
-    /// a reading lands.
+    /// a reading lands and while the chain is not present.
     pub hottest_chip_c: Option<i32>,
     /// The pool slot the chain mines for, or `null` when it mines for none.
     pub pool: Option<u8>,
@@ -158,6 +158,9 @@ pub struct ApiInfoChain {
 impl ApiInfoChain {
     #[must_use]
     pub fn new(chain: usize, stats: &ChainSnapshot, hottest: Option<Temperature>) -> Self {
+        // The chain sensor clears a reading on its next sample, so the
+        // reading of a chain that was just reset is still in the table.
+        let hottest = hottest.filter(|_| stats.presence.is_present());
         Self {
             chain: index_u8(chain),
             state: stats.presence.into(),
