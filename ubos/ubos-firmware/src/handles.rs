@@ -28,6 +28,7 @@
 #[derive(Clone, Copy)]
 pub struct Handles {
     pub thermal: ubos_thermal::Handle,
+    pub temperature: ubos_temperature::Handle,
     pub manager: ubos_manager::Handle,
     pub cooling: ubos_cooling::Handle,
     pub mining: ubos_mining::Handle,
@@ -44,6 +45,9 @@ pub struct Handles {
 /// subsystem.
 pub struct Runners {
     pub thermal: ubos_thermal::Runner,
+    pub temperature: ubos_temperature::Runner,
+    /// The right of the thermal task to take the temperature readings.
+    pub readings: ubos_temperature::Receiver,
     pub manager: ubos_manager::Runner,
     pub cooling: ubos_cooling::Runner,
     pub mining: ubos_mining::Runner,
@@ -60,6 +64,7 @@ impl Handles {
     #[track_caller]
     pub fn take() -> (Runners, Self) {
         let (thermal_runner, thermal) = ubos_thermal::Handle::take();
+        let (temperature_runner, readings, temperature) = ubos_temperature::Handle::take();
         let (manager_runner, manager) = ubos_manager::Handle::take();
         let (cooling_runner, cooling) = ubos_cooling::Handle::take();
         let (mining_runner, mining) = ubos_mining::Handle::take();
@@ -68,6 +73,8 @@ impl Handles {
         let (psu_runner, psu) = ubos_psu::Handle::take();
         let runners = Runners {
             thermal: thermal_runner,
+            temperature: temperature_runner,
+            readings,
             manager: manager_runner,
             cooling: cooling_runner,
             mining: mining_runner,
@@ -77,6 +84,7 @@ impl Handles {
         };
         let handles = Self {
             thermal,
+            temperature,
             manager,
             cooling,
             mining,

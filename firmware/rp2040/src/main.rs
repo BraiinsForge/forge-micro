@@ -126,10 +126,10 @@ async fn mdns_task(stack: embassy_net::Stack<'static>, hostname: &'static str) -
     .await
 }
 
-ubos_thermal::thermal_task!(
-    ubos_thermal::SensorArray<{ config::MACHINE.sensor_count() }, i2c::Device>,
-    ubos_thermal::NoAmbient,
-    ubos_thermal::NoMcu
+ubos_thermal::thermal_task!();
+
+ubos_temperature::temperature_task!(
+    ubos_temperature::SensorArray<{ config::MACHINE.sensor_count() }, i2c::Device>
 );
 
 ubos_manager::manager_task!();
@@ -312,10 +312,11 @@ async fn boot(spawner: Spawner) {
             handles.config
         )));
 
-        let hashboard_temp =
-            ubos_thermal::SensorArray::new(config::MACHINE.sensors(), handles.thermal, || {
-                embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus)
-            });
+        let hashboard_temp = ubos_temperature::SensorArray::new(
+            config::MACHINE.sensors(),
+            handles.temperature,
+            || embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus),
+        );
         let board_fan =
             ubos_rp::fan::BoardFan::new(hw.fan_pwm_slice, hw.fan_pwm_pin, config::Fan::PWM_TOP);
         let board_tach = ubos_rp::fan::BoardTach::new(
@@ -324,10 +325,13 @@ async fn boot(spawner: Spawner) {
             config::Fan::TACH_PULSES_PER_REV,
         );
         spawner.spawn(unwrap!(thermal_task(
-            hashboard_temp,
-            ubos_thermal::NoAmbient,
-            ubos_thermal::NoMcu,
+            runners.readings,
             runners.thermal,
+            handles.config
+        )));
+        spawner.spawn(unwrap!(temperature_task(
+            hashboard_temp,
+            runners.temperature,
             handles.config
         )));
         spawner.spawn(unwrap!(manager_task(runners.manager, handles.mining)));

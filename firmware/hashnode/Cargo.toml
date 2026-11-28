@@ -47,6 +47,7 @@ ubos-net             = { workspace = true, features = ["defmt"] }
 ubos-ota             = { workspace = true, features = ["defmt"] }
 ubos-psu             = { workspace = true, features = ["defmt"] }
 ubos-rp              = { workspace = true, features = ["rp235x"] }
+ubos-temperature     = { workspace = true, features = ["defmt"] }
 ubos-thermal         = { workspace = true, features = ["defmt"] }
 ubos-webui           = { workspace = true, features = ["defmt"] }
 

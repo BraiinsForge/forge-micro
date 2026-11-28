@@ -106,19 +106,28 @@ ubos_mining::pool_weights_task!(&mining::CHAINS);
 
 ubos_mining::miner_metrics_task!(POOL_SLOTS);
 
-struct McuTempSensor(esp32s3_tsens::Tsens<'static>);
+struct McuTempSensor {
+    tsens: esp32s3_tsens::Tsens<'static>,
+    readings: ubos_temperature::Handle,
+}
 
-impl ubos_thermal::McuTemperatureSensor for McuTempSensor {
-    async fn read(&mut self) -> Option<ubos_core::units::Temperature> {
-        self.0.read_temperature().await
+impl ubos_temperature::ReadingSource for McuTempSensor {
+    async fn sample(&mut self) {
+        if let Some(value) = self.tsens.read_temperature().await {
+            let source = ubos_temperature::TempSource::Mcu;
+            self.readings
+                .submit(ubos_temperature::Reading { source, value })
+                .await;
+        }
     }
 }
 
-ubos_thermal::thermal_task!(
-    ubos_thermal::SensorArray<{ config::MACHINE.sensor_count() }, i2c::Device>,
-    ubos_thermal::NoAmbient,
-    McuTempSensor
-);
+ubos_thermal::thermal_task!();
+
+ubos_temperature::temperature_task!((
+    ubos_temperature::SensorArray<{ config::MACHINE.sensor_count() }, i2c::Device>,
+    McuTempSensor,
+));
 
 ubos_manager::manager_task!();
 
@@ -471,18 +480,26 @@ async fn boot(spawner: Spawner) {
             handles.config
         )));
 
-        let hashboard_temp =
-            ubos_thermal::SensorArray::new(config::MACHINE.sensors(), handles.thermal, || {
-                embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus)
-            });
+        let hashboard_temp = ubos_temperature::SensorArray::new(
+            config::MACHINE.sensors(),
+            handles.temperature,
+            || embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus),
+        );
         let board_fan = ubos_esp32::fan::BoardFan::new(hw.ledc, hw.fan_pwm_pin);
         let board_tach =
             ubos_esp32::fan::BoardTach::new(hw.pcnt, hw.fan_tach_pin, TACH_PULSES_PER_REV);
         spawner.spawn(unwrap!(thermal_task(
-            hashboard_temp,
-            ubos_thermal::NoAmbient,
-            McuTempSensor(tsens),
+            runners.readings,
             runners.thermal,
+            handles.config
+        )));
+        let mcu = McuTempSensor {
+            tsens,
+            readings: handles.temperature,
+        };
+        spawner.spawn(unwrap!(temperature_task(
+            (hashboard_temp, mcu),
+            runners.temperature,
             handles.config
         )));
         spawner.spawn(unwrap!(manager_task(runners.manager, handles.mining)));

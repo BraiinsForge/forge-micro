@@ -140,10 +140,10 @@ async fn mdns_task(stack: embassy_net::Stack<'static>, hostname: &'static str) -
 // two TMP102 PCB sensors, so the halt judges the real die temperature
 // against `dangerous_chip_temp` while the remote channel answers, and the
 // PCB sensors against the lower `dangerous_hashboard_temp` on every sample.
-ubos_thermal::thermal_task!(
-    ubos_thermal::SensorArray<{ config::MACHINE.sensor_count() }, i2c::Device>,
-    ubos_thermal::NoAmbient,
-    ubos_thermal::NoMcu
+ubos_thermal::thermal_task!();
+
+ubos_temperature::temperature_task!(
+    ubos_temperature::SensorArray<{ config::MACHINE.sensor_count() }, i2c::Device>
 );
 
 ubos_manager::manager_task!();
@@ -338,7 +338,7 @@ async fn boot(spawner: Spawner) {
     )));
 
     let hashboard_temp =
-        ubos_thermal::SensorArray::new(config::MACHINE.sensors(), handles.thermal, || {
+        ubos_temperature::SensorArray::new(config::MACHINE.sensors(), handles.temperature, || {
             embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus)
         });
     let board_fan = fan::BoardFan::new(
@@ -360,10 +360,13 @@ async fn boot(spawner: Spawner) {
         hw.fan_tach_pin_e,
     );
     spawner.spawn(unwrap!(thermal_task(
-        hashboard_temp,
-        ubos_thermal::NoAmbient,
-        ubos_thermal::NoMcu,
+        runners.readings,
         runners.thermal,
+        handles.config
+    )));
+    spawner.spawn(unwrap!(temperature_task(
+        hashboard_temp,
+        runners.temperature,
         handles.config
     )));
     spawner.spawn(unwrap!(manager_task(runners.manager, handles.mining)));

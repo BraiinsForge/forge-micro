@@ -34,6 +34,7 @@ embassy-net-wiznet     = { workspace = true, features = ["defmt"] }
 defmt                  = { workspace = true }
 static_cell            = { workspace = true }
 embedded-hal-bus       = { workspace = true, features = ["async"] }
+ubos-temperature       = { workspace = true, features = ["defmt"] }
 ubos-thermal           = { workspace = true, features = ["defmt"] }
 ubos-manager           = { workspace = true, features = ["defmt"] }
 ubos-config            = { workspace = true, features = ["defmt"] }

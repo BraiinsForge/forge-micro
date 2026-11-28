@@ -151,10 +151,10 @@ async fn mdns_task(
 // EEPROMs name: a TMP102 and a TMP464 on the hashboard, and the PSU
 // TMP102. The TMP464 reads each die through a remote diode, so the
 // safety gate runs on the die readings.
-ubos_thermal::thermal_task!(
-    ubos_thermal::SensorArray<{ FORGE_AXE_MAX_SENSORS }, i2c::Device>,
-    ubos_thermal::NoAmbient,
-    ubos_thermal::NoMcu
+ubos_thermal::thermal_task!();
+
+ubos_temperature::temperature_task!(
+    ubos_temperature::SensorArray<{ FORGE_AXE_MAX_SENSORS }, i2c::Device>
 );
 
 ubos_manager::manager_task!();
@@ -434,15 +434,20 @@ async fn boot(spawner: Spawner) {
     )));
 
     let hashboard_temp =
-        ubos_thermal::SensorArray::new(machine.sensors(), handles.thermal, || I2cDevice::new(bus));
+        ubos_temperature::SensorArray::new(machine.sensors(), handles.temperature, || {
+            I2cDevice::new(bus)
+        });
     // Both fan connectors hang off the EMC2302-1 on the same bus.
     let (board_fan, board_tach) =
         emc2302_1::new_with_range(emc2302_1::Range::RpmMin500, || I2cDevice::new(bus)).await;
     spawner.spawn(unwrap!(thermal_task(
-        hashboard_temp,
-        ubos_thermal::NoAmbient,
-        ubos_thermal::NoMcu,
+        runners.readings,
         runners.thermal,
+        handles.config
+    )));
+    spawner.spawn(unwrap!(temperature_task(
+        hashboard_temp,
+        runners.temperature,
         handles.config
     )));
     spawner.spawn(unwrap!(manager_task(runners.manager, handles.mining)));

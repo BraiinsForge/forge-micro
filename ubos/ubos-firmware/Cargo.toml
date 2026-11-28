@@ -32,6 +32,7 @@ defmt = [
     "ubos-net/defmt",
     "ubos-prometheus?/defmt",
     "ubos-psu/defmt",
+    "ubos-temperature/defmt",
     "ubos-thermal/defmt",
 ]
 # Keep the metrics store and serve it on the Prometheus port. A board
@@ -71,4 +72,5 @@ ubos-mining    = { workspace = true, default-features = false }
 ubos-net       = { workspace = true, default-features = false }
 ubos-prometheus = { workspace = true, optional = true, default-features = false }
 ubos-psu       = { workspace = true, default-features = false }
+ubos-temperature = { workspace = true, default-features = false }
 ubos-thermal   = { workspace = true, default-features = false }

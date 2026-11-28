@@ -305,6 +305,7 @@ dependencies = [
  "ubos-ota",
  "ubos-psu",
  "ubos-rp",
+ "ubos-temperature",
  "ubos-thermal",
  "ubos-webui",
 ]
@@ -1890,6 +1891,7 @@ dependencies = [
  "ubos-net",
  "ubos-ota",
  "ubos-psu",
+ "ubos-temperature",
  "ubos-thermal",
  "ubos-webui",
 ]
@@ -2019,6 +2021,7 @@ dependencies = [
  "ubos-ota",
  "ubos-psu",
  "ubos-rp",
+ "ubos-temperature",
  "ubos-thermal",
  "ubos-webui",
 ]
@@ -2237,6 +2240,7 @@ dependencies = [
  "ubos-ota",
  "ubos-psu",
  "ubos-rp",
+ "ubos-temperature",
  "ubos-thermal",
  "ubos-webui",
 ]
@@ -3349,6 +3353,7 @@ dependencies = [
  "ubos-ota",
  "ubos-psu",
  "ubos-rp",
+ "ubos-temperature",
  "ubos-thermal",
  "ubos-webui",
 ]
@@ -3410,6 +3415,7 @@ dependencies = [
  "ubos-ota",
  "ubos-psu",
  "ubos-rp",
+ "ubos-temperature",
  "ubos-thermal",
  "ubos-webui",
 ]
@@ -4384,6 +4390,7 @@ dependencies = [
  "ubos-net",
  "ubos-prometheus",
  "ubos-psu",
+ "ubos-temperature",
  "ubos-thermal",
 ]
 
