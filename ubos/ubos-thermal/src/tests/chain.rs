@@ -30,7 +30,7 @@ const TEST_CHAINS: usize = 2;
 /// One sample of `sensor`, and the dies it submitted, if any. The
 /// channel is shared by every test, so it is emptied first, and the
 /// clock lock that each test holds keeps the others off it meanwhile.
-fn sampled<S: TemperatureSensor>(sensor: &mut S) -> Option<TempStats> {
+fn sampled<S: ReadingSource>(sensor: &mut S) -> Option<TempStats> {
     while crate::INPUT.try_receive().is_ok() {}
     embassy_futures::block_on(sensor.sample());
     let mut dies = None;

@@ -59,8 +59,7 @@ fn each_reading_reaches_the_watch_of_its_source() {
     temperatures.update(reading(TempSource::chip(chain, ChipAddress::One(1)), 80));
     temperatures.update(reading(TempSource::hashboard(chain, SENSOR), 60));
     temperatures.update(reading(TempSource::Ambient, 25));
-    temperatures.publish_filtered(&WATCHES);
-    temperatures.publish_ambient(&WATCHES);
+    temperatures.publish(&WATCHES);
     let degrees = |celsius| Some(Temperature::from_celsius(celsius));
     assert_eq!(
         WATCHES.filtered.try_get().flatten(),
@@ -79,8 +78,7 @@ fn the_sample_carries_the_hottest_and_the_mean_of_a_kind() {
     let chain = HashboardIndex(0);
     temperatures.update(reading(TempSource::chip(chain, ChipAddress::One(0)), 80));
     temperatures.update(reading(TempSource::chip(chain, ChipAddress::One(1)), 70));
-    temperatures.publish_filtered(&WATCHES);
-    temperatures.publish_ambient(&WATCHES);
+    temperatures.publish(&WATCHES);
     assert_eq!(
         WATCHES.filtered.try_get().flatten(),
         Some(TempSample {
@@ -99,8 +97,7 @@ fn a_sample_with_neither_kind_inside_its_window_is_none() {
     for _ in 0..SILENT_SAMPLES {
         temperatures.end_sample();
     }
-    temperatures.publish_filtered(&WATCHES);
-    temperatures.publish_ambient(&WATCHES);
+    temperatures.publish(&WATCHES);
     assert_eq!(WATCHES.filtered.try_get(), Some(None));
 }
 
@@ -110,8 +107,7 @@ fn a_reading_with_no_filter_reaches_no_watch() {
     let mut temperatures = Temperatures::new();
     temperatures.update(reading(TempSource::ControlBoard, 50));
     temperatures.update(reading(TempSource::Mcu, 50));
-    temperatures.publish_filtered(&WATCHES);
-    temperatures.publish_ambient(&WATCHES);
+    temperatures.publish(&WATCHES);
     assert_eq!(WATCHES.filtered.try_get(), Some(None));
     assert_eq!(published(&WATCHES.ambient), None);
 }
@@ -124,8 +120,7 @@ fn a_silent_source_publishes_none() {
     for _ in 0..SILENT_SAMPLES {
         temperatures.end_sample();
     }
-    temperatures.publish_filtered(&WATCHES);
-    temperatures.publish_ambient(&WATCHES);
+    temperatures.publish(&WATCHES);
     assert_eq!(published(&WATCHES.ambient), None);
 }
 

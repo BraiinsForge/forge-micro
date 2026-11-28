@@ -124,9 +124,9 @@ impl Temperatures {
         filter.update(reading.value);
     }
 
-    /// Fold the hottest and the mean die of the chains of a tick into
+    /// Fold the hottest and the mean die of the chains of a sample into
     /// the chip filter. A chain reads each chip once in a pass, so its
-    /// dies reach the filter as the summary of every tick.
+    /// dies reach the filter as the summary of every sample.
     pub(crate) fn update_dies(&mut self, dies: TempStats) {
         self.chip.update_stats(dies);
     }
@@ -143,6 +143,14 @@ impl Temperatures {
     /// inside its window.
     pub(crate) fn stats(&self, source: Source) -> Option<TempStats> {
         self.filtered()?.temp_stats(source)
+    }
+
+    /// Publish the chip and hashboard values and the ambient value into
+    /// `watches`.
+    pub(crate) fn publish(&self, watches: &Watches) {
+        watches.filtered.sender().send(self.filtered());
+        let ambient = self.ambient.value().map(|stats| stats.max);
+        watches.ambient.sender().send(ambient);
     }
 
     /// Publish the chip and hashboard values into `watches`.

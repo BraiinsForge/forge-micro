@@ -69,6 +69,7 @@ pub use array::SensorArray;
 pub use chain_readings::ChainReadings;
 pub use stats::{Accumulator, TempStats};
 pub use temps::PidTemperature;
+use ubos_temperature::{Reading, Sampled, TempSource};
 
 #[cfg(test)]
 #[path = "tests/run_thermal.rs"]
@@ -102,7 +103,7 @@ use crate::metrics::publish_reading;
 use crate::temps::{Temperatures, Watches};
 use core::convert::Infallible;
 
-use embassy_futures::select::{Either, select};
+use embassy_futures::select::{Either3, select3};
 use embassy_futures::yield_now;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
@@ -114,7 +115,6 @@ use ubos_config::{PidTarget, TemperatureDescriptor, ThermalConfig};
 use ubos_core::index::{ChipAddress, HashboardIndex};
 use ubos_core::units::Temperature;
 use ubos_logging::{info, warn};
-use ubos_temperature::{Reading as TempReading, TempSource};
 
 ubos_events::events! {
     dangerous_temperature(temp: Temperature)  error = "Critical temperature {} °C, mining halted",
@@ -218,11 +218,11 @@ const INPUT_DEPTH: usize = 64;
 enum Submitted {
     /// The reading of one sensor. It gets a series of its own and goes
     /// into the filter of its kind.
-    Reading(TempReading),
+    Reading(Reading),
     /// The die of one chip of a chain, handed in by the driver when the
     /// chip answers. It gets a series of its own, and the filter takes
     /// the dies of the chain from [`Submitted::Dies`].
-    Chip(TempReading),
+    Chip(Reading),
     /// The hottest and the mean die of the chains of one tick. It goes
     /// into the chip filter, because a chip answers once in a pass and
     /// the filter needs the dies of every tick.
@@ -371,7 +371,7 @@ impl Handle {
     }
 
     /// Hand one reading to thermal. Waits while the input channel is full.
-    pub async fn submit(&self, reading: TempReading) {
+    pub async fn submit(&self, reading: Reading) {
         INPUT.send(Submitted::Reading(reading)).await;
     }
 
@@ -382,7 +382,7 @@ impl Handle {
     /// again on its next turn.
     pub fn submit_chip(&self, chain: HashboardIndex, chip: ChipAddress, value: Temperature) {
         let source = TempSource::chip(chain, chip);
-        let _ = INPUT.try_send(Submitted::Chip(TempReading { source, value }));
+        let _ = INPUT.try_send(Submitted::Chip(Reading { source, value }));
     }
 
     /// Hand the hottest and the mean die of the chains of this tick to
@@ -415,7 +415,11 @@ impl Folds {
 /// written.
 async fn drain_input(folds: &mut Folds) -> Infallible {
     loop {
-        take_submitted(INPUT.receive().await, folds);
+        take_submitted(
+            INPUT.receive().await,
+            &mut folds.temperatures,
+            &mut folds.danger,
+        );
         yield_now().await;
     }
 }
@@ -435,23 +439,23 @@ async fn draining<T>(work: impl Future<Output = T>, folds: &mut Folds) -> T {
 /// both, as its variant says, and check it against the limit of its
 /// kind. The check is here so that a hot reading sets the flag when it
 /// arrives and not on the next tick.
-fn take_submitted(submitted: Submitted, folds: &mut Folds) {
+fn take_submitted(submitted: Submitted, temperatures: &mut Temperatures, danger: &mut Danger) {
     match submitted {
-        Submitted::Reading(reading) => take(reading, folds),
+        Submitted::Reading(reading) => take_reading(reading, temperatures, danger),
         Submitted::Chip(reading) => {
             publish_reading(reading);
-            folds.danger.on_reading(reading);
+            danger.on_reading(reading);
         }
         Submitted::Dies(dies) => {
-            folds.temperatures.update_dies(dies);
-            folds.danger.on_value(Source::Chip, dies.max);
+            temperatures.update_dies(dies);
+            danger.on_value(Source::Chip, dies.max);
         }
     }
 }
 
 /// Write the metric of a submitted reading, fold it into the filters,
 /// and check it against its limit.
-fn take(reading: TempReading, folds: &mut Folds) {
+fn take(reading: Reading, folds: &mut Folds) {
     publish_reading(reading);
     folds.temperatures.update(reading);
     folds.danger.on_reading(reading);
@@ -464,7 +468,7 @@ fn take(reading: TempReading, folds: &mut Folds) {
 async fn read_ambient<A: AmbientSensor>(ambient: &mut A, folds: &mut Folds) {
     if let Some(value) = draining(ambient.ambient(), folds).await {
         take(
-            TempReading {
+            Reading {
                 source: TempSource::Ambient,
                 value,
             },
@@ -535,7 +539,7 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatu
             let Ok(submitted) = INPUT.try_receive() else {
                 break;
             };
-            take_submitted(submitted, &mut folds);
+            take_submitted(submitted, &mut folds.temperatures, &mut folds.danger);
             yield_now().await;
         }
         // The pane of this sample holds every reading of this tick,
@@ -555,7 +559,7 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatu
         // metrics.
         if let Some(value) = draining(mcu.read(), &mut folds).await {
             take(
-                TempReading {
+                Reading {
                     source: TempSource::Mcu,
                     value,
                 },
@@ -566,10 +570,89 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor, M: McuTemperatu
     }
 }
 
+/// Give `reading`, which a source submitted, its series and its place in
+/// the filter of its kind, and check it against the limit of its kind.
+fn take_reading(reading: Reading, temperatures: &mut Temperatures, danger: &mut Danger) {
+    publish_reading(reading);
+    temperatures.update(reading);
+    danger.on_reading(reading);
+}
+
+/// Run the thermal task: take what the sources submit through `readings`
+/// and what the chain submits, and publish the filtered temperatures and
+/// check the dangerous temperature flag at the end of each sample. It
+/// never returns. The sampling task of `ubos-temperature` is the one
+/// clock, so each publish holds the readings of the sample that it ends.
+/// `readings` and `_runner` are borrowed mutably, so one task at a time
+/// takes the readings and runs.
+pub async fn run(
+    readings: &mut ubos_temperature::Receiver,
+    _runner: &mut Runner,
+    config_handle: ConfigHandle,
+) -> ! {
+    let mut subscription = config_handle.subscribe();
+    let current = config_handle.current().await;
+    let mut temperatures = Temperatures::new();
+    let mut danger = Danger::new(&WATCHES.danger, current.thermal.dangerous);
+    danger.publish();
+
+    info!("thermal: started");
+
+    loop {
+        // The readings come before the input, so a stream of chips
+        // cannot starve the end of a sample.
+        match select3(readings.receive(), INPUT.receive(), subscription.changed()).await {
+            Either3::First(Sampled::Reading(reading)) => {
+                take_reading(reading, &mut temperatures, &mut danger);
+                yield_now().await;
+            }
+            Either3::First(Sampled::End) => {
+                // The chain submits its dies before its sample returns,
+                // so they count for this sample. The ingest task drains
+                // the metrics channel at each yield.
+                for _ in 0..INPUT_DEPTH {
+                    let Ok(submitted) = INPUT.try_receive() else {
+                        break;
+                    };
+                    take_submitted(submitted, &mut temperatures, &mut danger);
+                    yield_now().await;
+                }
+                let config = config_handle.current().await;
+                temperatures.publish(&WATCHES);
+                temperatures.publish_pid(config.cooling.target, &WATCHES);
+                if ACKNOWLEDGE.try_take().is_some() {
+                    danger.acknowledge();
+                }
+                danger.on_tick(&temperatures, config.thermal.cooldown_temp);
+                temperatures.end_sample();
+            }
+            Either3::Second(submitted) => {
+                take_submitted(submitted, &mut temperatures, &mut danger);
+                // The ingest task drains the metrics channel while a
+                // backlog of chips is written.
+                yield_now().await;
+            }
+            // A new limit judges the next reading, so a lowered limit does
+            // not wait for the end of a sample.
+            Either3::Third(config) => danger.set_limits(config.thermal.dangerous),
+        }
+    }
+}
+
 /// Task shell around [`run_thermal`]. Neither the ambient nor the MCU sensor
 /// type has a default, for the reason [`AmbientSensor`] gives.
 #[macro_export]
 macro_rules! thermal_task {
+    () => {
+        #[embassy_executor::task]
+        async fn thermal_task(
+            mut readings: ubos_temperature::Receiver,
+            mut runner: ubos_thermal::Runner,
+            config_handle: ubos_config::Handle,
+        ) -> ! {
+            ubos_thermal::run(&mut readings, &mut runner, config_handle).await
+        }
+    };
     ($sensor:ty, $ambient:ty, $mcu:ty) => {
         #[embassy_executor::task]
         async fn thermal_task(

@@ -42,7 +42,7 @@
 //! turns.
 
 use crate::chain_readings::ChainReadings;
-use crate::{Accumulator, Handle, TemperatureSensor};
+use crate::{Accumulator, Handle};
 use embassy_futures::poll_once;
 use embassy_time::{Duration, Instant, Ticker};
 use ubos_asic::ChainPvt;
@@ -51,6 +51,7 @@ use ubos_core::units::Voltage;
 use ubos_logging::{debug, warn};
 use ubos_metrics::catalog::HASHBOARD_LABEL;
 use ubos_metrics::metric;
+use ubos_temperature::ReadingSource;
 
 #[cfg(test)]
 #[path = "tests/chain.rs"]
@@ -228,7 +229,15 @@ impl<P: PresentChains, const CHIPS: usize, const CHAINS: usize> ChainTemperature
     }
 }
 
-impl<P: PresentChains, const CHIPS: usize, const CHAINS: usize> TemperatureSensor
+impl<P: PresentChains, const CHIPS: usize, const CHAINS: usize> crate::TemperatureSensor
+    for ChainTemperature<P, CHIPS, CHAINS>
+{
+    async fn sample(&mut self) {
+        ReadingSource::sample(self).await;
+    }
+}
+
+impl<P: PresentChains, const CHIPS: usize, const CHAINS: usize> ReadingSource
     for ChainTemperature<P, CHIPS, CHAINS>
 {
     async fn sample(&mut self) {
